@@ -1,0 +1,18 @@
+.env
+ffmpeg
+venv/
+.venv/
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Test artifacts
+test_sentientmilk/
+example_screenshot.png
+screenshot_*.png
