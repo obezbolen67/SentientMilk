@@ -48,6 +48,7 @@ class ChatApp:
         self.console = Console()
         self.api_key = os.getenv("API_KEY")
         self.base_url = os.getenv("BASE_URL")
+        self.web_search_token = os.getenv("WEB_SEARCH_KEY")
         self.ai_model: Optional[LLM] = None
         self.streaming = True
         self.debug = False  # Debug streaming/logging
@@ -80,7 +81,8 @@ class ChatApp:
             base_url=self.base_url,
             model=self.model,
             settings=Settings(persona=persona),
-            tool_event_handler=self._handle_tool_event
+            tool_event_handler=self._handle_tool_event,
+            web_search_token=self.web_search_token
         )
 
     def _add_segment(self, kind, **payload):
