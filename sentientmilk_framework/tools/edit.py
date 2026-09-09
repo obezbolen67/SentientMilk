@@ -10,28 +10,23 @@ ARGS_DESCRIPTION = {
     "offset1": "Upper line offset"
 }
 
-def run(file, content, offset1):
+def run(file: str, content: str, offset1: int):
+    offset1 = int(offset1)
     path = Path(file)
     path.parent.mkdir(parents=True, exist_ok=True)
     
-    buffer = []
-    with open(file, "r") as f:
+    with open(file, "r", encoding="utf-8") as f:
         buffer = f.readlines()
-    f.close()
 
     if offset1 > len(buffer):
         raise Exception("Upper line offset out of bound. Re-read file.")
-    content_lines = content.split("\n")
-
-    current_line = offset1-1
-    for line in buffer[(offset1-1):]:
-        if len(content_lines) == 0:
-            break
-        buffer[current_line] = content_lines[0]
-        content_lines.pop(0)
-        current_line += 1
-    with open(file, "w") as f:
+    content_lines = content.splitlines(keepends=True)
+    if content and not content_lines:
+        content_lines = [content]
+    start = max(offset1, 1) - 1
+    end = min(start + len(content_lines), len(buffer))
+    buffer[start:end] = content_lines[: end - start]
+    with open(file, "w", encoding="utf-8") as f:
         f.writelines(buffer)
-    f.close()
 
     return "Done."

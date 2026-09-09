@@ -2,45 +2,49 @@
 Beautiful CLI Chat Application for SentientMilk Framework
 Tests all features including streaming
 """
+import json
 import os
 import sys
-import json
 import time
 from datetime import datetime
-from typing import Optional, List
+from pathlib import Path
+from typing import List, Optional
 
 import requests
 from dotenv import load_dotenv
-from sentientmilk_framework import LLM, Settings
+
+from sentientmilk_framework import LLM, Conversation, Settings
 
 # Rich library for beautiful terminal UI
 try:
+    from rich import box
     from rich.console import Console, Group
-    from rich.panel import Panel
-    from rich.markdown import Markdown
-    from rich.prompt import Prompt
     from rich.live import Live
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.prompt import Prompt
     from rich.table import Table
     from rich.text import Text
-    from rich import box
 except ImportError:
     print("Installing required packages...")
     os.system("pip install rich")
+    from rich import box
     from rich.console import Console
-    from rich.panel import Panel
-    from rich.markdown import Markdown
-    from rich.prompt import Prompt
     from rich.live import Live
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.prompt import Prompt
     from rich.table import Table
     from rich.text import Text
-    from rich import box
 
 load_dotenv()
 
 console = Console()
 
 # Initialize conversation history
-conversation_history: List[dict] = []
+conversation_history = Conversation(path=os.getenv(
+    "SENTIENTMILK_HISTORY", str(Path.home() / ".sentientmilk" / "conversation.sqlite3")
+))
 
 
 class ChatApp:
@@ -80,7 +84,7 @@ class ChatApp:
             api_key=self.api_key,
             base_url=self.base_url,
             model=self.model,
-            settings=Settings(persona=persona),
+            settings=Settings(persona=persona, stream_include_usage=os.getenv('SENTIENTMILK_STREAM_USAGE') == '1'),
             tool_event_handler=self._handle_tool_event,
             web_search_token=self.web_search_token
         )
@@ -225,7 +229,7 @@ class ChatApp:
         
 
         for tool in tools:
-            table = Table(title=f"🔧 Tools", box=box.ROUNDED)
+            table = Table(title="🔧 Tools", box=box.ROUNDED)
             table.add_column("Tool Name", style="cyan", no_wrap=True)
             table.add_column("Description", style="white")
             table.add_column("Parameters", style="yellow")
@@ -249,7 +253,7 @@ class ChatApp:
         self.console.print("\n[bold cyan]═══ Conversation History ═══[/bold cyan]\n")
         for msg in conversation_history:
             role = msg["role"]
-            content = msg["content"]
+            content = msg.get("content") or ""
             
             if role == "user":
                 self.console.print(f"[bold green]You:[/bold green] {content}\n")
@@ -273,6 +277,10 @@ class ChatApp:
         
         for metric, value in stats:
             table.add_row(metric, value)
+        if self.ai_model:
+            for metric, value in self.ai_model.last_usage.items():
+                if metric != "rounds":
+                    table.add_row("Last turn " + metric, "unavailable" if value is None else str(value))
         
         self.console.print(table)
     
@@ -548,9 +556,7 @@ class ChatApp:
             self._active_live = None
             self._current_assistant_index = None
             
-            # Add final response to history
-            if response_text:
-                conversation_history.append({"role": "assistant", "content": response_text})
+            # The framework commits complete assistant/tool messages as they finish.
             
             if self.debug:
                 end_time = time.time()
@@ -586,7 +592,7 @@ class ChatApp:
                 self.console.print("[yellow]Tip: Check API_KEY, BASE_URL and internet connection. Try toggling /stream off.[/yellow]")
             elif 'choices' in response and len(response['choices']) > 0:
                 response_text = response['choices'][0]['message']['content']
-                conversation_history.append({"role": "assistant", "content": response_text})
+                # The framework commits complete assistant/tool messages as they finish.
                 
                 panel = Panel(
                     Markdown(response_text),

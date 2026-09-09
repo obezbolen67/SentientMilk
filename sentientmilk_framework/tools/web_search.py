@@ -79,6 +79,7 @@ def _extract_results(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "description": item.get("description"),
                 "page_age": item.get("page_age"),
                 "thumbnail": item.get("thumbnail"),
+                **({"extra_snippets": item["extra_snippets"]} if "extra_snippets" in item else {}),
             }
         )
 
@@ -129,15 +130,15 @@ def _coerce_bool(value: Any, default: bool = False) -> bool:
 
 def run(
     query: str,
-    count: Any = 5,
-    offset: Any = 0,
+    count: int = 5,
+    offset: int = 0,
     safesearch: str = "moderate",
     country: str = "US",
     search_lang: str = "en",
     ui_lang: str = "en-US",
     freshness: Optional[str] = None,
-    extra_snippets: Any = False,
-    summary: Any = False,
+    extra_snippets: bool = False,
+    summary: bool = False,
     api_key: Optional[str] = None,
 ):
     """Execute a Brave web search and return simplified results."""

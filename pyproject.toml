@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentientmilk-framework"
+version = "0.2.0"
+description = "OpenAI-compatible tool-calling framework used by MilkChan"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv>=1.0",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+cli = ["rich>=13.0"]
+desktop-tools = ["pillow>=10", "pyautogui>=0.9", "pyperclip>=1.9"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+sentientmilk-chat = "chat_cli:main"
+
+[tool.setuptools]
+py-modules = ["chat_cli"]
+
+[tool.setuptools.packages.find]
+include = ["sentientmilk_framework*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

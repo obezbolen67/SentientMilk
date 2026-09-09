@@ -1,5 +1,5 @@
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 DESCRIPTION = """
 Delete file or folder permanently.
@@ -12,12 +12,12 @@ ARGS_DESCRIPTION = {
 def run(file):
     path = Path(file).expanduser().resolve()
     if not path.exists():
-        raise FileNotFoundError("File not found.")
+        raise FileNotFoundError(f"File not found: {path}")
     
     if path.is_file():
         path.unlink()
     elif path.is_dir():
         shutil.rmtree(path)
     else:
-        ValueError("Specified object is not a folder or file.")
+        raise ValueError("Specified object is not a folder or file.")
     return True
