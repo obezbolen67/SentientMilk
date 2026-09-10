@@ -173,3 +173,18 @@ def test_indexed_reasoning_fragments_merge_without_duplicate_metadata(tmp_path):
     assert llm._merge_response_field(first, second) == [
         {"index": 0, "type": "reasoning.text", "text": "日本語", "id": "r1"}
     ]
+
+
+def test_message_transform_changes_transport_not_durable_history(monkeypatch, tmp_path):
+    payloads = []
+    monkeypatch.setattr('sentientmilk_framework.ai.requests.post', lambda *a, **kwargs:
+                        payloads.append(json.loads(kwargs['data'])) or
+                        reply({'role': 'assistant', 'content': 'done'}))
+    conversation = Conversation([{'role': 'user', 'content': 'full'}])
+    make_llm(tmp_path).completion(
+        conversation,
+        message_transform=lambda messages: [{'role': 'user', 'content': 'projected'}],
+    )
+    assert payloads[0]['messages'][-1]['content'] == 'projected'
+    assert conversation[0]['content'] == 'full'
+    assert conversation[-1]['content'] == 'done'

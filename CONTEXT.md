@@ -65,3 +65,12 @@ and workload; no blanket percentage reduction is promised.
 Content-reference deduplication remains deferred: retaining bytes in storage is
 not equivalent to keeping them in the active model context. It will require
 exact-recall and editing evaluations before becoming a default optimization.
+
+MilkChan uses the optional `message_transform` argument to create a transport-only
+projection of screenshot history. The durable conversation remains exact; every
+image item remains in the request, with older images encoded as small JPEG
+thumbnails to stay below the configured reverse-proxy body budget. This preserves
+visual chronology but not the original pixel resolution in later requests. If
+even that projection is too large, the request fails locally rather than dropping
+messages. Applications with strict pixel-level historical tasks should increase
+their gateway limit and transport budget.

@@ -237,11 +237,20 @@ class LLM:
 
 
 
-    def completion(self, messages, stream=False):
+    def completion(self, messages, stream=False, message_transform=None):
+        """Complete a turn, optionally projecting messages for transport only.
+
+        ``message_transform`` receives a deep copy. Durable ``Conversation``
+        messages remain unchanged and continue to receive complete results.
+        """
         self._conversation = messages if isinstance(messages, Conversation) else None
         if self._conversation is not None:
             self._conversation.recover_pending()
         messages = deepcopy(list(messages))
+        if message_transform:
+            messages = message_transform(messages)
+            if not isinstance(messages, list):
+                raise TypeError("message_transform must return a list of messages")
         if not messages or messages[0].get('content') != self._system_prompt:
             messages = [{"role": "system", "content": self._system_prompt}] + messages
         self.last_messages = messages
