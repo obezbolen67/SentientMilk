@@ -148,6 +148,7 @@ class Scheduler:
         return self.store.schedule(schedule_id)
 
     def start(self) -> None:
+        self._stop.clear()
         now = time.time()
         for schedule in self.store.schedules(enabled_only=True):
             if schedule["next_at"] and schedule["next_at"] <= now:
@@ -158,8 +159,12 @@ class Scheduler:
         self._thread.start()
 
     def stop(self) -> None:
+        """Returns once the loop is done: a fire in progress still advances its schedule, then nothing
+        writes (the brain closes the store next)."""
         self._stop.set()
         self._wake.set()
+        if self._thread:
+            self._thread.join(timeout=10)
 
     def _loop(self) -> None:
         while not self._stop.is_set():
