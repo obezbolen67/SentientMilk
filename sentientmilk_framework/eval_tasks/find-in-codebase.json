@@ -1,0 +1,12 @@
+{
+  "prompt": "In the code in the working folder: what does it cost to ship a 3 kg parcel to zone B? Find the function that computes shipping, work out the number from the code, and finish with the amount.",
+  "files": {
+    "shop/__init__.py": "",
+    "shop/cart.py": "from .shipping import shipping_cost\n\n\nclass Cart:\n    def __init__(self):\n        self.items = []\n\n    def total(self, zone):\n        weight = sum(item.weight for item in self.items)\n        return sum(item.price for item in self.items) + shipping_cost(weight, zone)\n",
+    "shop/shipping.py": "from .zones import ZONE_FACTORS\n\nBASE = 4.0\nPER_KG = 2.5\n\n\ndef shipping_cost(weight_kg, zone):\n    \"\"\"Base fee plus a fee per kilogram, scaled by the zone.\"\"\"\n    return round((BASE + PER_KG * weight_kg) * ZONE_FACTORS[zone], 2)\n",
+    "shop/zones.py": "ZONE_FACTORS = {\"A\": 1.0, \"B\": 1.5, \"C\": 2.25}\n",
+    "README.md": "A tiny shop.\n"
+  },
+  "check": {"reply_contains": ["17.25"]},
+  "max_steps": 25
+}

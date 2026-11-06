@@ -1,0 +1,8 @@
+{
+  "kind": "chat",
+  "turns": ["My cat is called Miso and she is three. Please remember that.", "What is my cat called, and how old is she?"],
+  "sessions": ["main", "later"],
+  "check": {"reply_contains": ["Miso"]},
+  "toolkits": ["memory", "todo"],
+  "holdout": true
+}

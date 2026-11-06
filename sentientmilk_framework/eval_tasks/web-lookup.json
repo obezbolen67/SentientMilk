@@ -1,0 +1,6 @@
+{
+  "prompt": "Find the latest released version of the Python package 'requests' on PyPI (https://pypi.org/pypi/requests/json has it) and write just the version number to version.txt in the working folder.",
+  "files": {},
+  "check": {"file": "version.txt", "matches": "^\\s*2\\.\\d+\\.\\d+\\s*$"},
+  "max_steps": 20
+}

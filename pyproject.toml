@@ -4,35 +4,35 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentientmilk-framework"
-version = "0.2.0"
-description = "OpenAI-compatible tool-calling framework used by MilkChan"
+version = "0.4.0"
+description = "SentientMilk: a local brain server that apps such as MilkChan think with"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "python-dotenv>=1.0",
+    "pillow>=10",
     "requests>=2.32",
 ]
 
 [project.optional-dependencies]
-cli = ["rich>=13.0"]
-desktop-tools = ["pillow>=10", "pyautogui>=0.9", "pyperclip>=1.9"]
-dev = ["pytest>=8", "ruff>=0.6"]
+mcp = ["mcp>=2.3"]
+dev = ["pytest>=8", "ruff>=0.6", "mcp>=2.3"]
 
 [project.scripts]
-sentientmilk-chat = "chat_cli:main"
-
-[tool.setuptools]
-py-modules = ["chat_cli"]
+sentientmilk = "sentientmilk_framework.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["sentientmilk_framework*"]
+
+[tool.setuptools.package-data]
+sentientmilk_framework = ["eval_tasks/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
-line-length = 100
+line-length = 110
 target-version = "py310"
+extend-exclude = ["ffmpeg"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]

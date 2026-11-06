@@ -1,0 +1,9 @@
+{
+  "prompt": "The tests in the working folder fail. Find out why and fix the code, not the tests. Run the tests with pytest to check that they pass.",
+  "files": {
+    "prices.py": "def total(items, discount=0.0):\n    \"\"\"Sum of price * quantity, minus a discount given as a fraction (0.1 = 10%).\"\"\"\n    subtotal = sum(price for price, quantity in items)\n    return round(subtotal * (1 - discount), 2)\n",
+    "test_prices.py": "from prices import total\n\n\ndef test_quantities_count():\n    assert total([(2.5, 4), (1.0, 1)]) == 11.0\n\n\ndef test_discount():\n    assert total([(10.0, 2)], discount=0.25) == 15.0\n"
+  },
+  "check": {"command": "{python} -m pytest -q"},
+  "max_steps": 30
+}

@@ -1,0 +1,12 @@
+{
+  "prompt": "Rename the function calc_total to compute_total everywhere in the working folder (definition, imports, calls and tests), then run pytest to make sure everything still passes.",
+  "files": {
+    "billing.py": "def calc_total(lines):\n    return sum(qty * price for qty, price in lines)\n",
+    "invoice.py": "from billing import calc_total\n\n\ndef invoice_text(lines):\n    return f\"Total: {calc_total(lines):.2f}\"\n",
+    "test_billing.py": "from billing import calc_total\nfrom invoice import invoice_text\n\n\ndef test_total():\n    assert calc_total([(2, 1.5), (1, 3.0)]) == 6.0\n\n\ndef test_text():\n    assert invoice_text([(1, 2.0)]) == \"Total: 2.00\"\n"
+  },
+  "check": {
+    "command": "{python} -m pytest -q && {python} -c \"import pathlib, sys; sys.exit(any('calc_total' in p.read_text() for p in pathlib.Path('.').glob('*.py')))\""
+  },
+  "max_steps": 40
+}

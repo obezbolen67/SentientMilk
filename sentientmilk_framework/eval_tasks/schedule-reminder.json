@@ -1,0 +1,6 @@
+{
+  "kind": "chat",
+  "turns": ["Remind me every day at 9:00 in the morning to water the plants."],
+  "check": {"schedules": 1},
+  "toolkits": ["schedule", "memory", "todo"]
+}

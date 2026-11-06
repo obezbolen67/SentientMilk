@@ -1,0 +1,13 @@
+{
+  "prompt": "Create wordcount.py in the working folder: a command line tool like wc. `python wordcount.py FILE` prints three numbers separated by single spaces: lines, words and characters of FILE (characters as Python's len of the text). With --words it prints only the word count. A missing file prints an error to stderr and exits with code 1. Write pytest tests in test_wordcount.py that cover all of this and make them pass.",
+  "files": {},
+  "check": {
+    "checker_files": {
+      "sample.txt": "one two\nthree four five\nsix\n",
+      "check_wc.py": "import subprocess, sys\n\nrun = lambda *a: subprocess.run([sys.executable, 'wordcount.py', *a], capture_output=True, text=True)\nfull = run('sample.txt')\nassert full.returncode == 0 and full.stdout.split() == ['3', '6', '28'], full\nwords = run('--words', 'sample.txt')\nassert words.stdout.strip() == '6', words\nmissing = run('nope.txt')\nassert missing.returncode == 1 and missing.stderr.strip(), missing\n"
+    },
+    "command": "{python} -m pytest -q test_wordcount.py && {python} check_wc.py"
+  },
+  "max_steps": 60,
+  "holdout": true
+}
