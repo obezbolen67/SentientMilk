@@ -33,12 +33,24 @@ def test_only_the_newest_screenshots_are_sent():
     original = json.dumps(messages)
     projected = transport.prepare_messages(messages, 800 * 1024)
     assert json.dumps(messages) == original
-    assert len(images(projected)) == transport.THUMBNAILS_KEPT + 1
+    assert len(images(projected)) < 1000
     assert projected[0]["content"] == f"turn 0\n{transport.OMITTED_IMAGE}"
     assert image_side(images(projected)[-1])[1] == "JPEG"
 
 
-def test_over_budget_drops_thumbnails_then_shrinks_the_newest():
+def test_a_new_screenshot_changes_only_the_one_before_it():
+    """The provider's prompt cache reuses a request only as far as the next one repeats it. A new
+    screenshot comes in a user message, after which the provider re-reads from the previous user
+    message anyway: that one's image may become a thumbnail, older ones must stay as they were sent."""
+    messages = [{"role": "user", "content": [{"type": "text", "text": f"turn {i}"},
+                                             {"type": "image_url", "image_url": {"url": data_url((800, 500))}}]}
+                for i in range(12)]
+    sent = [transport.prepare_messages(messages[:n], 10 ** 9) for n in range(1, len(messages) + 1)]
+    assert all(sent[n][:n - 1] == sent[n - 1][:n - 1] for n in range(1, len(sent)))
+    assert [image_side(url)[0] for url in images(sent[-1])] == [256] * 11 + [768]
+
+
+def test_over_budget_drops_the_older_half_then_shrinks_the_newest():
     messages = [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url((900, 600))}}]}
                 for _ in range(4)]
     full = transport.prepare_messages(messages, 10 ** 9)

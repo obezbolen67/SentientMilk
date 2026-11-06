@@ -14,10 +14,12 @@ import threading
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
+from . import transport
 from .loop import TERMINAL, VERIFY_PROMPT, Loop
 
 logger = logging.getLogger(__name__)
 
+MAX_ACTION_IMAGES = 4
 SUBAGENT_REPORT = 8_000  # characters, about 2,000 tokens
 TASK_PROMPT = """## BACKGROUND TASK
 You work on this task on your own: nobody watches live and nobody can answer questions until you finish.
@@ -77,6 +79,9 @@ class Runs:
         self._tasks: queue.Queue = queue.Queue()
         self._workers: List[threading.Thread] = []
         self._questions: Dict[Tuple[int, str], concurrent.futures.Future] = {}
+        # An app may answer while the run still runs the step's other tools; deciding to pause and
+        # taking an answer under one lock means an answer is never lost and never resumes a run twice.
+        self.pause_lock = threading.Lock()
 
     def start(self) -> None:
         self.recover()
@@ -119,12 +124,15 @@ class Runs:
     # ============== Starting ==============
 
     def start_turn(self, app: str, session: str, items: list, context: dict, reply: str = "required",
-                   subscribe: bool = True):
+                   subscribe: bool = True, max_steps: Optional[int] = None):
         """A new turn; a turn of this session still waiting for answers is given up first."""
         for waiting in self.store.runs(app=app, kind="turn", statuses=("input_required",)):
             if waiting["session"] == session:  # ended here, so its end is logged before the new turn
                 self.cancel(waiting["id"], reason="The user moved on without answering.", now=True)
-        run_id = self.store.add_run(app, session, "turn", {"input": items, "context": context, "reply": reply})
+        options = {"input": items, "context": context, "reply": reply}
+        if max_steps:
+            options["max_steps"] = int(max_steps)
+        run_id = self.store.add_run(app, session, "turn", options)
         listener = self.brain.bus.subscribe(("run", run_id)) if subscribe else None
         self._spawn(run_id)
         return run_id, listener
@@ -189,7 +197,7 @@ class Runs:
 
     def answer(self, run_id: int, call_id: str = "", decision: Optional[str] = None, reason: str = "",
                result=None, status: str = "ok", question: Optional[str] = None, action: str = "decline",
-               content: Optional[dict] = None) -> None:
+               content: Optional[dict] = None, images: Optional[list] = None) -> None:
         if question:
             future = self._questions.pop((run_id, question), None)
             if future is None:
@@ -201,15 +209,18 @@ class Runs:
                                  {"question": question, "action": action, "content": content})
             future.set_result({"action": action, "content": content})
             return
+        with self.pause_lock:
+            self._answer(run_id, call_id, decision, reason, result, status, images)
+
+    def _answer(self, run_id: int, call_id: str, decision: Optional[str], reason: str, result, status: str,
+                images: Optional[list]) -> None:
         run = self.store.run(run_id)
-        if not run or run["status"] != "input_required":
+        if not run or run["status"] not in ("working", "input_required"):
             raise ValueError(f"Run {run_id} is not waiting for an answer")
-        events = self.store.run_events(run_id)
-        asked = {e["call_id"]: e["type"] for e in events if e["type"] in ("approval_request", "action_request")}
-        answered = {e["call_id"] for e in events if e["type"] in ("approval", "action_result", "tool")}
-        if call_id not in asked or call_id in answered:
+        waiting = {request["call_id"]: request for request in self.waiting(run_id)}
+        if call_id not in waiting:
             raise ValueError(f"Run {run_id} is not waiting for call {call_id}")
-        if asked[call_id] == "approval_request":
+        if waiting[call_id]["kind"] == "approval":
             if decision not in ("allow", "always", "deny"):
                 raise ValueError("decision must be allow, always or deny")
             self.store.add_event(run["app"], run["session"], run_id, "approval",
@@ -217,16 +228,33 @@ class Runs:
         else:
             if status not in ("ok", "error"):
                 raise ValueError("status must be ok or error")
+            if not isinstance(images or [], list) or len(images or []) > MAX_ACTION_IMAGES:
+                raise ValueError(f"images must be a list of at most {MAX_ACTION_IMAGES} data URLs")
+            # stored at the size they are sent, like the images of a turn's input
+            images = [transport.encode_image(transport.validate_image(url), transport.IMAGE) for url in images or []]
             self.store.add_event(run["app"], run["session"], run_id, "action_result",
-                                 {"call_id": call_id, "result": result, "status": status})
-        if set(asked) <= answered | {call_id}:
-            self._spawn(run_id)
+                                 {"call_id": call_id, "result": result, "status": status, "images": images})
+        if len(waiting) == 1 and run["status"] == "input_required":  # the last answer of a paused run
+            self._spawn(run_id)  # a run still working sees the answer before it would pause
+
+    def waiting(self, run_id: int) -> List[dict]:
+        """The approvals and app actions a paused run still waits for."""
+        events = self.store.run_events(run_id)
+        done = {e["call_id"] for e in events if e["type"] == "tool"}
+        # an action that asks first has two requests with one call id: the approval, then the action
+        answered = {(e["call_id"], "approval" if e["type"] == "approval" else "action")
+                    for e in events if e["type"] in ("approval", "action_result")}
+        requests = [{"call_id": e["call_id"], "kind": e["type"].removesuffix("_request"), "name": e["name"],
+                     "arguments": e["arguments"]}
+                    for e in events if e["type"] in ("approval_request", "action_request") and e["call_id"] not in done]
+        return [r for r in requests if (r["call_id"], r["kind"]) not in answered]
 
     def cancel(self, run_id: int, reason: str = "Cancelled.", now: bool = False) -> None:
-        run = self.store.run(run_id)
-        if not run or run["status"] in TERMINAL:
-            return
-        self.store.update_run(run_id, options={**run["options"], "cancel": reason})
+        with self.pause_lock:  # a run about to wait for answers sees the flag, or is waiting already
+            run = self.store.run(run_id)
+            if not run or run["status"] in TERMINAL:
+                return
+            self.store.update_run(run_id, options={**run["options"], "cancel": reason})
         if run["status"] == "input_required":  # the loop sees the flag and ends the run
             self._execute(run_id) if now else self._spawn(run_id)
 

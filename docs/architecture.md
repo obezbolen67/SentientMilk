@@ -210,7 +210,8 @@ At startup the brain finds runs marked `working`:
 
 ### 5.4 Limits
 
-Each run has budgets: max steps (default 200 for tasks, 40 for turns), max wall time, and
+Each run has budgets: max steps (default 200 for tasks, 40 for turns; an app may give a turn
+up to 200 with `max_steps`, as MilkChan does when it can use the computer), max wall time, and
 max tokens or cost. Hitting one ends the run as `failed` with type `budget`. Its progress
 is saved, so a new task can continue it. Today's `max_tool_rounds` becomes the step budget.
 
@@ -252,7 +253,7 @@ is saved, so a new task can continue it. Today's `max_tool_rounds` becomes the s
 | Toolkit | Tools | Notes |
 |---|---|---|
 | `files` | `files_read(path, offset, limit)`, `files_search(pattern, path, glob)`, `files_find(glob)`, `files_edit(path, old, new, all)`, `files_write(path, content)` | Read gives numbered lines in windows: 500 lines by default, long lines cut, with a footer "lines 1-500 of 1,834". Images come back as images. Search uses ripgrep if it is installed, otherwise Python, and returns `path:line: text` for all matches up to a cap. Edit is an exact, unique string replace. It fails if the file was not read in this session or changed on disk since. Paths are confined to the app's roots. |
-| `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. Timeout 120 s by default, 600 s max. Longer commands use `background=true`, which returns a job id at once. |
+| `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits up to 600 s for a job to end when the model needs the result. |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` | Scoped to the session's app (section 10). |
@@ -297,7 +298,8 @@ added later.
 
 ```
 + system ------------------------------------------+  stable for the session;
-| persona, environment, rules, app instructions    |  rebuilt only at compaction
+| who you are (persona), environment, rules,       |  rebuilt only at compaction
+| app instructions                                 |
 | app memory snapshot, journal snapshot            |
 | signal format                                    |
 + tools -------------------------------------------+  fixed for a run
@@ -315,10 +317,33 @@ added later.
   differs from the previous one at the previous user message, and the provider re-reads
   that whole turn, tool results included, without the cache. Storing the tail fixes that.
   The transcript still hides it.
-- Today's image rule (newest image full, three thumbnails, the rest dropped) changes the
-  last four image turns every time a new screenshot arrives. In chat that costs a few
-  thousand uncached tokens per turn, cents per thousand turns on flash. We keep it, but it
-  is the only rule allowed to change history between compactions.
+- Images: the newest is sent at 768 px, every older one as a 256 px thumbnail, and none is
+  dropped until the byte budget drops the older half at once. A new image comes in a user
+  message, and the provider re-reads from the previous user message anyway (see below), so
+  turning the image before it into a thumbnail costs nothing; changing older ones does.
+  The old rule (three thumbnails, the fourth dropped) changed an image four back on every
+  screenshot. Replayed 2026-11-06 against the provider, twice per rule, on MilkChan's
+  49-step Gmail turn with 23 screenshots:
+
+  | rule | cache hit rate | uncached tokens |
+  |---|---|---|
+  | old: newest full, 3 thumbnails, the rest dropped | 87.8%, 85.8% | 98k, 114k |
+  | up to 6 full, then the older ones dropped until 2 remain | 88.8%, 81.9% | 102k, 164k |
+  | newest full, all older ones thumbnails (kept) | 93.9%, 93.9% | 58k, 58k |
+
+  An image costs about 250 prompt tokens at any size (`estimate_tokens` counts 300). Only
+  the byte budget, clearing and compaction change history.
+- What the provider does that we cannot change (measured on refuseless,
+  deepseek-v4.1-flash-fast, 2026-11-06):
+  - Within a run, about 5-9% of the previous request misses at random: a call sometimes
+    gets the cache of a request two or more steps back. A `prompt_cache_key` or `user`
+    field does not change that, and waiting 6 s helps little.
+  - A new user message (the next turn, or an image after tool results) makes the provider
+    render the assistant messages since the previous user message another way, so the
+    cache ends there. With or without reasoning sent back: the first call of a turn re-reads
+    the whole previous turn once.
+  - Requests with images report erratic prompt tokens (the same request: 19.5k tokens without
+    its two images, 10.7k with them).
 - Requests are serialized deterministically: key order stays fixed and the projection is
   stable.
 
@@ -446,7 +471,7 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 |---|---|---|---|
 | turn | an app sending input | until it replies | its own SSE stream |
 | task | the model (`task_start`), an app (`POST /v1/tasks`), a schedule, or a detached turn | until done; survives restarts | notifications plus a note in the parent session |
-| job | `shell_run(background=true)` | until the process exits; *not* across a brain restart (marked lost) | `shell_output`; a note when it ends |
+| job | `shell_run(background=true)`, or a command still running after 30 s | until the process exits; *not* across a brain restart (marked lost) | `shell_output`; a note and a `job.finished` notification when it ends |
 | schedule | the model (with approval), an app, or the user | until deleted | creates tasks or wake notifications |
 
 ### 9.2 Background tasks
@@ -606,7 +631,7 @@ bearer token.
 | `POST /v1/tasks` | start a task: session, goal, toolkits, budgets, pre-approved tools, context mode |
 | `GET /v1/tasks?app=&status=`, `GET /v1/tasks/<id>` | list tasks, or show one |
 | `GET /v1/tasks/<id>/events` | replay, then follow live (SSE) |
-| `POST /v1/tasks/<id>/cancel` | cancel cooperatively: the current step finishes first |
+| `POST /v1/tasks/<id>/cancel` | cancel cooperatively: a tool call that runs finishes first; text the model is writing stops within 0.3 s and is dropped; a run about to wait for answers ends instead |
 | `POST /v1/runs/<id>/answer` | answer an approval, question or action |
 | `POST /v1/runs/<id>/detach` | turn a running turn into a background task |
 | `GET/POST /v1/schedules`, `PATCH/DELETE /v1/schedules/<id>` | manage schedules |
@@ -664,7 +689,36 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 
 - Apps start the brain as its own process (`connect()`); `brain.lock` lets one process win.
   It exits on its own after `idle_exit_minutes` (30) with no runs, jobs, enabled schedules,
-  listeners or requests. Packaged MilkChan starts it as `MilkChan --serve-brain`.
+  listeners or requests. Apps start it the way SentientMilk recorded in `launch.json` when it
+  was last opened (on Windows, `dist\windows\SentientMilk\runtime\python.exe -m
+  sentientmilk_framework --home <home> serve --log`); a packaged app (PyInstaller's, or a
+  folder from `scripts/bundle.py`, whose runtime holds `bundle.json`) never runs a brain of
+  its own. The spawn drops PyInstaller's `_PYI_*` variables, so a packaged brain unpacks
+  into its own temporary folder instead of locking its parent's.
+- SentientMilk is the authority: the provider, keys, personas, toolkits, rules and memory are
+  managed in its terminal control panel (`sentientmilk`, `panel.py`, Textual). Apps declare
+  defaults and keep only settings about themselves (MilkChan: look, screenshots, proactive
+  messages). The panel stops the brain through `POST /shutdown`.
+- App actions may declare `policy: "ask"`; they then pass rules and approvals before the
+  app is asked to run them, and "always" saves a rule as for tools. Approval and action
+  requests share a call id, so answers are matched to requests by kind.
+- MilkChan's computer use is two actions: `computer_view` (UI Automation controls as
+  text lines with ids that stay the same while the window stays open) and `computer_act`
+  (asks). Text is the main view because it is cheaper and exact. Apps that draw their own
+  UI (games, the Roblox app) are seen through their pixels: OCR text with ids, and a
+  picture with the ids marked, which the model reads; it clicks by id because its own
+  points land 7 to 80 picture pixels off. Points in a close-up cover icons.
+- Without ripgrep, `files_search` walks in Python and stops after 30 s, saying how far
+  it got: with MilkChan's home folder as root, an unbounded walk once held a turn for
+  over ten minutes.
+- App actions can answer with images, shown to the model after the result. MilkChan's
+  screenshot is such an action instead of an image on every message. Measured on
+  `deepseek-v4.1-flash-fast`, 2026-11-06: no look in 6 of 6 small-talk and plain questions;
+  a look in 9 of 9 "what's on my screen", "this error" and "what I'm working on" messages
+  without an earlier look; idle turns looked 3 of 3; signals valid 18 of 18, including
+  every turn after a look, so the format reminder needs no copy on the image message.
+- Apps answer approvals: MilkChan asks in a desktop dialog, or in its terminal chat for
+  turns typed there; a waiting background task is answered through `waiting`.
 - Eval tasks live in `sentientmilk_framework/eval_tasks/*.json`: 8 tasks, 2 held back.
   Kill-and-resume and the MCP elicitation are covered by the test suite instead, with a
   stand-in provider and a local test MCP server.

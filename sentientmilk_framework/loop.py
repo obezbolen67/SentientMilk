@@ -25,6 +25,7 @@ TERMINAL = ("completed", "failed", "cancelled")
 STEP_BUDGET = {"turn": 40, "task": 200, "subagent": 60}
 RETRIES = (2, 8, 30)  # seconds between attempts at a provider that is busy or down
 RETRIED = ("rate_limit", "server_error", "timeout", "network")
+CANCEL_CHECK = 0.3  # seconds between looks at a stop while the model writes
 DEFER_AT = 40  # more tools than this: MCP tools are listed, not sent (see tools_describe)
 VERIFY_ROUNDS = 2
 INTERRUPTED_CALL = ("The brain stopped while this call was running. It may or may not have finished: check its "
@@ -83,8 +84,9 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
     for action in profile.get("actions", []):
         tools.append(Tool(name=action["name"], description=action.get("description", ""),
                           parameters=action.get("parameters") or {"type": "object", "properties": {}},
-                          func=None, readonly=bool(action.get("readonly")), policy="auto", toolkit="actions",
-                          action=True))
+                          func=None, readonly=bool(action.get("readonly")), policy=action.get("policy", "auto"),
+                          toolkit="actions",
+                          action=True, only_in=("turn",)))  # only a turn has the app there to run it
     mode = profile.get("mode")
     tools = [t for t in tools
              if (t.only_in is None or kind in t.only_in)
@@ -110,6 +112,11 @@ def _arguments(call: dict) -> dict:
     return value
 
 
+class Stopped(Exception):
+    """The run was cancelled while it worked: the model writing (what it wrote so far is dropped), or
+    about to wait for answers."""
+
+
 class Loop:
     def __init__(self, brain):
         self.brain = brain
@@ -126,8 +133,8 @@ class Loop:
             store.update_run(run_id, status="working")
             profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
             if not brain.config.values()["api_key"]:
-                raise BrainError("config_missing", "The brain has no provider API key",
-                                 "Set the provider API key in the brain's settings.")
+                raise BrainError("config_missing", "SentientMilk has no provider API key",
+                                 "Open the SentientMilk control panel (run sentientmilk) and set it under Provider.")
             self._log_input(run, profile)
             toolset = brain.toolset(profile, run["kind"])
             while True:
@@ -147,6 +154,8 @@ class Loop:
                     continue
                 if self._finish(run, profile, message, emit):
                     return
+        except Stopped:
+            self._end(store.run(run_id), "cancelled", emit)
         except Exception as exc:
             error = classify(exc)
             if error.type == "unknown":
@@ -193,7 +202,7 @@ class Loop:
         started = {e["call_id"] for e in events if e["type"] == "tool_start"}
         answers = {e["call_id"]: e for e in events if e["type"] == "approval"}
         results = {e["call_id"]: e for e in events if e["type"] == "action_result"}
-        asked = {e["call_id"] for e in events if e["type"] in ("approval_request", "action_request")}
+        asked = {(e["call_id"], e["type"]) for e in events if e["type"] in ("approval_request", "action_request")}
         ready, waiting = [], False
         for call in last["message"]["tool_calls"]:
             if call["id"] in done:
@@ -205,15 +214,6 @@ class Loop:
                 continue
             if call["id"] in started and not tool_.readonly:
                 self._result(run, call, name, arguments, ToolResult(INTERRUPTED_CALL), "error", emit)
-                continue
-            if tool_.action:
-                if call["id"] in results:
-                    self._result(run, call, name, arguments, format_result(results[call["id"]]["result"]),
-                                 results[call["id"]].get("status", "ok"), emit)
-                else:
-                    waiting = True
-                    if call["id"] not in asked:
-                        self._ask(run, "action", call, name, arguments, emit)
                 continue
             decision = permissions.decide(tool_, arguments, profile["rules"], profile.get("cwd"))
             if decision == "ask" and run["kind"] == "subagent":
@@ -227,7 +227,7 @@ class Loop:
                 answer = answers.get(call["id"])
                 if answer is None:
                     waiting = True
-                    if call["id"] not in asked:
+                    if (call["id"], "approval_request") not in asked:
                         self._ask(run, "approval", call, name, arguments, emit)
                     continue
                 if answer["decision"] == "deny":
@@ -237,13 +237,33 @@ class Loop:
                     continue
                 if answer["decision"] == "always":
                     self.brain.allow_always(run["app"], permissions.always_rule(tool_, arguments, profile.get("cwd")))
+            if tool_.action:  # the app runs it
+                if call["id"] in results:
+                    answer = results[call["id"]]
+                    self._result(run, call, name, arguments, format_result(answer["result"]),
+                                 answer.get("status", "ok"), emit)
+                    self._attach(run, answer.get("images") or [])
+                else:
+                    waiting = True
+                    if (call["id"], "action_request") not in asked:
+                        self._ask(run, "action", call, name, arguments, emit)
+                continue
             ready.append((call, name, tool_, arguments))
         self._run_tools(run, profile, ready, emit)
-        if waiting:
-            store.update_run(run["id"], status="input_required")
-            emit({"type": "paused", "status": "input_required"})
-            self.brain.runs.paused(store.run(run["id"]))
-        return waiting
+        if not waiting:
+            return False
+        with self.brain.runs.pause_lock:
+            answered = not self.brain.runs.waiting(run["id"])  # answers that came while tools ran
+            stopped = bool(store.run(run["id"])["options"].get("cancel"))  # a stop that came meanwhile
+            if not answered and not stopped:
+                store.update_run(run["id"], status="input_required")
+        if stopped:
+            raise Stopped()
+        if answered:
+            return self._settle(run, profile, toolset, emit)
+        emit({"type": "paused", "status": "input_required"})
+        self.brain.runs.paused(store.run(run["id"]))
+        return True
 
     def _resolve_call(self, call: dict, toolset: Toolset):
         name = (call.get("function") or {}).get("name", "")
@@ -297,9 +317,13 @@ class Loop:
             others = readonly + others
         for item in others:
             one(item)
-        if attachments:
+        self._attach(run, attachments)
+
+    def _attach(self, run: dict, images: List[str]) -> None:
+        """Images from tool results reach the model as one user message after the results."""
+        if images:
             blocks = [{"type": "text", "text": "[Images from your tool calls]"}] + \
-                     [{"type": "image_url", "image_url": {"url": url}} for url in attachments]
+                     [{"type": "image_url", "image_url": {"url": url}} for url in images]
             self.brain.store.add_event(run["app"], run["session"], run["id"], "attachment", {"content": blocks})
 
     def _result(self, run, call, name, arguments, result: ToolResult, status: str, emit) -> None:
@@ -322,6 +346,14 @@ class Loop:
         stream = None  # apps with signals: the header line is split off the streamed text
         if profile["signals"] and run["kind"] == "turn":
             stream = signal_format.HeaderStream(lambda header: emit({"type": "signals", "signals": header}), text)
+        feed, looked = stream.feed if stream else text, [0.0]
+
+        def on_text(delta):  # a stop is seen within CANCEL_CHECK, not only once the reply is done
+            if time.monotonic() - looked[0] >= CANCEL_CHECK:
+                looked[0] = time.monotonic()
+                if brain.store.run(run["id"])["options"].get("cancel"):
+                    raise Stopped()
+            feed(delta)
         compacted = False
         for attempt in range(len(RETRIES) + 1):
             messages = self._messages(run, profile, system)
@@ -337,7 +369,9 @@ class Loop:
             if stream:
                 stream.reset()
             try:
-                return provider.complete(sent, toolset.schemas(), on_text=stream.feed if stream else text)
+                return provider.complete(sent, toolset.schemas(), on_text=on_text)
+            except Stopped:
+                raise
             except Exception as exc:
                 error = classify(exc)
                 too_long = error.type == "payload_too_large" or (

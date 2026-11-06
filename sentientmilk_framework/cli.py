@@ -1,5 +1,6 @@
 """The ``sentientmilk`` command.
 
+    sentientmilk                             the control panel: status, provider, apps, work, tools
     sentientmilk serve [--port N] [--log]   run the brain (apps start it on their own when needed)
     sentientmilk config [KEY=VALUE...]       show or change settings; a bare api_key or web_search_key
                                              asks for the secret without echoing it
@@ -20,8 +21,10 @@ import os
 import sys
 import threading
 import time
+from pathlib import Path
 
-from .client import connect, default_home
+from . import __version__
+from .client import connect, default_home, record_launch
 from .config import DEFAULTS, SECRETS
 from .exceptions import BrainError
 
@@ -174,9 +177,12 @@ def _mcp(client, args) -> None:
 
 
 def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(prog="sentientmilk", description="SentientMilk: the brain your apps use.")
+    parser = argparse.ArgumentParser(prog="sentientmilk", description="SentientMilk: the brain your apps use. "
+                                     "Without a command it opens the control panel.")
     parser.add_argument("--home", help="the brain's home folder (default: SENTIENTMILK_HOME or ~/.sentientmilk)")
-    commands = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--version", action="version", version=f"SentientMilk {__version__}")
+    commands = parser.add_subparsers(dest="command")
+    commands.add_parser("panel", help="the control panel (the default)")
     serve = commands.add_parser("serve", help="run the brain server")
     serve.add_argument("--port", type=int, default=0, help="fixed port (default: any free port)")
     serve.add_argument("--log", action="store_true", help="log to brain.log in the home folder")
@@ -206,7 +212,8 @@ def main(argv=None) -> None:
     evaluate.add_argument("--model", default="")
     evaluate.add_argument("--report", default="", help="write the results as JSON here")
     args = parser.parse_args(argv)
-    home = args.home or default_home()
+    home = Path(args.home or default_home()).expanduser().resolve()
+    record_launch(home)
 
     logging.basicConfig(level=logging.WARNING if args.command != "serve" else logging.INFO,
                         format="%(asctime)s [SentientMilk] %(message)s")
@@ -214,6 +221,10 @@ def main(argv=None) -> None:
         from .server import serve as run
 
         return run(home, port=args.port, log_file=args.log)
+    if args.command in (None, "panel"):
+        from .panel import run as run_panel
+
+        return run_panel(home)
     if args.command == "eval":
         from .evals import main as run_evals
 

@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -88,11 +89,32 @@ def test_big_results_are_saved_and_both_ends_kept(brain, ctx):
     assert "start" in files.files_read.func(ctx, saved, limit=1)  # saved outputs stay readable
 
 
-def test_shell_runs_with_exit_codes_and_timeouts(brain, ctx):
+def test_a_search_without_ripgrep_stops_in_time_and_says_so(brain, ctx, monkeypatch):
+    for index in range(3):
+        (brain.work / f"note{index}.txt").write_text("needle here\n", encoding="utf-8")
+    monkeypatch.setattr(files.shutil, "which", lambda name: None)
+    assert files.files_search.func(ctx, "needle").count("needle here") == 3
+    monkeypatch.setattr(files, "SEARCH_SECONDS", -1)  # out of time at once
+    assert "Stopped after -1 s and 0 files" in files.files_search.func(ctx, "needle")
+
+
+def test_shell_runs_with_exit_codes_and_slow_commands_go_on_as_jobs(brain, ctx):
     assert shell.shell_run.func(ctx, "echo hello").startswith("[exit code 0]\nhello")
     assert "[exit code 3]" in shell.shell_run.func(ctx, "exit 3")
-    slow = "Start-Sleep -Seconds 5" if shell.shell_name("") == "powershell" else "sleep 5"
-    assert "timeout" in shell.shell_run.func(ctx, slow, timeout=1)
+    assert not list(ctx.run_dir().glob("job-*.log"))  # finished commands leave no log behind
+    slow = ("Write-Output begun; Start-Sleep -Seconds 4; Write-Output ended" if shell.shell_name("") == "powershell"
+            else "echo begun; sleep 4; echo ended")
+    started = time.time()
+    result = shell.shell_run.func(ctx, slow, timeout=1)
+    assert time.time() - started < 4  # the model gets control back; nothing is stopped
+    assert "goes on as background job" in result
+    job = int(result.split("background job ", 1)[1].split(".", 1)[0])
+    assert "is running" in shell.shell_output.func(ctx, job)
+    waited = shell.shell_output.func(ctx, job, wait=30)  # returns when the job ends, not after 30 s
+    assert "begun" in waited and "ended" in waited and "finished, exit code 0" in waited
+    assert time.time() - started < 15
+    notes = brain.store.events("cli", "main", types=("note",))
+    assert f"Background job {job} finished with exit code 0" in notes[-1]["text"]
 
 
 def test_background_jobs_report_when_they_end(brain, ctx):

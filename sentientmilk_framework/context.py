@@ -22,19 +22,28 @@ KEPT_RESULTS = 5  # tool results never cleared
 CLEAR_AT, CLEAR_STEP, COMPACT_AT, KEEP_RECENT = 0.5, 0.1, 0.75, 0.1  # fractions of the context window
 JOURNAL_CHARS, MEMORY_CHARS = 6_000, 8_000
 
+IDENTITY = """## WHO YOU ARE
+{called}The description below is you. Read it as "you", even where it says "she" or "he" or uses
+your name: it is who you are, not a role you play. Think as yourself: your reasoning is your own inner
+voice, in the first person, with your feelings, habits and way of seeing things. Never plan how to
+act, play or portray someone, and never step outside yourself to talk about "the character".
+How you speak follows the description."""
+
 RULES = """## HOW YOU WORK
 - Use your tools on your own whenever they help; do not ask for permission first. When a tool needs the
-  user's approval, the brain asks for you.
+  user's approval, they are asked for you.
 - Look before you act: search and read before you change anything.
 - Verify after you act: run it, test it, read the result. Say what you verified and what you did not.
 - Keep going until the request is done or you are truly blocked; then say exactly what blocks you.
 - When a tool fails, read the error and fix the call; do not repeat a call that failed the same way.
-- Notes in square brackets in user messages come from the brain (time, events, finished tasks), not the user.
-- Do not use generic AI phrases such as "As an AI..."."""
+- Notes in square brackets in user messages are not from the user: they tell you the time, events and
+  finished tasks.
+- Never talk about yourself as "an AI" or "a language model": you are who WHO YOU ARE says."""
 TODO_RULE = "- For work with three or more steps, keep a todo list with todo_write and keep it current."
 
-COMPACT_PROMPT = """You summarize the earlier part of a conversation between a user and an AI assistant that
-works with tools, so the assistant can continue without it. Write these sections:
+COMPACT_PROMPT = """You summarize the earlier part of a conversation between the user and you, so you can
+continue without it; YOU marks what you said and did, and the tools you used. Write the summary to
+yourself, in the second person ("you read the files"), never about "the assistant". Write these sections:
 1. User requests: every request and instruction from the user, quoted when short.
 2. Goal and current state: what is being worked on and how far it got.
 3. Decisions: what was decided and why.
@@ -61,8 +70,8 @@ def computer_section(profile: dict, shell: str) -> Optional[str]:
 
 
 def system_prompt(profile: dict, snapshot: dict, deferred: List[dict], shell: str) -> str:
-    parts = [f"Name: {profile['name']}"] if profile.get("name") else []
-    parts.append(profile["persona"])
+    called = f"In this app you are called {profile['name']}. " if profile.get("name") else ""
+    parts = [IDENTITY.format(called=called), profile["persona"]]  # the persona is who the model is
     if profile.get("environment"):
         parts.append("## ENVIRONMENT\n" + profile["environment"])
     computer = computer_section(profile, shell)
@@ -213,7 +222,8 @@ def _held_content(event: dict):
 
 
 def estimate_tokens(messages: List[dict], system: str = "") -> int:
-    """About 4 characters a token, 1,000 per image: good enough for thresholds, no tokenizer needed."""
+    """About 4 characters a token, 300 per image (measured: about 250 at any size): good enough for
+    thresholds, no tokenizer needed."""
     chars, images = len(system), 0
     for message in messages:
         content = message.get("content")
@@ -227,7 +237,7 @@ def estimate_tokens(messages: List[dict], system: str = "") -> int:
             chars += len(content or "")
         chars += len(json.dumps(message.get("tool_calls", ""), ensure_ascii=False)) if message.get("tool_calls") else 0
         chars += len(message.get("reasoning_content") or "")
-    return chars // 4 + images * 1000
+    return chars // 4 + images * 300
 
 
 # ============== Shrinking ==============
@@ -246,7 +256,7 @@ def clearable(events: List[dict], window: int, tokens: int) -> List[int]:
 def _size(event: dict) -> int:
     if event["type"] == "input":
         content = event["content"]
-        return len(content) if isinstance(content, str) else sum(len(b.get("text", "")) + 4000 * (b["type"] == "image_url")
+        return len(content) if isinstance(content, str) else sum(len(b.get("text", "")) + 1200 * (b["type"] == "image_url")
                                                                   for b in content)
     if event["type"] == "assistant":
         return len(json.dumps(event["message"], ensure_ascii=False))
@@ -281,7 +291,7 @@ def transcript_for_summary(events: List[dict], previous: Optional[dict], per_res
             lines.append(f"USER: {text}")
         elif kind == "assistant":
             message = event["message"]
-            line = f"ASSISTANT: {message.get('content') or ''}".rstrip()
+            line = f"YOU: {message.get('content') or ''}".rstrip()
             for call in message.get("tool_calls") or []:
                 line += f"\n  -> {call['function']['name']}({call['function']['arguments'][:500]})"
             lines.append(line)

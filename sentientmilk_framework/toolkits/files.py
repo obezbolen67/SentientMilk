@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -133,7 +134,7 @@ def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_L
         from .. import transport
 
         data = base64.b64encode(target.read_bytes()).decode("ascii")
-        url = transport.encode_image(f"data:{IMAGES[target.suffix.lower()]};base64,{data}", transport.NEWEST_IMAGE)
+        url = transport.encode_image(f"data:{IMAGES[target.suffix.lower()]};base64,{data}", transport.IMAGE)
         _remember_read(ctx, target)
         return ToolResult(f"{target} is an image; it is attached below.", [url])
     with open(target, "rb") as source:
@@ -150,6 +151,9 @@ def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_L
     footer = "" if start == 1 and end == len(lines) else \
         f"\n[Lines {start}-{end} of {len(lines)}." + (f" Continue with offset={end + 1}.]" if end < len(lines) else "]")
     return cap(ctx, "\n".join(shown) + footer)
+
+
+SEARCH_SECONDS = 30  # without ripgrep a search walks in Python; a whole home folder would take many minutes
 
 
 def _walk(base: Path):
@@ -171,7 +175,7 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
     except re.error as exc:
         raise ToolError(f"Bad regular expression: {exc}. Escape special characters, e.g. 'foo\\(' for 'foo('.")
     matches: List[str] = []
-    total = 0
+    total, searched, stopped = 0, 0, False
     rg = shutil.which("rg")
     if rg:
         command = [rg, "--line-number", "--no-heading", "--color", "never", "--max-columns", "300"]
@@ -182,9 +186,14 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
         matches = [_relative(ctx, line) for line in output[:SEARCH_LIMIT]]
     else:
         files = [base] if base.is_file() else _walk(base)
+        deadline = time.monotonic() + SEARCH_SECONDS
         for file in files:
+            if time.monotonic() > deadline:
+                stopped = True
+                break
             if glob and not file.match(glob):
                 continue
+            searched += 1
             try:
                 if file.stat().st_size > 2_000_000:
                     continue
@@ -199,11 +208,13 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
                     total += 1
                     if len(matches) < SEARCH_LIMIT:
                         matches.append(f"{_relative(ctx, str(file))}:{number}: {line.strip()[:300]}")
+    partial = (f"\n[Stopped after {SEARCH_SECONDS} s and {searched} files; narrow the path or glob to search "
+               "the rest.]") if stopped else ""
     if not matches:
-        return f"No matches for {pattern!r} in {base}."
+        return f"No matches for {pattern!r} in {base}." + partial
     more = f"\n[Showing {SEARCH_LIMIT} of {total} matches; narrow the pattern, path or glob.]" \
         if total > SEARCH_LIMIT else ""
-    return cap(ctx, "\n".join(matches) + more)
+    return cap(ctx, "\n".join(matches) + more + partial)
 
 
 def _relative(ctx: ToolContext, text: str) -> str:

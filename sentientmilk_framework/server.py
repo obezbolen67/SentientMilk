@@ -19,12 +19,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .brain import Brain, validate_items, validate_name
 from .client import DISCOVERY_FILE, default_home
 from .exceptions import BrainError, classify
-from .loop import TERMINAL
+from .loop import STEP_BUDGET, TERMINAL
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._fail(401, "unauthorized", "Missing or wrong token")
         try:
             url = urlsplit(self.path)
-            parts = [p for p in url.path.split("/") if p]
+            parts = [unquote(p) for p in url.path.split("/") if p]
             query = {key: values[-1] for key, values in parse_qs(url.query).items()}
             body = self._body() if method in ("POST", "PATCH", "PUT") else {}
             if not parts or parts[0] != "v1" or not self._route(method, parts[1:], body, query):
@@ -178,7 +178,13 @@ class _Handler(BaseHTTPRequestHandler):
         brain = self.server.brain
         head, rest = route[0] if route else "", route[1:]
         if route == ["health"] and method == "GET":
-            self._send(200, {"status": "ok", "api": API_VERSION, "pid": os.getpid()})
+            from . import __version__
+
+            self._send(200, {"status": "ok", "api": API_VERSION, "pid": os.getpid(), "version": __version__,
+                             "home": str(self.server.home), "started": self.server.started})
+        elif route == ["shutdown"] and method == "POST":
+            self._send(200, {"status": "ok"})
+            threading.Thread(target=self.server.close, name="sentientmilk-shutdown", daemon=True).start()
         elif route == ["config"] and method == "GET":
             self._send(200, brain.config.public())
         elif route == ["config"] and method == "PATCH":
@@ -192,7 +198,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif route == ["apps"] and method == "GET":
             self._send(200, {"apps": brain.store.apps()})
         elif head == "apps" and rest:
-            return self._app_route(method, validate_name(rest[0], "app id"), rest[1:], body)
+            return self._app_route(method, validate_name(rest[0], "app id"), rest[1:], body, query)
         elif route == ["events"] and method == "GET":
             self._notifications(validate_name(query.get("app", ""), "app"), _number(query.get("after", 0), "after"))
         elif head == "tasks":
@@ -229,7 +235,7 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def _app_route(self, method: str, app: str, rest: list, body: dict) -> bool:
+    def _app_route(self, method: str, app: str, rest: list, body: dict, query: dict) -> bool:
         brain = self.server.brain
         if not rest and method == "PUT":
             self._send(200, brain.declare_app(app, body))
@@ -241,20 +247,23 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"sessions": brain.store.sessions(app)})
         elif rest == ["memory"] and method == "GET":
             self._send(200, {"memory": brain.store.memories(app)})
+        elif len(rest) == 3 and rest[0] == "memory" and method == "DELETE":
+            found = brain.store.forget(app, rest[1], rest[2])
+            self._send(200 if found else 404, {"status": "ok" if found else "not found"})
         elif len(rest) >= 2 and rest[0] == "sessions":
-            return self._session_route(method, app, validate_name(rest[1], "session id"), rest[2:], body)
+            return self._session_route(method, app, validate_name(rest[1], "session id"), rest[2:], body, query)
         else:
             return False
         return True
 
-    def _session_route(self, method: str, app: str, session: str, rest: list, body: dict) -> bool:
+    def _session_route(self, method: str, app: str, session: str, rest: list, body: dict, query: dict) -> bool:
         brain = self.server.brain
         if not rest and method == "GET":
             self._send(200, brain.session_info(app, session))
         elif not rest and method == "PATCH":
             self._send(200, brain.update_session_settings(app, session, body))
         elif rest == ["history"] and method == "GET":
-            self._send(200, {"history": brain.history(app, session)})
+            self._send(200, {"history": brain.history(app, session, tools=query.get("tools") in ("1", "true"))})
         elif rest == ["history"] and method == "DELETE":
             brain.store.clear_session(app, session)
             self._send(200, {"status": "ok"})
@@ -268,7 +277,7 @@ class _Handler(BaseHTTPRequestHandler):
         return True
 
     def _turn(self, app: str, session: str, body: dict) -> None:
-        unknown = set(body) - {"input", "context", "reply"}
+        unknown = set(body) - {"input", "context", "reply", "max_steps"}
         if unknown:
             raise ValueError(f"Unknown turn fields: {sorted(unknown)}")
         items = validate_items(body.get("input"))
@@ -278,7 +287,11 @@ class _Handler(BaseHTTPRequestHandler):
         reply = body.get("reply", "required")
         if reply not in ("required", "optional"):
             raise ValueError("reply must be required or optional")
-        run_id, listener = self.server.brain.runs.start_turn(app, session, items, context, reply)
+        steps = body.get("max_steps")
+        if steps is not None and (not isinstance(steps, int) or isinstance(steps, bool)
+                                  or not 1 <= steps <= STEP_BUDGET["task"]):
+            raise ValueError(f"max_steps must be a whole number from 1 to {STEP_BUDGET['task']}")
+        run_id, listener = self.server.brain.runs.start_turn(app, session, items, context, reply, max_steps=steps)
         self._stream_start()
         if self._stream({"type": "run.started", "run": run_id}):
             self._follow(("run", run_id), listener, until=lambda e: e["type"] in ("done", "error"))
@@ -333,7 +346,8 @@ class _Handler(BaseHTTPRequestHandler):
         if not run:
             return False
         if not rest and method == "GET":
-            self._send(200, run)
+            waiting = brain.runs.waiting(run_id) if run["status"] == "input_required" else []
+            self._send(200, {**run, "waiting": waiting})
         elif rest == ["events"] and method == "GET":
             listener = brain.bus.subscribe(("run", run_id))
             self._stream_start()
@@ -347,12 +361,13 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._follow(("run", run_id), listener, until=lambda e: e["type"] in ("done", "error"))
         elif rest == ["answer"] and method == "POST":
-            unknown = set(body) - {"call_id", "decision", "reason", "result", "status", "question", "action", "content"}
+            unknown = set(body) - {"call_id", "decision", "reason", "result", "status", "question", "action", "content",
+                                   "images"}
             if unknown:
                 raise ValueError(f"Unknown answer fields: {sorted(unknown)}")
             brain.runs.answer(run_id, body.get("call_id", ""), body.get("decision"), body.get("reason", ""),
                               body.get("result"), body.get("status", "ok"), body.get("question"),
-                              body.get("action", "decline"), body.get("content"))
+                              body.get("action", "decline"), body.get("content"), body.get("images"))
             self._send(200, {"status": "ok"})
         elif rest == ["cancel"] and method == "POST":
             brain.runs.cancel(run_id, body.get("reason") or "Cancelled.")
@@ -424,8 +439,10 @@ class BrainServer(ThreadingHTTPServer):
             raise
         self.brain = Brain(self.home)
         self.token = secrets.token_urlsafe(32)
-        self.last_request = time.time()
+        self.last_request = self.started = time.time()
         self.closing = False
+        self._close_lock = threading.Lock()
+        self._closed = False
 
     @property
     def url(self) -> str:
@@ -444,18 +461,23 @@ class BrainServer(ThreadingHTTPServer):
                 and self.brain.bus.listening() == 0)
 
     def close(self) -> None:
-        """Stop serving, stop the brain's threads and withdraw the discovery file if it is ours."""
-        self.closing = True
-        self.shutdown()
-        self.server_close()
-        self.brain.close()
-        path = self.home / DISCOVERY_FILE
-        try:
-            if json.loads(path.read_text(encoding="utf-8")).get("token") == self.token:
-                path.unlink()
-        except (OSError, ValueError):
-            pass
-        self._lock_handle.close()
+        """Stop serving, stop the brain's threads and withdraw the discovery file if it is ours.
+        A second caller waits for the first to finish (serve() exits the process right after)."""
+        self.closing = True  # streams and the serve() loop end now
+        with self._close_lock:
+            if self._closed:
+                return
+            self.shutdown()
+            self.server_close()
+            self.brain.close()
+            path = self.home / DISCOVERY_FILE
+            try:
+                if json.loads(path.read_text(encoding="utf-8")).get("token") == self.token:
+                    path.unlink()
+            except (OSError, ValueError):
+                pass
+            self._lock_handle.close()
+            self._closed = True
 
 
 def start(home: Optional[Path] = None, port: int = 0) -> BrainServer:
@@ -486,9 +508,14 @@ def serve(home: Optional[Path] = None, port: int = 0, log_file: bool = False) ->
         return
     print(f"SentientMilk brain on {server.url}; token in {server.home / DISCOVERY_FILE}", flush=True)
     try:
-        while not server.idle(server.brain.config.values()["idle_exit_minutes"]):
-            time.sleep(30)  # Ctrl+C interrupts this on Windows too, unlike Event.wait()
-        logger.info("Idle with nothing to do: exiting")
+        checked = time.time()
+        while not server.closing:  # closed by POST /v1/shutdown
+            time.sleep(0.5)  # Ctrl+C interrupts this on Windows too, unlike Event.wait()
+            if time.time() - checked >= 30:
+                checked = time.time()
+                if server.idle(server.brain.config.values()["idle_exit_minutes"]):
+                    logger.info("Idle with nothing to do: exiting")
+                    break
     except KeyboardInterrupt:
         pass
     finally:

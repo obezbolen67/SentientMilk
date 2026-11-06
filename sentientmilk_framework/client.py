@@ -7,7 +7,7 @@
 
 The brain runs as its own process (``sentientmilk serve``), announces its address and
 token in ``<home>/server.json`` and exits after a while with nothing to do; the client
-starts it again when it is gone.
+starts it again when it is gone, the way SentientMilk recorded in ``<home>/launch.json``.
 """
 
 import json
@@ -17,12 +17,14 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
+from urllib.parse import quote
 
 import requests
 
 from .exceptions import BrainError
 
 DISCOVERY_FILE = "server.json"
+LAUNCH_FILE = "launch.json"
 START_TIMEOUT = 30
 
 
@@ -143,8 +145,14 @@ class BrainClient:
         """Who the brain is in this app: name, environment, persona, signals, toolkits, actions, rules, roots."""
         return self._call("PUT", f"/apps/{app}", declaration)
 
+    def apps(self) -> List[str]:
+        return self._call("GET", "/apps")["apps"]
+
     def app(self, app: str) -> dict:
         return self._call("GET", f"/apps/{app}")
+
+    def memory(self, app: str) -> Dict[str, Dict[str, Any]]:
+        return self._call("GET", f"/apps/{app}/memory")["memory"]
 
     def update_app(self, app: str, **settings: Any) -> dict:
         """The user's settings for an app: persona ("" resets), model, rules, disabled_toolkits, roots, journal."""
@@ -160,8 +168,9 @@ class BrainClient:
         """instructions, cwd, roots, rules, disabled_toolkits for one session."""
         return self._call("PATCH", f"/apps/{app}/sessions/{session}", settings)
 
-    def history(self, app: str, session: str) -> List[dict]:
-        return self._call("GET", f"/apps/{app}/sessions/{session}/history")["history"]
+    def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
+        """What the user said and the brain replied; ``tools`` adds each tool call between them."""
+        return self._call("GET", f"/apps/{app}/sessions/{session}/history" + ("?tools=1" if tools else ""))["history"]
 
     def clear_history(self, app: str, session: str) -> None:
         self._call("DELETE", f"/apps/{app}/sessions/{session}/history")
@@ -176,16 +185,22 @@ class BrainClient:
 
     def turn(self, app: str, session: str, text: Optional[str] = None, *, image: Optional[str] = None,
              items: Optional[List[dict]] = None, context: Optional[Dict[str, str]] = None, reply: str = "required",
-             on_event: Optional[Callable[[dict], None]] = None,
-             on_approval: Optional[Callable[[dict], Any]] = None) -> dict:
+             max_steps: Optional[int] = None, on_event: Optional[Callable[[dict], None]] = None,
+             on_approval: Optional[Callable[[dict], Any]] = None,
+             on_action: Optional[Callable[[dict], Any]] = None) -> dict:
         """One turn. Events reach ``on_event`` as they happen. ``on_approval(event)`` answers approval
-        requests with "allow", "always", "deny" or ("deny", reason); without it they are denied."""
+        requests with "allow", "always", "deny" or ("deny", reason); without it they are denied.
+        ``on_action(event)`` runs a declared action (``event["name"]``, ``event["arguments"]``) and
+        returns its result, or ``(result, [image data URLs])``; an exception becomes an error result.
+        ``max_steps``: more model calls than a turn's default, for long work such as using the computer."""
         inputs = list(items or [])
         if text:
             inputs.append({"type": "text", "text": text})
         if image:
             inputs.append({"type": "image", "url": image})
         payload = {"input": inputs, "context": context or {}, "reply": reply}
+        if max_steps:
+            payload["max_steps"] = max_steps
         tools: List[dict] = []
         run = None
         for event in self._stream("POST", f"/apps/{app}/sessions/{session}/turns", payload):
@@ -196,13 +211,32 @@ class BrainClient:
             if event["type"] == "approval.requested":
                 answer = on_approval(event) if on_approval else ("deny", "This app cannot ask the user for approval.")
                 decision, reason = answer if isinstance(answer, tuple) else (answer, "")
-                self.answer(run, call_id=event["call_id"], decision=decision, reason=reason)
+                self._answer_live(run, call_id=event["call_id"], decision=decision, reason=reason)
+            elif event["type"] == "action.requested" and on_action:
+                try:
+                    result = on_action(event)
+                    result, images = result if isinstance(result, tuple) else (result, [])
+                    self._answer_live(run, call_id=event["call_id"], result=result, images=images)
+                except BrainError:
+                    raise
+                except Exception as exc:
+                    self._answer_live(run, call_id=event["call_id"], result=f"{type(exc).__name__}: {exc}",
+                                      status="error")
             elif event["type"] == "done":
                 return {"run": run, "reply": event["reply"], "signals": event["signals"], "silent": event["silent"],
                         "status": event["status"], "usage": event.get("usage"), "tools": tools}
             elif event["type"] == "error":
                 raise BrainError(**event["error"])
         raise BrainError("brain_unreachable", "The brain ended the turn without an answer")
+
+    def _answer_live(self, run: int, **answer: Any) -> None:
+        """Answer a turn being streamed. Stopped while the app asked the user, the run has ended: its end
+        comes on the stream, so the answer is dropped."""
+        try:
+            self.answer(run, **answer)
+        except BrainError:
+            if self.run(run)["status"] not in ("completed", "failed", "cancelled"):
+                raise
 
     # ============== Runs and tasks ==============
 
@@ -262,30 +296,82 @@ class BrainClient:
     def set_mcp(self, servers: Dict[str, dict]) -> dict:
         return self._call("PUT", "/mcp", {"servers": servers})
 
+    def reconnect_mcp(self, name: str) -> None:
+        self._call("POST", f"/mcp/{name}/reconnect")
+
     def journal(self, query: str = "") -> List[dict]:
         return self._call("GET", "/journal", params={"q": query} if query else None)["notes"]
 
     def delete_note(self, note: int) -> None:
         self._call("DELETE", f"/journal/{note}")
 
+    def forget(self, app: str, category: str, key: str) -> None:
+        self._call("DELETE", f"/apps/{app}/memory/{quote(category, safe='')}/{quote(key, safe='')}")
 
-def brain_command(home: Path) -> List[str]:
+    def shutdown(self) -> None:
+        """Stop the brain; the next connect() starts it again."""
+        self._call("POST", "/shutdown")
+
+
+def packaged() -> bool:
+    """A packaged app: PyInstaller's, or a folder made by scripts/bundle.py (its runtime holds bundle.json)."""
+    return bool(getattr(sys, "frozen", False)) or (Path(sys.executable).parent / "bundle.json").exists()
+
+
+def own_command(home: Path) -> List[str]:
+    """How this program runs the brain: SentientMilk's own executable when packaged."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--home", str(home), "serve", "--log"]
     return [sys.executable, "-m", "sentientmilk_framework", "--home", str(home), "serve", "--log"]
 
 
-def connect(home: Optional[Path] = None, command: Optional[List[str]] = None) -> BrainClient:
-    """The brain running in ``home``; started as its own process when none runs.
+def record_launch(home: Path) -> None:
+    """SentientMilk notes how it is installed, so apps start it that way (it decides, not them)."""
+    home.mkdir(parents=True, exist_ok=True)
+    (home / LAUNCH_FILE).write_text(json.dumps({"command": own_command(home)}), encoding="utf-8")
 
-    ``command`` starts it (default: this Python with ``-m sentientmilk_framework serve``); packaged
-    apps pass their own executable. Two apps starting at once are fine: the brain lock lets one win.
-    """
+
+def launch_command(home: Path) -> List[str]:
+    try:
+        command = json.loads((home / LAUNCH_FILE).read_text(encoding="utf-8"))["command"]
+        if Path(command[0]).exists():
+            return command
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        pass
+    if packaged():  # a packaged app cannot run the brain itself
+        raise BrainError("brain_unreachable", "SentientMilk is not set up on this computer",
+                         "Install SentientMilk and open it once (run sentientmilk); apps start it from then on.")
+    return own_command(home)
+
+
+def _spawn(command: List[str], home: Path) -> None:
+    """Start the brain on its own: no console, its home as working folder, and none of a packaged
+    caller's PyInstaller state, which would make it run from (and lock) the caller's temp folder."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("_PYI_")}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    flags = (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0
+    frozen_windows = os.name == "nt" and getattr(sys, "frozen", False)
+    if frozen_windows:
+        import ctypes
+
+        ctypes.windll.kernel32.SetDllDirectoryW(None)  # children inherit the bootloader's DLL folder
+    try:
+        subprocess.Popen(command, cwd=home, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=os.name != "nt",
+                         close_fds=True)
+    finally:
+        if frozen_windows:
+            ctypes.windll.kernel32.SetDllDirectoryW(getattr(sys, "_MEIPASS", None))
+
+
+def connect(home: Optional[Path] = None, command: Optional[List[str]] = None) -> BrainClient:
+    """The brain running in ``home``; started as its own process when none runs, with ``command``
+    or the way SentientMilk recorded. Two apps starting at once are fine: the brain lock lets one win."""
     home = Path(home or default_home())
     client = BrainClient.discover(home)
     if client is None:
-        flags = (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0
-        subprocess.Popen(command or brain_command(home), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=os.name != "nt",
-                         close_fds=True)
+        home.mkdir(parents=True, exist_ok=True)
+        _spawn(command or launch_command(home), home)
         deadline = time.time() + START_TIMEOUT
         while client is None:
             if time.time() > deadline:

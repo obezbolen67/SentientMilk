@@ -6,8 +6,6 @@ app (persona, model, rules, switched-off toolkits) are kept apart as its setting
 Every conversation is a session of an app; every piece of work is a run.
 """
 
-import base64
-import io
 import logging
 import re
 import threading
@@ -80,20 +78,9 @@ def validate_declaration(data: Any) -> dict:
             raise ValueError("each action needs a name of letters, digits, '_' or '-'")
         if not isinstance(action.get("description", ""), str) or not isinstance(action.get("parameters", {}), dict):
             raise ValueError(f"action {action['name']}: description must be a string, parameters a JSON schema")
+        if action.get("policy", "auto") not in ("auto", "ask"):
+            raise ValueError(f"action {action['name']}: policy must be auto or ask")
     return data
-
-
-def validate_image(data_url: Any) -> str:
-    if not isinstance(data_url, str) or not data_url.startswith("data:image/") or ";base64," not in data_url:
-        raise ValueError("image must be a base64 data URL")
-    from PIL import Image
-
-    try:
-        with Image.open(io.BytesIO(base64.b64decode(data_url.split(",", 1)[1], validate=True))) as picture:
-            picture.verify()
-    except Exception as exc:
-        raise ValueError(f"image is not a readable picture: {exc}") from exc
-    return data_url
 
 
 def validate_items(items: Any) -> List[dict]:
@@ -109,8 +96,8 @@ def validate_items(items: Any) -> List[dict]:
                 raise ValueError("text items need non-empty text")
             result.append({"type": "text", "text": item["text"]})
         elif item["type"] == "image":
-            url = validate_image(item.get("url") or item.get("data"))
-            result.append({"type": "image", "url": transport.encode_image(url, transport.NEWEST_IMAGE)})
+            url = transport.validate_image(item.get("url") or item.get("data"))
+            result.append({"type": "image", "url": transport.encode_image(url, transport.IMAGE)})
         else:
             if not isinstance(item.get("name"), str) or not item["name"].strip():
                 raise ValueError("event items need a name")
@@ -278,11 +265,21 @@ class Brain:
         self.store.update_session(validate_name(app, "app id"), validate_name(session, "session id"), "settings", change)
         return self.session_info(app, session)
 
-    def history(self, app: str, session: str) -> List[dict]:
-        """The conversation as apps show it: what the user said and what the brain replied."""
-        entries = []
-        for event in self.store.events(app, session, types=("input", "end", "shown")):
-            if event["type"] == "shown":
+    def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
+        """The conversation as apps show it: what the user said and what the brain replied; with
+        ``tools`` also each tool call between them (its output capped as in live tool events)."""
+        entries, started = [], {}
+        types = ("input", "end", "shown") + (("tool_start", "action_request", "tool") if tools else ())
+        for event in self.store.events(app, session, types=types):
+            if event["type"] in ("tool_start", "action_request"):
+                started[event["call_id"]] = event["at"]
+            elif event["type"] == "tool":
+                start = started.get(event["call_id"])
+                entries.append({"role": "tool", "call_id": event["call_id"], "name": event["name"],
+                                "arguments": event.get("arguments") or {}, "status": event["status"],
+                                "text": event["content"][:2000], "time": event["at"],
+                                "seconds": None if start is None else round(event["at"] - start, 3)})
+            elif event["type"] == "shown":
                 entries.append({"role": event["role"], "text": event["text"], "time": event["at"]})
             elif event["type"] == "input" and event.get("display"):
                 entries.append({"role": "user", "text": event["display"], "time": event["at"]})

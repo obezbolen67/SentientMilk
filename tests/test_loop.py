@@ -1,7 +1,12 @@
+import base64
+import io
 import json
+import threading
+import time
 
 import pytest
 from conftest import turn, wait_for
+from PIL import Image
 
 from sentientmilk_framework import BrainError, context
 from sentientmilk_framework import loop as loop_module
@@ -59,14 +64,139 @@ def test_app_actions_run_in_the_app(brain):
         {"name": "wave", "description": "Wave at the user.", "parameters": {
             "type": "object", "properties": {"times": {"type": "integer"}}}}])
     brain.provider.replies += [tool_call("wave", {"times": 2}, "w1"), "I waved."]
+    asked = []
 
-    def on_event(event):
-        if event["type"] == "action.requested":
-            brain.client.answer(event["run"], call_id=event["call_id"], result=f"waved {event['arguments']['times']}x")
+    def wave(event):
+        asked.append(event["name"])
+        return f"waved {event['arguments']['times']}x"
 
-    assert brain.client.turn("bot", "main", "wave!", on_event=on_event)["reply"] == "I waved."
-    assert tool_results(brain.provider.sent[1])["w1"] == "waved 2x"
+    assert brain.client.turn("bot", "main", "wave!", on_action=wave)["reply"] == "I waved."
+    assert asked == ["wave"] and tool_results(brain.provider.sent[1])["w1"] == "waved 2x"
     assert brain.provider.sent[0]["tools"][0]["function"]["name"] == "wave"
+
+
+def test_an_action_can_answer_with_a_picture_the_model_then_sees(brain):
+    brain.client.declare_app("eye", name="Eye", toolkits=["tasks"], actions=[
+        {"name": "screenshot", "description": "See the screen.", "readonly": True}])
+    picture = Image.effect_noise((1600, 900), 60).convert("RGB")
+    output = io.BytesIO()
+    picture.save(output, "PNG")
+    shot = "data:image/png;base64," + base64.b64encode(output.getvalue()).decode()
+    brain.provider.replies += [tool_call("screenshot", {}, "s1"), "I see noise.",
+                               tool_call("screenshot", {}, "s2"), "I could not look."]
+
+    assert brain.client.turn("eye", "main", "what's on my screen?",
+                             on_action=lambda event: ("The screen now.", [shot]))["reply"] == "I see noise."
+    first, second = brain.provider.sent[0], brain.provider.sent[1]
+    assert not any(b.get("type") == "image_url" for m in first["messages"] if isinstance(m["content"], list)
+                   for b in m["content"])  # nothing is sent before the model asks
+    assert tool_results(second)["s1"] == "The screen now."
+    after = second["messages"][-1]
+    assert after["role"] == "user" and after["content"][1]["type"] == "image_url"
+    sent = after["content"][1]["image_url"]["url"]
+    with Image.open(io.BytesIO(base64.b64decode(sent.split(",", 1)[1]))) as seen:
+        assert max(seen.size) <= 768  # stored small, like the images of a turn's input
+
+    def broken(event):
+        raise RuntimeError("the screen is locked")
+
+    assert brain.client.turn("eye", "main", "and now?", on_action=broken)["reply"] == "I could not look."
+    assert "the screen is locked" in tool_results(brain.provider.sent[3])["s2"]
+    task = brain.client.start_task("eye", "summarize nothing", session="main")
+    brain.provider.replies.append("done")
+    wait_for(lambda: brain.client.run(task["id"])["status"] == "completed")
+    assert "screenshot" not in [t["function"]["name"] for t in brain.provider.sent[-1].get("tools", [])]
+
+
+def test_an_answer_that_comes_while_other_tools_still_run_is_kept(brain, monkeypatch):
+    """The app answers an action at once; the brain is still running a slow tool of the same step."""
+    from sentientmilk_framework.toolkits import memory as memory_kit
+
+    real = memory_kit.memory_list.func
+
+    def slow(ctx, category=""):
+        time.sleep(1)
+        return real(ctx, category)
+
+    monkeypatch.setattr(memory_kit.memory_list, "func", slow)
+    brain.client.declare_app("eye", name="Eye", toolkits=["memory"], actions=[
+        {"name": "screenshot", "description": "See the screen.", "readonly": True}])
+    brain.provider.replies += [tool_calls(("memory_list", {}), ("screenshot", {})), "Seen and listed."]
+    assert brain.client.turn("eye", "main", "look", on_action=lambda event: "a chart")["reply"] == "Seen and listed."
+    results = tool_results(brain.provider.sent[1])
+    assert results["call_1_screenshot"] == "a chart" and "memory_list" not in results["call_1_screenshot"]
+
+
+def test_an_action_that_asks_waits_for_the_users_approval_first(brain):
+    brain.client.declare_app("hands", name="Hands", toolkits=[], actions=[
+        {"name": "press", "description": "Press a button.", "policy": "ask",
+         "parameters": {"type": "object", "properties": {"button": {"type": "string"}}}}])
+    pressed, asked = [], []
+
+    def approve(decision):
+        def answer(event):
+            asked.append(event["name"])
+            return decision
+        return answer
+
+    brain.provider.replies += [tool_call("press", {"button": "a"}, "p1"), "Not allowed.",
+                               tool_call("press", {"button": "b"}, "p2"), "Pressed b.",
+                               tool_call("press", {"button": "c"}, "p3"), "Pressed c."]
+    run = lambda text, decision: brain.client.turn(  # noqa: E731
+        "hands", "main", text, on_approval=approve(decision), on_action=lambda e: pressed.append(e["arguments"]))
+    assert run("press a", "deny")["reply"] == "Not allowed."
+    assert pressed == [] and "did not allow" in tool_results(brain.provider.sent[1])["p1"]
+    assert run("press b", "always")["reply"] == "Pressed b." and pressed == [{"button": "b"}]
+    assert run("press c", "deny")["reply"] == "Pressed c."  # "always" saved a rule: not asked again
+    assert asked == ["press", "press"] and pressed[-1] == {"button": "c"}
+    with pytest.raises(BrainError):
+        brain.client.declare_app("bad", name="Bad", actions=[{"name": "x", "policy": "sometimes"}])
+
+
+def test_a_stop_while_the_model_writes_ends_the_turn_where_it_is(brain):
+    started = threading.Event()
+    run = {}
+
+    def writing(_payload):
+        started.wait(5)
+        brain.client.cancel(run["id"])  # the user presses Stop as the reply starts coming
+        return "A long story that is never told to its end."
+
+    brain.provider.replies.append(writing)
+    run["id"], _listener = brain.brain.runs.start_turn("cli", "main", [{"type": "text", "text": "a story"}], {})
+    started.set()
+    wait_for(lambda: brain.store.run(run["id"])["status"] in loop_module.TERMINAL)
+    assert brain.store.run(run["id"])["status"] == "cancelled"
+    assert not any(e["type"] == "assistant" for e in brain.store.run_events(run["id"]))  # nothing half-said is kept
+
+
+def test_a_stop_while_an_approval_waits_ends_the_turn_quietly(brain):
+    brain.provider.replies += [tool_call("shell_run", {"command": "echo x"}, "s1"), "ran it"]
+
+    def stop_then_deny(event):  # the app denies what was asked once the user stopped: the run has ended by then
+        brain.client.cancel(event["run"])
+        wait_for(lambda: brain.store.run(event["run"])["status"] == "cancelled")
+        return "deny"
+
+    result = turn(brain, "cli", "run echo", on_approval=stop_then_deny)
+    assert result["status"] == "cancelled" and result["reply"] == ""
+
+
+def test_a_stop_as_the_turn_is_about_to_wait_for_approval_still_ends_it(brain, monkeypatch):
+    brain.provider.replies += [tool_call("shell_run", {"command": "echo x"}, "s1"), "ran it"]
+    real = loop_module.Loop._run_tools
+
+    def stop_first(self, run, *args):  # Stop lands while the run still works, just before it waits
+        brain.brain.runs.cancel(run["id"])
+        return real(self, run, *args)
+
+    monkeypatch.setattr(loop_module.Loop, "_run_tools", stop_first)
+
+    def deny_once_stopped(event):
+        wait_for(lambda: brain.store.run(event["run"])["status"] == "cancelled", timeout=5)
+        return "deny"
+
+    assert turn(brain, "cli", "run echo", on_approval=deny_once_stopped)["status"] == "cancelled"
 
 
 def test_a_new_turn_gives_up_a_turn_still_waiting_for_approval(brain):
@@ -137,7 +267,9 @@ def test_a_long_session_is_compacted_into_a_summary(brain):
     assert turn(brain, "cli", "read every file")["reply"] == "all read"
     assert "compaction" in [e["type"] for e in brain.store.events("cli", "main")]
     summary_request = next(p for p in brain.provider.sent if p["messages"][0]["content"] == context.COMPACT_PROMPT)
-    assert "read every file" in summary_request["messages"][1]["content"]
+    transcript = summary_request["messages"][1]["content"]
+    assert "read every file" in transcript and "\nYOU:" in transcript and "ASSISTANT" not in transcript
+    assert "AI assistant" not in context.COMPACT_PROMPT  # the summary speaks to her, not about "the assistant"
     after = next(p for p in brain.provider.sent[brain.provider.sent.index(summary_request) + 1:])
     assert after["messages"][1]["content"].startswith(context.SUMMARY_PREFIX + "SUMMARY: reading the files")
     assert "## Files you read recently" in after["messages"][1]["content"]
@@ -182,6 +314,15 @@ def test_the_step_budget_stops_runaway_loops(brain, monkeypatch):
     with pytest.raises(BrainError) as caught:
         brain.client.turn("cli", "main", "loop forever")
     assert caught.value.type == "budget"
+
+    # An app gives a long turn more steps (computer use); the server takes no more than a task's.
+    brain.provider.replies.clear()
+    brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"y{i}") for i in range(4)] + ["done"]
+    assert brain.client.turn("cli", "main", "five steps", max_steps=5)["reply"] == "done"
+    for wrong in (10_000, "9"):
+        with pytest.raises(BrainError) as caught:
+            brain.client.turn("cli", "main", "too many", max_steps=wrong)
+        assert caught.value.type == "bad_request"
 
 
 def test_helpers_investigate_with_read_only_tools_and_report(brain):

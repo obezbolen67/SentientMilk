@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import socket
+import sys
 
 import pytest
 import requests
@@ -10,6 +11,7 @@ from PIL import Image
 
 from sentientmilk_framework import BrainClient, BrainError, connect
 from sentientmilk_framework import signals as signal_format
+from sentientmilk_framework.client import launch_command, own_command, record_launch
 from sentientmilk_framework.server import AlreadyRunning, start
 from sentientmilk_framework.testing import PROVIDER_URL
 
@@ -54,7 +56,11 @@ def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
     assert deltas == "Hello there!"  # the signals line never shows as text
     assert any(e["type"] == "signals" for e in result["events"])
     system = brain.provider.sent[0]["messages"][0]["content"]
-    assert system.startswith("Name: Milk\n\nYou are Milk.") and "A desktop character." in system
+    who = system.partition("## ENVIRONMENT")[0].strip()
+    assert who.startswith("## WHO YOU ARE\nIn this app you are called Milk.") and who.endswith("You are Milk.")
+    assert "not a role you play" in who and "first person" in who  # she thinks as herself, not about a character
+    assert "A desktop character." in system and "Name:" not in system
+    assert "brain" not in system.lower() and "As an AI" not in system  # nothing calls her something else
     assert system.rstrip().endswith("only the final reply has this form.")  # the format rule closes the prompt
     assert "arms_down: neutral, smile" in system
     newest = user_text(brain.provider.sent[0]["messages"][-1])
@@ -63,6 +69,20 @@ def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
         {"role": "user", "text": "Hi!", "time": pytest.approx(0, abs=1e10)},
         {"role": "assistant", "text": "Hello there!", "signals": {"expression": "arms_down/smile"},
          "time": pytest.approx(0, abs=1e10)}]
+
+
+def test_history_can_include_tool_calls(brain):
+    from sentientmilk_framework.testing import tool_call
+
+    brain.client.declare_app("milk", name="Milk", toolkits=["memory"])
+    brain.provider.replies += [tool_call("memory_list", {}, "m1"), "Nothing yet."]
+    turn(brain, "milk", "What do you remember?")
+    shown = brain.client.history("milk", "main", tools=True)
+    assert [entry["role"] for entry in shown] == ["user", "tool", "assistant"]
+    tool = shown[1]
+    assert tool["name"] == "memory_list" and tool["call_id"] == "m1" and tool["arguments"] == {}
+    assert tool["status"] == "ok" and tool["text"] and tool["seconds"] >= 0
+    assert [entry["role"] for entry in brain.client.history("milk", "main")] == ["user", "assistant"]
 
 
 def test_requests_only_grow_at_the_end_so_the_prefix_cache_holds(brain):
@@ -182,20 +202,44 @@ def test_idle_exit_waits_for_work_streams_and_requests(brain):
 
 
 def test_connect_starts_the_brain_as_its_own_process(tmp_path):
+    import os
+    import signal
+
     home = tmp_path / "spawned"
     client = connect(home)
     try:
-        assert client.health()["pid"] != __import__("os").getpid()
+        assert client.health()["pid"] != os.getpid()
         assert (home / "brain.lock").exists()
+        assert json.loads((home / "launch.json").read_text())["command"] == own_command(home.resolve())
     finally:
         pid = client.health()["pid"]
-        import os
-        import signal
         os.kill(pid, signal.SIGTERM)
     wait_for(lambda: not _alive(client), 15)
     # a vanished brain is started again on the next call
     assert client.health()["pid"] != pid
-    os.kill(client.health()["pid"], signal.SIGTERM)
+    client.home = None  # stopped on purpose: no new start
+    client.shutdown()
+    wait_for(lambda: not (home / "server.json").exists(), 15)
+    assert not _alive(client)
+
+
+def test_apps_start_the_brain_the_way_sentientmilk_recorded(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    record_launch(home)
+    assert launch_command(home) == own_command(home)
+    (home / "launch.json").write_text(json.dumps({"command": [str(tmp_path / "moved.exe"), "serve"]}))
+    assert launch_command(home) == own_command(home)  # a moved install: this Python can still run it
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    with pytest.raises(BrainError) as error:  # a packaged app has no brain of its own to run
+        launch_command(home)
+    assert "open it once" in error.value.details
+    monkeypatch.setattr(sys, "frozen", False)
+    runtime = tmp_path / "MilkChan" / "runtime"  # a folder made by scripts/bundle.py is packaged too
+    runtime.mkdir(parents=True)
+    (runtime / "bundle.json").write_text("{}")
+    monkeypatch.setattr(sys, "executable", str(runtime / "pythonw.exe"))
+    with pytest.raises(BrainError):
+        launch_command(home)
 
 
 def _alive(client):

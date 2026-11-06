@@ -1,4 +1,7 @@
-"""Shell: run commands, in the foreground with a timeout or in the background as jobs."""
+"""Shell: run commands. A command still running after WAIT seconds is not stopped: it goes on as a
+background job, so the model gets control back without guessing durations (it cannot know a
+download is slow, and asked for longer waits it always does), and gets a note when the job ends.
+A model that needs the result waits for it with shell_output(wait=...)."""
 
 import os
 import signal
@@ -11,7 +14,7 @@ from . import ToolContext, ToolError, Toolkit, cap, tool
 from .files import cwd as working_folder
 from .files import resolve
 
-DEFAULT_TIMEOUT, MAX_TIMEOUT = 120, 600
+WAIT, MAX_WAIT = 30, 600  # seconds shell_run waits before a command becomes a job; the longest shell_output wait
 OUTPUT_LINES = 200
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -64,51 +67,53 @@ def _folder(ctx: ToolContext, folder: str) -> Path:
 @tool(rule_arg="command", args={
     "command": "The command line, in the shell named above.",
     "cwd": "Folder to run in (default: the working folder).",
-    "timeout": f"Seconds before the command is stopped (default {DEFAULT_TIMEOUT}, max {MAX_TIMEOUT}).",
-    "background": "Start it as a job and return at once; use for servers, watchers and long builds."})
-def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = DEFAULT_TIMEOUT,
+    "timeout": f"Seconds to wait for it, at most {WAIT}; still running then, it goes on as a background job.",
+    "background": "Start it as a job and return at once: for servers, watchers and anything you know is long."})
+def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT,
               background: bool = False):
-    """Run a command in {shell}. Output (stdout and stderr together) comes back with the exit code.
+    """Run a command in {shell}. Output (stdout and stderr together) comes back with the exit code; a
+    command still running after timeout goes on as a background job, so you can work on while it runs.
     No shell state carries over between calls: pass cwd instead of cd, and set variables in the same command.
-    Prefer files_read/files_search/files_edit over cat, grep and sed. Long or never-ending commands
-    belong in background=true; then read their output with shell_output."""
+    Prefer files_read/files_search/files_edit over cat, grep and sed."""
     if not command.strip():
         raise ToolError("command is empty.")
     folder = _folder(ctx, cwd)
     line = command_line(ctx.brain.config.values()["shell"], command)
-    if background:
-        return _start_job(ctx, command, line, folder)
-    timeout = max(1, min(int(timeout or DEFAULT_TIMEOUT), MAX_TIMEOUT))
-    try:
-        process = _popen(line, folder, stdout=subprocess.PIPE)
-    except OSError as exc:
-        raise ToolError(f"Could not start the shell: {exc}")
-    try:
-        output, _ = process.communicate(timeout=timeout)
-        status = f"exit code {process.returncode}"
-    except subprocess.TimeoutExpired:
-        kill_tree(process)
-        output, _ = process.communicate()
-        status = f"stopped after {timeout} s (timeout); use background=true for long commands"
-    text = (output or b"").decode("utf-8", errors="replace").replace("\r\n", "\n")
-    return cap(ctx, f"[{status}]\n{text}".rstrip(), "shell")
-
-
-def _start_job(ctx: ToolContext, command: str, line: list, folder: Path) -> str:
-    log = ctx.run_dir() / f"job-{int(time.time() * 1000)}.log"
-    job = ctx.store.add_job(ctx.run["id"], ctx.app, ctx.session, command, str(folder), str(log))
+    log = ctx.run_dir() / f"job-{time.time_ns()}.log"  # a file, not a pipe: the command may outlive the call
     output = open(log, "wb")
     try:
         process = _popen(line, folder, stdout=output)
     except OSError as exc:
         output.close()
-        ctx.store.update_job(job, status="failed", ended=time.time())
         raise ToolError(f"Could not start the shell: {exc}")
+    if background:
+        job = _keep_as_job(ctx, command, folder, log, process, output)
+        return f"Started job {job}. Read its output with shell_output(job={job}); you get a note when it ends."
+    timeout = max(1, min(int(timeout or WAIT), WAIT))
+    try:
+        code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        job = _keep_as_job(ctx, command, folder, log, process, output)
+        so_far = "\n".join(_lines(str(log))[-40:])
+        return cap(ctx, f"[still running after {timeout} s: it goes on as background job {job}. You get a note "
+                        f"when it ends; shell_output(job={job}) shows its output (wait=... waits for the end), "
+                        f"shell_stop(job={job}) stops it. "
+                        f"Work on meanwhile, or tell the user it is running.]\n{so_far}".rstrip(), "shell")
+    output.close()
+    text = "\n".join(_lines(str(log)))
+    log.unlink(missing_ok=True)
+    return cap(ctx, f"[exit code {code}]\n{text}".rstrip(), "shell")
+
+
+def _keep_as_job(ctx: ToolContext, command: str, folder: Path, log: Path, process: subprocess.Popen,
+                 output) -> int:
+    """Track a running command as a job: it can be read and stopped, and its end leaves a note."""
+    job = ctx.store.add_job(ctx.run["id"], ctx.app, ctx.session, command, str(folder), str(log))
     ctx.store.update_job(job, pid=process.pid)
     ctx.brain.jobs[job] = process
     threading.Thread(target=_watch, args=(ctx.brain, job, process, output), name=f"job-{job}",
                      daemon=True).start()
-    return f"Started job {job}. Read its output with shell_output(job={job}); you get a note when it ends."
+    return job
 
 
 def _watch(brain, job: int, process: subprocess.Popen, output) -> None:
@@ -140,10 +145,15 @@ def _job(ctx: ToolContext, job: int) -> dict:
     return record
 
 
-@tool(readonly=True, args={"job": "Job id from shell_run.", "since": "Skip this many lines (to read only new ones)."})
-def shell_output(ctx: ToolContext, job: int, since: int = 0):
+@tool(readonly=True, args={"job": "Job id from shell_run.", "since": "Skip this many lines (to read only new ones).",
+                            "wait": f"Seconds to wait for the job to end first (max {MAX_WAIT}); 0 reads at once."})
+def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
     """Output of a background job so far, and whether it is still running."""
     record = _job(ctx, job)
+    deadline = time.time() + max(0, min(int(wait or 0), MAX_WAIT))
+    while record["status"] in ("running", "stopping") and time.time() < deadline:
+        time.sleep(0.5)
+        record = _job(ctx, job)
     lines = _lines(record["log"])
     start = max(0, int(since or 0))
     shown = lines[start:start + OUTPUT_LINES]

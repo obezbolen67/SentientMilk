@@ -17,7 +17,8 @@ QUIET_SECONDS = 20 * 60
 TRANSCRIPT_CHARS = 12_000
 PROMPT = """Write one journal note about the conversation below, for your own later reference: 1 to 3 short
 sentences, at most 400 characters. Say what was discussed or done, decisions and anything worth
-remembering. Plain text, no preamble, in English."""
+remembering. "You" in it is you: write about yourself as "you", never as "the assistant". Plain text,
+no preamble, in English."""
 
 
 class Journal:

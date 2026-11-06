@@ -62,6 +62,9 @@ def validate(config) -> dict:
     return {"servers": dict(config.get("servers", {}))}
 
 
+HIDDEN = "<set>"
+
+
 def public(config: dict) -> dict:
     """Header and environment values hidden unless they only name an environment variable."""
     hidden = {}
@@ -69,7 +72,7 @@ def public(config: dict) -> dict:
         spec = dict(spec)
         for key in ("env", "headers"):
             if key in spec:
-                spec[key] = {k: v if _VARIABLE.fullmatch(v.split()[-1] if v.split() else "") else "<set>"
+                spec[key] = {k: v if _VARIABLE.fullmatch(v.split()[-1] if v.split() else "") else HIDDEN
                              for k, v in spec[key].items()}
         hidden[name] = spec
     return {"servers": hidden}
@@ -106,7 +109,16 @@ class McpHost:
             return {"servers": {}}
 
     def set_config(self, config: dict) -> dict:
+        """Replace the servers; a value still reading ``<set>`` keeps the stored secret, so a
+        configuration read from public() can be changed and sent back."""
         config = validate(config)
+        stored = self.config()["servers"]
+        for name, spec in config.get("servers", {}).items():
+            for key in ("env", "headers"):
+                kept = stored.get(name, {}).get(key, {})
+                for item, value in spec.get(key, {}).items():
+                    if value == HIDDEN and item in kept:
+                        spec[key][item] = kept[item]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, temporary = tempfile.mkstemp(prefix=".mcp-", suffix=".json", dir=self.path.parent)
         with os.fdopen(fd, "w", encoding="utf-8") as output:

@@ -147,3 +147,14 @@ def test_an_app_can_keep_its_sessions_out_of_the_journal(brain):
     turn(brain, "milk", "secret stuff")
     brain.brain.journal.write("milk", "main")
     assert brain.store.notes() == [] and brain.provider.journal_requests == []
+
+
+def test_a_task_waiting_for_approval_says_what_it_waits_for(brain):
+    brain.provider.replies += [tool_call("shell_run", {"command": "echo hi"}, "t1"), "Said hi."]
+    task = brain.client.start_task("cli", "say hi in the shell", session="main")
+    wait_for(lambda: brain.client.run(task["id"])["status"] == "input_required")
+    waiting = brain.client.run(task["id"])["waiting"]
+    assert [(w["kind"], w["name"], w["arguments"]["command"]) for w in waiting] == [("approval", "shell_run", "echo hi")]
+    brain.client.answer(task["id"], call_id="t1", decision="allow")
+    wait_for(lambda: brain.client.run(task["id"])["status"] == "completed")
+    assert brain.client.run(task["id"])["waiting"] == []

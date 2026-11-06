@@ -41,6 +41,15 @@ def test_settings_are_checked_and_secrets_hidden():
     assert tool_name("my.server", "do thing") == "mcp__my_server__do_thing"
 
 
+def test_changing_servers_keeps_the_hidden_secrets_of_the_others(brain):
+    brain.client.set_mcp({"gh": {"url": "https://x.invalid/mcp", "headers": {"X-Key": "literal-secret"},
+                                 "enabled": False}})
+    servers = brain.client.mcp()["servers"]  # what the CLI and the panel read: the key shows as <set>
+    servers["other"] = {"url": "https://y.invalid/mcp", "enabled": False}
+    brain.client.set_mcp(servers)
+    assert brain.brain.mcp.config()["servers"]["gh"]["headers"] == {"X-Key": "literal-secret"}
+
+
 def test_mcp_servers_are_toolkits_the_model_can_use(brain, tmp_path):
     pytest.importorskip("mcp")
     script = tmp_path / "server.py"
