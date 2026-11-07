@@ -155,9 +155,11 @@ class Runs:
 
     def subagent(self, parent: dict, goal: str, toolkits: Optional[list], mode: str, instructions: str) -> str:
         """Run a helper to the end on this thread and return its report (the reviewer of a task)."""
+        own = parent["options"].get("profile") or {}  # it works where its parent does: folders and allowed calls
         options = {"input": [{"type": "text", "text": goal}], "goal": goal,
-                   "profile": {"instructions": instructions, "toolkits": toolkits, "mode": mode,
-                               "from_session": parent["session"], "signals": False}}
+                   "profile": {"instructions": instructions, "toolkits": toolkits, "mode": mode, "signals": False,
+                               "from_session": own.get("from_session") or parent["session"], "cwd": own.get("cwd"),
+                               "allow": own.get("allow") or []}}
         model = self.brain.config.values()["light_model"]
         options["model"] = model
         run_id = self.store.add_run(parent["app"], "pending", "subagent", options, parent=parent["id"],

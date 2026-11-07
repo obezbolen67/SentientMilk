@@ -293,6 +293,15 @@ def test_projection_never_puts_notes_between_a_call_and_its_result():
     assert context.project(events, None)[-1]["content"] == "[Note: job finished]\n\nnext"
 
 
+def test_the_last_step_of_the_budget_asks_for_an_answer(brain, monkeypatch):
+    monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 3)
+    brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"z{i}") for i in range(2)] + \
+        ["Found two; the third is left."]
+    assert brain.client.turn("cli", "main", "look around")["reply"] == "Found two; the third is left."
+    assert "last step" not in json.dumps(brain.provider.sent[1]["messages"])
+    assert "last step" in brain.provider.last_user_text()
+
+
 def test_the_step_budget_stops_runaway_loops(brain, monkeypatch):
     monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 3)
     brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"x{i}") for i in range(5)]

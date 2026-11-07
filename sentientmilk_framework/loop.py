@@ -36,11 +36,14 @@ SEARCH_LIMIT, LOAD_LIMIT, SUMMARY_CHARS = 20, 20, 120
 APP_TOOLS = "this app's own"  # how MORE TOOLS names the app's actions
 META_TOOLS = ("tools_search", "tools_load")
 VERIFY_ROUNDS = 2
+LAST_STEP = ("This is your last step (the step budget): call no tools. Answer now with what you did, what you found "
+             "and what is left to do.")
 INTERRUPTED_CALL = ("The brain stopped while this call was running. It may or may not have finished: check its "
                     "effect before you repeat it.")
 VERIFY_PROMPT = """You review a background task another assistant says it finished. Be skeptical: the author
 tends to praise its own work. Check the work yourself with your tools (read the files, run the tests or
-commands); do not trust the report. Start your answer with PASS or FAIL on the first line, then explain.
+commands); do not trust the report. Change nothing: your shell only runs commands that look (reading, searching,
+git status/diff/log/show, tests and linters). Start your answer with PASS or FAIL on the first line, then explain.
 FAIL if any part of the goal is missing, broken or unverified.
 
 Goal:
@@ -163,7 +166,8 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
              if (t.only_in is None or kind in t.only_in)
              and not permissions.removed(t.name, profile["rules"])
              and (mode != "readonly" or (t.readonly and not t.action))
-             and (mode != "review" or (not t.action and t.name not in ("files_edit", "files_write")))]
+             # a reviewer checks: tools that change nothing, and a shell that only runs looking commands
+             and (mode != "review" or (not t.action and (t.readonly or t.name == "shell_run")))]
     if kind in ("task", "agent"):
         tools.append(task_progress)  # every worker keeps notes that outlive its context
     unique = list({t.name: t for t in tools}.values())
@@ -232,9 +236,12 @@ class Loop:
                     profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
                     toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
                 steps = sum(1 for e in store.run_events(run_id) if e["type"] == "assistant")
-                if steps >= run["options"].get("max_steps", STEP_BUDGET[run["kind"]]):
+                budget = run["options"].get("max_steps", STEP_BUDGET[run["kind"]])
+                if steps >= budget:
                     raise BrainError("budget", f"Stopped after {steps} steps (the step budget)",
                                      "Progress is kept; start a new task to continue.")
+                if steps == budget - 1:  # an answer with what it has beats an error with nothing
+                    brain.note(run["app"], run["session"], LAST_STEP)
                 if run["kind"] in ("turn", "task"):
                     self.brain.agents.take_mail(run)  # what its agents sent meanwhile
                 self._take_messages(run, emit)

@@ -8,6 +8,7 @@ from conftest import turn, wait_for
 from sentientmilk_framework import context, scheduler
 from sentientmilk_framework.journal import CAPACITY
 from sentientmilk_framework.testing import tool_call
+from sentientmilk_framework.toolkits import ToolContext, ToolError, shell
 
 
 def test_a_task_works_in_its_own_session_and_reports_back(brain):
@@ -52,6 +53,55 @@ def test_a_reviewer_sends_unfinished_work_back(brain):
     assert done["result"]["reply"] == "Fixed it now."
     notes = brain.store.events("cli", task["session"], types=("note",))
     assert "did not pass" in notes[0]["text"] and "the file is missing" in notes[0]["text"]
+
+
+def test_a_reviewer_only_gets_tools_that_change_nothing(brain):
+    brain.client.update_app("cli", rules={"allow": ["*"]})  # the user allows everything: still nothing that writes
+    profile = brain.brain.profile("cli", "agent-1", {"mode": "review", "from_session": "main"})
+    names = set(brain.brain.toolset(profile, "subagent").by_name)
+    assert {"files_read", "files_search", "files_find", "shell_run", "web_fetch", "memory_list"} <= names
+    assert not names & {"files_edit", "files_write", "memory_save", "memory_forget", "shell_stop", "todo_write",
+                        "schedule_create", "schedule_delete"}
+
+
+@pytest.mark.parametrize("command", [
+    "git status", "git diff HEAD~1 -- src", "rg -n needle src", "Get-Content a.txt | Select-String x",
+    ".venv/Scripts/python.exe -m pytest -q tests/test_a.py", "pytest -x", "npm test", "ruff check src",
+    "node --version", "Get-ChildItem -Recurse -Filter *.py",
+    "ruff check --preview --output-format=json src", "python -I -m pytest -q",
+    r'& "C:\Program Files\Python312\python.exe" -m pytest -v', r'"C:\My Tools\rg.exe" needle'])
+def test_a_reviewer_may_run_commands_that_only_look(command):
+    assert shell.looking_only(command) == ""
+
+
+@pytest.mark.parametrize("command", [
+    "Set-Content x.txt y", "echo hi > x.txt", "git status; Remove-Item x", "git status && rm x", "git push",
+    "git checkout -- .", "ruff check --fix src", "Get-Content (Remove-Item x)", "cat $(rm x)", "rm -rf build",
+    "git diff --output=x.patch", "python make.py", "python -c \"open('x','w')\"", "Get-ChildItem | Remove-Item",
+    "& rm x", "Get-ChildItem | ForEach-Object { Remove-Item $_ }", "npm install", "git status & rm x",
+    '"unclosed rg x'])
+def test_a_reviewer_may_not_run_commands_that_change_things(command):
+    assert shell.looking_only(command)
+
+
+def test_a_reviewer_sees_the_folders_of_the_chat_the_task_came_from(brain):
+    (brain.work / "a.txt").write_text("the work", encoding="utf-8")
+    brain.provider.replies += ["Wrote a.txt.", tool_call("files_read", {"path": "a.txt"}, "v1"), "PASS: a.txt is there."]
+    task = brain.client.start_task("cli", "Write a.txt.", session="main", verify=True)
+    wait_for(lambda: brain.store.run(task["id"])["status"] == "completed")
+    reviewer = brain.store.runs(kind="subagent")[0]
+    read = next(e for e in brain.store.run_events(reviewer["id"]) if e["type"] == "tool")
+    assert read["status"] == "ok" and "the work" in read["content"]
+
+
+def test_a_reviewers_shell_refuses_a_write_and_runs_a_check(brain):
+    run_id = brain.store.add_run("cli", "agent-1", "subagent", {}, status="working")
+    profile = brain.brain.profile("cli", "agent-1", {"mode": "review", "from_session": "main"})
+    ctx = ToolContext(brain.brain, brain.store.run(run_id), profile, "call-1")
+    with pytest.raises(ToolError, match="only look"):
+        shell.shell_run.func(ctx, "Set-Content made.txt x")
+    assert not (brain.work / "made.txt").exists()
+    assert shell.shell_run.func(ctx, "git --version").startswith("[exit code 0]")
 
 
 def test_tasks_resume_after_a_restart(brain):
