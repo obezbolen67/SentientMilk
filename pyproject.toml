@@ -27,7 +27,7 @@ sentientmilk = "sentientmilk_framework.cli:main"
 include = ["sentientmilk_framework*"]
 
 [tool.setuptools.package-data]
-sentientmilk_framework = ["eval_tasks/*.json", "assets/*.ico"]
+sentientmilk_framework = ["eval_tasks/*.json", "assets/*.ico", "plugins/*/plugin.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

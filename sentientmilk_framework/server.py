@@ -213,6 +213,18 @@ class _Handler(BaseHTTPRequestHandler):
             app = query.get("app")
             self._send(200, {"toolkits": brain.toolkit_names(), "mcp": brain.mcp.status(),
                              **({"enabled": brain.profile(validate_name(app), "main")["toolkits"]} if app else {})})
+        elif route == ["plugins"] and method == "GET":
+            self._send(200, {"plugins": brain.plugins.public()})
+        elif route == ["plugins"] and method == "POST":
+            self._send(200, {"plugin": brain.install_plugin(body.get("source", ""))})
+        elif head == "plugins" and len(rest) == 1 and method == "PATCH":
+            unknown = set(body) - {"enabled", "settings"}
+            if unknown:
+                raise ValueError(f"Unknown plugin fields: {sorted(unknown)}")
+            self._send(200, {"plugin": brain.update_plugin(rest[0], body.get("enabled"), body.get("settings"))})
+        elif head == "plugins" and len(rest) == 1 and method == "DELETE":
+            brain.remove_plugin(rest[0])
+            self._send(200, {"status": "ok"})
         elif route == ["mcp"] and method == "GET":
             from .mcp_host import public
 

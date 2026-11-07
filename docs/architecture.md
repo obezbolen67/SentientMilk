@@ -299,8 +299,8 @@ holds the tools.
 - **Errors teach.** Say what was wrong and show a correct call. No raw tracebacks.
 - **Read-only flag.** Each tool declares `readonly`. It decides parallel execution, crash
   re-runs, subagent access and the default policy.
-- **Plugins** (`~/.sentientmilk/toolkits/*.py`) use the same contract. The schema comes
-  from type hints and the docstring, as `ai.py` already does.
+- **Plugins** (section 6.5) use the same contract. The schema comes from type hints and
+  the docstring, as `ai.py` already does.
 
 ### 6.2 Built-in toolkits
 
@@ -316,6 +316,7 @@ holds the tools.
 | (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
 | `schedule` | `schedule_create(when, what)`, `schedule_list()`, `schedule_delete(id)` | Section 9.6. |
 | `mcp:<server>` | the server's tools | Section 8. |
+| `github` (plugin) | `github_search`, `github_repo`, `github_files`, `github_issues`, `github_issue`, `github_diff`, `github_runs`, `github_run`, `github_get`; asking first: `github_issue_create`, `github_comment`, `github_issue_update`, `github_pr_create`, `github_pr_review`, `github_pr_merge`, `github_api` | Section 6.5. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
 MilkChan enables `memory`, `web`, `todo`, `journal`, `schedule`, `files`, `shell` and
@@ -344,6 +345,61 @@ After `files_edit` or `files_write` the brain checks the file: `compile()` for `
 before, the brain restores the old content. It returns the error with the lines around
 it. This is SWE-agent's linter guardrail. Checks are per file type, so more types can be
 added later.
+
+### 6.5 Plugins
+
+A plugin extends the brain for every app at once: it is installed in SentientMilk, not in
+an app, so MilkChan, the CLI and any other app get its tools without knowing it exists.
+It is a folder with a `plugin.json` (`sentientmilk_framework/plugins/__init__.py` has
+the whole contract):
+
+```json
+{"name": "github", "version": "1.0.0", "description": "...",
+ "toolkits": ["tools.py"],
+ "mcp": {"servers": {"search": {"command": "search-server", "env": {"TOKEN": "${token}"}}}},
+ "settings": {"token": {"label": "Token", "secret": true, "env": ["GITHUB_TOKEN"], "help": "..."}}}
+```
+
+- **Toolkits**: Python files of the folder, each defining `TOOLKIT` or `TOOLKITS` under
+  the toolkit contract (6.1). The folder is imported as a package, so its files import
+  each other (`from . import client`). A tool reads its settings with
+  `ctx.brain.plugins.settings("<name>")`.
+- **MCP servers**: as in `mcp.json` (section 8); `${key}` takes the plugin's setting, any
+  other `${NAME}` the environment. A server named like the plugin is toolkit
+  `mcp:<plugin>`, others `mcp:<plugin>-<server>`. The user's `mcp.json` wins a name both
+  use. Changing a plugin with servers restarts the MCP host.
+- **Settings**: what the user sets in the panel (Plugins) or with `sentientmilk plugins
+  set`. A value comes from what the user set, else the first `env` variable that is set,
+  else `default`. Secrets are only ever shown as set or not; `<set>` sent back keeps one.
+
+Where they come from: built-in plugins ship in `sentientmilk_framework/plugins/<name>/`;
+the user's live in `~/.sentientmilk/plugins/<name>/`, installed from a folder or a git URL
+(cloned without its `.git`). Single-file toolkits in `~/.sentientmilk/toolkits/*.py` load
+as plugins too. `~/.sentientmilk/plugins.json` (user-only, written atomically) keeps which
+are off and their settings; an unreadable one is set aside as `plugins.json.invalid`, not
+overwritten.
+
+Every enabled plugin's toolkits are offered to every app on top of the toolkits the app
+declares, and the usual three levels (brain, app, session) switch them off. They are not
+core, so they cost one line of the MORE TOOLS listing (7.4) until the model loads them. A
+plugin that fails to load (a bad manifest, an import error, a toolkit name already taken)
+is listed with its error; the brain and every other plugin go on. A plugin runs as the
+user, inside the brain, with the brain's rights: the panel says to install only plugins
+one trusts.
+
+**The GitHub plugin** is built in and on by default. It talks to the REST API with
+`requests` (no new dependency). Its token is its setting, else `GITHUB_TOKEN` or
+`GH_TOKEN`, else `gh auth token`; without one it reads public data only (60 requests an
+hour). The token is only sent to the configured API host: a full URL to any other host is
+refused, and `requests` drops it on the redirect of job logs to storage. Reading tools are
+read-only and `auto`; changes are `ask`, with rules matching the repository
+(`github_comment(me/*)`) or for `github_api` the path. Results are short lines a person
+would read (`#12 [PR, draft] Title [labels] — @who · 3 comments`), files come in numbered
+windows like `files_read`, a failed run shows its failed steps and the end of each failed
+job's log, and long output goes to a file. Errors say what to do: set a token on 401, when
+the rate limit resets on 403, that a private repository needs a token on 404, and
+GitHub's own reasons on 422. `github_get` and `github_api` reach everything else the REST
+API has (releases, branches, gists, workflow re-runs).
 
 ## 7. Context management
 
@@ -736,6 +792,7 @@ bearer token.
 | `GET/POST /v1/schedules`, `PATCH/DELETE /v1/schedules/<id>` | manage schedules |
 | `GET /v1/toolkits` | toolkits, MCP servers included, with status and errors |
 | `GET/PUT /v1/mcp`, `POST /v1/mcp/<name>/reconnect` | MCP configuration |
+| `GET/POST /v1/plugins`, `PATCH/DELETE /v1/plugins/<name>` | plugins (section 6.5): list, install (`source`), turn on or off and set (`enabled`, `settings`), remove |
 | `GET /v1/journal`, `DELETE /v1/journal/<id>` | view and prune the journal |
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
 

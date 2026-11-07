@@ -104,6 +104,7 @@ def test_an_app_marks_the_actions_it_wants_sent(brain):
 
 def test_with_nothing_to_load_there_are_no_meta_tools(brain):
     brain.client.declare_app("small", toolkits=["web"])
+    brain.client.update_app("small", disabled_toolkits=["github"])  # plugins come to every app unless switched off
     brain.provider.replies += ["hi"]
     turn(brain, "small", "hello")
     assert sent_names(brain.provider.sent[0]) == ["web_search", "web_fetch"]

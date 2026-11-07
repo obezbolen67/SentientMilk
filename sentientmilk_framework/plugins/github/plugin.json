@@ -1,0 +1,19 @@
+{
+  "name": "github",
+  "version": "1.0.0",
+  "description": "GitHub through its REST API: search, repositories and files, issues and pull requests (diffs, reviews, checks), Actions runs and their logs; opens, comments on, reviews and merges. Reading asks nothing; changes ask first.",
+  "toolkits": ["tools.py"],
+  "settings": {
+    "token": {
+      "label": "Token",
+      "secret": true,
+      "env": ["GITHUB_TOKEN", "GH_TOKEN"],
+      "help": "A personal access token. Empty: GITHUB_TOKEN or GH_TOKEN, else the gh CLI's login; without any, public data only (60 requests an hour)."
+    },
+    "api_url": {
+      "label": "API URL",
+      "default": "https://api.github.com",
+      "help": "For GitHub Enterprise Server: https://HOST/api/v3"
+    }
+  }
+}

@@ -100,3 +100,31 @@ def test_stopping_the_brain_from_the_panel(brain):
         assert not panel.query_one("#brain-start", Button).disabled
     run(brain, scenario)
     wait_for(lambda: not (brain.home / "server.json").exists(), 30)  # it answers first, then closes
+
+
+def test_plugins_are_turned_off_and_set_up_here_without_showing_secrets(brain):
+    async def scenario(panel, pilot):
+        panel.action_tab("plugins")
+        table = panel.query_one("#plugin-table", DataTable)
+        await until(pilot, lambda: table.row_count)
+        assert "github" in str(table.get_row("github"))
+        table.move_cursor(row=table.get_row_index("github"))
+        await press(pilot, panel, "plugin-toggle")
+        assert not brain.brain.plugins.enabled("github")
+        await press(pilot, panel, "plugin-settings")
+        dialog = panel.screen
+        token = dialog.query_one("#s-token", Input)
+        assert token.password and token.value == ""
+        token.value = "ghp_from_panel"
+        dialog.query_one("#s-api_url", Input).value = "https://ghe.example/api/v3"
+        await press(pilot, panel, "save")
+        assert brain.brain.plugins.settings("github") == {"token": "ghp_from_panel",
+                                                          "api_url": "https://ghe.example/api/v3"}
+        await press(pilot, panel, "plugin-settings")
+        await press(pilot, panel, "save")  # nothing typed: the token stays
+        assert brain.brain.plugins.settings("github")["token"] == "ghp_from_panel"
+        assert "ghp_from_panel" not in str(table.get_row("github"))
+        await press(pilot, panel, "plugin-remove")
+        assert panel.screen is panel.main  # built in: nothing to ask, it can only be turned off
+        assert any(p["name"] == "github" for p in brain.client.plugins())
+    run(brain, scenario)

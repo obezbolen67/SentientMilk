@@ -129,13 +129,21 @@ class McpHost:
         self.start()
         return public(config)
 
+    def effective(self) -> Dict[str, dict]:
+        """The servers to run: the plugins' and the user's (mcp.json wins a name both use)."""
+        return {**self.brain.plugins.mcp_servers(), **self.config()["servers"]}
+
     def servers(self):
-        return [name for name, spec in self.config()["servers"].items() if spec.get("enabled", True)]
+        return [name for name, spec in self.effective().items() if spec.get("enabled", True)]
+
+    def restart(self) -> None:
+        self.stop()
+        self.start()
 
     # ============== Lifecycle ==============
 
     def start(self) -> None:
-        servers = {name: spec for name, spec in self.config()["servers"].items() if spec.get("enabled", True)}
+        servers = {name: spec for name, spec in self.effective().items() if spec.get("enabled", True)}
         if not servers:
             return
         try:
@@ -173,7 +181,7 @@ class McpHost:
         asyncio.run_coroutine_threadsafe(self._open(fresh), self._loop)
 
     def status(self) -> dict:
-        names = self.config()["servers"]
+        names = self.effective()
         result = {}
         for name, spec in names.items():
             server = self._servers.get(name)

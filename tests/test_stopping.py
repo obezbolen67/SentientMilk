@@ -21,7 +21,7 @@ SLEEP = "Start-Sleep -Seconds 20" if os.name == "nt" else "sleep 20"
 
 
 @pytest.fixture
-def slow(brain):
+def slow(brain, monkeypatch):
     def nap(ctx, seconds: float = 30):  # deaf to the stop
         time.sleep(seconds)
         return "slept"
@@ -29,9 +29,9 @@ def slow(brain):
     def doze(ctx, seconds: float = 30):
         return f"woke: {ctx.interruption()}" if ctx.pause(seconds) else "slept"
 
-    brain.brain.plugins["slow"] = Toolkit("slow", "Slow tools.", [
-        Tool("nap", "Sleep.", SECONDS, nap, readonly=True, policy="auto"),
-        Tool("doze", "Sleep until woken.", SECONDS, doze, readonly=True, policy="auto")])
+    kit = Toolkit("slow", "Slow tools.", [Tool("nap", "Sleep.", SECONDS, nap, readonly=True, policy="auto"),
+                                          Tool("doze", "Sleep until woken.", SECONDS, doze, readonly=True, policy="auto")])
+    monkeypatch.setattr(brain.brain.plugins, "toolkits", lambda: {"slow": kit})  # as a plugin's
     brain.client.declare_app("slow", name="Slow", environment="Tests.", toolkits=["slow", "shell"],
                              rules={"allow": ["shell_run"]})
     return brain

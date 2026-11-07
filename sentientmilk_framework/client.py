@@ -323,6 +323,23 @@ class BrainClient:
     def toolkits(self, app: Optional[str] = None) -> dict:
         return self._call("GET", "/toolkits", params={"app": app} if app else None)
 
+    def plugins(self) -> List[dict]:
+        """Every plugin: name, version, description, builtin, enabled, error, toolkits, tools, mcp, settings
+        (secrets only as ``set``)."""
+        return self._call("GET", "/plugins")["plugins"]
+
+    def install_plugin(self, source: str) -> dict:
+        """From a folder with a plugin.json, or a git URL; the plugin is on at once."""
+        return self._call("POST", "/plugins", {"source": source}, timeout=330)["plugin"]
+
+    def update_plugin(self, name: str, enabled: Optional[bool] = None, settings: Optional[Dict[str, str]] = None) -> dict:
+        """Turn a plugin on or off and change its settings: "<set>" keeps a secret, "" clears a setting."""
+        changes = {key: value for key, value in (("enabled", enabled), ("settings", settings)) if value is not None}
+        return self._call("PATCH", f"/plugins/{quote(name, safe='')}", changes)["plugin"]
+
+    def remove_plugin(self, name: str) -> None:
+        self._call("DELETE", f"/plugins/{quote(name, safe='')}")
+
     def mcp(self) -> dict:
         return self._call("GET", "/mcp")
 

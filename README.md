@@ -54,9 +54,11 @@ none runs and shows it live:
   where single entries can be forgotten.
 - **Work**: tasks (cancel) and schedules (pause, delete). **Journal**: search and delete notes.
 - **Tools**: toolkits on or off for every app, approval rules, MCP servers.
+- **Plugins**: install (a folder or a git URL), turn on or off, settings (secrets
+  write-only), remove.
 - **Logs**: `brain.log` as it grows.
 
-Keys: `1`-`7` tabs, `s` start, `x` stop, `r` refresh, `ctrl+s` save the open page, `q` quit.
+Keys: `1`-`8` tabs, `s` start, `x` stop, `r` refresh, `ctrl+s` save the open page, `q` quit.
 
 The brain is a background service: it runs until it is stopped, never on its own, and
 closing the panel leaves it running. While it runs, its milk carton sits in the Windows
@@ -73,15 +75,19 @@ brain next starts.
 
 Other commands: `serve` (run in the foreground), `tasks [show|cancel ID]`,
 `schedules [delete ID]`, `journal [QUERY] [--delete ID]`,
-`mcp [add NAME (--url URL | -- COMMAND ...)|remove NAME]`, `stats`, `eval`.
+`mcp [add NAME (--url URL | -- COMMAND ...)|remove NAME]`,
+`plugins [show NAME|install FOLDER_OR_GIT_URL|remove NAME|on NAME|off NAME|set NAME KEY[=VALUE]...]`,
+`stats`, `eval`.
 
 The brain keeps its files in `~/.sentientmilk` (`--home` or `SENTIENTMILK_HOME` changes it):
 
-- `config.json`: settings, including the API key; `mcp.json`: MCP servers. Both readable by the user only.
+- `config.json`: settings, including the API key; `mcp.json`: MCP servers; `plugins.json`:
+  plugins turned off and their settings. All readable by the user only.
 - `brain.sqlite3`: apps, sessions, the event log of every run, memory, journal, schedules.
 - `server.json`: the running brain's address and token; `launch.json`: how apps start it;
   `brain.lock`, `brain.log`.
-- `runs/<id>/`: long tool output and task progress files; `toolkits/`: your own toolkits.
+- `runs/<id>/`: long tool output and task progress files; `plugins/`: installed plugins;
+  `toolkits/`: single-file toolkits of your own.
 
 ## Use it from an app
 
@@ -164,10 +170,43 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
 | `agents` | `agent_start`, `agent_message`, `agents_wait`, `agents_status`, `agent_stop` |
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_delete` |
 | `mcp:<server>` | the server's tools, as `mcp__<server>__<tool>` |
+| `github` (plugin) | search, repositories and files, issues and pull requests (diffs, reviews, checks), Actions runs with the log of what failed, any REST read; opening, commenting, reviewing, merging and any other REST call ask first |
 
-An app enables the toolkits it lists; the user can disable any of them for the whole
-brain (`disabled_toolkits`), an app or a session. A toolkit of your own is a Python file in
-`~/.sentientmilk/toolkits/`:
+An app enables the toolkits it lists, and every app gets the toolkits of enabled plugins;
+the user can disable any of them for the whole brain (`disabled_toolkits`), an app or a
+session.
+
+## Plugins
+
+Plugins extend the brain for every app. A plugin is a folder with a `plugin.json` that
+brings toolkits, MCP servers and settings (`docs/architecture.md`, section 6.5):
+
+```json
+{"name": "weather", "version": "1.0.0", "description": "Current weather.",
+ "toolkits": ["tools.py"],
+ "settings": {"key": {"label": "API key", "secret": true, "env": ["WEATHER_KEY"]}}}
+```
+
+```python
+# tools.py
+from sentientmilk_framework.toolkits import Toolkit, tool
+
+@tool(readonly=True, args={"city": "City name."})
+def weather_now(ctx, city: str):
+    """The current weather in a city."""
+    key = ctx.brain.plugins.settings("weather")["key"]
+    return f"Sunny in {city}."
+
+TOOLKIT = Toolkit("weather", "Current weather.", [weather_now])
+```
+
+Install it with `sentientmilk plugins install C:/plugins/weather` (or a git URL), or from
+the panel. A single file with `TOOLKIT` in `~/.sentientmilk/toolkits/` loads as a plugin
+too. A plugin runs as you, inside the brain: install only plugins you trust.
+
+**GitHub** comes built in. It uses the token set in its settings, else `GITHUB_TOKEN` or
+`GH_TOKEN`, else the login of the `gh` CLI; without any, it reads public data only.
+Reading asks nothing; every change asks first.
 
 ```python
 from sentientmilk_framework.toolkits import Toolkit, tool
@@ -211,6 +250,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `POST /runs/{id}/answer`, `/cancel`, `/steer`, `/detach` | answer an approval, question or action (`result`, `images`); cancel at once (waits inside tools end, calls still running are left behind with a stopped result, a command in the foreground is ended, helpers stop too); steer: `input` for a turn that works, which reaches the model at its next step (waits end early, approvals it waits for are refused; 409 `ended` once the turn is over, and one that comes as it finishes is returned in `done` as `unread`); let a turn go on in the background |
 | `GET`/`POST /schedules`, `PATCH`/`DELETE /schedules/{id}` | schedules |
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
+| `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled` and `settings`, remove |
 | `GET /apps`, `DELETE /apps/{app}/memory/{category}/{key}`, `POST /shutdown` | apps, forgetting a memory, stopping the brain |
 | `GET /journal?q=`, `DELETE /journal/{id}`, `GET /jobs/{id}` | the journal; background shell jobs |
 
@@ -259,6 +299,7 @@ sentientmilk_framework/
   journal.py     notes about sessions across apps
   scheduler.py   at, every and cron schedules
   mcp_host.py    MCP servers as toolkits
+  plugins/       plugin loading, settings and install; github/: the GitHub plugin
   toolkits/      built-in toolkits
   transport.py   images sized to the request budget
   config.py, thinking.py, exceptions.py

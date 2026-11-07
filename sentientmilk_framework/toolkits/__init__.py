@@ -1,11 +1,10 @@
 """Toolkits: named groups of tools the brain offers to the model.
 
 A tool is a Python function whose first argument is the ToolContext; its schema
-comes from the type hints and its description from the docstring. Plugins in
-``<home>/toolkits/*.py`` define ``TOOLKIT = Toolkit(...)`` the same way.
+comes from the type hints and its description from the docstring. Plugins (see
+``plugins``) define ``TOOLKIT = Toolkit(...)`` the same way.
 """
 
-import importlib.util
 import inspect
 import json
 import logging
@@ -188,19 +187,3 @@ def builtin() -> Dict[str, Toolkit]:
 
     return {kit.TOOLKIT.name: kit.TOOLKIT for kit in (files, shell, web, todo, memory, journal, agents, schedule)}
 
-
-def load_plugins(directory: Path) -> Dict[str, Toolkit]:
-    """User toolkits; a broken plugin is logged and skipped, never fatal."""
-    found = {}
-    for path in sorted(Path(directory).glob("*.py")):
-        try:
-            spec = importlib.util.spec_from_file_location(f"sentientmilk_plugin_{path.stem}", path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            kit = getattr(module, "TOOLKIT")
-            if not isinstance(kit, Toolkit):
-                raise TypeError("TOOLKIT must be a sentientmilk_framework.toolkits.Toolkit")
-            found[kit.name] = kit
-        except Exception as exc:
-            logger.error("Plugin toolkit %s was skipped: %s", path, exc)
-    return found

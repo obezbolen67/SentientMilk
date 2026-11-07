@@ -22,11 +22,12 @@ from .config import BrainConfig, validate_rules, validate_setting
 from .journal import Journal
 from .loop import ACTIVE, Toolset, build_toolset
 from .mcp_host import McpHost
+from .plugins import Plugins
 from .provider import Provider
 from .runs import Bus, Runs
 from .scheduler import Scheduler
 from .store import Store
-from .toolkits import builtin, load_plugins
+from .toolkits import builtin
 from .toolkits.shell import shell_name
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,7 @@ class Brain:
         self.store = Store(self.home / "brain.sqlite3")
         self.bus = Bus()
         self.jobs: Dict[int, Any] = {}
-        self.plugins = load_plugins(self.home / "toolkits")
+        self.plugins = Plugins(self.home)
         self.mcp = McpHost(self)
         self.runs = Runs(self)
         self.agents = Agents(self)
@@ -181,7 +182,27 @@ class Brain:
         self.store.put_app(app, settings={**record["settings"], "rules": rules})
 
     def toolkit_names(self) -> List[str]:
-        return list(builtin()) + list(self.plugins) + [f"mcp:{name}" for name in self.mcp.servers()]
+        return list(builtin()) + list(self.plugins.toolkits()) + [f"mcp:{name}" for name in self.mcp.servers()]
+
+    # ============== Plugins ==============
+
+    def update_plugin(self, name: str, enabled: Optional[bool] = None, settings: Optional[dict] = None) -> dict:
+        info = self.plugins.update(name, enabled, settings)
+        if self.plugins.has_servers(name):
+            self.mcp.restart()  # its servers start, stop, or start again with the new settings
+        return info
+
+    def install_plugin(self, source: str) -> dict:
+        name = self.plugins.install(source)
+        if self.plugins.has_servers(name):
+            self.mcp.restart()
+        return self.plugins.info(name)
+
+    def remove_plugin(self, name: str) -> None:
+        servers = self.plugins.has_servers(name)
+        self.plugins.remove(name)
+        if servers:
+            self.mcp.restart()
 
     def profile(self, app: str, session: str, overrides: Optional[dict] = None) -> dict:
         """Everything a run of this session needs to know about who it is and what it may do."""
@@ -203,6 +224,7 @@ class Brain:
         wanted = []
         for name in declaration.get("toolkits", DEFAULT_TOOLKITS):
             wanted += [k for k in known if k.startswith("mcp:")] if name == "mcp:*" else [name]
+        wanted += self.plugins.offered()  # installed for every app; an app or session may switch one off
         toolkits = [k for k in dict.fromkeys(wanted) if k in known and k not in disabled
                     and not (k == "journal" and not journal["read"])]
         if overrides.get("toolkits"):
@@ -228,7 +250,7 @@ class Brain:
         }
 
     def toolset(self, profile: dict, kind: str) -> Toolset:
-        kits = {**builtin(), **self.plugins, **self.mcp.toolkits()}
+        kits = {**builtin(), **self.plugins.toolkits(), **self.mcp.toolkits()}
         return build_toolset(kits, profile, kind, self.shell_label())
 
     def shell_label(self) -> str:

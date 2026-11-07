@@ -47,7 +47,7 @@ OK, WARN, BAD, MUTED, ACCENT = "#7bd88f", "#f2c35b", "#ff6b7a", "#8b8fa3", "#b3a
 THEME = Theme(name="sentientmilk", primary=ACCENT, secondary="#7fd1c7", accent="#ffd59e", foreground="#e9e6f2",
               background="#0d0f15", surface="#141720", panel="#1b1f2c", success=OK, warning=WARN, error=BAD)
 FlatButton = partial(Button, flat=True)  # muted until hovered: calmer than solid blocks
-TABS = ("overview", "provider", "apps", "work", "journal", "tools", "logs")
+TABS = ("overview", "provider", "apps", "work", "journal", "tools", "plugins", "logs")
 SHELL_NAMES = {"": "Automatic (Windows PowerShell on Windows, bash elsewhere)", "powershell": "Windows PowerShell 5.1",
                "pwsh": "PowerShell 7", "bash": "bash", "sh": "sh", "cmd": "cmd.exe"}
 STATUS_COLORS = {"working": ACCENT, "queued": MUTED, "input_required": WARN, "completed": OK, "failed": BAD,
@@ -171,6 +171,75 @@ class AddServer(ModalScreen[Optional[Tuple[str, dict]]]):
         self.dismiss((name, spec))
 
 
+class InstallPlugin(ModalScreen[Optional[str]]):
+    """Where a plugin comes from: a folder with a plugin.json, or a git URL."""
+
+    BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog"):
+            yield Static("[b]Install a plugin[/b]\nIt runs as you, inside the brain: install only plugins you trust.",
+                         classes="question")
+            yield Input(placeholder="C:/plugins/weather  or  https://github.com/owner/plugin.git", id="source")
+            with Horizontal(classes="buttons"):
+                yield FlatButton("Install", variant="primary", id="install")
+                yield FlatButton("Cancel", id="cancel")
+
+    @on(Button.Pressed)
+    def answer(self, event: Button.Pressed) -> None:
+        event.stop()
+        source = self.query_one("#source", Input).value.strip()
+        if event.button.id == "install" and not source:
+            return self.app.notify("Give a folder or a git URL.", severity="error")
+        self.dismiss(source if event.button.id == "install" else None)
+
+
+class PluginSettings(ModalScreen[Optional[dict]]):
+    """A plugin's settings. Secrets are never shown: left empty they stay as they are."""
+
+    BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
+
+    def __init__(self, plugin: dict):
+        super().__init__()
+        self.plugin = plugin
+
+    def compose(self) -> ComposeResult:
+        settings = self.plugin["settings"]
+        with Vertical(classes="dialog"):
+            yield Static(f"[b]{escape(self.plugin['name'])}[/b]  [{MUTED}]{escape(self.plugin['version'])}[/]\n"
+                         f"{escape(self.plugin['description'])}", classes="question")
+            if not settings:
+                yield Static(f"[{MUTED}]It has nothing to set.[/]", classes="subtitle")
+            with Grid(classes="form"):
+                for key, setting in settings.items():
+                    yield Label(setting["label"])
+                    if setting["secret"]:
+                        yield Input(password=True, id=f"s-{key}",
+                                    placeholder="set: type to replace it" if setting["set"] else "not set")
+                    else:
+                        yield Input(setting["value"], id=f"s-{key}")
+            for setting in settings.values():
+                if setting["help"]:
+                    yield Static(f"[{MUTED}]{escape(setting['label'])}: {escape(setting['help'])}[/]",
+                                 classes="subtitle")
+            with Horizontal(classes="buttons"):
+                yield FlatButton("Save", variant="primary", id="save")
+                if any(s["secret"] and s["set"] for s in settings.values()):
+                    yield FlatButton("Forget secrets", variant="error", id="forget")
+                yield FlatButton("Cancel", id="cancel")
+
+    @on(Button.Pressed)
+    def answer(self, event: Button.Pressed) -> None:
+        event.stop()
+        settings = self.plugin["settings"]
+        if event.button.id == "forget":
+            return self.dismiss({key: "" for key, setting in settings.items() if setting["secret"]})
+        if event.button.id != "save":
+            return self.dismiss(None)
+        values = {key: self.query_one(f"#s-{key}", Input).value.strip() for key in settings}
+        self.dismiss({key: (value or "<set>") if settings[key]["secret"] else value for key, value in values.items()})
+
+
 class Panel(App):
     TITLE = "SentientMilk"
     CSS = """
@@ -205,7 +274,8 @@ class Panel(App):
     #app-detail { width: 1fr; padding-left: 2; }
     #task-detail { height: auto; margin: 1 0 0 0; color: $text-muted; }
     #log { height: 1fr; border: round $primary 40%; background: $surface; }
-    Confirm, AddServer { align: center middle; }
+    Confirm, AddServer, InstallPlugin, PluginSettings { align: center middle; }
+    #plugin-detail { height: auto; margin: 1 0 0 0; color: $text-muted; }
     .dialog { width: 84; height: auto; padding: 1 2; border: thick $primary; background: $panel; }
     .question { height: auto; }
     """
@@ -228,6 +298,7 @@ class Panel(App):
         self.app_id: Optional[str] = None
         self.app_record: dict = {}
         self.log_offset = 0
+        self.plugins: dict = {}
 
     @property
     def main(self) -> Screen:
@@ -253,6 +324,8 @@ class Panel(App):
                 yield from self.compose_journal()
             with TabPane("Tools", id="tools"):
                 yield from self.compose_tools()
+            with TabPane("Plugins", id="plugins"):
+                yield from self.compose_plugins()
             with TabPane("Logs", id="logs"):
                 yield Static("The brain's own log, live.", classes="hint")
                 yield RichLog(id="log", wrap=True, highlight=True, max_lines=2000)
@@ -407,6 +480,20 @@ class Panel(App):
                     yield FlatButton("Turn on / off", id="mcp-toggle")
                     yield FlatButton("Remove", id="mcp-remove", variant="error")
 
+    def compose_plugins(self) -> ComposeResult:
+        yield Static("Plugins extend the brain for every app: their tools are offered to all of them, and an app can "
+                     "still switch one off. A plugin runs as you, inside the brain: install only plugins you trust.",
+                     classes="hint")
+        with VerticalScroll():
+            with Vertical(classes="card", id="plugins-card"):
+                yield DataTable(id="plugin-table", cursor_type="row", zebra_stripes=True)
+                yield Static("", id="plugin-detail")
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Install…", id="plugin-install", variant="primary")
+                    yield FlatButton("Settings…", id="plugin-settings")
+                    yield FlatButton("Turn on / off", id="plugin-toggle")
+                    yield FlatButton("Remove", id="plugin-remove", variant="error")
+
     def on_mount(self) -> None:
         self.register_theme(THEME)
         self.theme = "sentientmilk"
@@ -417,7 +504,8 @@ class Panel(App):
                             ("sessions-card", "Conversations"), ("memory-card", "Memory"),
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
-                            ("runtime-card", "Runtime and permissions"), ("mcp-card", "MCP servers")):
+                            ("runtime-card", "Runtime and permissions"), ("mcp-card", "MCP servers"),
+                            ("plugins-card", "Plugins")):
             self.main.query_one(f"#{card}").border_title = title
         columns = {
             "usage": ("App", "Runs", "Model calls", "Prompt tokens", "Cached", "Cache hits", "Reply tokens"),
@@ -427,6 +515,7 @@ class Panel(App):
             "schedules": ("#", "App", "When", "Next", "Does", "Text", "State"),
             "notes": ("When", "App", "Note"),
             "mcp": ("Server", "State", "Tools", "Runs", "Problem"),
+            "plugin-table": ("Plugin", "Version", "State", "Tools", "From"),
         }
         for table, names in columns.items():
             self.main.query_one(f"#{table}", DataTable).add_columns(*names)
@@ -492,6 +581,7 @@ class Panel(App):
         self.load_provider()
         self.load_apps()
         self.load_tools()
+        self.load_plugins()
         self.refresh_live()
 
     def refresh_live(self) -> None:
@@ -499,7 +589,7 @@ class Panel(App):
             return
         self.show_state()
         live = {"overview": self.load_overview, "apps": self.load_app_tables, "work": self.load_work,
-                "journal": self.load_notes, "tools": self.load_mcp}
+                "journal": self.load_notes, "tools": self.load_mcp, "plugins": self.load_plugins}
         live.get(self.main.query_one(TabbedContent).active, lambda: None)()
 
     # ============== Overview ==============
@@ -825,6 +915,68 @@ class Panel(App):
         if self.call(lambda c: c.set_mcp(servers), done=done) is not None:
             self.load_mcp()
 
+    # ============== Plugins ==============
+
+    def load_plugins(self) -> None:
+        plugins = self.call(lambda c: c.plugins(), quiet=True)
+        if plugins is None:
+            return
+        self.plugins = {plugin["name"]: plugin for plugin in plugins}
+        rows = []
+        for plugin in plugins:
+            state = f"[{BAD}]broken[/]" if plugin["error"] else f"[{OK}]on[/]" if plugin["enabled"] else f"[{MUTED}]off[/]"
+            source = "built in" if plugin["builtin"] else plugin["path"]
+            rows.append((plugin["name"], (plugin["name"], plugin["version"], state, plugin["tools"], cut(source, 60))))
+        fill(self.main.query_one("#plugin-table", DataTable), rows)
+        self.show_plugin()
+
+    @on(DataTable.RowHighlighted, "#plugin-table")
+    def show_plugin(self) -> None:
+        plugin = self.plugins.get(selected_key(self.main.query_one("#plugin-table", DataTable)) or "")
+        if not plugin:
+            return self.main.query_one("#plugin-detail", Static).update("")
+        lines = [escape(plugin["description"])]
+        if plugin["error"]:
+            lines.append(f"[{BAD}]{escape(plugin['error'])}[/]")
+        if plugin["toolkits"] or plugin["mcp"]:
+            lines.append("Toolkits: " + ", ".join(plugin["toolkits"] + [f"mcp:{name}" for name in plugin["mcp"]]))
+        for setting in plugin["settings"].values():
+            shown = ("✓ set" if setting["set"] else "not set") if setting["secret"] else setting["value"] or "-"
+            lines.append(f"{escape(setting['label'])}: {escape(str(shown))}")
+        self.main.query_one("#plugin-detail", Static).update("\n".join(lines))
+
+    def plugin_button(self, button: str) -> None:
+        if button == "plugin-install":
+            return self.push_screen(InstallPlugin(), self.install_plugin)
+        name = selected_key(self.main.query_one("#plugin-table", DataTable))
+        plugin = self.plugins.get(name or "")
+        if not plugin:
+            return
+        if button == "plugin-toggle":
+            enabled = not plugin["enabled"]
+            if self.call(lambda c: c.update_plugin(name, enabled=enabled),
+                         done=f"{name} turned {'on' if enabled else 'off'}."):
+                self.load_plugins()
+        elif button == "plugin-settings":
+            self.push_screen(PluginSettings(plugin), lambda settings: settings is not None and self.call(
+                lambda c: c.update_plugin(name, settings=settings), done=f"{name} saved.") and self.load_plugins())
+        elif button == "plugin-remove":
+            if plugin["builtin"]:
+                return self.notify(f"{name} is built in: turn it off instead.", severity="warning")
+            self.push_screen(Confirm(f"Remove the plugin {name}? Its folder is deleted: {plugin['path']}", "Remove"),
+                             lambda yes: yes and self.call(lambda c: c.remove_plugin(name), done=f"{name} removed.")
+                             and self.load_plugins())
+
+    @work(thread=True, group="plugins")
+    def install_plugin(self, source: Optional[str]) -> None:
+        if not source:
+            return
+        self.call_from_thread(self.notify, f"Installing {source}…")
+        installed = self.call(lambda c: c.install_plugin(source))  # a git clone can take a while
+        if installed:
+            self.call_from_thread(self.notify, f"{installed['name']} {installed['version']} installed and on.")
+            self.call_from_thread(self.load_plugins)
+
     # ============== Logs ==============
 
     def tail_log(self) -> None:
@@ -935,6 +1087,8 @@ class Panel(App):
             self.push_screen(AddServer(), self.add_server)
         elif button in ("mcp-reconnect", "mcp-toggle", "mcp-remove"):
             self.mcp_button(button)
+        elif button and button.startswith("plugin-"):
+            self.plugin_button(button)
 
     def clear_session(self) -> None:
         app, session = self.app_id, selected_key(self.main.query_one("#sessions", DataTable))

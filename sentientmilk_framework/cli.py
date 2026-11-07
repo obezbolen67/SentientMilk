@@ -9,6 +9,8 @@
     sentientmilk schedules [delete ID]       schedules
     sentientmilk journal [QUERY] [--delete ID]
     sentientmilk mcp [add NAME --url URL | add NAME -- COMMAND ARGS... | remove NAME]
+    sentientmilk plugins [install FOLDER|GIT_URL | remove NAME | on NAME | off NAME | set NAME KEY[=VALUE]...]
+                                             a bare secret KEY asks for it without echoing it
     sentientmilk stats                       tokens and cache hits per app
     sentientmilk eval [NAME...]              run the evaluation tasks against the configured model
 """
@@ -176,6 +178,47 @@ def _mcp(client, args) -> None:
     _print(client.mcp())
 
 
+def _plugins(client, args) -> None:
+    if args.action == "install":
+        if not args.name:
+            raise SystemExit("Give a folder with a plugin.json, or a git URL")
+        args.name = client.install_plugin(args.name)["name"]
+    elif args.action in ("remove", "on", "off", "set") and not args.name:
+        raise SystemExit(f"Give the plugin's name: sentientmilk plugins {args.action} NAME")
+    elif args.action == "remove":
+        client.remove_plugin(args.name)
+        print(f"Removed {args.name}.")
+        return
+    elif args.action in ("on", "off"):
+        client.update_plugin(args.name, enabled=args.action == "on")
+    elif args.action == "set":
+        known = next((p for p in client.plugins() if p["name"] == args.name), None)
+        if known is None:
+            raise SystemExit(f"No plugin named {args.name}")
+        changes = {}
+        for item in args.values:
+            key, has_value, value = item.partition("=")
+            if key not in known["settings"]:
+                raise SystemExit(f"{args.name} has no setting {key!r}; it has {', '.join(known['settings']) or 'none'}")
+            if not has_value and not known["settings"][key]["secret"]:
+                raise SystemExit(f"Give a value: {key}=... (an empty one clears it)")
+            changes[key] = value if has_value else getpass.getpass(f"{key}: ")
+        client.update_plugin(args.name, settings=changes)
+    for plugin in client.plugins():
+        if args.name and plugin["name"] != args.name:
+            continue
+        state = "error" if plugin["error"] else "on" if plugin["enabled"] else "off"
+        print(f"{plugin['name']:<16} {plugin['version']:<8} {state:<5} {plugin['tools']:>3} tools  "
+              f"{'built in' if plugin['builtin'] else plugin['path']}")
+        if plugin["error"]:
+            print(f"    {plugin['error']}")
+        if args.name:
+            print(f"    {plugin['description']}")
+            for key, setting in plugin["settings"].items():
+                shown = ("set" if setting["set"] else "not set") if setting["secret"] else repr(setting["value"])
+                print(f"    {key} = {shown}  {setting['help']}")
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="sentientmilk", description="SentientMilk: the brain your apps use. "
                                      "Without a command it opens the control panel.")
@@ -206,6 +249,11 @@ def main(argv=None) -> None:
     mcp.add_argument("--header", action="append", default=[], metavar="NAME=VALUE")
     mcp.add_argument("--env", action="append", default=[], metavar="NAME=VALUE")
     mcp.add_argument("server_command", nargs=argparse.REMAINDER, metavar="-- COMMAND ARGS")
+    plugins = commands.add_parser("plugins", help="plugins: what extends the brain for every app")
+    plugins.add_argument("action", nargs="?", choices=("list", "show", "install", "remove", "on", "off", "set"),
+                         default="list")
+    plugins.add_argument("name", nargs="?", help="the plugin, or for install a folder or git URL")
+    plugins.add_argument("values", nargs="*", metavar="KEY[=VALUE]")
     commands.add_parser("stats", help="tokens and cache hits per app")
     commands.add_parser("setup", help="note how SentientMilk is installed, so apps start it (installers run this)")
     evaluate = commands.add_parser("eval", help="run evaluation tasks against the configured model")
@@ -257,6 +305,8 @@ def main(argv=None) -> None:
         if args.server_command[:1] == ["--"]:
             args.server_command = args.server_command[1:]
         _mcp(client, args)
+    elif args.command == "plugins":
+        _plugins(client, args)
     elif args.command == "stats":
         _print(client.stats())
 
