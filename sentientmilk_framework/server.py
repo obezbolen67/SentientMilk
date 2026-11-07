@@ -379,6 +379,12 @@ class _Handler(BaseHTTPRequestHandler):
         elif rest == ["cancel"] and method == "POST":
             brain.runs.cancel(run_id, body.get("reason") or "Cancelled.")
             self._send(200, {"status": "ok"})
+        elif rest == ["steer"] and method == "POST":
+            try:
+                brain.runs.steer(run_id, validate_items(body.get("input")))
+            except BrainError as exc:
+                return self._fail(409, exc.type, exc.message) or True
+            self._send(200, {"status": "ok"})
         elif rest == ["detach"] and method == "POST":
             brain.runs.detach(run_id)
             self._send(200, {"status": "ok"})

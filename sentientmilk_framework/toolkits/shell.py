@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import ToolContext, ToolError, Toolkit, cap, tool
+from . import MESSAGE_FROM_USER, STOPPED_BY_USER, ToolContext, ToolError, Toolkit, cap, tool
 from .files import cwd as working_folder
 from .files import resolve
 
@@ -90,15 +90,27 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
         job = _keep_as_job(ctx, command, folder, log, process, output)
         return f"Started job {job}. Read its output with shell_output(job={job}); you get a note when it ends."
     timeout = max(1, min(int(timeout or WAIT), WAIT))
-    try:
-        code = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        job = _keep_as_job(ctx, command, folder, log, process, output)
-        so_far = "\n".join(_lines(str(log))[-40:])
-        return cap(ctx, f"[still running after {timeout} s: it goes on as background job {job}. You get a note "
-                        f"when it ends; shell_output(job={job}) shows its output (wait=... waits for the end), "
-                        f"shell_stop(job={job}) stops it. "
-                        f"Work on meanwhile, or tell the user it is running.]\n{so_far}".rstrip(), "shell")
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            code = process.wait(timeout=0.2)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        if ctx.attention.stopped.is_set():  # the user stopped her: the command ends with her
+            kill_tree(process)
+            output.close()
+            so_far = "\n".join(_lines(str(log))[-40:])
+            log.unlink(missing_ok=True)
+            return cap(ctx, f"[stopped: {STOPPED_BY_USER} The command was ended.]\n{so_far}".rstrip(), "shell")
+        if ctx.attention.woken.is_set() or time.monotonic() >= deadline:
+            why = MESSAGE_FROM_USER if ctx.attention.woken.is_set() else f"Still running after {timeout} s."
+            job = _keep_as_job(ctx, command, folder, log, process, output)
+            so_far = "\n".join(_lines(str(log))[-40:])
+            return cap(ctx, f"[{why} It goes on as background job {job}. You get a note "
+                            f"when it ends; shell_output(job={job}) shows its output (wait=... waits for the end), "
+                            f"shell_stop(job={job}) stops it. "
+                            f"Work on meanwhile, or tell the user it is running.]\n{so_far}".rstrip(), "shell")
     output.close()
     text = "\n".join(_lines(str(log)))
     log.unlink(missing_ok=True)
@@ -151,14 +163,19 @@ def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
     """Output of a background job so far, and whether it is still running."""
     record = _job(ctx, job)
     deadline = time.time() + max(0, min(int(wait or 0), MAX_WAIT))
+    woke = ""
     while record["status"] in ("running", "stopping") and time.time() < deadline:
-        time.sleep(0.5)
+        if ctx.pause(0.5):
+            woke = ctx.interruption()
+            break
         record = _job(ctx, job)
     lines = _lines(record["log"])
     start = max(0, int(since or 0))
     shown = lines[start:start + OUTPUT_LINES]
     status = record["status"] + (f", exit code {record['exit_code']}" if record["exit_code"] is not None else "")
     footer = f"[lines {start + 1}-{start + len(shown)} of {len(lines)}; job {job} is {status}]"
+    if woke:
+        footer += f" Stopped waiting: {woke}"
     if start + len(shown) < len(lines):
         footer += f" More with since={start + len(shown)}."
     return cap(ctx, "\n".join(shown + [footer]), "job")

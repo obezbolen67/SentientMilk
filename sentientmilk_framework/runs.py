@@ -16,7 +16,8 @@ from typing import Dict, List, Optional, Tuple
 
 from . import titles, transport
 from .exceptions import BrainError
-from .loop import TERMINAL, VERIFY_PROMPT, Loop
+from .loop import ACTIVE, TERMINAL, VERIFY_PROMPT, Loop
+from .toolkits import Attention
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,9 @@ class Runs:
         # An app may answer while the run still runs the step's other tools; deciding to pause and
         # taking an answer under one lock means an answer is never lost and never resumes a run twice.
         self.pause_lock = threading.Lock()
+        self.steer_lock = threading.Lock()  # messages for a run, and its end
+        self._attention: Dict[int, Attention] = {}
+        self._attention_lock = threading.Lock()
 
     def start(self) -> None:
         self.recover()
@@ -246,14 +250,40 @@ class Runs:
                     for e in events if e["type"] in ("approval_request", "action_request") and e["call_id"] not in done]
         return [r for r in requests if (r["call_id"], r["kind"]) not in answered]
 
+    def attention(self, run_id: int) -> Attention:
+        """How a run hears at once that it is stopped or has a message (until it ends)."""
+        with self._attention_lock:
+            return self._attention.setdefault(run_id, Attention())
+
     def cancel(self, run_id: int, reason: str = "Cancelled.", now: bool = False) -> None:
+        """Stop a run at once, its helpers with it: waits end, calls still running are left behind."""
         with self.pause_lock:  # a run about to wait for answers sees the flag, or is waiting already
             run = self.store.run(run_id)
             if not run or run["status"] in TERMINAL:
                 return
             self.store.update_run(run_id, options={**run["options"], "cancel": reason})
+        self.attention(run_id).stop()
+        for helper in self.store.runs(app=run["app"], statuses=ACTIVE, limit=1000):
+            if helper["parent"] == run_id:
+                self.cancel(helper["id"], reason, now)
         if run["status"] == "input_required":  # the loop sees the flag and ends the run
             self._execute(run_id) if now else self._spawn(run_id)
+
+    def steer(self, run_id: int, items: list) -> None:
+        """A message for a run that works: it reaches the model at the next step, and waits inside tools end
+        early. Approvals the run waits for are refused, as the user answered with a message. A run that has
+        ended refuses it (``ended``): send it as a new turn."""
+        with self.steer_lock:
+            run = self.store.run(run_id)
+            if not run or run["status"] in TERMINAL:
+                raise BrainError("ended", "This turn has ended; send the message as a new turn", http_status=409)
+            self.store.update_run(run_id, options={**run["options"], "steer": run["options"].get("steer", []) + items})
+        self.attention(run_id).message()
+        if run["status"] == "input_required":
+            for request in self.waiting(run_id):
+                if request["kind"] == "approval":
+                    self.answer(run_id, call_id=request["call_id"], decision="deny",
+                                reason="The user sent a message instead of answering.")
 
     def detach(self, run_id: int) -> None:
         """The app stops waiting for this turn; it reports through notifications like a task."""
@@ -287,6 +317,8 @@ class Runs:
                               "task.input_required", {"task": run["id"], "session": run["session"]})
 
     def finished(self, run: dict) -> None:
+        with self._attention_lock:
+            self._attention.pop(run["id"], None)
         if run["kind"] == "task":
             options, result = run["options"], run["result"] or {}
             parent = options.get("parent_session")

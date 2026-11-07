@@ -5,10 +5,10 @@ again and the loop picks up where the log says it stopped. After a crash, a call
 started but has no result is never repeated blindly unless the tool only reads.
 """
 
+import concurrent.futures
 import json
 import logging
-import time
-from concurrent.futures import ThreadPoolExecutor
+import threading
 from dataclasses import replace
 from typing import Callable, Dict, List, Optional
 
@@ -22,10 +22,12 @@ from .toolkits.todo import render as render_todo
 logger = logging.getLogger(__name__)
 
 TERMINAL = ("completed", "failed", "cancelled")
+ACTIVE = ("queued", "working", "input_required")
+STOPPED_CALL = "Stopped: the user stopped you while this call ran. It may not have finished."
+STOP_GRACE = 0.5  # seconds a stopped run gives tools that noticed to end with what they have
 STEP_BUDGET = {"turn": 40, "task": 200, "subagent": 60}
 RETRIES = (2, 8, 30)  # seconds between attempts at a provider that is busy or down
 RETRIED = ("rate_limit", "server_error", "timeout", "network")
-CANCEL_CHECK = 0.3  # seconds between looks at a stop while the model writes
 DEFER_AT = 40  # more tools than this: MCP tools are listed, not sent (see tools_describe)
 VERIFY_ROUNDS = 2
 INTERRUPTED_CALL = ("The brain stopped while this call was running. It may or may not have finished: check its "
@@ -112,6 +114,19 @@ def _arguments(call: dict) -> dict:
     return value
 
 
+def _in_thread(work: Callable, *args, **kwargs) -> concurrent.futures.Future:
+    """``work`` on a thread of its own, which nothing waits for at exit: a stopped run leaves it behind."""
+    future: concurrent.futures.Future = concurrent.futures.Future()
+
+    def run():
+        try:
+            future.set_result(work(*args, **kwargs))
+        except BaseException as exc:
+            future.set_exception(exc)
+    threading.Thread(target=run, name="sentientmilk-work", daemon=True).start()
+    return future
+
+
 class Stopped(Exception):
     """The run was cancelled while it worked: the model writing (what it wrote so far is dropped), or
     about to wait for answers."""
@@ -149,6 +164,7 @@ class Loop:
                 if steps >= run["options"].get("max_steps", STEP_BUDGET[run["kind"]]):
                     raise BrainError("budget", f"Stopped after {steps} steps (the step budget)",
                                      "Progress is kept; start a new task to continue.")
+                self._take_messages(run, emit)
                 message, usage = self._think(run, profile, toolset, emit)
                 store.add_event(run["app"], run["session"], run_id, "assistant", {"message": message, "usage": usage})
                 self._count(run_id, usage)
@@ -166,6 +182,30 @@ class Loop:
             if error.type == "unknown":
                 logger.exception("Run %s failed", run_id)
             self._end(store.run(run_id), "failed", emit, error=error)
+
+    def _unless_stopped(self, run_id: int, work: Callable, *args, **kwargs):
+        """``work`` on its own thread; a stop ends the wait at once (Stopped) and leaves the work behind."""
+        stopped = self.brain.runs.attention(run_id).stopped
+        future = _in_thread(work, *args, **kwargs)
+        while True:
+            try:
+                return future.result(timeout=0.1)
+            except concurrent.futures.TimeoutError:
+                if stopped.is_set():
+                    raise Stopped()
+
+    def _take_messages(self, run: dict, emit) -> None:
+        """Messages the user sent while the run worked (steering) join the log before the next model call."""
+        runs, store = self.brain.runs, self.brain.store
+        with runs.steer_lock:
+            items = store.run(run["id"])["options"].get("steer") or []
+            if items:
+                store.update_run(run["id"], options={**store.run(run["id"])["options"], "steer": []})
+            runs.attention(run["id"]).settle()
+        if items:
+            content, display = context.input_content(items, {}, reminders=[])
+            store.add_event(run["app"], run["session"], run["id"], "input", {"content": content, "display": display})
+            emit({"type": "steered", "text": display or ""})
 
     def _emitter(self, run_id: int) -> Callable[[dict], None]:
         def emit(event: dict) -> None:
@@ -291,38 +331,57 @@ class Loop:
         emit({"type": f"{kind}.requested", "call_id": call["id"], "name": name, "arguments": arguments})
 
     def _run_tools(self, run: dict, profile: dict, ready: list, emit) -> None:
+        """Run the calls (read-only ones together), each on its own thread. A stop ends the step at once: calls
+        still running get a stopped result and are left behind, the rest do not run, and the run ends."""
         if not ready:
             return
+        attention = self.brain.runs.attention(run["id"])
         attachments: List[str] = []
 
-        def one(item):
+        def work(item):
             call, name, tool_, arguments = item
-            ctx = ToolContext(self.brain, run, profile, call["id"], emit)
-            self.brain.store.add_event(run["app"], run["session"], run["id"], "tool_start",
-                                       {"call_id": call["id"], "name": name})
-            emit({"type": "tool.start", "call_id": call["id"], "name": name, "arguments": arguments})
+            ctx = ToolContext(self.brain, run, profile, call["id"], emit, attention)
             try:
-                result, status = format_result(tool_.func(ctx, **arguments)), "ok"
+                return format_result(tool_.func(ctx, **arguments)), "ok"
             except ToolError as exc:
-                result, status = ToolResult(f"Error: {exc}"), "error"
+                return ToolResult(f"Error: {exc}"), "error"
             except TypeError as exc:  # wrong or missing arguments
-                result, status = ToolResult(f"Error: {exc}. Check the tool's parameters."), "error"
+                return ToolResult(f"Error: {exc}. Check the tool's parameters."), "error"
             except Exception as exc:
                 logger.exception("Tool %s failed", name)
-                result, status = ToolResult(f"Error: {type(exc).__name__}: {exc}"), "error"
-            self._result(run, call, name, arguments, result, status, emit)
-            attachments.extend(result.images)
+                return ToolResult(f"Error: {type(exc).__name__}: {exc}"), "error"
+
+        def together(items) -> None:
+            futures = []
+            for call, name, _, arguments in items:
+                self.brain.store.add_event(run["app"], run["session"], run["id"], "tool_start",
+                                           {"call_id": call["id"], "name": name})
+                emit({"type": "tool.start", "call_id": call["id"], "name": name, "arguments": arguments})
+            futures = [_in_thread(work, item) for item in items]
+            pending = set(futures)
+            while pending:
+                _, pending = concurrent.futures.wait(pending, timeout=0.1)
+                if pending and attention.stopped.is_set():
+                    concurrent.futures.wait(pending, timeout=STOP_GRACE)
+                    break
+            for (call, name, _, arguments), future in zip(items, futures):
+                result, status = future.result() if future.done() else (ToolResult(STOPPED_CALL), "error")
+                self._result(run, call, name, arguments, result, status, emit)
+                attachments.extend(result.images)
 
         readonly = [item for item in ready if item[2].readonly]
         others = [item for item in ready if not item[2].readonly]
-        if len(readonly) > 1:
-            with ThreadPoolExecutor(max_workers=min(8, len(readonly))) as pool:
-                list(pool.map(one, readonly))
-        else:
-            others = readonly + others
-        for item in others:
-            one(item)
+        groups = [readonly] + [[item] for item in others] if len(readonly) > 1 else \
+            [[item] for item in readonly + others]
+        for group in groups:
+            if attention.stopped.is_set():  # not started: the model learns they did not run
+                for call, name, _, arguments in group:
+                    self._result(run, call, name, arguments, ToolResult(STOPPED_CALL), "error", emit)
+            else:
+                together(group)
         self._attach(run, attachments)
+        if attention.stopped.is_set():
+            raise Stopped()
 
     def _attach(self, run: dict, images: List[str]) -> None:
         """Images from tool results reach the model as one user message after the results."""
@@ -351,13 +410,12 @@ class Loop:
         stream = None  # apps with signals: the header line is split off the streamed text
         if profile["signals"] and run["kind"] == "turn":
             stream = signal_format.HeaderStream(lambda header: emit({"type": "signals", "signals": header}), text)
-        feed, looked = stream.feed if stream else text, [0.0]
+        feed = stream.feed if stream else text
+        stopped = brain.runs.attention(run["id"]).stopped
 
-        def on_text(delta):  # a stop is seen within CANCEL_CHECK, not only once the reply is done
-            if time.monotonic() - looked[0] >= CANCEL_CHECK:
-                looked[0] = time.monotonic()
-                if brain.store.run(run["id"])["options"].get("cancel"):
-                    raise Stopped()
+        def on_text(delta):  # the request is left behind on a stop; this ends it at its next words
+            if stopped.is_set():
+                raise Stopped()
             feed(delta)
         compacted = False
         for attempt in range(len(RETRIES) + 1):
@@ -374,7 +432,7 @@ class Loop:
             if stream:
                 stream.reset()
             try:
-                return provider.complete(sent, toolset.schemas(), on_text=on_text)
+                return self._unless_stopped(run["id"], provider.complete, sent, toolset.schemas(), on_text=on_text)
             except Stopped:
                 raise
             except Exception as exc:
@@ -389,7 +447,8 @@ class Loop:
                     raise error from exc
                 logger.warning("Provider problem (%s); retrying in %s s", error.type, RETRIES[attempt])
                 emit({"type": "retry", "error": error.as_dict(), "wait": RETRIES[attempt]})
-                time.sleep(RETRIES[attempt])
+                if stopped.wait(RETRIES[attempt]):
+                    raise Stopped()
         raise BrainError("payload_too_large", "The conversation does not fit even after compaction")
 
     def _messages(self, run: dict, profile: dict, system: str) -> List[dict]:
@@ -445,8 +504,9 @@ class Loop:
             if len(transcript) > limit:
                 transcript = context.transcript_for_summary(older, previous, per_result=300)[-limit:]
             provider = brain.provider(profile["light_model"])
-            message, _ = provider.complete([{"role": "system", "content": context.COMPACT_PROMPT},
-                                            {"role": "user", "content": transcript}])
+            message, _ = self._unless_stopped(run["id"], provider.complete,
+                                              [{"role": "system", "content": context.COMPACT_PROMPT},
+                                               {"role": "user", "content": transcript}])
             summary = (message.get("content") or "").strip() or transcript[-8000:]
             excerpts = []
             for path in context.recent_files(older):
@@ -518,9 +578,13 @@ class Loop:
              silent: bool = False, error: Optional[BrainError] = None, extra: Optional[dict] = None) -> None:
         store = self.brain.store
         result = {"reply": reply, "signals": signals or {}, "silent": silent, **(extra or {})}
-        store.add_event(run["app"], run["session"], run["id"], "end",
-                        {"status": status, **result, "error": error.as_dict() if error else None})
-        store.update_run(run["id"], status=status, result=result, error=error.as_dict() if error else None)
+        with self.brain.runs.steer_lock:  # a message that came too late goes back to the app, unread
+            unread = store.run(run["id"])["options"].get("steer") or []
+            if unread:
+                result["unread"] = unread
+            store.add_event(run["app"], run["session"], run["id"], "end",
+                            {"status": status, **result, "error": error.as_dict() if error else None})
+            store.update_run(run["id"], status=status, result=result, error=error.as_dict() if error else None)
         final = store.run(run["id"])
         if error:
             emit({"type": "error", "status": status, "error": error.as_dict()})

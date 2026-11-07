@@ -9,6 +9,7 @@ import importlib.util
 import inspect
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, get_args, get_origin, get_type_hints
@@ -59,6 +60,31 @@ class Toolkit:
             item.toolkit = self.name
 
 
+STOPPED_BY_USER = "The user stopped you."
+MESSAGE_FROM_USER = "The user sent you a message."
+
+
+class Attention:
+    """What a run must notice at once: the user stopped it, or sent a message while it works. Waits inside
+    tools end early on either (``ToolContext.pause``); the loop stops waiting for anything on a stop."""
+
+    def __init__(self):
+        self.stopped = threading.Event()
+        self.woken = threading.Event()  # a stop or a message
+
+    def stop(self) -> None:
+        self.stopped.set()
+        self.woken.set()
+
+    def message(self) -> None:
+        self.woken.set()
+
+    def settle(self) -> None:
+        """The loop took the messages: waits go on until the next one."""
+        if not self.stopped.is_set():
+            self.woken.clear()
+
+
 @dataclass
 class ToolContext:
     brain: Any
@@ -66,6 +92,17 @@ class ToolContext:
     profile: dict  # the effective app profile with this session's settings
     call_id: str = ""
     emit: Callable[[dict], None] = lambda event: None
+    attention: Attention = field(default_factory=Attention)
+
+    def pause(self, seconds: float) -> bool:
+        """Wait up to ``seconds``; True as soon as the user stops the run or sends a message: end the wait
+        then, with what there is, and say why (``interruption()``)."""
+        return self.attention.woken.wait(max(0.0, float(seconds)))
+
+    def interruption(self) -> str:
+        if self.attention.stopped.is_set():
+            return STOPPED_BY_USER
+        return MESSAGE_FROM_USER if self.attention.woken.is_set() else ""
 
     @property
     def app(self) -> str:

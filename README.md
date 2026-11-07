@@ -197,7 +197,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET /events?app=&after=` | notifications from a cursor (`-1`: from now), then live |
 | `POST`/`GET /tasks`, `GET /tasks/{id}` | start and list tasks |
 | `GET /runs/{id}`, `GET /runs/{id}/events` | a run and what it waits for (`waiting`); its log, then live |
-| `POST /runs/{id}/answer`, `/cancel`, `/detach` | answer an approval, question or action (`result`, `images`); cancel (what the model is writing stops at once, a running tool call ends first); let a turn go on in the background |
+| `POST /runs/{id}/answer`, `/cancel`, `/steer`, `/detach` | answer an approval, question or action (`result`, `images`); cancel at once (waits inside tools end, calls still running are left behind with a stopped result, a command in the foreground is ended, helpers stop too); steer: `input` for a turn that works, which reaches the model at its next step (waits end early, approvals it waits for are refused; 409 `ended` once the turn is over, and one that comes as it finishes is returned in `done` as `unread`); let a turn go on in the background |
 | `GET`/`POST /schedules`, `PATCH`/`DELETE /schedules/{id}` | schedules |
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
 | `GET /apps`, `DELETE /apps/{app}/memory/{category}/{key}`, `POST /shutdown` | apps, forgetting a memory, stopping the brain |

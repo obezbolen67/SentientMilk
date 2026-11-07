@@ -234,7 +234,8 @@ class BrainClient:
                                       status="error")
             elif event["type"] == "done":
                 return {"run": run, "reply": event["reply"], "signals": event["signals"], "silent": event["silent"],
-                        "status": event["status"], "usage": event.get("usage"), "tools": tools}
+                        "status": event["status"], "usage": event.get("usage"), "tools": tools,
+                        "unread": event.get("unread", [])}
             elif event["type"] == "error":
                 raise BrainError(**event["error"])
         raise BrainError("brain_unreachable", "The brain ended the turn without an answer")
@@ -259,7 +260,13 @@ class BrainClient:
         self._call("POST", f"/runs/{run}/answer", answer)
 
     def cancel(self, run: int) -> None:
+        """Stop a run at once: waits end, calls still running are left behind, its helpers stop too."""
         self._call("POST", f"/runs/{run}/cancel", {})
+
+    def steer(self, run: int, text: str) -> None:
+        """Send a message to a turn that works: it reaches the model at its next step. Raises ``ended`` when
+        the turn is over: send it as a new turn then."""
+        self._call("POST", f"/runs/{run}/steer", {"input": [{"type": "text", "text": text}]})
 
     def detach(self, run: int) -> None:
         self._call("POST", f"/runs/{run}/detach", {})

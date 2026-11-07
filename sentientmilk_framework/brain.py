@@ -19,7 +19,7 @@ from . import context, permissions, transport
 from . import signals as signal_format
 from .config import BrainConfig, validate_rules, validate_setting
 from .journal import Journal
-from .loop import Toolset, build_toolset
+from .loop import ACTIVE, Toolset, build_toolset
 from .mcp_host import McpHost
 from .provider import Provider
 from .runs import Bus, Runs
@@ -41,7 +41,6 @@ APP_SETTINGS = {"persona": (str, type(None)), "model": str, "disabled_toolkits":
 SESSION_SETTINGS = {"instructions": str, "disabled_toolkits": list, "rules": dict, "roots": list, "cwd": str,
                     "title": str}
 TITLE_CHARS = 80
-ACTIVE = ("queued", "working", "input_required")
 ITEM_TYPES = ("text", "image", "event")
 
 
