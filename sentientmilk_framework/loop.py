@@ -150,6 +150,9 @@ class Loop:
                 message, usage = self._think(run, profile, toolset, emit)
                 store.add_event(run["app"], run["session"], run_id, "assistant", {"message": message, "usage": usage})
                 self._count(run_id, usage)
+                if usage.get("prompt_tokens"):  # what the session holds now, as the provider counted it
+                    store.update_session(run["app"], run["session"], "state",
+                                         lambda state: {**state, "context_tokens": usage["prompt_tokens"]})
                 if message.get("tool_calls"):
                     continue
                 if self._finish(run, profile, message, emit):

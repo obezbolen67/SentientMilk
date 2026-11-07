@@ -177,7 +177,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
 | `GET /apps/{app}/sessions`, `GET /apps/{app}/memory` | sessions and memory of an app |
-| `GET`/`PATCH /apps/{app}/sessions/{id}` | a session and its settings |
+| `GET`/`PATCH /apps/{app}/sessions/{id}` | a session and its settings; `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions) |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); history an app kept before |
 | `POST /apps/{app}/sessions/{id}/turns` | `input`, `context`, `reply`: a stream ending in `done` or `error` |
 | `GET /events?app=&after=` | notifications from a cursor (`-1`: from now), then live |

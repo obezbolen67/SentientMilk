@@ -255,3 +255,14 @@ def test_the_server_only_listens_locally(brain):
     assert host == "127.0.0.1"
     with socket.create_connection(("127.0.0.1", port), timeout=2):
         pass
+
+
+def test_a_session_tells_how_full_its_context_is(brain):
+    brain.provider.usage = {"prompt_tokens": 4321, "completion_tokens": 10, "prompt_cache_hit_tokens": 0}
+    brain.provider.replies.append('{"expression": "arms_down/smile"}\nHi.')
+    turn(brain, "milk", "hi")
+    window = brain.client.config()["context_window"]
+    assert brain.client.session("milk", "main")["context"] == {"used": 4321, "window": window,
+                                                               "clear_at": 0.5, "compact_at": 0.75}
+    brain.client.clear_history("milk", "main")
+    assert brain.client.session("milk", "main")["context"]["used"] == 0  # a new conversation holds nothing yet

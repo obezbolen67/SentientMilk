@@ -252,7 +252,9 @@ class Brain:
         record = self.store.session(validate_name(app, "app id"), validate_name(session, "session id"))
         state = record["state"]
         return {"app": app, "id": session, "settings": record["settings"], "todo": state.get("todo", []),
-                "created": record["created"]}
+                "created": record["created"],
+                "context": {"used": state.get("context_tokens", 0), "window": self.config.values()["context_window"],
+                            "clear_at": context.CLEAR_AT, "compact_at": context.COMPACT_AT}}
 
     def update_session_settings(self, app: str, session: str, changes: dict) -> dict:
         changes = _check_fields(changes, SESSION_SETTINGS, "session settings")
