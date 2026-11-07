@@ -43,7 +43,7 @@ def _write(folder: Path, files: dict) -> None:
     for name, content in files.items():
         target = folder / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        target.write_text(content, encoding="utf-8", newline="")  # as given: Windows would turn \n into \r\n
 
 
 def _screenshot() -> str:
