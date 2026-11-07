@@ -14,7 +14,8 @@ import threading
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-from . import transport
+from . import titles, transport
+from .exceptions import BrainError
 from .loop import TERMINAL, VERIFY_PROMPT, Loop
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,23 @@ class Runs:
 
     # ============== Lifecycle ==============
 
+    def compact(self, app: str, session: str) -> dict:
+        """Sum up the whole session now, as a run of its own (after a turn of the session that runs)."""
+        run_id = self.store.add_run(app, session, "compact", {})
+        listener = self.brain.bus.subscribe(("run", run_id))
+        try:
+            self._spawn(run_id)
+            while True:
+                event = listener.get()
+                if event["type"] in ("done", "error"):
+                    break
+        finally:
+            self.brain.bus.unsubscribe(("run", run_id), listener)
+        if event["type"] == "error":
+            error = event["error"]
+            raise BrainError(error["type"], error["message"], error.get("details"), error.get("http_status"))
+        return {"run": run_id, "compacted": event["compacted"], "before": event["before"], "after": event["after"]}
+
     def paused(self, run: dict) -> None:
         if run["kind"] == "task" or run["options"].get("detached"):
             self.brain.notify(run["app"], run["options"].get("parent_session") or run["session"],
@@ -286,6 +304,8 @@ class Runs:
             self.brain.notify(run["app"], run["session"], f"task.{run['status']}",
                               {"run": run["id"], "reply": (run["result"] or {}).get("reply", ""),
                                "error": run["error"]})
+        if run["kind"] == "turn" and run["status"] == "completed":
+            titles.request(self.brain, run["app"], run["session"])
 
     def recover(self) -> None:
         for run in self.store.runs(statuses=("working", "queued"), limit=1000):

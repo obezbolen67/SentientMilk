@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS journal (
 """
 NOTIFICATION_DAYS = 7
 NOTIFICATIONS_PER_APP = 1000
+PREVIEW_CHARS = 120  # of a session's first message, shown until it has a title
 
 
 def dump(value: Any) -> str:
@@ -142,12 +143,28 @@ class Store:
                 "created": row[2]}
 
     def sessions(self, app: str) -> List[dict]:
+        """Each session with its ``title`` (None until named) and ``preview``, the start of the first message."""
         with self._db() as db:
             rows = db.execute(
-                "SELECT s.id, s.created, MAX(e.at) FROM sessions s LEFT JOIN events e "
+                "SELECT s.id, s.created, s.settings, MAX(e.at) FROM sessions s LEFT JOIN events e "
                 "ON e.app = s.app AND e.session = s.id WHERE s.app = ? GROUP BY s.id ORDER BY s.id",
                 (app,)).fetchall()
-        return [{"id": sid, "created": created, "last_active": last} for sid, created, last in rows]
+            inputs = db.execute("SELECT session, data FROM events WHERE app = ? AND type = 'input' ORDER BY id",
+                                (app,)).fetchall()
+        previews: Dict[str, str] = {}
+        for session, data in inputs:
+            if session not in previews:
+                display = json.loads(data).get("display")
+                if display:
+                    previews[session] = " ".join(display.split())[:PREVIEW_CHARS]
+        return [{"id": sid, "created": created, "last_active": last, "title": json.loads(settings).get("title"),
+                 "preview": previews.get(sid, "")} for sid, created, settings, last in rows]
+
+    def delete_session(self, app: str, session: str) -> None:
+        with self._db() as db:
+            db.execute("DELETE FROM events WHERE app = ? AND session = ?", (app, session))
+            db.execute("DELETE FROM runs WHERE app = ? AND session = ?", (app, session))
+            db.execute("DELETE FROM sessions WHERE app = ? AND id = ?", (app, session))
 
     def update_session(self, app: str, session: str, field: str, change: Callable[[dict], dict]) -> dict:
         """Read-modify-write ``settings`` or ``state`` in one transaction."""

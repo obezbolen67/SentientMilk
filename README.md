@@ -189,8 +189,9 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | --- | --- |
 | `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
-| `GET /apps/{app}/sessions`, `GET /apps/{app}/memory` | sessions and memory of an app |
-| `GET`/`PATCH /apps/{app}/sessions/{id}` | a session and its settings; `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions) |
+| `GET /apps/{app}/sessions`, `GET /apps/{app}/memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`) and memory of an app |
+| `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); deleting it and its history, refused (409 `busy`) while a turn of it goes on |
+| `POST /apps/{app}/sessions/{id}/compact` | sum up the whole session now (a model call): `compacted`, and the context in tokens `before` and `after` |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); history an app kept before |
 | `POST /apps/{app}/sessions/{id}/turns` | `input`, `context`, `reply`: a stream ending in `done` or `error` |
 | `GET /events?app=&after=` | notifications from a cursor (`-1`: from now), then live |

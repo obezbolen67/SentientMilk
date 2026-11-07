@@ -38,7 +38,10 @@ DECLARATION = {"name": str, "environment": str, "persona": str, "signals": dict,
                "toolkits": list, "rules": dict, "roots": list, "journal": dict}
 APP_SETTINGS = {"persona": (str, type(None)), "model": str, "disabled_toolkits": list, "rules": dict,
                 "roots": list, "journal": dict}
-SESSION_SETTINGS = {"instructions": str, "disabled_toolkits": list, "rules": dict, "roots": list, "cwd": str}
+SESSION_SETTINGS = {"instructions": str, "disabled_toolkits": list, "rules": dict, "roots": list, "cwd": str,
+                    "title": str}
+TITLE_CHARS = 80
+ACTIVE = ("queued", "working", "input_required")
 ITEM_TYPES = ("text", "image", "event")
 
 
@@ -258,6 +261,10 @@ class Brain:
 
     def update_session_settings(self, app: str, session: str, changes: dict) -> dict:
         changes = _check_fields(changes, SESSION_SETTINGS, "session settings")
+        if "title" in changes:
+            changes["title"] = " ".join(changes["title"].split())
+            if len(changes["title"]) > TITLE_CHARS:
+                raise ValueError(f"session title must be at most {TITLE_CHARS} characters")
         if "cwd" in changes and changes["cwd"]:
             changes["cwd"] = str(Path(changes["cwd"]).expanduser().resolve())
 
@@ -266,6 +273,10 @@ class Brain:
             return {k: v for k, v in settings.items() if v not in ("", None)}
         self.store.update_session(validate_name(app, "app id"), validate_name(session, "session id"), "settings", change)
         return self.session_info(app, session)
+
+    def session_busy(self, app: str, session: str) -> bool:
+        """A run of this session is going on or waits for answers."""
+        return any(run["session"] == session for run in self.store.runs(app=app, statuses=ACTIVE, limit=1000))
 
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """The conversation as apps show it: what the user said and what the brain replied; with

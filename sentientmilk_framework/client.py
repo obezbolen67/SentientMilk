@@ -25,6 +25,7 @@ from .exceptions import BrainError
 
 DISCOVERY_FILE = "server.json"
 LAUNCH_FILE = "launch.json"
+COMPACT_TIMEOUT = 600
 START_TIMEOUT = 30
 
 
@@ -165,8 +166,17 @@ class BrainClient:
         return self._call("GET", f"/apps/{app}/sessions/{session}")
 
     def update_session(self, app: str, session: str, **settings: Any) -> dict:
-        """instructions, cwd, roots, rules, disabled_toolkits for one session."""
+        """title, instructions, cwd, roots, rules, disabled_toolkits for one session."""
         return self._call("PATCH", f"/apps/{app}/sessions/{session}", settings)
+
+    def delete_session(self, app: str, session: str) -> None:
+        """The session and its history; refused (``busy``) while a turn of it goes on."""
+        self._call("DELETE", f"/apps/{app}/sessions/{session}")
+
+    def compact_session(self, app: str, session: str) -> dict:
+        """Sum up the whole session now: ``compacted`` (False when there was nothing to sum up), and the
+        context in tokens ``before`` and ``after``. It takes a model call."""
+        return self._call("POST", f"/apps/{app}/sessions/{session}/compact", {}, timeout=COMPACT_TIMEOUT)
 
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """What the user said and the brain replied; ``tools`` adds each tool call between them."""
@@ -353,6 +363,17 @@ def launch_command(home: Path) -> List[str]:
         raise BrainError("brain_unreachable", "SentientMilk is not set up on this computer",
                          "Install SentientMilk and open it once (run sentientmilk); apps start it from then on.")
     return own_command(home)
+
+
+def open_panel(home: Optional[Path] = None) -> None:
+    """Open SentientMilk's control panel in its own window, run the way SentientMilk recorded (the panel
+    starts the brain when none runs)."""
+    home = Path(home or default_home())
+    command = launch_command(home)
+    if command[-2:] == ["serve", "--log"]:
+        command = command[:-2]
+    env = {key: value for key, value in os.environ.items() if not key.startswith("_PYI_")}
+    subprocess.Popen(command, cwd=home, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0)
 
 
 def _spawn(command: List[str], home: Path) -> None:

@@ -492,7 +492,8 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 - `GET /v1/events?app=<app>&after=<cursor>` is a server-sent event stream. Apps that were
   closed catch up from their cursor; nothing is lost.
 - Types: `task.updated`, `task.input_required`, `task.completed`, `task.failed`,
-  `job.finished`, `schedule.fired`.
+  `job.finished`, `schedule.fired`, `session.titled` (after a session's first reply the
+  model names it in a few words, off the request path; a title the user gave stays).
 - Notifications are kept 7 days, and at most 1,000 per app.
 - The brain never starts a conversation itself. MilkChan, for example, can react to
   `task.completed` by sending a turn with an `event` input item and `reply: optional`. The

@@ -262,6 +262,13 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, brain.session_info(app, session))
         elif not rest and method == "PATCH":
             self._send(200, brain.update_session_settings(app, session, body))
+        elif not rest and method == "DELETE":
+            if brain.session_busy(app, session):
+                return self._fail(409, "busy", "A turn of this session is still going on; stop it first") or True
+            brain.store.delete_session(app, session)
+            self._send(200, {"status": "ok"})
+        elif rest == ["compact"] and method == "POST":
+            self._send(200, brain.runs.compact(app, session))
         elif rest == ["history"] and method == "GET":
             self._send(200, {"history": brain.history(app, session, tools=query.get("tools") in ("1", "true"))})
         elif rest == ["history"] and method == "DELETE":

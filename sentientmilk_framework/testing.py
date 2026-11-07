@@ -80,6 +80,8 @@ class FakeProvider:
         self.usage = {"prompt_tokens": 100, "completion_tokens": 10, "prompt_cache_hit_tokens": 60}
         self.journal_note = "Talked with the user."
         self.journal_requests: List[dict] = []
+        self.title = "A chat"
+        self.title_requests: List[dict] = []
 
     def install(self, monkeypatch) -> "FakeProvider":
         real = requests.post
@@ -94,7 +96,12 @@ class FakeProvider:
 
     def respond(self, payload: dict):
         from .journal import PROMPT
+        from .titles import PROMPT as TITLE_PROMPT
 
+        if payload["messages"][0].get("content") == TITLE_PROMPT:
+            self.title_requests.append(payload)
+            return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {
+                "choices": [{"message": {"role": "assistant", "content": self.title}}]})
         if payload["messages"][0].get("content") == PROMPT:
             self.journal_requests.append(payload)
             return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {

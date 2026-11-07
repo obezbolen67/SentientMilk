@@ -135,6 +135,8 @@ class Loop:
             if not brain.config.values()["api_key"]:
                 raise BrainError("config_missing", "SentientMilk has no provider API key",
                                  "Open the SentientMilk control panel (run sentientmilk) and set it under Provider.")
+            if run["kind"] == "compact":
+                return self._compact_now(run, profile, emit)
             self._log_input(run, profile)
             toolset = brain.toolset(profile, run["kind"])
             while True:
@@ -417,17 +419,21 @@ class Loop:
 
     # ============== Compaction ==============
 
-    def compact(self, run: dict, profile: dict, force: bool = False) -> None:
-        """Summarize the older part of the session; the raw events stay in the log."""
+    def compact(self, run: dict, profile: dict, force: bool = False, keep: Optional[int] = None) -> bool:
+        """Summarize the older part of the session (all of it with ``keep`` 0); the raw events stay in the log.
+        False when there was nothing to summarize."""
         brain, store = self.brain, self.brain.store
         app, session = run["app"], run["session"]
         previous = store.last_compaction(app, session)
         events = [e for e in store.events(app, session, after=previous["upto"] if previous else 0)
                   if e["type"] != "compaction"]
-        keep = int(context.KEEP_RECENT * profile["context_window"] * 4 * (0.3 if force else 1))
+        if keep is None:
+            keep = int(context.KEEP_RECENT * profile["context_window"] * 4 * (0.3 if force else 1))
+        elif not events:
+            return False
         cut = context.choose_cut(events, keep)
         if cut == 0 and not previous:
-            return
+            return False
         older = events[:cut]
         self._emitter(run["id"])({"type": "compacting"})  # it takes a model call: apps can show it
         state = store.session(app, session)["state"]
@@ -460,6 +466,24 @@ class Loop:
         brain.refresh_snapshot(profile)
         brain.journal.request(app, session)
         self._emitter(run["id"])({"type": "compacted"})
+        return True
+
+    def _compact_now(self, run: dict, profile: dict, emit) -> None:
+        """A compact run: the whole session summed up now, and how full the context is after."""
+        brain, store = self.brain, self.brain.store
+        app, session = run["app"], run["session"]
+        before = store.session(app, session)["state"].get("context_tokens", 0)
+        compacted = self.compact(run, profile, keep=0)
+        after = before
+        if compacted:
+            compaction = store.last_compaction(app, session)
+            events = [e for e in store.events(app, session, after=compaction["upto"]) if e["type"] != "compaction"]
+            system = context.system_prompt(profile, brain.session_snapshot(profile),
+                                           brain.toolset(profile, "turn").summaries(), brain.shell_label())
+            after = context.estimate_tokens(context.project(events, compaction), system)
+            store.update_session(app, session, "state", lambda state: {**state, "context_tokens": after})
+        self._end(store.run(run["id"]), "completed", emit, extra={"compacted": compacted, "before": before,
+                                                                    "after": after})
 
     # ============== Ending ==============
 
@@ -491,9 +515,9 @@ class Loop:
         return True
 
     def _end(self, run: dict, status: str, emit, reply: str = "", signals: Optional[dict] = None,
-             silent: bool = False, error: Optional[BrainError] = None) -> None:
+             silent: bool = False, error: Optional[BrainError] = None, extra: Optional[dict] = None) -> None:
         store = self.brain.store
-        result = {"reply": reply, "signals": signals or {}, "silent": silent}
+        result = {"reply": reply, "signals": signals or {}, "silent": silent, **(extra or {})}
         store.add_event(run["app"], run["session"], run["id"], "end",
                         {"status": status, **result, "error": error.as_dict() if error else None})
         store.update_run(run["id"], status=status, result=result, error=error.as_dict() if error else None)

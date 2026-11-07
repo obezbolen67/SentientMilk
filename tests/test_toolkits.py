@@ -122,9 +122,10 @@ def test_background_jobs_report_when_they_end(brain, ctx):
     job = int(started.split()[2].rstrip("."))
     wait_for(lambda: brain.store.job(job)["status"] == "finished", 30)
     assert "working" in shell.shell_output.func(ctx, job)
+    # the job is marked finished first, then noted and announced
+    assert wait_for(lambda: brain.store.notifications("cli"))[-1]["type"] == "job.finished"
     notes = brain.store.events("cli", "main", types=("note",))
     assert f"Background job {job} finished with exit code 0" in notes[-1]["text"]
-    assert brain.store.notifications("cli")[-1]["type"] == "job.finished"
 
 
 def test_web_pages_become_text_and_search_needs_a_key(brain, ctx, monkeypatch):
