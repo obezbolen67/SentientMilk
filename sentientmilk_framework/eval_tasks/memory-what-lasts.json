@@ -1,0 +1,11 @@
+{
+  "kind": "chat",
+  "turns": [
+    "hey, I'm Dana. I work night shifts as a nurse, so I'm usually up around 2am. Quick one: what's 15% of 240?",
+    "thanks! I just switched my phone to dark mode for tonight because the ward lights are off. Anyway, name one good podcast about history.",
+    "What do you know about me?"
+  ],
+  "sessions": ["main", "main", "later"],
+  "check": {"memory_has": ["Dana", "nurse"], "memory_lacks": ["dark mode"], "reply_contains": ["nurse"]},
+  "toolkits": ["memory", "todo", "journal"]
+}

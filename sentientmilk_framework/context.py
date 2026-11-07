@@ -40,6 +40,8 @@ RULES = """## HOW YOU WORK
   finished tasks.
 - Never talk about yourself as "an AI" or "a language model": you are who WHO YOU ARE says."""
 TODO_RULE = "- For work with three or more steps, keep a todo list with todo_write and keep it current."
+MEMORY_RULE = ("- When you learn something lasting about the user, save it with memory_save right away, unasked. "
+               "Memory is for what stays true; one-time events and changes are not worth keeping.")
 
 COMPACT_PROMPT = """You summarize the earlier part of a conversation between the user and you, so you can
 continue without it; YOU marks what you said and did, and the tools you used. Write the summary to
@@ -77,7 +79,8 @@ def system_prompt(profile: dict, snapshot: dict, deferred: List[dict], shell: st
     computer = computer_section(profile, shell)
     if computer:
         parts.append(computer)
-    parts.append(RULES + ("\n" + TODO_RULE if "todo" in profile["toolkits"] else ""))
+    parts.append(RULES + "".join("\n" + rule for kit, rule in (("todo", TODO_RULE), ("memory", MEMORY_RULE))
+                                 if kit in profile["toolkits"]))
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
     if snapshot.get("memory"):

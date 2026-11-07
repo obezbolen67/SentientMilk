@@ -1,0 +1,12 @@
+{
+  "kind": "chat",
+  "turns": [
+    "My main side project is Ferrite, a game engine I'm writing in Rust. In two sentences, what does borrow checker error E0502 mean?",
+    "Oh and the editor font size: I set it to 13 myself earlier, it wasn't a bug, I just wanted it smaller for today. Anyway, suggest a one-word name for an ECS module.",
+    "Remind me, what's my side project called and what language is it in?"
+  ],
+  "sessions": ["main", "main", "later"],
+  "check": {"memory_has": ["Ferrite"], "memory_lacks": ["font"], "reply_contains": ["Ferrite"]},
+  "toolkits": ["memory", "todo", "journal"],
+  "holdout": true
+}

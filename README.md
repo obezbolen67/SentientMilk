@@ -214,7 +214,7 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 python -m pytest -q
 python -m ruff check .
-sentientmilk eval                  # 8 real tasks against the configured model
+sentientmilk eval                  # 10 real tasks against the configured model
 ```
 
 `sentientmilk_framework.testing.FakeProvider` stands in for the provider in tests, for

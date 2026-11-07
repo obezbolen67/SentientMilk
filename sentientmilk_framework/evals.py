@@ -2,7 +2,7 @@
 
 Each task gets a throw-away brain home and work folder and runs through the real HTTP API.
 Kinds: "task" (a background task; check its files, a command or its report) and "chat" (turns in a
-session; check replies, signals, schedules). Tasks marked "holdout" catch rules that only fit the rest.
+session; check replies, signals, schedules, what the app remembered). Tasks marked "holdout" catch rules that only fit the rest.
 
     sentientmilk eval                 every task
     sentientmilk eval fix-failing-test --report results.json
@@ -80,6 +80,13 @@ def check(spec: dict, folder: Path, replies: List[str], extra: dict) -> tuple:
 
         if "matches" in rule and not re.search(rule["matches"], path.read_text(encoding="utf-8")):
             return False, f"{rule['file']} does not match {rule['matches']}"
+    memory = extra.get("memory", "").lower()  # everything the app remembered, as JSON
+    for text in rule.get("memory_has", []):
+        if text.lower() not in memory:
+            return False, f"nothing remembered mentions {text!r}: {memory[:300]}"
+    for text in rule.get("memory_lacks", []):
+        if text.lower() in memory:
+            return False, f"a memory mentions {text!r}, which is not worth keeping: {memory[:300]}"
     for text in rule.get("reply_contains", []):
         if text.lower() not in (replies[-1] if replies else "").lower():
             return False, f"the last reply does not mention {text!r}"
@@ -133,6 +140,7 @@ def run_one(spec: dict, settings: dict) -> dict:
                 extra["signals_ok"] = extra.get("signals_ok", 0) + bool(result["signals"])
                 runs.append(client.run(result["run"]))
             extra["schedules"] = len(client.schedules("eval"))
+            extra["memory"] = json.dumps(server.brain.store.memories("eval"), ensure_ascii=False)
         passed, why = (False, error) if error else check(spec, work, replies, extra)
     except Exception as exc:
         passed, why, runs = False, f"{type(exc).__name__}: {exc}", []

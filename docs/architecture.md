@@ -558,6 +558,13 @@ task's size, and the app can force either.
   block. Otherwise only its categories go there, and the tools fetch the rest. The
   snapshot is refreshed at session start and at compaction (section 7.1). A new fact is
   still visible at once, because the tool result that saved it sits in context.
+- Memory holds lasting facts only: who the user is, what they like, what they work on. The
+  model saves them unasked, as soon as it learns them. One-time events and changes stay
+  out, because the journal (10.2) records what happened. As measured on 2026-11-07, the
+  old wording ("about the user, their preferences, plans or events") saved a setting
+  changed once, "not a bug, don't fix it", in 3 of 3 runs, and passed the two
+  `memory-what-lasts` tasks 1 time in 6. `memory_save`'s description and a working rule
+  took them to 9 of 9; `memory-across-sessions` passed 3 of 3 and the other 7 tasks 7 of 7.
 
 ### 10.2 The journal
 
@@ -719,7 +726,7 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
   every turn after a look, so the format reminder needs no copy on the image message.
 - Apps answer approvals: MilkChan asks in a desktop dialog, or in its terminal chat for
   turns typed there; a waiting background task is answered through `waiting`.
-- Eval tasks live in `sentientmilk_framework/eval_tasks/*.json`: 8 tasks, 2 held back.
+- Eval tasks live in `sentientmilk_framework/eval_tasks/*.json`: 10 tasks, 3 held back.
   Kill-and-resume and the MCP elicitation are covered by the test suite instead, with a
   stand-in provider and a local test MCP server.
 - Measured on `deepseek-v4.1-flash-fast` through Refuseless, 2026-11-06: 8 of 8 pass;

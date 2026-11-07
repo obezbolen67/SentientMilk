@@ -11,11 +11,17 @@ def _need(**values):
         raise ToolError(f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} required.")
 
 
-@tool(policy="auto", args={"category": "A group such as user_facts, preferences, events or projects.",
-                           "key": "A short name for the item.", "value": "What to remember."})
+@tool(policy="auto", args={"category": "user (who they are), preferences (how they like things) or projects.",
+                           "key": "A short name for the fact, such as job or main_project.",
+                           "value": "The fact as it stands now, in a sentence or two."})
 def memory_save(ctx: ToolContext, category: str, key: str, value: str):
-    """Remember a fact for later conversations in this app: about the user, their preferences, plans or
-    events. Saving an existing key replaces it."""
+    """Remember a lasting fact for later conversations in this app: one that will still be true and useful
+    another day. Who the user is (name, work, the people and pets in their life), what they like and how
+    they want you to act, what they work on and want to achieve. Save it as soon as you learn it, even in
+    passing or from what they do; they need not ask. Never save one-time things: what happened today, a
+    setting changed once, a mood, a finished task, a mistake that was cleared up. Your journal already
+    notes what happened in each session. Saving an existing key replaces it: update a fact rather than
+    adding a near copy."""
     _need(category=category, key=key, value=value)
     ctx.store.remember(ctx.app, category.strip(), key.strip(), value)
     return f"Remembered {category}/{key}."
