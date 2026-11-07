@@ -98,4 +98,4 @@ class Journal:
         def change(state):
             state["journaled_upto"] = max(state.get("journaled_upto", 0), last)
             return state
-        brain.store.update_session(app, session, "state", change)
+        brain.store.update_session(app, session, "state", change, create=False)  # it may be deleted by now

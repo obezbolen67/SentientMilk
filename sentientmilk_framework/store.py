@@ -166,12 +166,17 @@ class Store:
             db.execute("DELETE FROM runs WHERE app = ? AND session = ?", (app, session))
             db.execute("DELETE FROM sessions WHERE app = ? AND id = ?", (app, session))
 
-    def update_session(self, app: str, session: str, field: str, change: Callable[[dict], dict]) -> dict:
-        """Read-modify-write ``settings`` or ``state`` in one transaction."""
+    def update_session(self, app: str, session: str, field: str, change: Callable[[dict], dict],
+                       create: bool = True) -> Optional[dict]:
+        """Read-modify-write ``settings`` or ``state`` in one transaction. ``create`` False: only a session that
+        still exists (None otherwise), for work that finishes after the user may have deleted it."""
         assert field in ("settings", "state")
-        self.session(app, session)
+        if create:
+            self.session(app, session)
         with self._db() as db:
             row = db.execute(f"SELECT {field} FROM sessions WHERE app = ? AND id = ?", (app, session)).fetchone()
+            if row is None:
+                return None
             value = change(json.loads(row[0]))
             db.execute(f"UPDATE sessions SET {field} = ? WHERE app = ? AND id = ?", (dump(value), app, session))
         return value

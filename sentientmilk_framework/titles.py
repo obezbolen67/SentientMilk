@@ -55,7 +55,7 @@ def _name(brain, app: str, session: str) -> None:
                 settings["title"] = title
                 named.append(title)
             return settings
-        brain.store.update_session(app, session, "settings", change)
+        brain.store.update_session(app, session, "settings", change, create=False)  # it may be deleted by now
         if named:
             brain.notify(app, session, "session.titled", {"session": session, "title": title})
     except Exception:

@@ -4,11 +4,12 @@ previews, deleting a session, compacting one now, and opening the control panel.
 import json
 import subprocess
 import sys
+import time
 
 import pytest
 from conftest import turn, wait_for
 
-from sentientmilk_framework import BrainError, context
+from sentientmilk_framework import BrainError, context, titles
 from sentientmilk_framework import client as client_module
 
 
@@ -46,6 +47,22 @@ def test_a_title_is_cleaned_and_the_users_own_title_stays(brain):
     assert listed(brain, "milk", "chat-2")["title"] == "Mine" and len(brain.provider.title_requests) == 1
     with pytest.raises(BrainError):
         brain.client.update_session("milk", "chat-1", title="x" * 81)
+
+
+def test_a_title_that_comes_after_the_session_was_deleted_does_not_bring_it_back(brain, monkeypatch):
+    """The model names a session off the request path, and the user may delete it meanwhile: writing the
+    title created the session again, empty but titled, so a deleted chat came back to the list."""
+    respond = brain.provider.respond
+
+    def deleted_while_named(payload):
+        if payload["messages"][0].get("content") == titles.PROMPT:
+            brain.store.delete_session("milk", "chat-1")
+        return respond(payload)
+    monkeypatch.setattr(brain.provider, "respond", deleted_while_named)
+    turn(brain, "milk", "Remember the milk", session="chat-1")
+    wait_for(lambda: brain.provider.title_requests)
+    time.sleep(0.5)  # the title is written right after its reply
+    assert listed(brain, "milk", "chat-1") is None
 
 
 def test_a_session_is_deleted_with_its_history_but_not_while_she_works_in_it(brain):
