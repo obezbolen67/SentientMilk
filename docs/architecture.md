@@ -87,7 +87,7 @@ New in this document:
 
 - **Run**: one execution of the agent loop. Its kind is `turn` (an app is waiting), `task`
   (background, started by an app or a schedule), `agent` (a run of an agent), `subagent` (a
-  task's reviewer, run to the end on the task's thread) or `compact`.
+  task's reviewer, which the task waits for) or `compact`.
 - **Agent**: a copy of the model with a fresh context that does one part of a job in the
   background, in a session of its own (`agent-<id>`). Its runs report to the session that
   started it.
@@ -279,8 +279,10 @@ holds the tools.
   - Deleting a chat deletes its idle agents at once. Working ones stop and delete their own
     session when their run ends. `agent_stop` works the same way.
   - A reminder an agent sets belongs to the lead's session, which outlives the agent.
-- **The reviewer** of section 9.4 is the one synchronous helper left (`Runs.subagent`, kind
-  `subagent`): a read-only run with a skeptical prompt.
+- **The reviewer** of section 9.4 is the one helper its parent waits for (`Runs.subagent`, kind
+  `subagent`), with a skeptical prompt. Like Claude Code's subagents it has its task's tools, folders and
+  permissions: a call that needs approval is asked through the app (`task.input_required` with its
+  `run`), so an app in bypass mode allows it and otherwise the user decides.
 
 ## 6. Environment interface: toolkits
 
@@ -298,7 +300,7 @@ holds the tools.
   and the path, plus a hint ("search the file, or read it with offset").
 - **Errors teach.** Say what was wrong and show a correct call. No raw tracebacks.
 - **Read-only flag.** Each tool declares `readonly`. It decides parallel execution, crash
-  re-runs, subagent access and the default policy.
+  re-runs and the default policy.
 - **Plugins** (section 6.5) use the same contract. The schema comes from type hints and
   the docstring, as `ai.py` already does.
 

@@ -256,10 +256,9 @@ class Brain:
             "persona": settings.get("persona") or declaration.get("persona") or DEFAULT_PERSONA,
             "instructions": instructions,
             "signals": {} if overrides.get("signals") is False else signal_format.validate(declaration.get("signals", {})),
-            "actions": [] if overrides.get("mode") else declaration.get("actions", []),
+            "actions": declaration.get("actions", []),
             "toolkits": toolkits, "rules": rules, "roots": list(dict.fromkeys(roots)),
             "cwd": overrides.get("cwd") or session_settings.get("cwd"), "journal": journal,
-            "mode": overrides.get("mode"),
             "model": settings.get("model") or values["model"], "light_model": values["light_model"],
             "context_window": values["context_window"], "callbacks": bool(declaration.get("callbacks")),
         }

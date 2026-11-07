@@ -42,8 +42,7 @@ INTERRUPTED_CALL = ("The brain stopped while this call was running. It may or ma
                     "effect before you repeat it.")
 VERIFY_PROMPT = """You review a background task another assistant says it finished. Be skeptical: the author
 tends to praise its own work. Check the work yourself with your tools (read the files, run the tests or
-commands); do not trust the report. Change nothing: your shell only runs commands that look (reading, searching,
-git status/diff/log/show, tests and linters). Start your answer with PASS or FAIL on the first line, then explain.
+commands); do not trust the report. Start your answer with PASS or FAIL on the first line, then explain.
 FAIL if any part of the goal is missing, broken or unverified.
 
 Goal:
@@ -161,13 +160,8 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
                           func=None, readonly=bool(action.get("readonly")), policy=action.get("policy", "auto"),
                           toolkit="actions", core=bool(action.get("core")),
                           action=True, only_in=("turn", "agent")))  # the app runs those of a live turn and of agents
-    mode = profile.get("mode")
     tools = [t for t in tools
-             if (t.only_in is None or kind in t.only_in)
-             and not permissions.removed(t.name, profile["rules"])
-             and (mode != "readonly" or (t.readonly and not t.action))
-             # a reviewer checks: tools that change nothing, and a shell that only runs looking commands
-             and (mode != "review" or (not t.action and (t.readonly or t.name == "shell_run")))]
+             if (t.only_in is None or kind in t.only_in) and not permissions.removed(t.name, profile["rules"])]
     if kind in ("task", "agent"):
         tools.append(task_progress)  # every worker keeps notes that outlive its context
     unique = list({t.name: t for t in tools}.values())
@@ -346,8 +340,6 @@ class Loop:
             decision = permissions.decide(tool_, arguments, profile["rules"], profile.get("cwd"))
             must_ask = decision == "always"  # an "always allow" is this once, and apps may not answer for the user
             decision = "ask" if must_ask else decision
-            if decision == "ask" and run["kind"] == "subagent":
-                decision = "off"  # helpers cannot ask the user
             if decision == "off":
                 self._result(run, call, name, arguments,
                              ToolResult(f"Refused: {name} is not allowed here{' for these arguments' if tool_.rule_arg else ''}."),

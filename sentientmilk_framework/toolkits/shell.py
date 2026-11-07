@@ -5,8 +5,6 @@ A model that needs the result waits for it with shell_output(wait=...); in a tur
 calls back (its end starts a new turn) it waits briefly and is told to end its turn instead."""
 
 import os
-import re
-import shlex
 import signal
 import subprocess
 import threading
@@ -60,62 +58,6 @@ def kill_tree(process: subprocess.Popen) -> None:
         process.kill()
 
 
-# What a reviewer's shell may run. shortcut: a word list, not a sandbox (a test run can still write
-# files); it keeps a reviewer told to check from fixing things. A real sandbox if reviewers ever run untrusted.
-LOOKING = {"get-content", "gc", "cat", "type", "get-childitem", "gci", "ls", "dir", "get-item", "gi", "tree",
-           "select-string", "sls", "select-object", "select", "measure-object", "measure", "sort-object",
-           "where-object", "format-list", "fl", "format-table", "ft", "out-string", "test-path", "resolve-path",
-           "get-location", "pwd", "get-filehash", "compare-object", "get-command", "rg", "grep", "findstr",
-           "head", "tail", "wc", "more", "echo", "write-output", "pytest", "py.test", "mypy", "eslint"}
-LOOKING_SUBCOMMANDS = {
-    "git": ("status", "log", "diff", "show", "ls-files", "rev-parse", "blame", "grep", "describe", "shortlog"),
-    "ruff": ("check",), "npm": ("test", "t", "ls", "run test"), "pnpm": ("test", "ls"), "yarn": ("test",),
-    "cargo": ("test", "check"), "go": ("test", "vet"), "dotnet": ("test",), "pip": ("list", "show", "freeze")}
-PYTHONS = {"python", "python3", "py"}
-WRITING_OPTIONS = {"--output", "--fix", "--write", "--pre", "--open-files-in-pager"}  # and git grep -O
-NOT_LOOKING = ";&><`$(){}\n\r"
-LOOKING_HELP = ("In review you may only look: read and search (Get-Content, Get-ChildItem, Select-String, rg), "
-                "git status/diff/log/show, and run tests and linters (pytest, npm test, cargo test, ruff check). "
-                "No redirection, chaining, ( ), { } or $; the exit code comes back on its own.")
-
-
-def looking_only(command: str) -> str:
-    """Empty when every part of the pipeline only looks; otherwise what does not."""
-    command = re.sub(r"^\s*&\s+", "", command)  # PowerShell's call operator, to run a quoted path
-    bad = sorted({c for c in command if c in NOT_LOOKING})
-    if bad:
-        return f"it uses {' '.join(repr(c) for c in bad)}"
-    for part in command.split("|"):
-        try:
-            words = [word.strip("\"'") for word in shlex.split(part, posix=False)]
-        except ValueError:
-            return "its quotes do not close"
-        if not words:
-            return "a part of the pipeline is empty"
-        first = Path(words[0]).name.lower().removesuffix(".exe")
-        rest = words[1:]
-        if first in PYTHONS:
-            while rest[:1] and rest[0] in ("-I", "-B", "-u", "-E", "-s"):
-                rest = rest[1:]
-            if rest[:1] != ["-m"] or len(rest) < 2:
-                return f"{words[0]} runs a script; only python -m with a test runner or linter"
-            first, rest = rest[1].lower(), rest[2:]
-        if first == "git":
-            while rest[:1] and rest[0] in ("-C", "--no-pager"):
-                rest = rest[2:] if rest[0] == "-C" else rest[1:]
-        writing = next((w for w in rest if w.split("=")[0] in WRITING_OPTIONS or w.startswith("-O")), None)
-        if writing:
-            return f"{writing} writes"
-        if rest in (["--version"], ["--help"]):
-            continue
-        if first in LOOKING:
-            continue
-        line = " ".join(rest).lower()
-        if not any(line == sub or line.startswith(sub + " ") for sub in LOOKING_SUBCOMMANDS.get(first, ())):
-            return f"{' '.join(words[:2])} may change things"
-    return ""
-
-
 def _folder(ctx: ToolContext, folder: str) -> Path:
     path = resolve(ctx, folder) if folder else working_folder(ctx)
     if not path.is_dir():
@@ -136,10 +78,6 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
     Prefer files_read/files_search/files_edit over cat, grep and sed."""
     if not command.strip():
         raise ToolError("command is empty.")
-    if ctx.profile.get("mode") == "review":
-        why = looking_only(command)
-        if why:
-            raise ToolError(f"Not run: {why}. {LOOKING_HELP}")
     folder = _folder(ctx, cwd)
     line = command_line(ctx.brain.config.values()["shell"], command)
     log = ctx.run_dir() / f"job-{time.time_ns()}.log"  # a file, not a pipe: the command may outlive the call

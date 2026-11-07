@@ -12,6 +12,7 @@ import logging
 import queue
 import secrets
 import threading
+import time
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
@@ -153,11 +154,13 @@ class Runs:
         self.spawn(run_id)
         return run_id
 
-    def subagent(self, parent: dict, goal: str, toolkits: Optional[list], mode: str, instructions: str) -> str:
-        """Run a helper to the end on this thread and return its report (the reviewer of a task)."""
+    def subagent(self, parent: dict, goal: str, toolkits: Optional[list], instructions: str) -> str:
+        """Run a helper to its end and return its report (the reviewer of a task). It has its parent's tools,
+        folders and permissions: what needs approval is asked (in bypass the app allows it), and this waits.
+        shortcut: the parent's worker waits with it; review on its own if waits for answers starve the workers."""
         own = parent["options"].get("profile") or {}  # it works where its parent does: folders and allowed calls
         options = {"input": [{"type": "text", "text": goal}], "goal": goal,
-                   "profile": {"instructions": instructions, "toolkits": toolkits, "mode": mode, "signals": False,
+                   "profile": {"instructions": instructions, "toolkits": toolkits, "signals": False,
                                "from_session": own.get("from_session") or parent["session"], "cwd": own.get("cwd"),
                                "allow": own.get("allow") or []}}
         model = self.brain.config.values()["light_model"]
@@ -166,7 +169,8 @@ class Runs:
                                     status="working")
         self.store.update_run(run_id, session=f"agent-{run_id}")
         self.loop.execute(run_id)
-        run = self.store.run(run_id)
+        while (run := self.store.run(run_id))["status"] not in TERMINAL:  # it waits for answers, then goes on
+            time.sleep(0.2)
         if run["status"] != "completed":
             message = (run["error"] or {}).get("message", run["status"])
             return f"The helper did not finish ({message})."
@@ -177,7 +181,7 @@ class Runs:
         """A separate, skeptical helper checks a task before it counts as done."""
         prompt = VERIFY_PROMPT.format(goal=task["options"]["goal"], report=report or "(no report)")
         toolkits = task["options"]["profile"].get("toolkits")
-        return self.subagent(task, prompt, toolkits, mode="review", instructions="## REVIEWER\nCheck, do not fix.")
+        return self.subagent(task, prompt, toolkits, instructions="## REVIEWER\nCheck, do not fix.")
 
     # ============== Answers and cancelling ==============
 
@@ -319,6 +323,10 @@ class Runs:
             self.brain.notify(run["app"], parent, "agent.input_required",
                               {"agent": run["options"].get("agent"), "name": name, "run": run["id"],
                                "session": run["session"], **(extra or {})})
+        elif run["kind"] == "subagent":  # a task's reviewer: the app answers it like the task
+            self.brain.notify(run["app"], run["options"]["profile"].get("from_session") or run["session"],
+                              "task.input_required", {"task": run["parent"], "run": run["id"],
+                                                      "session": run["session"], "name": "reviewer"})
         elif run["kind"] == "task" or run["options"].get("detached"):
             self.brain.notify(run["app"], parent, "task.input_required",
                               {"task": run["id"], "session": run["session"], **(extra or {})})
@@ -348,7 +356,8 @@ class Runs:
         self.brain.agents.run_ended(run)
 
     def recover(self) -> None:
-        for run in self.store.runs(statuses=("working", "queued"), limit=1000):
+        waiting_reviewers = self.store.runs(kind="subagent", statuses=("input_required",), limit=1000)
+        for run in self.store.runs(statuses=("working", "queued"), limit=1000) + waiting_reviewers:
             if run["kind"] in ("task", "agent"):
                 logger.info("Resuming %s %s after a restart", run["kind"], run["id"])
                 self.brain.note(run["app"], run["session"], "The brain restarted while you worked; continue.")
