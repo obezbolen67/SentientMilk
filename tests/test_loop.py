@@ -348,13 +348,27 @@ def test_helpers_investigate_with_read_only_tools_and_report(brain):
     assert any(r["kind"] == "subagent" and r["status"] == "completed" for r in brain.store.runs())
 
 
-def test_reasoning_is_passed_back_with_tool_loops(brain):
+def test_reasoning_is_passed_back_with_tool_loops_and_not_into_the_next_turn(brain):
     message = tool_call("files_find", {"pattern": "*"}, "f1")
     message["reasoning_content"] = "I should look around first."
-    brain.provider.replies += [message, "nothing here"]
+    brain.provider.replies += [message, "nothing here", "hello"]
     turn(brain, "cli", "look")
     assistant = next(m for m in brain.provider.sent[1]["messages"] if m["role"] == "assistant")
     assert assistant["reasoning_content"] == "I should look around first."
+    turn(brain, "cli", "hi")
+    earlier = [m for m in brain.provider.sent[-1]["messages"] if m["role"] == "assistant"]
+    assert earlier and not any(m.get("reasoning_content") for m in earlier)
+
+
+def test_reasoning_stays_through_steering_in_its_run():
+    """A steering message joins the running turn: its tool loop still needs its reasoning."""
+    def said(run, text):
+        return {"id": 0, "run": run, "type": "assistant", "message": {"content": text, "reasoning_content": "why " + text}}
+    events = [{"id": 1, "run": 1, "type": "input", "content": "first"}, said(1, "a"),
+              {"id": 2, "run": 2, "type": "input", "content": "second"}, said(2, "b"),
+              {"id": 3, "run": 2, "type": "input", "content": "steer"}, said(2, "c")]
+    sent = [m for m in context.project(events, None) if m["role"] == "assistant"]
+    assert [m.get("reasoning_content") for m in sent] == [None, "why b", "why c"]
 
 
 def test_usage_and_cache_hits_are_counted(brain):

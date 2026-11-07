@@ -165,10 +165,20 @@ def _blocks(content) -> list:
     return content if isinstance(content, list) else [{"type": "text", "text": content}]
 
 
-def _assistant(message: dict) -> dict:
-    kept = {key: message[key] for key in ("tool_calls", "reasoning_content", "reasoning", "reasoning_details")
-            if message.get(key)}
+def _assistant(message: dict, reasoning: bool = True) -> dict:
+    keys = ("tool_calls", "reasoning_content", "reasoning", "reasoning_details") if reasoning else ("tool_calls",)
+    kept = {key: message[key] for key in keys if message.get(key)}
     return {"role": "assistant", "content": message.get("content") or "", **kept}
+
+
+def _turn_start(events: List[dict]) -> int:
+    """Where the current turn starts: the first message of the run the newest message belongs to (a
+    steering message joins its run), or the newest message when it came from no run."""
+    inputs = [index for index, event in enumerate(events) if event["type"] == "input"]
+    if not inputs:
+        return 0
+    run = events[inputs[-1]].get("run")
+    return next((index for index in inputs if run is not None and events[index].get("run") == run), inputs[-1])
 
 
 def note_text(event: dict) -> str:
@@ -176,8 +186,13 @@ def note_text(event: dict) -> str:
 
 
 def project(events: List[dict], compaction: Optional[dict]) -> List[dict]:
-    """Model messages for the events after the last compaction, deterministic for the same log."""
+    """Model messages for the events after the last compaction, deterministic for the same log.
+
+    Reasoning goes back only with the current turn's replies: DeepSeek needs it there to go on with its
+    tool calls (a 400 without it), and older reasoning only costs tokens. Once the provider counted it
+    (2026-11-07), it was a third of a long session's prompt: 24k of 63k tokens."""
     messages: List[dict] = []
+    start = _turn_start(events)
     if compaction:
         messages.append({"role": "user", "content": SUMMARY_PREFIX + compaction["summary"]})
     cleared = {i for e in events if e["type"] == "clearing" for i in e["ids"]}
@@ -189,14 +204,14 @@ def project(events: List[dict], compaction: Optional[dict]) -> List[dict]:
             messages.append({"role": "tool", "tool_call_id": call_id, "content": INTERRUPTED})
         pending.clear()
 
-    for event in events:
+    for index, event in enumerate(events):
         kind = event["type"]
         if kind == "input":
             settle()
             _add_user(messages, event["content"])
         elif kind == "assistant":
             settle()
-            message = _assistant(event["message"])
+            message = _assistant(event["message"], reasoning=index >= start)
             messages.append(message)
             pending[:] = [call["id"] for call in message.get("tool_calls", [])]
         elif kind == "tool":

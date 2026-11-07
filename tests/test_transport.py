@@ -33,21 +33,25 @@ def test_only_the_newest_screenshots_are_sent():
     original = json.dumps(messages)
     projected = transport.prepare_messages(messages, 800 * 1024)
     assert json.dumps(messages) == original
-    assert len(images(projected)) < 1000
+    assert 3 <= len(images(projected)) <= 6
     assert projected[0]["content"] == f"turn 0\n{transport.OMITTED_IMAGE}"
     assert image_side(images(projected)[-1])[1] == "JPEG"
 
 
-def test_a_new_screenshot_changes_only_the_one_before_it():
-    """The provider's prompt cache reuses a request only as far as the next one repeats it. A new
-    screenshot comes in a user message, after which the provider re-reads from the previous user
-    message anyway: that one's image may become a thumbnail, older ones must stay as they were sent."""
+def test_only_a_few_screenshots_go_and_the_past_changes_every_fourth():
+    """The provider took 35-45 s a call to read 42 old screenshots (2026-11-07), against 14 s for the same
+    request without them. Only the newest few go: at least 3, fewer than 7. The prompt cache reuses a
+    request only as far as the next one repeats it, and a new screenshot (in a user message) makes the
+    provider re-read from the previous user message anyway: so the image before it may become a
+    thumbnail, while older ones turn into notes four at a time, not one at every step."""
     messages = [{"role": "user", "content": [{"type": "text", "text": f"turn {i}"},
                                              {"type": "image_url", "image_url": {"url": data_url((800, 500))}}]}
                 for i in range(12)]
     sent = [transport.prepare_messages(messages[:n], 10 ** 9) for n in range(1, len(messages) + 1)]
-    assert all(sent[n][:n - 1] == sent[n - 1][:n - 1] for n in range(1, len(sent)))
-    assert [image_side(url)[0] for url in images(sent[-1])] == [256] * 11 + [768]
+    assert [len(images(request)) for request in sent] == [1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 3, 4]
+    assert [n for n in range(1, len(sent)) if sent[n][:n - 1] != sent[n - 1][:n - 1]] == [6, 10]
+    assert [image_side(url)[0] for url in images(sent[-1])] == [256] * 3 + [768]
+    assert sent[-1][0]["content"] == f"turn 0\n{transport.OMITTED_IMAGE}"
 
 
 def test_over_budget_drops_the_older_half_then_shrinks_the_newest():

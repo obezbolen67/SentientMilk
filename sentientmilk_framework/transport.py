@@ -1,10 +1,14 @@
 """What is sent to the provider: the stored conversation, sized to fit the request budget.
 
-The newest image is sent readable and older ones as thumbnails, until the byte budget
-drops the older half for notes. The provider's prompt cache reuses a request only as far
-as the next one repeats it, and a new image comes in a user message, after which the
-provider re-reads from the previous user message anyway: so only the image before the
-new one changes, never older ones. The stored conversation itself is never changed.
+Only the newest few images are sent (at least KEPT_IMAGES, fewer than KEPT_IMAGES +
+IMAGE_BATCH): the newest readable, the others as thumbnails; older ones become a note.
+The provider reads every image of every request again: 42 old thumbnails took it 35-45 s
+a call (2026-11-07), the same request without them 14 s. Its prompt cache reuses a request
+only as far as the next one repeats it, and a new image comes in a user message, after
+which the provider re-reads from the previous user message anyway: so the image before the
+new one may change at no cost, and older ones turn into notes IMAGE_BATCH at a time, not
+one at every step. The byte budget drops the older half of what is left. The stored
+conversation itself is never changed.
 """
 
 import base64
@@ -19,6 +23,7 @@ logger = logging.getLogger(__name__)
 IMAGE = (768, 70)  # (longest side, JPEG quality)
 IMAGE_REDUCED = (512, 55)  # the newest image, when the request is still too big without the others
 THUMBNAIL = (256, 42)
+KEPT_IMAGES, IMAGE_BATCH = 3, 4  # images sent: the newest, at least 3 and fewer than 3 + 4
 OMITTED_IMAGE = "[Earlier screenshot omitted.]"
 DISABLED_IMAGE = "[Image omitted: the model is set up without image support.]"
 # Keep below nginx's common 1 MiB request-body default.
@@ -82,6 +87,10 @@ def prepare_messages(messages: List[dict], max_bytes: int = DEFAULT_BUDGET, *,
     kept = images if support_images else []
     for block in images[:len(images) - len(kept)]:
         _replace_with_text(block, DISABLED_IMAGE)
+    old = max(0, len(kept) - KEPT_IMAGES) // IMAGE_BATCH * IMAGE_BATCH  # moves only every IMAGE_BATCH images
+    for block in kept[:old]:
+        _replace_with_text(block, OMITTED_IMAGE)
+    kept = kept[old:]
     for block in kept[:-1]:
         block["image_url"]["url"] = encode_image(block["image_url"]["url"], THUMBNAIL)
     for block in kept[-1:]:

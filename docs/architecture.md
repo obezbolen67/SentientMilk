@@ -317,13 +317,17 @@ added later.
   differs from the previous one at the previous user message, and the provider re-reads
   that whole turn, tool results included, without the cache. Storing the tail fixes that.
   The transcript still hides it.
-- Images: the newest is sent at 768 px, every older one as a 256 px thumbnail, and none is
-  dropped until the byte budget drops the older half at once. A new image comes in a user
-  message, and the provider re-reads from the previous user message anyway (see below), so
-  turning the image before it into a thumbnail costs nothing; changing older ones does.
-  The old rule (three thumbnails, the fourth dropped) changed an image four back on every
-  screenshot. Replayed 2026-11-06 against the provider, twice per rule, on MilkChan's
-  49-step Gmail turn with 23 screenshots:
+- Images: only the newest few are sent, at least 3 and fewer than 7: the newest at 768 px, the
+  others as 256 px thumbnails, and older ones become the note "[Earlier screenshot omitted.]",
+  four at a time. The provider reads every image of a request again, cached or not: on
+  2026-11-07 MilkChan's RimWorld turn carried 42 thumbnails and each call took 47-83 s; the
+  same request took 47 s to its first token with them, 14 s without them, while a tiny request
+  answered in 2 s. A new image comes in a user message, and the provider re-reads from the
+  previous user message anyway (see below), so turning the image before it into a thumbnail
+  costs nothing; changing older ones does, which is why they go four at a time.
+  Before that, every older image was kept as a thumbnail, because the cache cost of dropping
+  them one by one was measured on 2026-11-06 (MilkChan's 49-step Gmail turn, 23 screenshots,
+  two replays per rule):
 
   | rule | cache hit rate | uncached tokens |
   |---|---|---|
@@ -597,7 +601,10 @@ the CLI brain knows what MilkChan's brain talked about this morning.
   Refuseless model name is not in DeepSeek's docs, so we set it by hand and verify it with
   a long-context eval.
 - Assistant messages are stored whole, including `reasoning_content`. DeepSeek rejects a
-  tool loop with a 400 if it is missing. `ai.py` already keeps the whole message.
+  tool loop with a 400 if it is missing. `ai.py` already keeps the whole message. Requests
+  carry it only for the current turn's replies (from the first message of the run the newest
+  message belongs to, so steering keeps it): on 2026-11-07 the provider began counting the
+  older reasoning too, 24k of a 63k-token request.
 - `ai.py` shrinks to `provider.py`: one call in, one message out, with streaming and usage.
   The loop moves to `loop.py`, where the event log lives.
 - Strict tool schemas (DeepSeek beta) only if evals show bad tool arguments.
