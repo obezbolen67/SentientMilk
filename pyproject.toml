@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "sentientmilk-framework"
 version = "0.5.0"
 description = "SentientMilk: a local brain server that apps such as MilkChan think with"
+authors = [{name = "MilkChan Team"}]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

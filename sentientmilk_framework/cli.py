@@ -207,6 +207,7 @@ def main(argv=None) -> None:
     mcp.add_argument("--env", action="append", default=[], metavar="NAME=VALUE")
     mcp.add_argument("server_command", nargs=argparse.REMAINDER, metavar="-- COMMAND ARGS")
     commands.add_parser("stats", help="tokens and cache hits per app")
+    commands.add_parser("setup", help="note how SentientMilk is installed, so apps start it (installers run this)")
     evaluate = commands.add_parser("eval", help="run evaluation tasks against the configured model")
     evaluate.add_argument("names", nargs="*")
     evaluate.add_argument("--model", default="")
@@ -214,6 +215,8 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     home = Path(args.home or default_home()).expanduser().resolve()
     record_launch(home)
+    if args.command == "setup":
+        return None
 
     logging.basicConfig(level=logging.WARNING if args.command != "serve" else logging.INFO,
                         format="%(asctime)s [SentientMilk] %(message)s")

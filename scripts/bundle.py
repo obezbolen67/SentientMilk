@@ -1,9 +1,11 @@
 """Build a Windows app folder that Smart App Control lets run.
 
 A PyInstaller .exe is a new, unsigned program on every build, so Smart App Control blocks it.
-This folder holds no new program: Python's own runtime (python.exe and its DLLs are signed by
-the Python Software Foundation), the package files pip installed (the same bytes, so the same
-reputation), the app's source, and a shortcut plus a .cmd that start it. Run this with the
+This folder holds Python's own runtime (python.exe and its DLLs are signed by the Python Software
+Foundation), the package files pip installed (the same bytes, so the same reputation), the app's
+source, and NAME.exe: a small program (scripts/host.cs) that runs the app on that runtime in its own
+process, with the app's name, icon and version. NAME.exe is the one new program, so the one to sign;
+until it is signed, a shortcut and a .cmd start the app on the runtime directly. Run this with the
 Python whose packages the app uses, for example:
 
     python scripts/bundle.py --name SentientMilk --module sentientmilk_framework \
@@ -13,9 +15,11 @@ Python whose packages the app uses, for example:
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from importlib import metadata
 from pathlib import Path
 
@@ -114,6 +118,32 @@ def launchers(out: Path, name: str, module: str, console: bool, icon: str) -> No
                    env={**os.environ, "BUNDLE_LINK": json.dumps(link)})
 
 
+def host_source(name: str, module: str, version: str, publisher: str) -> str:
+    """scripts/host.cs for this app. Assembly versions are numbers only: 1.2.0rc1 becomes 1.2.0."""
+    number = re.match(r"\d+(?:\.\d+){0,3}", version)
+    values = {"@NAME@": name, "@MODULE@": module, "@VERSION@": number.group(0) if number else "0.0.0",
+              "@PUBLISHER@": publisher}
+    source = (Path(__file__).parent / "host.cs").read_text(encoding="utf-8")
+    for mark, value in values.items():
+        source = source.replace(mark, json.dumps(value))  # a C# string literal
+    return source
+
+
+def host(out: Path, name: str, module: str, console: bool, icon: str, version: str, publisher: str) -> None:
+    """NAME.exe, compiled by the C# compiler of the .NET Framework every Windows has."""
+    compiler = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe"
+    with tempfile.TemporaryDirectory() as folder:
+        source = Path(folder) / "host.cs"
+        source.write_text(host_source(name, module, version, publisher), encoding="utf-8")
+        command = [str(compiler), "/nologo", "/optimize+", "/platform:x64", f"/target:{'exe' if console else 'winexe'}",
+                   f"/out:{out / (name + '.exe')}", str(source)]
+        if icon:
+            command.insert(-1, f"/win32icon:{icon}")
+        done = subprocess.run(command, capture_output=True, text=True)
+    if done.returncode:
+        raise SystemExit(f"Could not compile {name}.exe:\n{done.stdout}{done.stderr}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--name", required=True, help="the app's name: NAME.lnk and NAME.cmd start it")
@@ -124,7 +154,9 @@ def main(argv=None) -> int:
     parser.add_argument("--extra", action="append", default=[], help="an optional-dependencies group to bundle too")
     parser.add_argument("--requires", action="append", default=[], help="another requirement, e.g. 'requests'")
     parser.add_argument("--console", action="store_true", help="a console app (default: a window app, pythonw)")
-    parser.add_argument("--icon", default="", help="an .ico for the shortcut")
+    parser.add_argument("--icon", default="", help="an .ico for NAME.exe and the shortcut")
+    parser.add_argument("--version", default="", help="NAME.exe's version (default: the project's)")
+    parser.add_argument("--publisher", default="", help="NAME.exe's company (default: the project's first author)")
     parser.add_argument("--out", default="", help="default: dist/windows/NAME")
     args = parser.parse_args(argv)
     out = Path(args.out or Path("dist") / "windows" / args.name).resolve()
@@ -135,10 +167,12 @@ def main(argv=None) -> int:
             shutil.rmtree(out)
         except OSError as exc:
             raise SystemExit(f"Could not replace {out} ({exc}). Close {args.name} if it runs from there.")
-    requirements = list(args.requires)
+    requirements, version, publisher = list(args.requires), args.version, args.publisher
     if args.project:
         project = tomllib.loads(Path(args.project).read_text(encoding="utf-8"))["project"]
         requirements += project.get("dependencies", [])
+        version = version or project.get("version", "")
+        publisher = publisher or next((a["name"] for a in project.get("authors", []) if "name" in a), "")
         for extra in args.extra:
             requirements += project.get("optional-dependencies", {})[extra]
     dists = distributions(requirements)
@@ -151,6 +185,7 @@ def main(argv=None) -> int:
         shutil.copy2(args.icon, icon)
     (out / "runtime" / MARK).write_text(json.dumps({"name": args.name, "module": args.module}), encoding="utf-8")
     launchers(out, args.name, args.module, args.console, icon)
+    host(out, args.name, args.module, args.console, icon, version, publisher)
     check = subprocess.run([str(out / "runtime" / "python.exe"), "-c", f"import {args.module}"],
                            capture_output=True, text=True)
     if check.returncode:

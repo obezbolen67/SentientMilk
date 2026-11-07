@@ -240,6 +240,18 @@ def test_apps_start_the_brain_the_way_sentientmilk_recorded(tmp_path, monkeypatc
     monkeypatch.setattr(sys, "executable", str(runtime / "pythonw.exe"))
     with pytest.raises(BrainError):
         launch_command(home)
+    monkeypatch.setattr(sys, "executable", str(runtime.parent / "MilkChan.exe"))  # its own program, beside it
+    with pytest.raises(BrainError):
+        launch_command(home)
+
+
+def test_the_installer_registers_sentientmilk_without_starting_it(tmp_path):
+    from sentientmilk_framework.cli import main
+
+    home = tmp_path / "home"
+    main(["--home", str(home), "setup"])
+    assert json.loads((home / "launch.json").read_text())["command"] == own_command(home.resolve())
+    assert not (home / "server.json").exists()  # no brain was started
 
 
 def _alive(client):

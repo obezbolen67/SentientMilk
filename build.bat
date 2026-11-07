@@ -1,7 +1,7 @@
 @echo off
 rem Build dist\windows\SentientMilk: Python's own signed runtime with SentientMilk's packages and
-rem source, started by SentientMilk.lnk or SentientMilk.cmd. Smart App Control blocks a PyInstaller
-rem .exe (a new unsigned program on every build); this folder holds no new program.
+rem source, started by SentientMilk.exe (once signed; scripts/bundle.py explains it), or until then
+rem by SentientMilk.lnk or SentientMilk.cmd. MilkChan's installer includes it.
 rem Built from %SENTIENTMILK_PYTHON% if set, otherwise from .venv (run.bat creates it).
 setlocal
 pushd "%~dp0" || exit /b 1

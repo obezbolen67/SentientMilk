@@ -314,8 +314,11 @@ class BrainClient:
 
 
 def packaged() -> bool:
-    """A packaged app: PyInstaller's, or a folder made by scripts/bundle.py (its runtime holds bundle.json)."""
-    return bool(getattr(sys, "frozen", False)) or (Path(sys.executable).parent / "bundle.json").exists()
+    """A packaged app: PyInstaller's, or a folder made by scripts/bundle.py (its runtime holds bundle.json),
+    run by the runtime's python.exe or by the folder's own NAME.exe beside the runtime."""
+    here = Path(sys.executable).parent
+    return bool(getattr(sys, "frozen", False)) or any((folder / "bundle.json").exists()
+                                                      for folder in (here, here / "runtime"))
 
 
 def own_command(home: Path) -> List[str]:

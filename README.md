@@ -25,15 +25,20 @@ sentientmilk chat                     # a coding agent in the current folder
 On Windows, `run.bat` does the same from this checkout (`run.bat` opens the panel,
 `run.bat chat` chats); its first run creates `.venv` with Python 3.12. `build.bat` builds
 `dist\windows\SentientMilk\` from `.venv` (or `SENTIENTMILK_PYTHON`); start it with
-`SentientMilk.lnk` or `SentientMilk.cmd` (`SentientMilk.cmd chat` chats). Whichever you
-open last is how apps start the brain.
+`SentientMilk.exe`, or with `SentientMilk.lnk` or `SentientMilk.cmd` (`SentientMilk.cmd chat`
+chats) until the .exe is signed. Whichever you open last is how apps start the brain.
+MilkChan's installer includes this folder and runs `SentientMilk setup`, which records the
+installed brain without starting it.
 
-The build is a folder, not an .exe, because Smart App Control blocks unsigned programs it
+The build is not a PyInstaller .exe, because Smart App Control blocks unsigned programs it
 does not know, and a PyInstaller .exe is a new one on every build. The folder holds Python's
 own runtime (signed by the Python Software Foundation), the package files pip installed
-(the same bytes as in `.venv`, so Windows already knows them), the source and the
-launchers. `scripts/bundle.py` makes it; MilkChan's build uses it too. Source files git
-ignores (local settings, keys, databases) stay out of the folder.
+(the same bytes as in `.venv`, so Windows already knows them), the source, and
+`SentientMilk.exe`: a small launcher (`scripts/host.cs`, compiled by the C# compiler
+Windows has) that runs Python in its own process, so Windows shows SentientMilk's name and
+version. It is the one new program, the one to sign. `scripts/bundle.py` makes the folder;
+MilkChan's build uses it too. Source files git ignores (local settings, keys, databases)
+stay out of the folder.
 
 ### The control panel
 
@@ -240,5 +245,5 @@ sentientmilk_framework/
 tests/
 docs/architecture.md
 run.bat                                                     Windows: run from this checkout
-build.bat, scripts/bundle.py                                the Windows build (a folder on signed Python)
+build.bat, scripts/bundle.py, scripts/host.cs              the Windows build (a folder on signed Python)
 ```

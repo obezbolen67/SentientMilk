@@ -57,7 +57,8 @@ def _screenshot() -> str:
 
 
 def _command(command: str, folder: Path) -> tuple:
-    command = command.replace("{python}", f'"{sys.executable}"')
+    bundled = Path(sys.executable).parent / "runtime" / "python.exe"  # SentientMilk.exe runs Python from there
+    command = command.replace("{python}", f'"{bundled if bundled.exists() else sys.executable}"')
     done = subprocess.run(command, shell=True, cwd=folder, capture_output=True, text=True, timeout=300)
     return done.returncode == 0, (done.stdout + done.stderr)[-1500:]
 
