@@ -49,7 +49,7 @@ none runs and shows it live:
 
 - **Overview**: state, address, uptime, the provider, token use per app, tasks, schedules.
 - **Provider**: service URL, model (with a model list from the service), keys (write-only),
-  thinking, context window, images, streaming, request budget, shell, idle exit.
+  thinking, context window, images, streaming, request budget, shell.
 - **Apps**: each connected app's persona, model, toolkits and conversations; its memory,
   where single entries can be forgotten.
 - **Work**: tasks (cancel) and schedules (pause, delete). **Journal**: search and delete notes.
@@ -57,13 +57,19 @@ none runs and shows it live:
 - **Logs**: `brain.log` as it grows.
 
 Keys: `1`-`7` tabs, `s` start, `x` stop, `r` refresh, `ctrl+s` save the open page, `q` quit.
-Closing the panel leaves the brain running.
+
+The brain is a background service: it runs until it is stopped, never on its own, and
+closing the panel leaves it running. While it runs, its milk carton sits in the Windows
+notification area. A teal dot on the carton means it is working, and its tooltip names the
+model. Double-click it (or **Open control panel**) to open the panel; **Stop the brain**
+stops it. Without a notification area (no desktop, or `pystray` missing) it runs all the
+same, and the panel's `x` stops it.
 
 Opening SentientMilk (the panel or any command) records how to start it in `launch.json`.
 Apps start the brain that way when none runs, each as its own process; a packaged app on
-a computer where SentientMilk was never opened says so instead. One brain runs per home folder; it exits on its own after `idle_exit_minutes`
-(30) with no app connected, no work or jobs and no enabled schedules. There is no
-autostart: after a reboot, a schedule that came due fires when an app next starts the brain.
+a computer where SentientMilk was never opened says so instead. One brain runs per home
+folder. There is no autostart: after a reboot, a schedule that came due fires when the
+brain next starts.
 
 Other commands: `serve` (run in the foreground), `tasks [show|cancel ID]`,
 `schedules [delete ID]`, `journal [QUERY] [--delete ID]`,
@@ -205,7 +211,7 @@ key is only ever sent to the stored `base_url`.
 the same as `model`), `context_window` (128000), `thinking_mode` (`default`, `none`,
 `minimal`, `low`, `medium`, `high`, `xhigh` or `tokens`), `thinking_tokens`, `vision`,
 `request_budget` (bytes per request, 800 KiB), `stream`, `web_search_key`, `shell`,
-`task_workers` (2), `idle_exit_minutes` (30; 0 never), `rules`, `disabled_toolkits`.
+`task_workers` (2), `rules`, `disabled_toolkits`.
 
 ## Development
 
@@ -226,7 +232,8 @@ this repository and for apps. `tests/test_panel.py` drives the panel headless.
 
 ```text
 sentientmilk_framework/
-  server.py      HTTP server, the brain lock, idle exit
+  server.py      HTTP server, the brain lock
+  tray.py        the brain's milk carton in the notification area
   client.py      BrainClient and connect() for apps; launch.json
   panel.py       the terminal control panel (Textual)
   brain.py       apps, sessions, profiles, validation of what apps send

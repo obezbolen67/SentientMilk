@@ -321,11 +321,19 @@ def packaged() -> bool:
                                                       for folder in (here, here / "runtime"))
 
 
+def _command(home: Path, *args: str) -> List[str]:
+    program = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, "-m", "sentientmilk_framework"]
+    return [*program, "--home", str(home), *args]
+
+
 def own_command(home: Path) -> List[str]:
     """How this program runs the brain: SentientMilk's own executable when packaged."""
-    if getattr(sys, "frozen", False):
-        return [sys.executable, "--home", str(home), "serve", "--log"]
-    return [sys.executable, "-m", "sentientmilk_framework", "--home", str(home), "serve", "--log"]
+    return _command(home, "serve", "--log")
+
+
+def panel_command(home: Path) -> List[str]:
+    """How this program opens its control panel."""
+    return _command(home)
 
 
 def record_launch(home: Path) -> None:

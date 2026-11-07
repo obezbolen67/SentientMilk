@@ -65,10 +65,6 @@ class Bus:
         for listener in listeners:
             listener.put(event)
 
-    def listening(self) -> int:
-        with self._lock:
-            return sum(len(v) for v in self._listeners.values())
-
 
 class Runs:
     def __init__(self, brain):

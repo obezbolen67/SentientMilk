@@ -391,8 +391,6 @@ class Panel(App):
                                      allow_blank=False, id="t-shell")
                         yield Label("Background workers")
                         yield Input(type="integer", id="t-workers")
-                        yield Label("Stop when idle (min)")
-                        yield Input(type="integer", placeholder="0: never", id="t-idle")
                         yield Label("Always refuse")
                         yield Input(placeholder="shell_run(rm *), …", id="t-deny")
                         yield Label("Always ask first")
@@ -534,8 +532,8 @@ class Panel(App):
             rows += [("Address", self.client.url), ("Process", f"{health['pid']} · up {uptime(health['started'])}"),
                      ("Version", f"{health.get('version', '?')} · API {health['api']}")]
         rows += [("Home", str(self.home)),
-                 ("Idle exit", f"after {settings['idle_exit_minutes']} min with nothing to do"
-                  if settings.get("idle_exit_minutes") else "never")]
+                 ("Runs", "in the background until stopped here or from its tray icon; closing this "
+                          "window leaves it running")]
         self.main.query_one("#brain-info", Static).update(self.lines(rows))
         thinking = dict((v, k) for k, v in THINKING_MODES).get(settings.get("thinking_mode"), "?")
         provider = [
@@ -785,7 +783,6 @@ class Panel(App):
             [(kit, kit, kit not in off) for kit in kits["toolkits"]])
         self.main.query_one("#t-shell", Select).value = settings["shell"]
         self.main.query_one("#t-workers", Input).value = str(settings["task_workers"])
-        self.main.query_one("#t-idle", Input).value = str(settings["idle_exit_minutes"])
         for kind in ("deny", "ask", "allow"):
             self.main.query_one(f"#t-{kind}", Input).value = ", ".join(settings["rules"].get(kind, []))
         self.load_mcp()
@@ -797,7 +794,6 @@ class Panel(App):
             changes = {"disabled_toolkits": [kit for kit in listed if kit not in chosen],
                        "shell": self.main.query_one("#t-shell", Select).value,
                        "task_workers": number(self.main.query_one("#t-workers", Input), "Background workers"),
-                       "idle_exit_minutes": number(self.main.query_one("#t-idle", Input), "Stop when idle"),
                        "rules": {kind: items(self.main.query_one(f"#t-{kind}", Input).value)
                                  for kind in ("deny", "ask", "allow")}}
         except ValueError as exc:

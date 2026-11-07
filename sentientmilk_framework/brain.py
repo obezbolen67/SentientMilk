@@ -363,8 +363,8 @@ class Brain:
                        if isinstance(entry, dict) and isinstance(entry.get("id"), str)}, key=str.lower)
 
     def busy(self) -> bool:
-        """Work that must not be cut off by an idle exit: runs, jobs, schedules."""
-        return self.runs.busy() or bool(self.jobs) or bool(self.store.schedules(enabled_only=True))
+        """Work going on now: runs, and background commands (jobs)."""
+        return self.runs.busy() or bool(self.jobs)
 
     def stats(self) -> dict:
         totals: Dict[str, Dict[str, int]] = {}

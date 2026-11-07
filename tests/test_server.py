@@ -191,16 +191,6 @@ def test_one_brain_per_home_and_the_discovery_file(brain, tmp_path):
     assert BrainClient.discover(tmp_path / "other") is None
 
 
-def test_idle_exit_waits_for_work_streams_and_requests(brain):
-    server = brain.server
-    server.last_request -= 3600
-    assert server.idle(30)
-    brain.client.create_schedule("milk", "every 1d", "drink water")
-    server.last_request -= 3600
-    assert not server.idle(30)  # a schedule keeps the brain alive
-    assert not server.idle(0)
-
-
 def test_connect_starts_the_brain_as_its_own_process(tmp_path):
     import os
     import signal

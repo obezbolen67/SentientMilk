@@ -25,6 +25,7 @@ from .brain import Brain, validate_items, validate_name
 from .client import DISCOVERY_FILE, default_home
 from .exceptions import BrainError, classify
 from .loop import STEP_BUDGET, TERMINAL
+from .tray import Tray
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,6 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method: str) -> None:
         self.close_connection = True
-        self.server.last_request = time.time()
         expected = f"Bearer {self.server.token}"
         if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), expected.encode()):
             return self._fail(401, "unauthorized", "Missing or wrong token")
@@ -439,7 +439,7 @@ class BrainServer(ThreadingHTTPServer):
             raise
         self.brain = Brain(self.home)
         self.token = secrets.token_urlsafe(32)
-        self.last_request = self.started = time.time()
+        self.started = time.time()
         self.closing = False
         self._close_lock = threading.Lock()
         self._closed = False
@@ -455,10 +455,6 @@ class BrainServer(ThreadingHTTPServer):
             json.dump({"url": self.url, "token": self.token, "pid": os.getpid(), "api": API_VERSION}, output)
         os.chmod(temporary, 0o600)
         os.replace(temporary, self.home / DISCOVERY_FILE)
-
-    def idle(self, minutes: int) -> bool:
-        return (minutes > 0 and time.time() - self.last_request > minutes * 60 and not self.brain.busy()
-                and self.brain.bus.listening() == 0)
 
     def close(self) -> None:
         """Stop serving, stop the brain's threads and withdraw the discovery file if it is ours.
@@ -492,7 +488,8 @@ def start(home: Optional[Path] = None, port: int = 0) -> BrainServer:
 
 
 def serve(home: Optional[Path] = None, port: int = 0, log_file: bool = False) -> None:
-    """Serve until interrupted, or until idle for the configured time with nothing to do."""
+    """Serve until stopped: from the tray icon, the control panel (POST /v1/shutdown) or Ctrl+C. The brain is
+    a background service and never stops on its own."""
     home = Path(home or default_home())
     if log_file:
         home.mkdir(parents=True, exist_ok=True)
@@ -507,18 +504,17 @@ def serve(home: Optional[Path] = None, port: int = 0, log_file: bool = False) ->
         print(exc, flush=True)
         return
     print(f"SentientMilk brain on {server.url}; token in {server.home / DISCOVERY_FILE}", flush=True)
+    tray = Tray(server.home, stop=lambda: threading.Thread(target=server.close, name="sentientmilk-shutdown",
+                                                           daemon=True).start())
+    tray.show(server.brain.config.values()["model"])
     try:
-        checked = time.time()
-        while not server.closing:  # closed by POST /v1/shutdown
+        while not server.closing:  # closed by POST /v1/shutdown or the tray
             time.sleep(0.5)  # Ctrl+C interrupts this on Windows too, unlike Event.wait()
-            if time.time() - checked >= 30:
-                checked = time.time()
-                if server.idle(server.brain.config.values()["idle_exit_minutes"]):
-                    logger.info("Idle with nothing to do: exiting")
-                    break
+            tray.update(server.brain.busy(), server.brain.config.values()["model"])
     except KeyboardInterrupt:
         pass
     finally:
+        tray.close()
         server.close()
 
 

@@ -695,8 +695,8 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 ## 17. As built
 
 - Apps start the brain as its own process (`connect()`); `brain.lock` lets one process win.
-  It exits on its own after `idle_exit_minutes` (30) with no runs, jobs, enabled schedules,
-  listeners or requests. Apps start it the way SentientMilk recorded in `launch.json` when it
+  It is a background service: it runs until it is stopped (its tray icon, the panel, or
+  `POST /v1/shutdown`), never on its own. Apps start it the way SentientMilk recorded in `launch.json` when it
   was last opened (on Windows, `dist\windows\SentientMilk\runtime\python.exe -m
   sentientmilk_framework --home <home> serve --log`); a packaged app (PyInstaller's, or a
   folder from `scripts/bundle.py`, whose runtime holds `bundle.json`) never runs a brain of

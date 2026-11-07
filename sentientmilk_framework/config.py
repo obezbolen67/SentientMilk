@@ -34,7 +34,6 @@ DEFAULTS = {
     "web_search_key": "",
     "shell": "",  # empty: powershell on Windows, bash elsewhere
     "task_workers": 2,
-    "idle_exit_minutes": 30,  # 0: never; the brain also stays while it has work or schedules
     "rules": {"allow": [], "ask": [], "deny": []},
     "disabled_toolkits": [],
 }
@@ -81,8 +80,6 @@ def validate_setting(key, value):
         raise ValueError("context_window must be between 4096 and 10000000 tokens")
     elif key == "task_workers" and not 1 <= value <= 16:
         raise ValueError("task_workers must be between 1 and 16")
-    elif key == "idle_exit_minutes" and not 0 <= value <= 7 * 24 * 60:
-        raise ValueError("idle_exit_minutes must be between 0 and 10080")
     elif key == "shell" and value.strip() not in SHELLS:
         raise ValueError(f"shell must be one of: {', '.join(s or '(empty)' for s in SHELLS)}")
     elif key == "rules":
