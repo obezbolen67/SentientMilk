@@ -72,6 +72,25 @@ def test_agents_work_at_once_and_each_report_comes_back_once(brain):
     assert not [n for n in brain.store.notifications("cli") if n["type"] == "agent.finished"]
 
 
+def test_an_agent_shows_as_done_only_once_its_report_waits_for_the_lead(brain, monkeypatch):
+    seen = []
+    update_run = brain.store.update_run
+
+    def watched(run_id, **changes):  # the moment anyone could see the agent done
+        run = brain.store.run(run_id)
+        if run["kind"] == "agent" and changes.get("status") == "completed":
+            seen.append(brain.store.has_mail("cli", run["options"]["parent_session"], "report"))
+        return update_run(run_id, **changes)
+
+    monkeypatch.setattr(brain.store, "update_run", watched)
+    brain.provider.replies += [lambda p: "Report A." if is_agent(p) else calls(("agent_start", {"name": "a", "task": "A."},
+                                                                                "s")),
+                               lambda p: "Report A." if is_agent(p) else "started", lambda p: "ok"]
+    turn(brain, "cli", "go")
+    wait_for(lambda: seen)
+    assert seen == [True]
+
+
 def test_a_report_after_the_turn_ended_reaches_the_chat_and_the_app(brain):
     release = threading.Event()
 

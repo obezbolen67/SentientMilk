@@ -219,3 +219,31 @@ def test_a_rejected_field_is_named(monkeypatch, tmp_path):
         "errors": [{"resource": "Issue", "code": "invalid", "field": "assignees", "value": "nobody-xyz"}]})})
     with pytest.raises(ToolError, match=r"\(assignees invalid: nobody-xyz\)"):
         github.github_issue_update.func(Context(tmp_path, token="t"), "octo/milk", 1, assignees=["nobody-xyz"])
+
+
+def test_the_gh_login_is_asked_again_so_a_new_one_counts_without_a_restart(monkeypatch, tmp_path):
+    fake = FakeGitHub(monkeypatch, {("GET", "/user"): Response(200, {"login": "me"})})
+    logins, now = ["gho_old"], [1000.0]
+    monkeypatch.setattr(github.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout=logins[-1] + "\n"))
+    monkeypatch.setattr(github.time, "monotonic", lambda: now[0])
+    github.github_get.func(Context(tmp_path), "/user")
+    logins.append("gho_new")  # the user ran gh auth refresh
+    github.github_get.func(Context(tmp_path), "/user")
+    assert fake.calls[-1].headers["Authorization"] == "Bearer gho_old"  # asked at most every few minutes
+    now[0] += github.GH_RETRY + 1
+    github.github_get.func(Context(tmp_path), "/user")
+    assert fake.calls[-1].headers["Authorization"] == "Bearer gho_new"
+
+
+def test_a_missing_scope_is_named_with_how_to_add_it(monkeypatch, tmp_path):
+    scopes = {"X-OAuth-Scopes": "gist, read:org, repo, workflow", "X-Accepted-OAuth-Scopes": "delete_repo"}
+    fake = FakeGitHub(monkeypatch, {
+        ("DELETE", "/repos/octo/milk"): Response(403, {"message": "Must have admin rights to Repository."}, headers=scopes),
+        ("GET", "/user"): Response(200, {"login": "me"})}, gh_token="gho_cli")
+    with pytest.raises(ToolError, match=r"needs the scope delete_repo.*gh auth refresh -h github.com -s delete_repo"):
+        github.github_api.func(Context(tmp_path), "DELETE", "/repos/octo/milk")
+    asked = len(fake.calls)
+    github.github_get.func(Context(tmp_path), "/user")  # gh is asked again at once: the user may have added it
+    assert len(fake.calls) == asked + 1
+    with pytest.raises(ToolError, match=r"needs the scope delete_repo.*Plugins: github"):
+        github.github_api.func(Context(tmp_path, token="ghp_set"), "DELETE", "/repos/octo/milk")

@@ -26,7 +26,7 @@ PLUGIN = "github"
 API = "https://api.github.com"
 API_VERSION = "2022-11-28"
 TIMEOUT = 30
-GH_RETRY = 300  # s before asking the gh CLI again after it had no token
+GH_RETRY = 300  # s before asking the gh CLI again: a new login or new scopes count without a restart
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 LOG_STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ", re.MULTILINE)
 SEARCH_KINDS = ("repositories", "issues", "code", "commits", "users")
@@ -49,10 +49,11 @@ def _api(ctx: ToolContext) -> str:
 
 
 def _gh_token(host: str) -> str:
-    """The gh CLI's token for ``host``; asked again after a while when it had none (the user may log in)."""
+    """The gh CLI's token for ``host``, asked again every few minutes (the user may log in, or refresh it
+    with more scopes) and at once after GitHub refused it."""
     with _gh_lock:
         token, asked = _gh_tokens.get(host, ("", 0.0))
-        if token or time.monotonic() - asked < GH_RETRY and host in _gh_tokens:
+        if host in _gh_tokens and time.monotonic() - asked < GH_RETRY:
             return token
     try:
         done = subprocess.run(["gh", "auth", "token", "--hostname", host], capture_output=True, text=True,
@@ -65,12 +66,15 @@ def _gh_token(host: str) -> str:
     return token
 
 
-def _token(ctx: ToolContext) -> str:
-    token = _settings(ctx).get("token", "")
-    if token:
-        return token
+def _gh_host(ctx: ToolContext) -> str:
     host = urlparse(_api(ctx)).hostname or "github.com"
-    return _gh_token("github.com" if host == "api.github.com" else host)
+    return "github.com" if host == "api.github.com" else host
+
+
+def _token(ctx: ToolContext) -> tuple:
+    """(the token, whether it is the gh CLI's): the plugin's setting (or its variables), else gh's login."""
+    token = _settings(ctx).get("token", "")
+    return (token, False) if token else (_gh_token(_gh_host(ctx)), True)
 
 
 def _request(ctx: ToolContext, method: str, path: str, params: Optional[dict] = None, body: Any = None,
@@ -81,7 +85,7 @@ def _request(ctx: ToolContext, method: str, path: str, params: Optional[dict] = 
         raise ToolError(f"Only GitHub's API at {api} is reached here (the token goes with each call). "
                         "Give a path such as /repos/owner/name/releases.")
     headers = {"Accept": accept, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "SentientMilk"}
-    token = _token(ctx)
+    token, from_gh = _token(ctx)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:  # a redirect to another host (job logs) drops the Authorization header: requests does that
@@ -89,7 +93,10 @@ def _request(ctx: ToolContext, method: str, path: str, params: Optional[dict] = 
     except requests.RequestException as exc:
         raise ToolError(f"GitHub could not be reached: {exc}")
     if response.status_code >= 400:
-        raise ToolError(_failure(response, method, path, bool(token)))
+        if from_gh and response.status_code in (401, 403, 404):
+            with _gh_lock:  # the user may fix it with gh (log in, add a scope): ask gh again at the next call
+                _gh_tokens.pop(_gh_host(ctx), None)
+        raise ToolError(_failure(response, method, path, bool(token), from_gh, _gh_host(ctx)))
     if raw:
         return response.text
     if response.status_code == 204 or not response.content:
@@ -100,7 +107,16 @@ def _request(ctx: ToolContext, method: str, path: str, params: Optional[dict] = 
         return response.text
 
 
-def _failure(response, method: str, path: str, authed: bool) -> str:
+def _missing_scopes(response) -> List[str]:
+    """The scopes this call accepts when the (classic or gh) token has none of them; [] otherwise, or
+    when GitHub does not say (fine-grained tokens)."""
+    def scopes(header: str) -> List[str]:
+        return [item.strip() for item in response.headers.get(header, "").split(",") if item.strip()]
+    have, accepted = set(scopes("X-OAuth-Scopes")), scopes("X-Accepted-OAuth-Scopes")
+    return accepted if "X-OAuth-Scopes" in response.headers and accepted and not have & set(accepted) else []
+
+
+def _failure(response, method: str, path: str, authed: bool, from_gh: bool = False, host: str = "github.com") -> str:
     try:
         data = response.json()
     except ValueError:
@@ -117,6 +133,14 @@ def _failure(response, method: str, path: str, authed: bool) -> str:
         hint = "" if authed else (" Without a token it is 60 requests an hour: set one in SentientMilk's control "
                                   "panel (Plugins: github) or log in with gh auth login.")
         return f"GitHub's rate limit is used up until {when}.{hint}"
+    missing = _missing_scopes(response) if status in (403, 404) else []
+    if missing:
+        how = (f"add it to gh's login with: gh auth refresh -h {host} -s {missing[0]} (it opens a browser "
+               "login), then try again" if from_gh else
+               "give the token that scope, or set another in SentientMilk's control panel (Plugins: github)")
+        return (f"GitHub refused {where} ({status}): {message}. The token has the scopes "
+                f"{response.headers.get('X-OAuth-Scopes') or 'none'}, and this needs the scope "
+                f"{' or '.join(missing)}: {how}.")
     if status == 404:
         reach = "the token may not reach it" if authed else "a private one needs a token"
         return f"Not found: {where}. Check the owner/name, number or path; if the repository is private, {reach}."

@@ -668,6 +668,8 @@ class Loop:
                 result["unread"] = unread
             store.add_event(run["app"], run["session"], run["id"], "end",
                             {"status": status, **result, "error": error.as_dict() if error else None})
+            self.brain.agents.ending({**run, "status": status, "result": result,
+                                      "error": error.as_dict() if error else None})
             store.update_run(run["id"], status=status, result=result, error=error.as_dict() if error else None)
         final = store.run(run["id"])
         if error:

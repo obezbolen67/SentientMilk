@@ -38,10 +38,20 @@ def _inside(path: Path, root: Path) -> bool:
     return path_text == root_text or path_text.startswith(root_text + os.sep)
 
 
+def private(ctx: ToolContext, path: Path) -> bool:
+    """Inside SentientMilk's own folder (its settings and keys, plugin trust, the server's token), which no
+    file tool opens; the saved outputs in its runs folder are the exception."""
+    home = Path(ctx.brain.home).resolve()
+    return _inside(path, home) and not _inside(path, home / "runs")
+
+
 def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:
     if not path or not isinstance(path, str):
         raise ToolError("path is required, e.g. path='src/app.py'")
     target = (cwd(ctx) / Path(path).expanduser()).resolve()
+    if private(ctx, target):
+        raise ToolError(f"{target} is in SentientMilk's own folder (its settings, keys and plugins): the file tools "
+                        "cannot open it. Write plugins in a folder of your own and install them with plugin_install.")
     allowed = roots(ctx) + [ctx.run_dir()]
     if not write:
         allowed.append(ctx.brain.home / "runs")  # saved tool outputs
@@ -156,9 +166,9 @@ def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_L
 SEARCH_SECONDS = 30  # without ripgrep a search walks in Python; a whole home folder would take many minutes
 
 
-def _walk(base: Path):
+def _walk(ctx: ToolContext, base: Path):
     for folder, dirs, names in os.walk(base):
-        dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS)
+        dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS and not private(ctx, Path(folder, d).resolve()))
         for name in sorted(names):
             yield Path(folder) / name
 
@@ -182,10 +192,12 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
         command += (["-i"] if ignore_case else []) + (["--glob", glob] if glob else []) + ["-e", pattern, str(base)]
         output = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                 timeout=60).stdout.splitlines()
+        home = os.path.normcase(str(Path(ctx.brain.home).resolve()))  # ripgrep skips hidden folders, not others
+        output = [line for line in output if not os.path.normcase(line).startswith(home)]
         total = len(output)
         matches = [_relative(ctx, line) for line in output[:SEARCH_LIMIT]]
     else:
-        files = [base] if base.is_file() else _walk(base)
+        files = [base] if base.is_file() else _walk(ctx, base)
         deadline = time.monotonic() + SEARCH_SECONDS
         for file in files:
             if time.monotonic() > deadline:
@@ -227,7 +239,8 @@ def _relative(ctx: ToolContext, text: str) -> str:
 def files_find(ctx: ToolContext, pattern: str, path: str = "."):
     """Find files by name with a glob pattern. Newest first, up to 300."""
     base = resolve(ctx, path)
-    found = [p for p in base.glob(pattern) if p.is_file() and not SKIPPED_DIRS.intersection(p.relative_to(base).parts)]
+    found = [p for p in base.glob(pattern) if p.is_file() and not SKIPPED_DIRS.intersection(p.relative_to(base).parts)
+             and not private(ctx, p.resolve())]
     found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     if not found:
         return f"No files match {pattern!r} under {base}."

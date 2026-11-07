@@ -393,6 +393,17 @@ class Agents:
 
     # ============== Lifecycle ==============
 
+    def ending(self, run: dict) -> None:
+        """An agent's run about to end (with its final status and result): its report goes into the lead's
+        mailbox first, so whoever sees the agent done (agents_wait, the lead's next step, an app) finds it."""
+        app, parent, agent = run["app"], run["options"].get("parent_session"), run["options"].get("agent")
+        if run["kind"] != "agent" or not parent:
+            return
+        record = self.record(app, run["session"])
+        if not record.get("stopped") and self.store.has_session(app, parent):
+            self.store.post_mail(app, parent, agent, run["id"], "report", self.report(run),
+                                 {"name": record.get("name", ""), "status": run["status"]})
+
     def run_ended(self, run: dict) -> None:
         if run["kind"] == "agent":
             app, parent, agent = run["app"], run["options"].get("parent_session"), run["options"].get("agent")
@@ -403,8 +414,6 @@ class Agents:
                 if not self.store.runs(app=app, session=run["session"], statuses=ACTIVE, limit=1):
                     self._delete(app, run["session"], agent)
                 return
-            self.store.post_mail(app, parent, agent, run["id"], "report", self.report(run),
-                                 {"name": record.get("name", ""), "status": run["status"]})
             self._updated(app, parent, agent, record.get("name", ""), STATUS.get(run["status"], run["status"]),
                           run["id"])
             if not self.brain.session_busy(app, parent):  # else its next step or its end takes it

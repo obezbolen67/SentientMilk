@@ -163,3 +163,21 @@ def test_permission_rules_deny_then_ask_then_allow():
     assert permissions.decide(edit, {"path": "src/a.py"}, {"allow": ["files_edit(C:/work/**)"]}, cwd="C:/work") == "auto"
     assert permissions.removed("mcp__github__push", {"deny": ["mcp__github__*"]})
     assert not permissions.removed("shell_run", {"deny": ["shell_run(rm *)"]})
+
+
+def test_sentientmilks_own_folder_is_closed_to_the_file_tools(brain, tmp_path, monkeypatch):
+    brain.client.update_session("cli", "main", roots=[str(tmp_path)], cwd=str(tmp_path))  # holds the brain's home
+    run_id = brain.store.add_run("cli", "main", "turn", {}, status="working")
+    ctx = ToolContext(brain.brain, brain.store.run(run_id), brain.brain.profile("cli", "main"), "call-1")
+    (brain.work / "notes.txt").write_text("sk-test-secret is not here", encoding="utf-8")
+    for call in (lambda: files.files_read.func(ctx, str(brain.home / "config.json")),
+                 lambda: files.files_write.func(ctx, str(brain.home / "plugins.json"), "{}"),
+                 lambda: files.files_find.func(ctx, "*", str(brain.home))):
+        with pytest.raises(ToolError, match="SentientMilk's own folder"):
+            call()
+    monkeypatch.setattr(files.shutil, "which", lambda name: None)  # the search without ripgrep walks every folder
+    found = files.files_search.func(ctx, "sk-test-secret", ".")
+    assert "notes.txt" in found and "config.json" not in found  # the key in its config stays out
+    assert "config.json" not in files.files_find.func(ctx, "**/*.json", ".")
+    saved = ctx.save_output("a long output", "out")
+    assert "a long output" in files.files_read.func(ctx, str(saved))  # its saved outputs stay readable
