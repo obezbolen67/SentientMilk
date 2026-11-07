@@ -37,7 +37,8 @@ TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 DEFAULT_PERSONA = "You are a helpful, capable assistant."
 DEFAULT_TOOLKITS = ["memory", "todo", "journal", "web"]
 DECLARATION = {"name": str, "environment": str, "persona": str, "signals": dict, "actions": list,
-               "toolkits": list, "rules": dict, "roots": list, "journal": dict}
+               "toolkits": list, "rules": dict, "roots": list, "journal": dict,
+               "callbacks": bool}  # the app starts a turn when a job or agent of its turn ends: those never wait
 APP_SETTINGS = {"persona": (str, type(None)), "model": str, "disabled_toolkits": list, "rules": dict,
                 "roots": list, "journal": dict}
 SESSION_SETTINGS = {"instructions": str, "disabled_toolkits": list, "rules": dict, "roots": list, "cwd": str,
@@ -250,7 +251,7 @@ class Brain:
             "cwd": overrides.get("cwd") or session_settings.get("cwd"), "journal": journal,
             "mode": overrides.get("mode"),
             "model": settings.get("model") or values["model"], "light_model": values["light_model"],
-            "context_window": values["context_window"],
+            "context_window": values["context_window"], "callbacks": bool(declaration.get("callbacks")),
         }
 
     def toolset(self, profile: dict, kind: str) -> Toolset:

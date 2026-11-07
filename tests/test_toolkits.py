@@ -5,7 +5,7 @@ import pytest
 import requests
 from conftest import wait_for
 
-from sentientmilk_framework import permissions
+from sentientmilk_framework import permissions, toolkits
 from sentientmilk_framework.toolkits import RESULT_CAP, ToolContext, ToolError, cap, files, shell, todo, web
 from sentientmilk_framework.toolkits import memory as memory_kit
 
@@ -107,7 +107,7 @@ def test_shell_runs_with_exit_codes_and_slow_commands_go_on_as_jobs(brain, ctx):
     started = time.time()
     result = shell.shell_run.func(ctx, slow, timeout=1)
     assert time.time() - started < 4  # the model gets control back; nothing is stopped
-    assert "goes on as background job" in result
+    assert "goes on as background job" in result and "called back" not in result  # the CLI calls nobody back
     job = int(result.split("background job ", 1)[1].split(".", 1)[0])
     assert "is running" in shell.shell_output.func(ctx, job)
     waited = shell.shell_output.func(ctx, job, wait=30)  # returns when the job ends, not after 30 s
@@ -115,6 +115,28 @@ def test_shell_runs_with_exit_codes_and_slow_commands_go_on_as_jobs(brain, ctx):
     assert time.time() - started < 15
     notes = brain.store.events("cli", "main", types=("note",))
     assert f"Background job {job} finished with exit code 0" in notes[-1]["text"]
+
+
+def test_an_app_that_calls_back_has_her_end_her_turn_instead_of_waiting_for_a_job(brain, monkeypatch):
+    brain.client.declare_app("calls", name="Calls", toolkits=["shell"], callbacks=True)
+    brain.client.update_session("calls", "main", cwd=str(brain.work), roots=[str(brain.work)])
+    monkeypatch.setattr(toolkits, "CALLBACK_WAIT", 1)
+    run_id = brain.store.add_run("calls", "main", "turn", {}, status="working")
+    ctx = ToolContext(brain.brain, brain.store.run(run_id), brain.brain.profile("calls", "main"), "call-1")
+    slow = "Start-Sleep -Seconds 30" if shell.shell_name("") == "powershell" else "sleep 30"
+    started = shell.shell_run.func(ctx, "echo working", background=True)
+    assert "called back when it ends" in started and "End your turn" in started
+    result = shell.shell_run.func(ctx, slow, timeout=1)
+    assert "called back when it ends" in result and "End your turn" in result
+    job = int(result.split("background job ", 1)[1].split(" ", 1)[0].rstrip(".,"))
+    started = time.time()
+    waited = shell.shell_output.func(ctx, job, wait=600)
+    assert time.time() - started < 5 and f"job {job} is running" in waited and "called back" in waited
+    task = ToolContext(brain.brain, {**ctx.run, "kind": "task"}, ctx.profile, "call-2")  # nobody calls a task back
+    started = time.time()
+    shell.shell_output.func(task, job, wait=3)
+    assert time.time() - started >= 2.5
+    shell.shell_stop.func(ctx, job)
 
 
 def test_background_jobs_report_when_they_end(brain, ctx):

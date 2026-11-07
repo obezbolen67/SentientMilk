@@ -1,7 +1,8 @@
 """Shell: run commands. A command still running after WAIT seconds is not stopped: it goes on as a
 background job, so the model gets control back without guessing durations (it cannot know a
 download is slow, and asked for longer waits it always does), and gets a note when the job ends.
-A model that needs the result waits for it with shell_output(wait=...)."""
+A model that needs the result waits for it with shell_output(wait=...); in a turn of an app that
+calls back (its end starts a new turn) it waits briefly and is told to end its turn instead."""
 
 import os
 import signal
@@ -88,6 +89,10 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
         raise ToolError(f"Could not start the shell: {exc}")
     if background:
         job = _keep_as_job(ctx, command, folder, log, process, output)
+        if ctx.called_back:
+            return (f"Started job {job}; you are called back when it ends (a new turn, with its last lines). End "
+                    f"your turn now unless you have other work meanwhile: do not wait for it. shell_output(job={job}) "
+                    "shows its output so far.")
         return f"Started job {job}. Read its output with shell_output(job={job}); you get a note when it ends."
     timeout = max(1, min(int(timeout or WAIT), WAIT))
     deadline = time.monotonic() + timeout
@@ -107,6 +112,12 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
             why = MESSAGE_FROM_USER if ctx.attention.woken.is_set() else f"Still running after {timeout} s."
             job = _keep_as_job(ctx, command, folder, log, process, output)
             so_far = "\n".join(_lines(str(log))[-40:])
+            if ctx.called_back:
+                return cap(ctx, f"[{why} It goes on as background job {job}, and you are called back when it ends "
+                                f"(a new turn, with its last lines). End your turn now and tell the user it runs, "
+                                f"unless you have other work meanwhile: do not wait for it. "
+                                f"shell_output(job={job}) shows its output so far, shell_stop(job={job}) stops it."
+                                f"]\n{so_far}".rstrip(), "shell")
             return cap(ctx, f"[{why} It goes on as background job {job}. You get a note "
                             f"when it ends; shell_output(job={job}) shows its output (wait=... waits for the end), "
                             f"shell_stop(job={job}) stops it. "
@@ -162,7 +173,7 @@ def _job(ctx: ToolContext, job: int) -> dict:
 def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
     """Output of a background job so far, and whether it is still running."""
     record = _job(ctx, job)
-    deadline = time.time() + max(0, min(int(wait or 0), MAX_WAIT))
+    deadline = time.time() + ctx.wait_limit(max(0, min(int(wait or 0), MAX_WAIT)))
     woke = ""
     while record["status"] in ("running", "stopping") and time.time() < deadline:
         if ctx.pause(0.5):
@@ -176,6 +187,9 @@ def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
     footer = f"[lines {start + 1}-{start + len(shown)} of {len(lines)}; job {job} is {status}]"
     if woke:
         footer += f" Stopped waiting: {woke}"
+    elif ctx.called_back and record["status"] == "running" and wait:
+        footer += (" Do not wait for it: you are called back when it ends. End your turn now unless you have "
+                   "other work meanwhile.")
     if start + len(shown) < len(lines):
         footer += f" More with since={start + len(shown)}."
     return cap(ctx, "\n".join(shown + [footer]), "job")

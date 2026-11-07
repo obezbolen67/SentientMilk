@@ -317,7 +317,7 @@ class Agents:
         refs = refs if isinstance(refs, list) else ([refs] if refs else [])
         targets = [self.find(app, parent, ref) for ref in refs] or [a for a in self.open(app, parent) if a["working"]]
         sessions = {a["session"]: a["name"] for a in targets}
-        deadline = time.time() + max(1, min(int(timeout or WAIT_DEFAULT), WAIT_MAX))
+        deadline = time.time() + ctx.wait_limit(max(1, min(int(timeout or WAIT_DEFAULT), WAIT_MAX)))
         interrupted = ""
 
         def working() -> List[str]:
@@ -331,7 +331,10 @@ class Agents:
         parts = [f"{interrupted} The wait ended early."] if interrupted else []
         parts += [mail["text"] for mail in self.claim(app, parent)]
         still = working()
-        if still:
+        if still and ctx.called_back:
+            parts.append(f"Still working: {', '.join(still)}. Do not wait for them: each one's report calls you "
+                         "back when it finishes. End your turn now unless you have other work meanwhile.")
+        elif still:
             parts.append(f"Still working: {', '.join(still)}. Wait again, or go on: their reports come to you "
                          "when they finish.")
         if not parts:

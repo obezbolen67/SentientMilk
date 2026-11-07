@@ -62,6 +62,7 @@ class Toolkit:
 
 STOPPED_BY_USER = "The user stopped you."
 MESSAGE_FROM_USER = "The user sent you a message."
+CALLBACK_WAIT = 10  # s a turn of an app that calls back waits for a job or agent: its end starts a turn anyway
 
 
 class Attention:
@@ -98,6 +99,15 @@ class ToolContext:
         """Wait up to ``seconds``; True as soon as the user stops the run or sends a message: end the wait
         then, with what there is, and say why (``interruption()``)."""
         return self.attention.woken.wait(max(0.0, float(seconds)))
+
+    @property
+    def called_back(self) -> bool:
+        """A turn of an app that starts a new one when a job or agent of it ends (MilkChan): it ends its turn
+        rather than wait. Agents, tasks and apps without callbacks wait, as nobody would wake them."""
+        return bool(self.profile.get("callbacks")) and self.run["kind"] == "turn"
+
+    def wait_limit(self, seconds: float) -> float:
+        return min(seconds, CALLBACK_WAIT) if self.called_back else seconds
 
     def interruption(self) -> str:
         if self.attention.stopped.is_set():

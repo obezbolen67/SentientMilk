@@ -636,7 +636,7 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 | turn | an app sending input | until it replies | its own SSE stream |
 | task | an app (`POST /v1/tasks`), a schedule, or a detached turn | until done; survives restarts | notifications plus a note in the parent session |
 | agent | the model (`agent_start`) | until stopped or idle for a day; its runs survive restarts | its mail, exactly once: `agents_wait`, a note, `agent.finished` or `agent.asked` (section 5.5) |
-| job | `shell_run(background=true)`, or a command still running after 30 s | until the process exits; *not* across a brain restart (marked lost) | `shell_output`; a note and a `job.finished` notification when it ends |
+| job | `shell_run(background=true)`, or a command still running after 30 s | until the process exits; *not* across a brain restart (marked lost) | `shell_output`; a note and a `job.finished` notification when it ends (an app with `callbacks` starts a turn then, so its turns wait at most 10 s) |
 | schedule | the model (with approval), an app, or the user | until deleted | creates tasks or wake notifications |
 
 ### 9.2 Background tasks

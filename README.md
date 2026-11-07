@@ -110,7 +110,9 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
 ```
 
 - An **app** declares who the brain is there: name, environment, persona, signals,
-  toolkits, permission rules and allowed folders (`roots`). A **session** is one
+  toolkits, permission rules and allowed folders (`roots`), and with `callbacks: true` that
+  it starts a turn when a job or agent of a turn ends: its turns then wait at most 10 s for
+  them and are told to end instead (MilkChan does). A **session** is one
   conversation in an app. Memory belongs to the app; the **journal** holds short, dated
   notes about sessions across all apps, oldest deleted first when it is full.
 - The persona is who the model is in that app, not a role it plays: the prompt opens with it

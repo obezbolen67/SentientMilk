@@ -4,10 +4,12 @@ questions, watches and stops them, and each report, question and update reaches 
 
 import json
 import threading
+import time
 
 from conftest import turn, wait_for
 
 from sentientmilk_framework import agents as agents_module
+from sentientmilk_framework import toolkits
 
 AGENT = "## YOU ARE AN AGENT"
 
@@ -151,6 +153,31 @@ def test_a_message_continues_a_finished_agent_with_what_it_knows(brain):
     assert first["session"] == second["session"]  # one agent, one history
     asked = [p for p in brain.provider.sent if is_agent(p) and "What number was it?" in text_of(p)][0]
     assert "Remember 7." in text_of(asked) and "Noted 7." in text_of(asked)
+
+
+def test_in_an_app_that_calls_back_the_lead_ends_its_turn_and_the_report_calls_it_back(brain, monkeypatch):
+    brain.client.declare_app("calls", name="Calls", toolkits=["agents", "files"], callbacks=True)
+    monkeypatch.setattr(toolkits, "CALLBACK_WAIT", 1)
+    release = threading.Event()
+
+    def route(payload):
+        if is_agent(payload):
+            assert release.wait(20)
+            return "Found it."
+        done = results(payload)
+        if not done:
+            return calls(("agent_start", {"name": "slow", "task": "Look."}, "s"), ("agents_wait", {}, "w"))
+        return "It is looking; I will tell you."
+
+    brain.provider.replies += [route] * 3
+    started = time.time()
+    assert turn(brain, "calls", "look")["reply"] == "It is looking; I will tell you."
+    assert time.time() - started < 8  # not the default 600 s wait
+    waited = results(main_requests(brain)[-1])["w"]
+    assert "Still working: slow" in waited and "calls you back" in waited
+    release.set()
+    news = wait_for(lambda: [n for n in brain.store.notifications("calls") if n["type"] == "agent.finished"], 20)
+    assert news[0]["data"]["agents"][0]["name"] == "slow"
 
 
 def test_a_message_reaches_a_working_agent_at_its_next_step(brain):
