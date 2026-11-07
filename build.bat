@@ -7,7 +7,7 @@ setlocal
 pushd "%~dp0" || exit /b 1
 set "PY=%SENTIENTMILK_PYTHON%"
 if not defined PY set "PY=%~dp0.venv\Scripts\python.exe"
-"%PY%" scripts\bundle.py --name SentientMilk --module sentientmilk_framework --console --package sentientmilk_framework --project pyproject.toml --extra mcp
+"%PY%" scripts\bundle.py --name SentientMilk --module sentientmilk_framework --console --package sentientmilk_framework --project pyproject.toml --extra mcp --icon assets\icon.ico
 if errorlevel 1 goto failed
 call "dist\windows\SentientMilk\SentientMilk.cmd" --version
 if errorlevel 1 goto failed

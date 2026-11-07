@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" alt="SentientMilk" width="160"></p>
+
 # SentientMilk
 
 SentientMilk is one brain for all your apps. It runs as a local server; apps such as the
