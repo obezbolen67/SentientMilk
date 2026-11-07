@@ -123,10 +123,19 @@ def _failure(response, method: str, path: str, authed: bool) -> str:
     if status == 403:
         return f"GitHub refused {where} (403): {message}. The token may lack the permission for it."
     if status == 422:
-        details = "; ".join(str(e.get("message") or e.get("code") or e) if isinstance(e, dict) else str(e)
-                            for e in data.get("errors", []))
+        details = "; ".join(_rejected(e) for e in data.get("errors", []))
         return f"GitHub could not do {where} (422): {message}" + (f" ({details})" if details else "")
     return f"GitHub answered {status} to {where}: {message}"
+
+
+def _rejected(error) -> str:
+    """One of a 422's errors: its message, else which field was wrong and how ("assignees invalid: x")."""
+    if not isinstance(error, dict):
+        return str(error)
+    if error.get("message"):
+        return str(error["message"])
+    what = " ".join(str(error[key]) for key in ("field", "code") if error.get(key)) or str(error)
+    return f"{what}: {error['value']}" if error.get("value") not in (None, "") else what
 
 
 # ============== Showing it ==============
@@ -501,6 +510,10 @@ def github_pr_merge(ctx: ToolContext, repo: str, number: int, method: str = "mer
     repo = _repo(repo)
     if method not in MERGE_METHODS:
         raise ToolError(f"method must be one of {', '.join(MERGE_METHODS)}")
+    pull = _request(ctx, "GET", f"/repos/{repo}/pulls/{int(number)}")
+    if pull.get("merged"):  # GitHub answers a second merge with success all the same
+        return (f"{repo}#{int(number)} was already merged by {_user(pull.get('merged_by'))} on "
+                f"{_when(pull.get('merged_at'))} ({(pull.get('merge_commit_sha') or '')[:7]}).")
     payload = {"merge_method": method, **({"commit_title": title} if title else {}),
                **({"commit_message": message} if message else {})}
     merged = _request(ctx, "PUT", f"/repos/{repo}/pulls/{int(number)}/merge", body=payload)

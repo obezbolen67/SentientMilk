@@ -160,6 +160,7 @@ def test_changes_send_what_they_say(monkeypatch, tmp_path):
         ("POST", "/repos/octo/milk/issues"): Response(201, {"number": 13, "html_url": "https://x/13"}),
         ("POST", "/repos/octo/milk/issues/13/comments"): Response(201, {"html_url": "https://x/13#c"}),
         ("PUT", "/repos/octo/milk/pulls/12/merge"): Response(200, {"sha": "deadbeef1", "message": "Merged"}),
+        ("GET", "/repos/octo/milk/pulls/12"): Response(200, {"merged": False}),
         ("GET", "/repos/octo/milk"): Response(200, {"default_branch": "trunk"}),
         ("POST", "/repos/octo/milk/pulls"): Response(201, {"number": 14, "html_url": "https://x/14"}),
         ("DELETE", "/repos/octo/milk/git/refs/heads/old"): Response(204, text=""),
@@ -198,3 +199,23 @@ def test_errors_say_what_to_do(monkeypatch, tmp_path):
         github.github_issue_create.func(Context(tmp_path, token="t"), "octo/milk", "x" * 300)
     with pytest.raises(ToolError, match="owner/name"):
         github.github_repo.func(Context(tmp_path), "just-a-name")
+
+
+def test_a_merged_pull_request_is_not_merged_again(monkeypatch, tmp_path):
+    fake = FakeGitHub(monkeypatch, {
+        ("GET", "/repos/octo/milk/pulls/12"): Response(200, {"merged": True, "merge_commit_sha": "d124ee3aa",
+                                                             "merged_by": {"login": "ann"},
+                                                             "merged_at": "2026-11-07T19:07:00Z"}),
+        ("PUT", "/repos/octo/milk/pulls/12/merge"): Response(200, {"sha": "d124ee3aa", "message": "Merged"}),
+    })
+    shown = github.github_pr_merge.func(Context(tmp_path, token="t"), "octo/milk", 12)
+    assert shown == "octo/milk#12 was already merged by @ann on 2026-11-07 19:07 (d124ee3)."
+    assert not any(call.method == "PUT" for call in fake.calls)  # GitHub would answer 200 all the same
+
+
+def test_a_rejected_field_is_named(monkeypatch, tmp_path):
+    FakeGitHub(monkeypatch, {("PATCH", "/repos/octo/milk/issues/1"): Response(422, {
+        "message": "Validation Failed",
+        "errors": [{"resource": "Issue", "code": "invalid", "field": "assignees", "value": "nobody-xyz"}]})})
+    with pytest.raises(ToolError, match=r"\(assignees invalid: nobody-xyz\)"):
+        github.github_issue_update.func(Context(tmp_path, token="t"), "octo/milk", 1, assignees=["nobody-xyz"])
