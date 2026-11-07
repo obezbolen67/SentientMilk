@@ -9,7 +9,8 @@
     sentientmilk schedules [delete ID]       schedules
     sentientmilk journal [QUERY] [--delete ID]
     sentientmilk mcp [add NAME --url URL | add NAME -- COMMAND ARGS... | remove NAME]
-    sentientmilk plugins [install FOLDER|GIT_URL | remove NAME | on NAME | off NAME | set NAME KEY[=VALUE]...]
+    sentientmilk plugins [install FOLDER|GIT_URL | reload NAME | remove NAME | on NAME | off NAME | trust NAME |
+                          distrust NAME | set NAME KEY[=VALUE]...]
                                              a bare secret KEY asks for it without echoing it
     sentientmilk stats                       tokens and cache hits per app
     sentientmilk eval [NAME...]              run the evaluation tasks against the configured model
@@ -183,7 +184,7 @@ def _plugins(client, args) -> None:
         if not args.name:
             raise SystemExit("Give a folder with a plugin.json, or a git URL")
         args.name = client.install_plugin(args.name)["name"]
-    elif args.action in ("remove", "on", "off", "set") and not args.name:
+    elif args.action in ("remove", "on", "off", "set", "reload", "trust", "distrust") and not args.name:
         raise SystemExit(f"Give the plugin's name: sentientmilk plugins {args.action} NAME")
     elif args.action == "remove":
         client.remove_plugin(args.name)
@@ -191,6 +192,10 @@ def _plugins(client, args) -> None:
         return
     elif args.action in ("on", "off"):
         client.update_plugin(args.name, enabled=args.action == "on")
+    elif args.action in ("trust", "distrust"):
+        client.update_plugin(args.name, trusted=args.action == "trust")
+    elif args.action == "reload":
+        client.reload_plugin(args.name)
     elif args.action == "set":
         known = next((p for p in client.plugins() if p["name"] == args.name), None)
         if known is None:
@@ -208,8 +213,9 @@ def _plugins(client, args) -> None:
         if args.name and plugin["name"] != args.name:
             continue
         state = "error" if plugin["error"] else "on" if plugin["enabled"] else "off"
-        print(f"{plugin['name']:<16} {plugin['version']:<8} {state:<5} {plugin['tools']:>3} tools  "
-              f"{'built in' if plugin['builtin'] else plugin['path']}")
+        trust = "trusted" if plugin["trusted"] else "untrusted"
+        print(f"{plugin['name']:<16} {plugin['version']:<8} {state:<5} {trust:<9} {plugin['tools']:>3} tools  "
+              f"{'built in' if plugin['builtin'] else plugin['source'] or plugin['path']}")
         if plugin["error"]:
             print(f"    {plugin['error']}")
         if args.name:
@@ -250,8 +256,8 @@ def main(argv=None) -> None:
     mcp.add_argument("--env", action="append", default=[], metavar="NAME=VALUE")
     mcp.add_argument("server_command", nargs=argparse.REMAINDER, metavar="-- COMMAND ARGS")
     plugins = commands.add_parser("plugins", help="plugins: what extends the brain for every app")
-    plugins.add_argument("action", nargs="?", choices=("list", "show", "install", "remove", "on", "off", "set"),
-                         default="list")
+    plugins.add_argument("action", nargs="?", choices=("list", "show", "install", "reload", "remove", "on", "off",
+                                                       "trust", "distrust", "set"), default="list")
     plugins.add_argument("name", nargs="?", help="the plugin, or for install a folder or git URL")
     plugins.add_argument("values", nargs="*", metavar="KEY[=VALUE]")
     commands.add_parser("stats", help="tokens and cache hits per app")

@@ -221,13 +221,16 @@ class Loop:
             if run["kind"] == "compact":
                 return self._compact_now(run, profile, emit)
             self._log_input(run, profile)
-            toolset = brain.toolset(profile, run["kind"])
+            toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
             while True:
                 run = store.run(run_id)
                 if run["options"].get("cancel"):
                     return self._end(run, "cancelled", emit)
                 if self._settle(run, profile, toolset, emit):
                     return  # waiting for the user or the app
+                if brain.plugins.version != plugins:  # a plugin came, went or changed: the next step has it
+                    profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
+                    toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
                 steps = sum(1 for e in store.run_events(run_id) if e["type"] == "assistant")
                 if steps >= run["options"].get("max_steps", STEP_BUDGET[run["kind"]]):
                     raise BrainError("budget", f"Stopped after {steps} steps (the step budget)",
@@ -331,6 +334,8 @@ class Loop:
                 self._result(run, call, name, arguments, ToolResult(INTERRUPTED_CALL), "error", emit)
                 continue
             decision = permissions.decide(tool_, arguments, profile["rules"], profile.get("cwd"))
+            must_ask = decision == "always"  # an "always allow" is this once, and apps may not answer for the user
+            decision = "ask" if must_ask else decision
             if decision == "ask" and run["kind"] == "subagent":
                 decision = "off"  # helpers cannot ask the user
             if decision == "off":
@@ -343,14 +348,14 @@ class Loop:
                 if answer is None:
                     waiting = True
                     if (call["id"], "approval_request") not in asked:
-                        self._ask(run, "approval", call, name, arguments, emit)
+                        self._ask(run, "approval", call, name, arguments, emit, always_ask=must_ask)
                     continue
                 if answer["decision"] == "deny":
                     reason = f" Their reason: {answer['reason']}" if answer.get("reason") else ""
                     self._result(run, call, name, arguments,
                                  ToolResult(f"The user did not allow this call.{reason}"), "error", emit)
                     continue
-                if answer["decision"] == "always":
+                if answer["decision"] == "always" and not must_ask:
                     self.brain.allow_always(run["app"], permissions.always_rule(tool_, arguments, profile.get("cwd")))
             if tool_.action:  # the app runs it
                 if call["id"] in results:
@@ -396,10 +401,12 @@ class Loop:
             raise ToolError(f"There is no tool {name!r}.{hint}{more}")
         return name, tool_, arguments
 
-    def _ask(self, run: dict, kind: str, call: dict, name: str, arguments: dict, emit) -> None:
-        self.brain.store.add_event(run["app"], run["session"], run["id"], f"{kind}_request",
-                                   {"call_id": call["id"], "name": name, "arguments": arguments})
-        emit({"type": f"{kind}.requested", "call_id": call["id"], "name": name, "arguments": arguments})
+    def _ask(self, run: dict, kind: str, call: dict, name: str, arguments: dict, emit, always_ask: bool = False) -> None:
+        """``always_ask``: the user must answer, even in an app that allows everything on its own."""
+        request = {"call_id": call["id"], "name": name, "arguments": arguments,
+                   **({"always_ask": True} if always_ask else {})}
+        self.brain.store.add_event(run["app"], run["session"], run["id"], f"{kind}_request", request)
+        emit({"type": f"{kind}.requested", **request})
 
     def _run_tools(self, run: dict, profile: dict, ready: list, emit) -> None:
         """Run the calls (read-only ones together), each on its own thread. A stop ends the step at once: calls

@@ -218,10 +218,13 @@ class _Handler(BaseHTTPRequestHandler):
         elif route == ["plugins"] and method == "POST":
             self._send(200, {"plugin": brain.install_plugin(body.get("source", ""))})
         elif head == "plugins" and len(rest) == 1 and method == "PATCH":
-            unknown = set(body) - {"enabled", "settings"}
+            unknown = set(body) - {"enabled", "settings", "trusted"}
             if unknown:
                 raise ValueError(f"Unknown plugin fields: {sorted(unknown)}")
-            self._send(200, {"plugin": brain.update_plugin(rest[0], body.get("enabled"), body.get("settings"))})
+            self._send(200, {"plugin": brain.update_plugin(rest[0], body.get("enabled"), body.get("settings"),
+                                                           body.get("trusted"))})
+        elif head == "plugins" and len(rest) == 2 and rest[1] == "reload" and method == "POST":
+            self._send(200, {"plugin": brain.reload_plugin(rest[0])})
         elif head == "plugins" and len(rest) == 1 and method == "DELETE":
             brain.remove_plugin(rest[0])
             self._send(200, {"status": "ok"})

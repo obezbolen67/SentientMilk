@@ -332,10 +332,17 @@ class BrainClient:
         """From a folder with a plugin.json, or a git URL; the plugin is on at once."""
         return self._call("POST", "/plugins", {"source": source}, timeout=330)["plugin"]
 
-    def update_plugin(self, name: str, enabled: Optional[bool] = None, settings: Optional[Dict[str, str]] = None) -> dict:
-        """Turn a plugin on or off and change its settings: "<set>" keeps a secret, "" clears a setting."""
-        changes = {key: value for key, value in (("enabled", enabled), ("settings", settings)) if value is not None}
+    def update_plugin(self, name: str, enabled: Optional[bool] = None, settings: Optional[Dict[str, str]] = None,
+                      trusted: Optional[bool] = None) -> dict:
+        """Turn a plugin on or off, change its settings ("<set>" keeps a secret, "" clears a setting), and
+        trust it as its files are now (its tools then use their own policies, its MCP servers run) or no more."""
+        changes = {key: value for key, value in (("enabled", enabled), ("settings", settings), ("trusted", trusted))
+                   if value is not None}
         return self._call("PATCH", f"/plugins/{quote(name, safe='')}", changes)["plugin"]
+
+    def reload_plugin(self, name: str) -> dict:
+        """Bring in a plugin's changes from where it was installed from."""
+        return self._call("POST", f"/plugins/{quote(name, safe='')}/reload", timeout=330)["plugin"]
 
     def remove_plugin(self, name: str) -> None:
         self._call("DELETE", f"/plugins/{quote(name, safe='')}")

@@ -5,6 +5,7 @@ Code's: deny, then ask, then allow; the first match decides, otherwise the tool'
 own default does. A rule is ``tool_glob`` or ``tool_glob(argument_glob)``, e.g.
 ``shell_run(git status*)``, ``files_edit(C:/work/**)``, ``mcp__github__*``.
 Command patterns are a convenience, not a security boundary: path confinement is.
+A tool with policy ``always`` asks the user every time: only a deny rule changes that.
 """
 
 from fnmatch import fnmatchcase
@@ -41,8 +42,11 @@ def argument_value(tool, arguments: dict, cwd: Optional[str]) -> str:
 
 
 def decide(tool, arguments: dict, rules: Dict[str, List[str]], cwd: Optional[str] = None) -> str:
+    """off, ask, auto, or always: ask the user whatever the rules, an "always allow" or an app's bypass."""
     value = argument_value(tool, arguments, cwd)
     for kind, decision in DECISIONS:
+        if tool.policy == "always" and kind != "deny":
+            return "always"
         for rule in rules.get(kind, []):
             name, pattern = parse(rule)
             if fnmatchcase(tool.name, name) and (pattern is None or fnmatchcase(value, pattern.replace("\\", "/"))):

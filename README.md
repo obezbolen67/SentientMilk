@@ -76,7 +76,7 @@ brain next starts.
 Other commands: `serve` (run in the foreground), `tasks [show|cancel ID]`,
 `schedules [delete ID]`, `journal [QUERY] [--delete ID]`,
 `mcp [add NAME (--url URL | -- COMMAND ...)|remove NAME]`,
-`plugins [show NAME|install FOLDER_OR_GIT_URL|remove NAME|on NAME|off NAME|set NAME KEY[=VALUE]...]`,
+`plugins [show NAME|install FOLDER_OR_GIT_URL|reload NAME|remove NAME|on NAME|off NAME|trust NAME|distrust NAME|set NAME KEY[=VALUE]...]`,
 `stats`, `eval`.
 
 The brain keeps its files in `~/.sentientmilk` (`--home` or `SENTIENTMILK_HOME` changes it):
@@ -170,6 +170,7 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
 | `agents` | `agent_start`, `agent_message`, `agents_wait`, `agents_status`, `agent_stop` |
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_delete` |
 | `mcp:<server>` | the server's tools, as `mcp__<server>__<tool>` |
+| `plugins` | `plugin_list`, `plugin_install`, `plugin_reload`: the model writes its own plugins (installing always asks) |
 | `github` (plugin) | search, repositories and files, issues and pull requests (diffs, reviews, checks), Actions runs with the log of what failed, any REST read; opening, commenting, reviewing, merging and any other REST call ask first |
 
 An app enables the toolkits it lists, and every app gets the toolkits of enabled plugins;
@@ -203,6 +204,14 @@ TOOLKIT = Toolkit("weather", "Current weather.", [weather_now])
 Install it with `sentientmilk plugins install C:/plugins/weather` (or a git URL), or from
 the panel. A single file with `TOOLKIT` in `~/.sentientmilk/toolkits/` loads as a plugin
 too. A plugin runs as you, inside the brain: install only plugins you trust.
+
+A model can write its own plugins with the `plugins` toolkit: it writes the files, then
+`plugin_install` asks you every time, whatever your rules or an app's bypass say, because
+installing runs the plugin's code. Trust follows a plugin's exact files: what you install
+yourself is trusted, but a plugin a model installed, or one changed since you trusted it,
+is not. Each tool of an untrusted plugin asks you every time it runs, and its MCP servers
+don't start, until you trust it in the panel (Plugins: Trust) or with
+`sentientmilk plugins trust NAME`.
 
 **GitHub** comes built in. It uses the token set in its settings, else `GITHUB_TOKEN` or
 `GH_TOKEN`, else the login of the `gh` CLI; without any, it reads public data only.
@@ -250,7 +259,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `POST /runs/{id}/answer`, `/cancel`, `/steer`, `/detach` | answer an approval, question or action (`result`, `images`); cancel at once (waits inside tools end, calls still running are left behind with a stopped result, a command in the foreground is ended, helpers stop too); steer: `input` for a turn that works, which reaches the model at its next step (waits end early, approvals it waits for are refused; 409 `ended` once the turn is over, and one that comes as it finishes is returned in `done` as `unread`); let a turn go on in the background |
 | `GET`/`POST /schedules`, `PATCH`/`DELETE /schedules/{id}` | schedules |
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
-| `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled` and `settings`, remove |
+| `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
 | `GET /apps`, `DELETE /apps/{app}/memory/{category}/{key}`, `POST /shutdown` | apps, forgetting a memory, stopping the brain |
 | `GET /journal?q=`, `DELETE /journal/{id}`, `GET /jobs/{id}` | the journal; background shell jobs |
 

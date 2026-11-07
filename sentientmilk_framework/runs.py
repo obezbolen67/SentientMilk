@@ -242,7 +242,7 @@ class Runs:
         answered = {(e["call_id"], "approval" if e["type"] == "approval" else "action")
                     for e in events if e["type"] in ("approval", "action_result")}
         requests = [{"call_id": e["call_id"], "kind": e["type"].removesuffix("_request"), "name": e["name"],
-                     "arguments": e["arguments"]}
+                     "arguments": e["arguments"], **({"always_ask": True} if e.get("always_ask") else {})}
                     for e in events if e["type"] in ("approval_request", "action_request") and e["call_id"] not in done]
         return [r for r in requests if (r["call_id"], r["kind"]) not in answered]
 

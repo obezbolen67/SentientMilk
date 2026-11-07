@@ -24,9 +24,17 @@ offered to every app, which can switch them off like any toolkit.
 
 A plugin runs as the user, inside the brain: install only plugins you trust. A broken one is listed with its
 error and never stops the brain.
+
+Trust belongs to a plugin's exact files. Built-in plugins are trusted; one the user installs (panel, command
+line, API) is trusted as it is then; one a model installs (the plugins toolkit) is not, and neither is one that
+appears on disk or changes after it was trusted. The tools of an untrusted plugin ask the user every time,
+whatever they declare and whatever the rules or an app's bypass say (policy ``always``), and its MCP servers
+do not run, until the user trusts it.
 """
 
 import copy
+import dataclasses
+import hashlib
 import importlib
 import importlib.machinery
 import importlib.util
@@ -67,6 +75,7 @@ class Plugin:
     toolkits: Dict[str, Toolkit] = field(default_factory=dict)
     error: str = ""
     single_file: bool = False  # an old <home>/toolkits/*.py
+    fingerprint: str = ""  # of its files: what the user trusted
 
     @property
     def settings_spec(self) -> dict:
@@ -121,6 +130,23 @@ def _delete(path: Path) -> None:
     shutil.rmtree(path, **({"onexc": writable} if sys.version_info >= (3, 12) else {"onerror": writable}))
 
 
+def fingerprint(path: Path) -> str:
+    """Of a plugin's files (not Python's caches): any change makes another."""
+    digest = hashlib.sha256()
+    files = [path] if path.is_file() else sorted(
+        item for item in path.rglob("*") if item.is_file() and "__pycache__" not in item.parts and item.suffix != ".pyc")
+    for item in files:
+        digest.update(item.relative_to(path).as_posix().encode() if item != path else b"")
+        digest.update(b"\0" + item.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def _asking(kit: Toolkit) -> Toolkit:
+    """The toolkit of an untrusted plugin: each tool asks the user, and is never re-run after a crash."""
+    return Toolkit(kit.name, kit.description, [dataclasses.replace(item, policy="always", readonly=False)
+                                               for item in kit.tools])
+
+
 def _toolkits_of(module) -> List[Toolkit]:
     kits = getattr(module, "TOOLKITS", None) or [getattr(module, "TOOLKIT", None)]
     if not kits or not all(isinstance(kit, Toolkit) for kit in kits):
@@ -135,6 +161,7 @@ class Plugins:
         self.state_path = self.home / STATE
         self._lock = threading.RLock()
         self._plugins: Dict[str, Plugin] = {}
+        self.version = 0  # one more at each load: runs then take the tools as they are now
         self._state = self._read_state()
         self.load()
 
@@ -148,7 +175,7 @@ class Plugins:
         if self.folder.is_dir():
             candidates += [(folder, False) for folder in sorted(self.folder.iterdir()) if (folder / MANIFEST).is_file()]
         for folder, shipped in candidates:
-            plugin = Plugin(folder.name, folder, shipped)
+            plugin = Plugin(folder.name, folder, shipped, fingerprint="" if shipped else fingerprint(folder))
             try:
                 plugin.manifest = read_manifest(folder)
                 plugin.name = plugin.manifest["name"]
@@ -161,7 +188,8 @@ class Plugins:
             found.setdefault(plugin.name, plugin)
             taken |= set(plugin.toolkits)
         for path in sorted((self.home / "toolkits").glob("*.py")) if (self.home / "toolkits").is_dir() else []:
-            plugin = Plugin(path.stem, path, False, {"name": path.stem, "description": ""}, single_file=True)
+            plugin = Plugin(path.stem, path, False, {"name": path.stem, "description": ""}, single_file=True,
+                            fingerprint=fingerprint(path))
             try:
                 plugin.toolkits = self._import(plugin, taken)
                 plugin.manifest["description"] = next(iter(plugin.toolkits.values())).description
@@ -173,6 +201,7 @@ class Plugins:
                 taken |= set(plugin.toolkits)
         with self._lock:
             self._plugins = found
+            self.version += 1
 
     def _import(self, plugin: Plugin, taken: set) -> Dict[str, Toolkit]:
         if plugin.single_file:
@@ -208,11 +237,17 @@ class Plugins:
             return bool(plugin) and not plugin.error and self._state.get(name, {}).get(
                 "enabled", plugin.manifest.get("enabled", True))
 
+    def trusted(self, name: str) -> bool:
+        with self._lock:
+            plugin = self._plugins.get(name)
+            return bool(plugin) and (plugin.builtin or self._state.get(name, {}).get("trusted") == plugin.fingerprint)
+
     def toolkits(self) -> Dict[str, Toolkit]:
-        """The toolkits of the plugins that are on."""
+        """The toolkits of the plugins that are on; an untrusted plugin's tools all ask the user."""
         with self._lock:
             plugins = list(self._plugins.values())
-        return {name: kit for plugin in plugins if self.enabled(plugin.name) for name, kit in plugin.toolkits.items()}
+        return {name: kit if self.trusted(plugin.name) else _asking(kit)
+                for plugin in plugins if self.enabled(plugin.name) for name, kit in plugin.toolkits.items()}
 
     def offered(self) -> List[str]:
         """Toolkit names every app gets: the plugins' own and their MCP servers'."""
@@ -232,12 +267,12 @@ class Plugins:
         return values
 
     def mcp_servers(self) -> Dict[str, dict]:
-        """The MCP servers of the plugins that are on, with their settings filled in."""
+        """The MCP servers of the trusted plugins that are on, with their settings filled in."""
         with self._lock:
             plugins = list(self._plugins.values())
         servers = {}
         for plugin in plugins:
-            if not plugin.servers or not self.enabled(plugin.name):
+            if not plugin.servers or not self.enabled(plugin.name) or not self.trusted(plugin.name):
                 continue
             values = self.settings(plugin.name)
 
@@ -277,6 +312,7 @@ class Plugins:
             listed.append({"name": plugin.name, "version": plugin.manifest.get("version", ""),
                            "description": plugin.manifest.get("description", ""), "builtin": plugin.builtin,
                            "path": str(plugin.path), "enabled": self.enabled(plugin.name), "error": plugin.error,
+                           "trusted": self.trusted(plugin.name), "source": state.get(plugin.name, {}).get("source", ""),
                            "toolkits": list(plugin.toolkits), "tools": sum(len(k.tools) for k in plugin.toolkits.values()),
                            "mcp": sorted(plugin.servers), "settings": settings})
         return listed
@@ -287,13 +323,24 @@ class Plugins:
             raise ValueError(f"No plugin named {name}")
         return found
 
-    def update(self, name: str, enabled: Optional[bool] = None, settings: Optional[dict] = None) -> dict:
-        """Turn a plugin on or off, and change its settings: ``<set>`` keeps a secret, "" clears one."""
+    def update(self, name: str, enabled: Optional[bool] = None, settings: Optional[dict] = None,
+               trusted: Optional[bool] = None) -> dict:
+        """Turn a plugin on or off, change its settings (``<set>`` keeps a secret, "" clears one), and trust
+        it as its files are now, or no more."""
         with self._lock:
             plugin = self._plugins.get(name)
             if plugin is None:
                 raise ValueError(f"No plugin named {name}")
             entry = copy.deepcopy(self._state.get(name, {}))
+            if trusted is not None:
+                if not isinstance(trusted, bool):
+                    raise ValueError("trusted must be true or false")
+                if plugin.builtin:
+                    raise ValueError(f"{name} is built in: it is always trusted")
+                if trusted:
+                    entry["trusted"] = plugin.fingerprint
+                else:
+                    entry.pop("trusted", None)
             if enabled is not None:
                 if not isinstance(enabled, bool):
                     raise ValueError("enabled must be true or false")
@@ -319,8 +366,9 @@ class Plugins:
             self._state = state
         return self.info(name)
 
-    def install(self, source: str) -> str:
-        """Copy a plugin in from a folder, or clone it from a git URL; it is on at once."""
+    def install(self, source: str, trusted: bool = True, replace: Optional[str] = None) -> str:
+        """Copy a plugin in from a folder, or clone it from a git URL; it is on at once, and ``trusted`` as
+        it is. ``replace``: the installed plugin of that name, copied in again from its source."""
         if not isinstance(source, str) or not source.strip():
             raise ValueError("source must be a folder or a git URL")
         source = source.strip()
@@ -335,17 +383,45 @@ class Plugins:
                     raise ValueError(f"git clone failed: {(done.stderr or done.stdout).strip()[:500]}")
                 _delete(staged / ".git")
             else:
-                folder = Path(source).expanduser()
+                folder = Path(source).expanduser().resolve()
                 if not (folder / MANIFEST).is_file():
                     raise ValueError(f"{folder} has no {MANIFEST}: it is not a plugin")
                 shutil.copytree(folder, staged, ignore=_IGNORED)
+                source = str(folder)
             name = read_manifest(staged)["name"]
             with self._lock:
-                if name in self._plugins:
-                    raise ValueError(f"A plugin named {name} is already installed; remove it first")
+                existing = self._plugins.get(name)
+            if replace and name != replace:
+                raise ValueError(f"{source} now holds the plugin {name}, not {replace}")
+            if existing and existing.builtin:
+                raise ValueError(f"{name} is built in: give your plugin another name")
+            if existing and not replace:
+                raise ValueError(f"A plugin named {name} is already installed; reload it to bring in changes, "
+                                 "or remove it first")
+            if existing:
+                os.replace(existing.path, Path(temporary) / "replaced")  # the folder must be free to take its place
             os.replace(staged, self.folder / name)
         self.load()
-        self.update(name, enabled=True)
+        with self._lock:
+            state = {**self._state, name: {**self._state.get(name, {}), "source": source}}
+            self._save(state)
+            self._state = state
+        self.update(name, **({} if replace else {"enabled": True}), **({"trusted": True} if trusted else {}))
+        return name
+
+    def reload(self, name: str) -> str:
+        """Bring in a plugin's changes: copied again from where it was installed from, or, edited in place
+        (a single-file toolkit, or one without a source), imported again. Trust stays only if nothing changed."""
+        with self._lock:
+            plugin = self._plugins.get(name)
+            source = self._state.get(name, {}).get("source")
+        if plugin is None:
+            raise ValueError(f"No plugin named {name}")
+        if plugin.builtin:
+            raise ValueError(f"{name} is built in: it changes with SentientMilk")
+        if source and not plugin.single_file:
+            return self.install(source, trusted=False, replace=name)
+        self.load()
         return name
 
     def remove(self, name: str) -> None:

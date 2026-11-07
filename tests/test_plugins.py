@@ -128,7 +128,7 @@ def test_a_plugins_mcp_servers_take_its_settings(brain):
                                                "headers": {"Authorization": "Bearer ${token}"}}}}}
     make_plugin(brain.home / "plugins" / "notes", manifest)
     brain.brain.plugins.load()
-    brain.client.update_plugin("notes", settings={"token": "t0k"})
+    brain.client.update_plugin("notes", settings={"token": "t0k"}, trusted=True)  # servers run once trusted
     servers = brain.brain.plugins.mcp_servers()
     assert servers["notes"]["env"] == {"TOKEN": "t0k", "HOME_DIR": "${HOME}"}  # the environment fills the rest
     assert servers["notes-search"]["headers"] == {"Authorization": "Bearer t0k"}

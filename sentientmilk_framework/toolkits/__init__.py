@@ -183,7 +183,8 @@ def cap(ctx: ToolContext, text: str, stem: str = "out") -> str:
 
 
 def builtin() -> Dict[str, Toolkit]:
-    from . import agents, files, journal, memory, schedule, shell, todo, web
+    from . import agents, files, journal, memory, plugins, schedule, shell, todo, web
 
-    return {kit.TOOLKIT.name: kit.TOOLKIT for kit in (files, shell, web, todo, memory, journal, agents, schedule)}
+    return {kit.TOOLKIT.name: kit.TOOLKIT
+            for kit in (files, shell, web, todo, memory, journal, agents, schedule, plugins)}
 

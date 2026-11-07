@@ -11,7 +11,7 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
@@ -186,23 +186,27 @@ class Brain:
 
     # ============== Plugins ==============
 
-    def update_plugin(self, name: str, enabled: Optional[bool] = None, settings: Optional[dict] = None) -> dict:
-        info = self.plugins.update(name, enabled, settings)
-        if self.plugins.has_servers(name):
-            self.mcp.restart()  # its servers start, stop, or start again with the new settings
-        return info
-
-    def install_plugin(self, source: str) -> dict:
-        name = self.plugins.install(source)
-        if self.plugins.has_servers(name):
+    def _changing_plugins(self, change: Callable[[], Any]) -> Any:
+        """A change to the plugins; their MCP servers start, stop or start again when theirs changed."""
+        before = self.plugins.mcp_servers()
+        result = change()
+        if self.plugins.mcp_servers() != before:
             self.mcp.restart()
-        return self.plugins.info(name)
+        return result
+
+    def update_plugin(self, name: str, enabled: Optional[bool] = None, settings: Optional[dict] = None,
+                      trusted: Optional[bool] = None) -> dict:
+        return self._changing_plugins(lambda: self.plugins.update(name, enabled, settings, trusted))
+
+    def install_plugin(self, source: str, trusted: bool = True) -> dict:
+        """``trusted``: the user installs it (panel, command line, API); a model's install is not."""
+        return self.plugins.info(self._changing_plugins(lambda: self.plugins.install(source, trusted)))
+
+    def reload_plugin(self, name: str) -> dict:
+        return self.plugins.info(self._changing_plugins(lambda: self.plugins.reload(name)))
 
     def remove_plugin(self, name: str) -> None:
-        servers = self.plugins.has_servers(name)
-        self.plugins.remove(name)
-        if servers:
-            self.mcp.restart()
+        self._changing_plugins(lambda: self.plugins.remove(name))
 
     def profile(self, app: str, session: str, overrides: Optional[dict] = None) -> dict:
         """Everything a run of this session needs to know about who it is and what it may do."""

@@ -492,6 +492,8 @@ class Panel(App):
                     yield FlatButton("Install…", id="plugin-install", variant="primary")
                     yield FlatButton("Settings…", id="plugin-settings")
                     yield FlatButton("Turn on / off", id="plugin-toggle")
+                    yield FlatButton("Trust / distrust", id="plugin-trust")
+                    yield FlatButton("Reload", id="plugin-reload")
                     yield FlatButton("Remove", id="plugin-remove", variant="error")
 
     def on_mount(self) -> None:
@@ -925,7 +927,9 @@ class Panel(App):
         rows = []
         for plugin in plugins:
             state = f"[{BAD}]broken[/]" if plugin["error"] else f"[{OK}]on[/]" if plugin["enabled"] else f"[{MUTED}]off[/]"
-            source = "built in" if plugin["builtin"] else plugin["path"]
+            if not plugin["trusted"]:
+                state += f" [{WARN}]untrusted[/]"
+            source = "built in" if plugin["builtin"] else plugin["source"] or plugin["path"]
             rows.append((plugin["name"], (plugin["name"], plugin["version"], state, plugin["tools"], cut(source, 60))))
         fill(self.main.query_one("#plugin-table", DataTable), rows)
         self.show_plugin()
@@ -938,6 +942,10 @@ class Panel(App):
         lines = [escape(plugin["description"])]
         if plugin["error"]:
             lines.append(f"[{BAD}]{escape(plugin['error'])}[/]")
+        if not plugin["trusted"]:
+            lines.append(f"[{WARN}]Not trusted: its tools ask every time, whatever they say and even in an app "
+                         "that allows everything, and its MCP servers do not run. Trust it once you know its code: "
+                         f"{escape(plugin['path'])}[/]")
         if plugin["toolkits"] or plugin["mcp"]:
             lines.append("Toolkits: " + ", ".join(plugin["toolkits"] + [f"mcp:{name}" for name in plugin["mcp"]]))
         for setting in plugin["settings"].values():
@@ -960,6 +968,21 @@ class Panel(App):
         elif button == "plugin-settings":
             self.push_screen(PluginSettings(plugin), lambda settings: settings is not None and self.call(
                 lambda c: c.update_plugin(name, settings=settings), done=f"{name} saved.") and self.load_plugins())
+        elif button == "plugin-trust":
+            if plugin["builtin"]:
+                return self.notify(f"{name} is built in: it is always trusted.")
+            if plugin["trusted"]:
+                if self.call(lambda c: c.update_plugin(name, trusted=False), done=f"{name}'s tools ask every time again."):
+                    self.load_plugins()
+                return
+            self.push_screen(Confirm(f"Trust {name} as its files are now? Its tools then run as they declare, "
+                                     f"without asking when they say they change nothing, and its MCP servers run. "
+                                     f"Its code is in {plugin['path']}. A change to it takes the trust away.", "Trust"),
+                             lambda yes: yes and self.call(lambda c: c.update_plugin(name, trusted=True),
+                                                           done=f"{name} is trusted.") and self.load_plugins())
+        elif button == "plugin-reload":
+            if self.call(lambda c: c.reload_plugin(name), done=f"{name} reloaded."):
+                self.load_plugins()
         elif button == "plugin-remove":
             if plugin["builtin"]:
                 return self.notify(f"{name} is built in: turn it off instead.", severity="warning")

@@ -316,6 +316,7 @@ holds the tools.
 | (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
 | `schedule` | `schedule_create(when, what)`, `schedule_list()`, `schedule_delete(id)` | Section 9.6. |
 | `mcp:<server>` | the server's tools | Section 8. |
+| `plugins` | `plugin_list`, `plugin_install(folder)`, `plugin_reload(name)` | Section 6.5: a model makes its own tools; installing always asks. |
 | `github` (plugin) | `github_search`, `github_repo`, `github_files`, `github_issues`, `github_issue`, `github_diff`, `github_runs`, `github_run`, `github_get`; asking first: `github_issue_create`, `github_comment`, `github_issue_update`, `github_pr_create`, `github_pr_review`, `github_pr_merge`, `github_api` | Section 6.5. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
@@ -335,6 +336,10 @@ MilkChan enables `memory`, `web`, `todo`, `journal`, `schedule`, `files`, `shell
 - **Approval** pauses the run (section 5.2). The app shows the request and answers with
   allow once, allow always (saved as a rule in the app profile), or deny with a reason. The
   reason goes to the model.
+- Policy **`always`** asks every time: rules other than deny do not apply, the request
+  carries `always_ask: true`, which an app must show the user even in a mode that allows
+  everything, and "allow always" counts as once. Installing or reloading a plugin and the
+  tools of untrusted plugins have it (section 6.5).
 - A background task waiting for approval becomes `input_required` and raises a
   notification. Whoever starts a task can pre-approve tools for it.
 
@@ -386,6 +391,29 @@ plugin that fails to load (a bad manifest, an import error, a toolkit name alrea
 is listed with its error; the brain and every other plugin go on. A plugin runs as the
 user, inside the brain, with the brain's rights: the panel says to install only plugins
 one trusts.
+
+**Trust** belongs to a plugin's exact files: `plugins.json` keeps a SHA-256 fingerprint of
+them (Python's caches left out). Built-in plugins are trusted. A plugin the user installs
+(panel, command line, API) is trusted as it is then. One a model installs, one that appears
+on disk, and one whose files changed after it was trusted are not. An untrusted plugin's
+tools all get policy `always` and lose `readonly` (so a crash never re-runs them), and its
+MCP servers do not start. The user trusts it in the panel (Plugins: Trust) or with
+`sentientmilk plugins trust NAME`.
+
+**Plugins a model makes.** The `plugins` toolkit lets a model extend itself: it writes a
+plugin with `files_write` in a folder open to it, then calls `plugin_install(folder)`.
+`plugin_install`'s description is a complete guide to the format with an example, so no
+other documentation is needed. `plugin_reload(name)` copies the plugin in again from where
+it came from and imports it afresh, and `plugin_list` shows every plugin with its trust and
+errors. Installing and reloading run the plugin's code inside the brain, so both have
+policy `always`: the user is asked every time. No rule, "allow always" or app bypass skips
+that (`permissions.decide` returns `always`, the request carries `always_ask`, an "always"
+answer is taken as once and saves no rule); only a deny rule still refuses it. Such a
+plugin starts untrusted, so each of its tools asks too, until the user trusts it. The
+plugin manager's `version` grows at each load, and a run rebuilds its tools at the next
+step when it changed: a model can install a plugin, try its tool, fix it and reload it in
+one turn. A plugin installed by a model cannot take the name of a built-in one or of one
+already installed.
 
 **The GitHub plugin** is built in and on by default. It talks to the REST API with
 `requests` (no new dependency). Its token is its setting, else `GITHUB_TOKEN` or
@@ -792,7 +820,8 @@ bearer token.
 | `GET/POST /v1/schedules`, `PATCH/DELETE /v1/schedules/<id>` | manage schedules |
 | `GET /v1/toolkits` | toolkits, MCP servers included, with status and errors |
 | `GET/PUT /v1/mcp`, `POST /v1/mcp/<name>/reconnect` | MCP configuration |
-| `GET/POST /v1/plugins`, `PATCH/DELETE /v1/plugins/<name>` | plugins (section 6.5): list, install (`source`), turn on or off and set (`enabled`, `settings`), remove |
+| `GET/POST /v1/plugins`, `PATCH/DELETE /v1/plugins/<name>` | plugins (section 6.5): list, install (`source`), turn on or off, set and trust (`enabled`, `settings`, `trusted`), remove |
+| `POST /v1/plugins/<name>/reload` | copy a plugin in again from its source and import it |
 | `GET /v1/journal`, `DELETE /v1/journal/<id>` | view and prune the journal |
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
 

@@ -128,3 +128,31 @@ def test_plugins_are_turned_off_and_set_up_here_without_showing_secrets(brain):
         assert panel.screen is panel.main  # built in: nothing to ask, it can only be turned off
         assert any(p["name"] == "github" for p in brain.client.plugins())
     run(brain, scenario)
+
+
+def test_a_plugin_she_made_is_trusted_here(brain):
+    folder = brain.work / "moon"
+    folder.mkdir()
+    (folder / "plugin.json").write_text('{"name": "moon", "toolkits": ["tools.py"]}', encoding="utf-8")
+    (folder / "tools.py").write_text(
+        'from sentientmilk_framework.toolkits import Toolkit, tool\n\n\n@tool(readonly=True)\n'
+        'def moon_phase(ctx):\n    """Phase."""\n    return "x"\n\n\nTOOLKIT = Toolkit("moon", "Moon.", [moon_phase])\n',
+        encoding="utf-8")
+    brain.brain.install_plugin(str(folder), trusted=False)  # as her plugin_install does
+
+    async def scenario(panel, pilot):
+        panel.action_tab("plugins")
+        table = panel.query_one("#plugin-table", DataTable)
+        await until(pilot, lambda: table.row_count > 1)
+        assert "untrusted" in str(table.get_row("moon"))
+        table.move_cursor(row=table.get_row_index("moon"))
+        await pilot.pause(0.1)
+        assert "ask every time" in str(panel.query_one("#plugin-detail").render())
+        await press(pilot, panel, "plugin-trust")
+        await press(pilot, panel, "yes")
+        assert brain.brain.plugins.trusted("moon")
+        (folder / "tools.py").write_text((folder / "tools.py").read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        await press(pilot, panel, "plugin-reload")
+        assert not brain.brain.plugins.trusted("moon")  # changed files: asked again
+        await until(pilot, lambda: "untrusted" in str(table.get_row("moon")))
+    run(brain, scenario)
