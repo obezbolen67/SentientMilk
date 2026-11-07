@@ -11,7 +11,7 @@ def _need(**values):
         raise ToolError(f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} required.")
 
 
-@tool(policy="auto", args={"category": "user (who they are), preferences (how they like things) or projects.",
+@tool(core=True, policy="auto", args={"category": "user (who they are), preferences (how they like things) or projects.",
                            "key": "A short name for the fact, such as job or main_project.",
                            "value": "The fact as it stands now, in a sentence or two."})
 def memory_save(ctx: ToolContext, category: str, key: str, value: str):

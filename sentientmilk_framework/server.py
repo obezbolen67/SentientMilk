@@ -203,6 +203,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._notifications(validate_name(query.get("app", ""), "app"), _number(query.get("after", 0), "after"))
         elif head == "tasks":
             return self._task_route(method, rest, body, query)
+        elif head == "agents":
+            return self._agent_route(method, rest, query)
         elif head == "runs" and len(rest) >= 1:
             return self._run_route(method, _number(rest[0], "run id"), rest[1:], body)
         elif head == "schedules":
@@ -265,7 +267,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif not rest and method == "DELETE":
             if brain.session_busy(app, session):
                 return self._fail(409, "busy", "A turn of this session is still going on; stop it first") or True
-            brain.store.delete_session(app, session)
+            brain.delete_session(app, session)
             self._send(200, {"status": "ok"})
         elif rest == ["compact"] and method == "POST":
             self._send(200, brain.runs.compact(app, session))
@@ -336,13 +338,38 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, brain.store.run(run_id))
         elif not rest and method == "GET":
             statuses = tuple(query["status"].split(",")) if query.get("status") else None
-            self._send(200, {"tasks": brain.store.runs(app=query.get("app"), kind="task", statuses=statuses,
+            kind = query.get("kind", "task")
+            if kind not in ("task", "agent"):
+                raise ValueError("kind must be task or agent")
+            self._send(200, {"tasks": brain.store.runs(app=query.get("app"), kind=kind, statuses=statuses,
                                                        limit=_number(query.get("limit", 50), "limit"))})
         elif len(rest) >= 1:
             run = brain.store.run(_number(rest[0], "task id"))
             if not run or run["kind"] != "task":
                 return False
             return self._run_route(method, run["id"], rest[1:], body)
+        else:
+            return False
+        return True
+
+    def _agent_route(self, method: str, rest: list, query: dict) -> bool:
+        agents = self.server.brain.agents
+        if not rest and method == "GET":
+            app, session = validate_name(query.get("app", ""), "app"), validate_name(query.get("session", ""), "session")
+            found = agents.all(app, session)
+            self._send(200, {"agents": found if query.get("all") in ("1", "true") else [a for a in found if a["open"]]})
+            return True
+        if not rest:
+            return False
+        agent_id = _number(rest[0], "agent id")
+        app = next((run["app"] for run in self.server.brain.store.runs(session=f"agent-{agent_id}", limit=1)), None)
+        agent = agents.summary(app, f"agent-{agent_id}") if app else None
+        if agent is None:
+            return False
+        if len(rest) == 1 and method == "GET":
+            self._send(200, agents.details(app, agent))
+        elif rest[1:] == ["stop"] and method == "POST":
+            self._send(200, agents.stop(app, agent_id, by_user=True))
         else:
             return False
         return True

@@ -354,8 +354,8 @@ class Panel(App):
                         yield FlatButton("Forget", id="memory-forget", variant="error")
 
     def compose_work(self) -> ComposeResult:
-        yield Static("Background tasks run on their own and report back to the app that started them. "
-                     "Schedules wake an app or start a task.", classes="hint")
+        yield Static("Background tasks and agents run on their own and report back to the app or chat that "
+                     "started them. Schedules wake an app or start a task.", classes="hint")
         with VerticalScroll():
             with Vertical(classes="card", id="tasks-card"):
                 yield DataTable(id="tasks", cursor_type="row", zebra_stripes=True)
@@ -415,7 +415,7 @@ class Panel(App):
                             ("thinking-card", "Thinking and requests"), ("apps-pane", "Apps"),
                             ("persona-card", "Persona"), ("app-settings-card", "Settings"),
                             ("sessions-card", "Conversations"), ("memory-card", "Memory"),
-                            ("tasks-card", "Background tasks"), ("schedules-card", "Schedules"),
+                            ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
                             ("runtime-card", "Runtime and permissions"), ("mcp-card", "MCP servers")):
             self.main.query_one(f"#{card}").border_title = title
@@ -732,7 +732,7 @@ class Panel(App):
     # ============== Work and journal ==============
 
     def load_work(self) -> None:
-        tasks = self.call(lambda c: c.tasks(), quiet=True)
+        tasks = self.call(lambda c: sorted(c.tasks() + c.tasks(kind="agent"), key=lambda t: -t["id"]), quiet=True)
         schedules = self.call(lambda c: c.schedules(), quiet=True)
         if tasks is None or schedules is None:
             return

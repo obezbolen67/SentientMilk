@@ -130,9 +130,19 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   model looks at the screen only when a message needs it. An action declared with
   `"policy": "ask"` passes the same rules and approvals as a tool before the app runs it
   (MilkChan's `computer_act`).
-- **Tasks** (`client.start_task`, or the model's `task_start`) run in the background in
-  their own session, keep a progress file, can be checked by a reviewer (`verify=True`)
-  and report back as a note in the parent session plus a `task.completed` notification.
+- **Tasks** (`client.start_task`) run in the background in their own session, keep a
+  progress file, can be checked by a reviewer (`verify=True`) and report back as a note in
+  the parent session plus a `task.completed` notification.
+- **Agents** are the model's own background work: copies of it with a fresh context that
+  each do one part of a job, in sessions of their own. They read by default, or change things
+  with the user's approval (`agent.input_required`). Each report reaches the chat once:
+  through `agents_wait`, as a note, or with an `agent.finished` notification when nobody was
+  there to take it. `client.agents(app, session)`, `client.agent(id)` and `client.stop_agent(id)`
+  let apps show and stop them.
+- **Tools on demand**: requests carry only the core tools plus `tools_search` and
+  `tools_load`; the rest are listed by name and loaded into the conversation when needed, so
+  the tool list (and the prompt cache) stays the same. An action declared with
+  `"core": true` is always sent.
 - **Schedules** (`at 2026-11-06T09:00`, `every 30m`, or 5-field cron) either wake the app
   (a `schedule.fired` notification) or start a task.
 - Failures raise `BrainError` with `type` (`config_missing`, `rate_limit`,
@@ -149,8 +159,7 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
 | `todo` | `todo_write` |
 | `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` |
 | `journal` | `journal_search` |
-| `agents` | `agent_run`: a read-only helper that returns a report |
-| `tasks` | `task_start`, `task_status`, `task_cancel` |
+| `agents` | `agent_start`, `agent_message`, `agents_wait`, `agents_status`, `agent_stop` |
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_delete` |
 | `mcp:<server>` | the server's tools, as `mcp__<server>__<tool>` |
 

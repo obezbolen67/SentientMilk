@@ -34,7 +34,8 @@ def clean(text: str) -> str:
 
 def _name(brain, app: str, session: str) -> None:
     try:
-        if brain.store.session(app, session)["settings"].get("title") or not brain.config.values()["api_key"]:
+        found = brain.store.find_session(app, session)  # it may be deleted by now
+        if not found or found["settings"].get("title") or not brain.config.values()["api_key"]:
             return
         events = brain.store.events(app, session, types=("input", "end"))
         said = next((e["display"] for e in events if e["type"] == "input" and e.get("display")), "")
@@ -59,7 +60,8 @@ def _name(brain, app: str, session: str) -> None:
         if named:
             brain.notify(app, session, "session.titled", {"session": session, "title": title})
     except Exception:
-        logger.exception("Could not name session %s/%s", app, session)
+        if not brain.stopping.is_set():  # a closed brain's home may be gone already (a test's, an eval's)
+            logger.exception("Could not name session %s/%s", app, session)
     finally:
         with _lock:
             _naming.discard((app, session))

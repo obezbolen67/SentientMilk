@@ -16,7 +16,7 @@ _BLOCKS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "se
            "footer", "pre", "blockquote", "table", "ul", "ol", "dd", "dt", "hr"}
 
 
-@tool(readonly=True, args={"query": "What to search for, as you would type it into a search engine.",
+@tool(core=True, readonly=True, args={"query": "What to search for, as you would type it into a search engine.",
                            "count": "Number of results, 1-20 (default 8).",
                            "freshness": "Optional: pd (past day), pw (week), pm (month) or py (year)."})
 def web_search(ctx: ToolContext, query: str, count: int = 8, freshness: str = ""):
@@ -87,7 +87,7 @@ def page_text(html: str):
     return parser.title.strip(), parser.text()
 
 
-@tool(readonly=True, rule_arg="url", args={"url": "Full http(s) URL.",
+@tool(core=True, readonly=True, rule_arg="url", args={"url": "Full http(s) URL.",
                                            "offset": "Character to start from, to read further into a long page."})
 def web_fetch(ctx: ToolContext, url: str, offset: int = 0):
     """Read a web page as plain text (HTML is converted; text and JSON come as they are). Long pages come in

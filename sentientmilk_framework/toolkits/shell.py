@@ -64,7 +64,7 @@ def _folder(ctx: ToolContext, folder: str) -> Path:
     return path
 
 
-@tool(rule_arg="command", args={
+@tool(core=True, rule_arg="command", args={
     "command": "The command line, in the shell named above.",
     "cwd": "Folder to run in (default: the working folder).",
     "timeout": f"Seconds to wait for it, at most {WAIT}; still running then, it goes on as a background job.",
@@ -157,7 +157,7 @@ def _job(ctx: ToolContext, job: int) -> dict:
     return record
 
 
-@tool(readonly=True, args={"job": "Job id from shell_run.", "since": "Skip this many lines (to read only new ones).",
+@tool(core=True, readonly=True, args={"job": "Job id from shell_run.", "since": "Skip this many lines (to read only new ones).",
                             "wait": f"Seconds to wait for the job to end first (max {MAX_WAIT}); 0 reads at once."})
 def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
     """Output of a background job so far, and whether it is still running."""

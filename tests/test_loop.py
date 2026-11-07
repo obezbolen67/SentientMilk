@@ -12,7 +12,6 @@ from sentientmilk_framework import BrainError, context
 from sentientmilk_framework import loop as loop_module
 from sentientmilk_framework.loop import INTERRUPTED_CALL
 from sentientmilk_framework.testing import tool_call, tool_calls
-from sentientmilk_framework.toolkits import Tool, Toolkit
 
 
 def tool_results(payload):
@@ -61,7 +60,7 @@ def test_allow_always_saves_a_rule_for_the_app(brain):
 
 def test_app_actions_run_in_the_app(brain):
     brain.client.declare_app("bot", name="Bot", toolkits=[], actions=[
-        {"name": "wave", "description": "Wave at the user.", "parameters": {
+        {"name": "wave", "description": "Wave at the user.", "core": True, "parameters": {
             "type": "object", "properties": {"times": {"type": "integer"}}}}])
     brain.provider.replies += [tool_call("wave", {"times": 2}, "w1"), "I waved."]
     asked = []
@@ -294,25 +293,6 @@ def test_projection_never_puts_notes_between_a_call_and_its_result():
     assert context.project(events, None)[-1]["content"] == "[Note: job finished]\n\nnext"
 
 
-def test_many_mcp_tools_are_listed_and_called_through_tools_call(brain, monkeypatch):
-    calls = []
-    many = [Tool(name=f"mcp__big__t{i}", description=f"Tool number {i}.", toolkit="mcp:big",
-                 parameters={"type": "object", "properties": {"x": {"type": "integer"}}},
-                 func=lambda ctx, x=0, i=i: calls.append((i, x)) or f"t{i} got {x}", policy="auto")
-            for i in range(50)]
-    monkeypatch.setattr(brain.brain.mcp, "toolkits", lambda: {"mcp:big": Toolkit("mcp:big", "big", many)})
-    monkeypatch.setattr(brain.brain.mcp, "servers", lambda: ["big"])
-    brain.client.declare_app("big", toolkits=["memory", "mcp:*"])
-    brain.provider.replies += [tool_call("tools_describe", {"names": ["mcp__big__t7"]}, "d"),
-                               tool_call("tools_call", {"name": "mcp__big__t7", "arguments": {"x": 3}}, "c"), "done"]
-    turn(brain, "big", "use t7")
-    names = [t["function"]["name"] for t in brain.provider.sent[0]["tools"]]
-    assert "tools_call" in names and "mcp__big__t7" not in names
-    assert "mcp__big__t7: Tool number 7." in brain.provider.sent[0]["messages"][0]["content"]
-    assert '"x"' in tool_results(brain.provider.sent[1])["d"]
-    assert calls == [(7, 3)] and tool_results(brain.provider.sent[2])["c"] == "t7 got 3"
-
-
 def test_the_step_budget_stops_runaway_loops(brain, monkeypatch):
     monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 3)
     brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"x{i}") for i in range(5)]
@@ -328,24 +308,6 @@ def test_the_step_budget_stops_runaway_loops(brain, monkeypatch):
         with pytest.raises(BrainError) as caught:
             brain.client.turn("cli", "main", "too many", max_steps=wrong)
         assert caught.value.type == "bad_request"
-
-
-def test_helpers_investigate_with_read_only_tools_and_report(brain):
-    (brain.work / "a.py").write_text("def answer():\n    return 42\n", encoding="utf-8")
-
-    def helper_or_main(payload):
-        names = [t["function"]["name"] for t in payload.get("tools") or []]
-        if "HELPER" in payload["messages"][0]["content"]:
-            assert "files_edit" not in names and "shell_run" not in names and "agent_run" not in names
-            if not any(m["role"] == "tool" for m in payload["messages"]):
-                return tool_call("files_search", {"pattern": "return"}, "h1")
-            return "answer() in a.py returns 42 (line 2)."
-        return tool_call("agent_run", {"goal": "Find what answer() returns."}, "a1")
-
-    brain.provider.replies += [helper_or_main, helper_or_main, helper_or_main, "It returns 42."]
-    assert turn(brain, "cli", "what does answer() return?")["reply"] == "It returns 42."
-    assert tool_results(brain.provider.sent[-1])["a1"] == "answer() in a.py returns 42 (line 2)."
-    assert any(r["kind"] == "subagent" and r["status"] == "completed" for r in brain.store.runs())
 
 
 def test_reasoning_is_passed_back_with_tool_loops_and_not_into_the_next_turn(brain):
@@ -377,3 +339,19 @@ def test_usage_and_cache_hits_are_counted(brain):
     stats = brain.client.stats()["apps"]["cli"]
     assert stats["prompt_tokens"] == 100 and stats["cached_tokens"] == 60 and stats["cache_hit_rate"] == 0.6
     assert json.loads(json.dumps(stats))
+
+
+def test_a_message_sent_while_a_turn_starts_is_not_lost(brain, monkeypatch):
+    """Updating a run's options read the run, then wrote it whole: a message steered in between was lost."""
+    original = loop_module.Loop._log_input
+
+    def log_input(self, run, profile):
+        if run["kind"] == "turn" and not sent:
+            sent.append(brain.brain.runs.steer(run["id"], [{"type": "text", "text": "Also this."}]))
+        return original(self, run, profile)
+
+    sent = []
+    monkeypatch.setattr(loop_module.Loop, "_log_input", log_input)
+    brain.provider.replies += ["ok"]
+    turn(brain, "cli", "first")
+    assert sent and "Also this." in json.dumps(brain.provider.sent[0]["messages"])

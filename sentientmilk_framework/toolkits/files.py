@@ -116,7 +116,7 @@ def _snippet(text: str, index: int, length: int) -> str:
                      for n in range(max(1, first - 3), min(len(lines), last + 3) + 1))
 
 
-@tool(readonly=True, rule_arg="path", args={
+@tool(core=True, readonly=True, rule_arg="path", args={
     "path": "File or folder, absolute or relative to the working folder.",
     "offset": "First line to show, from 1.", "limit": f"Lines to show (default {READ_LINES})."})
 def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_LINES):
@@ -163,7 +163,7 @@ def _walk(base: Path):
             yield Path(folder) / name
 
 
-@tool(readonly=True, rule_arg="path", args={
+@tool(core=True, readonly=True, rule_arg="path", args={
     "pattern": "Regular expression (Python/ripgrep syntax).", "path": "Folder or file to search (default: working folder).",
     "glob": "Only files matching this glob, e.g. '*.py'.", "ignore_case": "Match case-insensitively."})
 def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = "", ignore_case: bool = False):

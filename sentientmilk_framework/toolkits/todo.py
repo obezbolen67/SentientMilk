@@ -14,7 +14,7 @@ def render(items: list) -> str:
     return "\n".join(f"{n}. [{STATUSES[item['status']]}] {item['text']}" for n, item in enumerate(items, 1))
 
 
-@tool(policy="auto", args={"items": ITEMS})
+@tool(core=True, policy="auto", args={"items": ITEMS})
 def todo_write(ctx: ToolContext, items: list):
     """Keep a todo list for work with three or more steps: write it before you start, then send the whole
     updated list each time an item starts (doing) or ends (done). Keep at most one item doing. The list

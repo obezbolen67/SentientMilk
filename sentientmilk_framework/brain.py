@@ -17,6 +17,7 @@ import requests
 
 from . import context, permissions, transport
 from . import signals as signal_format
+from .agents import Agents
 from .config import BrainConfig, validate_rules, validate_setting
 from .journal import Journal
 from .loop import ACTIVE, Toolset, build_toolset
@@ -82,6 +83,8 @@ def validate_declaration(data: Any) -> dict:
             raise ValueError(f"action {action['name']}: description must be a string, parameters a JSON schema")
         if action.get("policy", "auto") not in ("auto", "ask"):
             raise ValueError(f"action {action['name']}: policy must be auto or ask")
+        if not isinstance(action.get("core", False), bool):
+            raise ValueError(f"action {action['name']}: core must be true (sent with every request) or false")
     return data
 
 
@@ -120,10 +123,11 @@ class Brain:
         self.plugins = load_plugins(self.home / "toolkits")
         self.mcp = McpHost(self)
         self.runs = Runs(self)
+        self.agents = Agents(self)
         self.scheduler = Scheduler(self)
         self.journal = Journal(self)
         self._started = False
-        self._stopping = threading.Event()
+        self.stopping = threading.Event()  # set by close(): background work ends quietly
 
     def start(self) -> None:
         """Recover interrupted work and start the background threads."""
@@ -138,7 +142,7 @@ class Brain:
         self.mcp.start()
 
     def close(self) -> None:
-        self._stopping.set()
+        self.stopping.set()
         self.scheduler.stop()
         self.journal.stop()
         self.runs.stop()
@@ -186,9 +190,10 @@ class Brain:
         declaration, settings = record["declaration"], record["settings"]
         # Tasks and helpers work with the settings of the session that started them.
         base_session = overrides.get("from_session") or session
-        session_settings = self.store.session(app, base_session)["settings"]
+        # read, never created here: a late reader (titles, the journal) must not bring back a deleted chat
+        session_settings = (self.store.find_session(app, base_session) or {}).get("settings") or {}
         if base_session != session:
-            own = self.store.session(app, session)["settings"]
+            own = (self.store.find_session(app, session) or {}).get("settings") or {}
             session_settings = {**session_settings, **{k: v for k, v in own.items() if k == "instructions"}}
         values = self.config.values()
         disabled = set(values["disabled_toolkits"]) | set(settings.get("disabled_toolkits", [])) | \
@@ -275,7 +280,12 @@ class Brain:
 
     def session_busy(self, app: str, session: str) -> bool:
         """A run of this session is going on or waits for answers."""
-        return any(run["session"] == session for run in self.store.runs(app=app, statuses=ACTIVE, limit=1000))
+        return bool(self.store.runs(app=app, session=session, statuses=ACTIVE, limit=1))
+
+    def delete_session(self, app: str, session: str) -> None:
+        """A session and its history, with the agents it started (stopped)."""
+        self.store.delete_session(app, session)  # first: agents that end from now on see it is gone
+        self.agents.delete_for(app, session)
 
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """The conversation as apps show it: what the user said and what the brain replied; with

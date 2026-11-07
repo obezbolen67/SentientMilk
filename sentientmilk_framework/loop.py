@@ -6,8 +6,10 @@ started but has no result is never repeated blindly unless the tool only reads.
 """
 
 import concurrent.futures
+import difflib
 import json
 import logging
+import re
 import threading
 from dataclasses import replace
 from typing import Callable, Dict, List, Optional
@@ -17,6 +19,7 @@ from . import signals as signal_format
 from .exceptions import BrainError, classify
 from .toolkits import Tool, ToolContext, ToolError, ToolResult, format_result, tool
 from .toolkits.files import resolve
+from .toolkits.tasks import task_progress
 from .toolkits.todo import render as render_todo
 
 logger = logging.getLogger(__name__)
@@ -25,10 +28,13 @@ TERMINAL = ("completed", "failed", "cancelled")
 ACTIVE = ("queued", "working", "input_required")
 STOPPED_CALL = "Stopped: the user stopped you while this call ran. It may not have finished."
 STOP_GRACE = 0.5  # seconds a stopped run gives tools that noticed to end with what they have
-STEP_BUDGET = {"turn": 40, "task": 200, "subagent": 60}
+STEP_BUDGET = {"turn": 40, "task": 200, "agent": 60, "subagent": 60}  # agents.STEPS: by access
 RETRIES = (2, 8, 30)  # seconds between attempts at a provider that is busy or down
 RETRIED = ("rate_limit", "server_error", "timeout", "network")
-DEFER_AT = 40  # more tools than this: MCP tools are listed, not sent (see tools_describe)
+LISTED_PER_KIT = 20  # a toolkit with more tools to load is listed by count; tools_search finds them
+SEARCH_LIMIT, LOAD_LIMIT, SUMMARY_CHARS = 20, 20, 120
+APP_TOOLS = "this app's own"  # how MORE TOOLS names the app's actions
+META_TOOLS = ("tools_search", "tools_load")
 VERIFY_ROUNDS = 2
 INTERRUPTED_CALL = ("The brain stopped while this call was running. It may or may not have finished: check its "
                     "effect before you repeat it.")
@@ -45,36 +51,99 @@ The author's report:
 
 
 class Toolset:
-    def __init__(self, tools: List[Tool], deferred: List[Tool]):
-        self.tools, self.deferred = tools, deferred
-        self.by_name: Dict[str, Tool] = {t.name: t for t in deferred + tools}
-        self.deferred_names = {t.name for t in deferred}
+    """Every tool a run may call (``by_name``). Requests carry ``tools`` (the core ones and, when there are
+    more, tools_search and tools_load), the same on every step so the provider's prompt cache keeps hitting;
+    the others (``deferred``) are listed in the system prompt, loaded into the conversation with tools_load
+    and called by name (the provider passes such calls on: 5/5 on 2026-11-07)."""
+
+    def __init__(self, tools: List[Tool], deferred: List[Tool], kits: Optional[Dict[str, str]] = None):
+        self.deferred, self.kits = deferred, kits or {}
+        self.tools = tools + (meta_tools(self) if deferred else [])
+        self.by_name: Dict[str, Tool] = {t.name: t for t in self.tools + deferred}
+        self.sent = {t.name for t in self.tools}
 
     def schemas(self) -> List[dict]:
         return [t.schema() for t in self.tools]
 
-    def summaries(self) -> List[dict]:
-        return [{"name": t.name, "summary": t.description.split("\n")[0][:160]} for t in self.deferred]
+    @staticmethod
+    def kit_label(toolkit: str) -> str:
+        return APP_TOOLS if toolkit == "actions" else toolkit
+
+    def listing(self) -> List[str]:
+        """The MORE TOOLS lines: each toolkit's deferred tools by name, or only how many for a big one."""
+        groups: Dict[str, List[str]] = {}
+        for t in self.deferred:
+            groups.setdefault(t.toolkit, []).append(t.name)
+        lines = []
+        for kit, names in groups.items():
+            about = self.kits.get(kit, "")
+            if len(names) > LISTED_PER_KIT:
+                lines.append(f"- {self.kit_label(kit)} ({len(names)} tools)" + (f": {about}" if about else ""))
+            else:
+                lines.append(f"- {self.kit_label(kit)}{f' ({about})' if about else ''}: {', '.join(names)}")
+        return lines
+
+    def search(self, query: str, limit: int) -> List[Tool]:
+        """Tools ranked by the query's words: in the name counts most, then the toolkit, then the description
+        and parameters (at the start of a word, so "remind" finds "reminders")."""
+        words = [_stem(w) for w in re.findall(r"\w+", query.lower()) if len(w) >= 3 or w.isdigit()]  # not "a", "to"
+        ranked = []
+        for index, t in enumerate(self.tools + self.deferred):
+            if t.name in META_TOOLS:
+                continue
+            kit = f"{t.toolkit} {self.kits.get(t.toolkit, '')}".lower()
+            text = f"{t.description} {json.dumps(t.parameters, ensure_ascii=False)}".lower()
+            score = sum(3 * (w in t.name.lower()) + 2 * (w in kit) + bool(re.search(rf"\b{re.escape(w)}", text))
+                        for w in words)
+            if score:
+                ranked.append((-score, index, t))
+        return [t for *_, t in sorted(ranked, key=lambda item: item[:2])[:limit]]
+
+    def line(self, t: Tool) -> str:
+        ready = "ready" if t.name in self.sent else "load it with tools_load"
+        summary = t.description.splitlines()[0][:SUMMARY_CHARS] if t.description else ""
+        return f"{t.name} ({self.kit_label(t.toolkit)}, {ready}): {summary}"
 
 
-def meta_tools(deferred: List[Tool]) -> List[Tool]:
+def _stem(word: str) -> str:
+    """Enough of English for tool search: reminded, reminders and reminding find remind."""
+    for suffix in ("ing", "ed", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[:-len(suffix)]
+    return word
+
+
+def meta_tools(toolset: Toolset) -> List[Tool]:
+    @tool(readonly=True, args={"query": "What you want to do, in a few words (empty: list every tool).",
+                               "limit": f"How many to show (default 5, at most {SEARCH_LIMIT})."})
+    def tools_search(ctx: ToolContext, query: str = "", limit: int = 5):
+        """Find tools by what they do, among all of yours: those sent with each request (ready) and those
+        to load first. An empty query lists them all, by toolkit."""
+        if not query.strip():
+            groups: Dict[str, List[str]] = {}
+            for t in toolset.tools + toolset.deferred:
+                if t.name not in META_TOOLS:
+                    groups.setdefault(toolset.kit_label(t.toolkit), []).append("  " + toolset.line(t))
+            return "\n".join(f"{kit}:\n" + "\n".join(lines) for kit, lines in groups.items())
+        found = toolset.search(query, max(1, min(int(limit or 5), SEARCH_LIMIT)))
+        return "\n".join(toolset.line(t) for t in found) or "No tool matches. Try other words, or an empty query."
+
     @tool(readonly=True, args={"names": {"type": "array", "items": {"type": "string"},
-                                         "description": "Tool names from the MORE TOOLS list."}})
-    def tools_describe(ctx: ToolContext, names: list):
-        """Show the description and parameters of tools from the MORE TOOLS list."""
-        found = {t.name: t for t in deferred}
-        unknown = [name for name in names if name not in found]
+                                         "description": "Names from MORE TOOLS or tools_search."}})
+    def tools_load(ctx: ToolContext, names: list):
+        """Load tools so you can use them: shows how to call each (description and parameters). Then call
+        them by name, like your other tools."""
+        names = [str(name) for name in names or []][:LOAD_LIMIT]
+        unknown = [name for name in names if name not in toolset.by_name]
+        found = [toolset.by_name[name] for name in names if name in toolset.by_name and name not in META_TOOLS]
+        if not found:
+            raise ToolError(f"Unknown tools: {unknown or names}. Find tools with tools_search.")
+        head = "Loaded. Call them by name from now on, like your other tools."
         if unknown:
-            raise ToolError(f"Unknown tools: {unknown}. Pick names from the MORE TOOLS list.")
-        return json.dumps([found[name].schema()["function"] for name in names], ensure_ascii=False, indent=1)
+            head += f" Not found: {', '.join(unknown)} (find tools with tools_search)."
+        return head + "\n" + json.dumps([t.schema()["function"] for t in found], ensure_ascii=False, indent=1)
 
-    @tool(readonly=False, policy="auto", args={"name": "A tool from the MORE TOOLS list.",
-                                               "arguments": {"type": "object", "description": "Its arguments."}})
-    def tools_call(ctx: ToolContext, name: str, arguments: dict = None):
-        """Call a tool from the MORE TOOLS list (read its parameters with tools_describe first)."""
-        raise ToolError("tools_call is handled by the brain")  # unwrapped in Loop._call
-
-    return [tools_describe, tools_call]
+    return [tools_search, tools_load]
 
 
 def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
@@ -87,7 +156,7 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
         tools.append(Tool(name=action["name"], description=action.get("description", ""),
                           parameters=action.get("parameters") or {"type": "object", "properties": {}},
                           func=None, readonly=bool(action.get("readonly")), policy=action.get("policy", "auto"),
-                          toolkit="actions",
+                          toolkit="actions", core=bool(action.get("core")),
                           action=True, only_in=("turn",)))  # only a turn has the app there to run it
     mode = profile.get("mode")
     tools = [t for t in tools
@@ -95,12 +164,11 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
              and not permissions.removed(t.name, profile["rules"])
              and (mode != "readonly" or (t.readonly and not t.action))
              and (mode != "review" or (not t.action and t.name not in ("files_edit", "files_write")))]
+    if kind in ("task", "agent"):
+        tools.append(task_progress)  # every worker keeps notes that outlive its context
     unique = list({t.name: t for t in tools}.values())
-    if len(unique) <= DEFER_AT:
-        return Toolset(unique, [])
-    deferred = [t for t in unique if t.toolkit.startswith("mcp:")]
-    offered = [t for t in unique if not t.toolkit.startswith("mcp:")]
-    return Toolset(offered + meta_tools(deferred), deferred)
+    return Toolset([t for t in unique if t.core], [t for t in unique if not t.core],
+                   {name: kit.description for name, kit in kits.items()})
 
 
 def _arguments(call: dict) -> dict:
@@ -164,6 +232,8 @@ class Loop:
                 if steps >= run["options"].get("max_steps", STEP_BUDGET[run["kind"]]):
                     raise BrainError("budget", f"Stopped after {steps} steps (the step budget)",
                                      "Progress is kept; start a new task to continue.")
+                if run["kind"] in ("turn", "task"):
+                    self.brain.agents.take_reports(run)  # its agents' reports that came meanwhile
                 self._take_messages(run, emit)
                 message, usage = self._think(run, profile, toolset, emit)
                 store.add_event(run["app"], run["session"], run_id, "assistant", {"message": message, "usage": usage})
@@ -200,7 +270,7 @@ class Loop:
         with runs.steer_lock:
             items = store.run(run["id"])["options"].get("steer") or []
             if items:
-                store.update_run(run["id"], options={**store.run(run["id"])["options"], "steer": []})
+                store.update_run_options(run["id"], lambda options: {**options, "steer": []})
             runs.attention(run["id"]).settle()
         if items:
             content, display = context.input_content(items, {}, reminders=[])
@@ -224,7 +294,7 @@ class Loop:
         content, display = context.input_content(options["input"], options.get("context") or {}, reminders=reminders)
         self.brain.store.add_event(run["app"], run["session"], run["id"], "input",
                                    {"content": content, "display": display})
-        self.brain.store.update_run(run["id"], options={**options, "input": None})  # the event keeps it now
+        self.brain.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
 
     def _count(self, run_id: int, usage: dict) -> None:
         run = self.brain.store.run(run_id)
@@ -288,10 +358,12 @@ class Loop:
                     self._result(run, call, name, arguments, format_result(answer["result"]),
                                  answer.get("status", "ok"), emit)
                     self._attach(run, answer.get("images") or [])
-                else:
-                    waiting = True
-                    if (call["id"], "action_request") not in asked:
+                else:  # the app runs it as soon as it is asked: only once the calls before it are done
+                    if not waiting and not ready and (call["id"], "action_request") not in asked:
                         self._ask(run, "action", call, name, arguments, emit)
+                    waiting = True  # with nothing asked yet, the step settles again after the calls before it
+                continue
+            if waiting:  # an earlier call waits for an answer: this one runs after it, in the model's order
                 continue
             ready.append((call, name, tool_, arguments))
         self._run_tools(run, profile, ready, emit)
@@ -311,18 +383,17 @@ class Loop:
         return True
 
     def _resolve_call(self, call: dict, toolset: Toolset):
+        """Any tool of the run may be called, sent with the request or not: loading only shows the model
+        how (a call with wrong arguments shows the parameters, see _run_tools)."""
         name = (call.get("function") or {}).get("name", "")
         arguments = _arguments(call)
-        if name == "tools_call" and "tools_call" in toolset.by_name:
-            name, arguments = arguments.get("name", ""), arguments.get("arguments") or {}
-            if name not in toolset.deferred_names:
-                raise ToolError(f"{name!r} is not in the MORE TOOLS list.")
-            if not isinstance(arguments, dict):
-                raise ToolError("arguments must be an object.")
         tool_ = toolset.by_name.get(name)
-        if tool_ is None or (name in toolset.deferred_names and call["function"]["name"] != "tools_call"):
-            available = ", ".join(t.name for t in toolset.tools)
-            raise ToolError(f"There is no tool {name!r}. Available: {available}.")
+        if tool_ is None:
+            close = difflib.get_close_matches(name, list(toolset.by_name), n=3, cutoff=0.6)
+            hint = f" Did you mean {', '.join(close)}?" if close else ""
+            more = " Find tools with tools_search." if "tools_search" in toolset.by_name else \
+                f" Your tools: {', '.join(toolset.by_name)}."
+            raise ToolError(f"There is no tool {name!r}.{hint}{more}")
         return name, tool_, arguments
 
     def _ask(self, run: dict, kind: str, call: dict, name: str, arguments: dict, emit) -> None:
@@ -345,8 +416,9 @@ class Loop:
                 return format_result(tool_.func(ctx, **arguments)), "ok"
             except ToolError as exc:
                 return ToolResult(f"Error: {exc}"), "error"
-            except TypeError as exc:  # wrong or missing arguments
-                return ToolResult(f"Error: {exc}. Check the tool's parameters."), "error"
+            except TypeError as exc:  # wrong or missing arguments: how to call it, for a schema it may not have
+                return ToolResult(f"Error: {exc}. Its parameters: "
+                                  f"{json.dumps(tool_.parameters, ensure_ascii=False)}"), "error"
             except Exception as exc:
                 logger.exception("Tool %s failed", name)
                 return ToolResult(f"Error: {type(exc).__name__}: {exc}"), "error"
@@ -369,10 +441,12 @@ class Loop:
                 self._result(run, call, name, arguments, result, status, emit)
                 attachments.extend(result.images)
 
-        readonly = [item for item in ready if item[2].readonly]
-        others = [item for item in ready if not item[2].readonly]
-        groups = [readonly] + [[item] for item in others] if len(readonly) > 1 else \
-            [[item] for item in readonly + others]
+        groups: List[list] = []  # in the model's order: reads next to each other run together
+        for item in ready:
+            if item[2].readonly and groups and groups[-1][-1][2].readonly:
+                groups[-1].append(item)
+            else:
+                groups.append([item])
         for group in groups:
             if attention.stopped.is_set():  # not started: the model learns they did not run
                 for call, name, _, arguments in group:
@@ -402,8 +476,8 @@ class Loop:
         brain = self.brain
         settings = brain.config.values()
         provider = brain.provider(run["options"].get("model") or profile["model"])
-        system = context.system_prompt(profile, brain.session_snapshot(profile), toolset.summaries(),
-                                       brain.shell_label())
+        system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
+                                       toolset.by_name, toolset.listing())
 
         def text(delta):
             emit({"type": "text.delta", "text": delta})
@@ -538,8 +612,9 @@ class Loop:
         if compacted:
             compaction = store.last_compaction(app, session)
             events = [e for e in store.events(app, session, after=compaction["upto"]) if e["type"] != "compaction"]
-            system = context.system_prompt(profile, brain.session_snapshot(profile),
-                                           brain.toolset(profile, "turn").summaries(), brain.shell_label())
+            turn_tools = brain.toolset(profile, "turn")
+            system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
+                                           turn_tools.by_name, turn_tools.listing())
             after = context.estimate_tokens(context.project(events, compaction), system)
             store.update_session(app, session, "state", lambda state: {**state, "context_tokens": after})
         self._end(store.run(run["id"]), "completed", emit, extra={"compacted": compacted, "before": before,
@@ -566,7 +641,7 @@ class Loop:
             rounds = run["options"].get("verify_rounds", 0)
             if rounds < VERIFY_ROUNDS:
                 verdict = self.brain.runs.review(run, reply)
-                self.brain.store.update_run(run["id"], options={**run["options"], "verify_rounds": rounds + 1})
+                self.brain.store.update_run_options(run["id"], lambda options: {**options, "verify_rounds": rounds + 1})
                 if not verdict.lstrip().upper().startswith("PASS"):
                     self.brain.note(run["app"], run["session"],
                                     f"A reviewer checked your work and it did not pass:\n{verdict}\nFix this, then report again.")

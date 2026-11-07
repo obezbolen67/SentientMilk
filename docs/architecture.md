@@ -17,11 +17,12 @@ progress. Every Anthropic number below was measured on Claude models. On
 
 ## 1. Decisions at a glance
 
-1. **One loop, one log.** Every piece of work (a chat turn, a background task, a subagent)
+1. **One loop, one log.** Every piece of work (a chat turn, a background task, an agent)
    is a *run* of the same agent loop. Each step is written to an append-only event log in
    SQLite before the next step starts. A crash loses at most the step in flight.
-2. **One writer per session.** Only the main agent changes things. Subagents are read-only
-   helpers that return a short summary. Parallel writers are not supported.
+2. **Writes stay in one place.** Agents read by default and return a short report. An agent
+   that may change things is started on purpose, for its own part of the job, and each change
+   it makes is approved like the main run's. Writers that share files are not coordinated.
 3. **Tools built as an agent interface.** Few tools, clearly named, with token-efficient
    results, actionable errors and hard output caps. Big output goes to a file and the model
    gets the path. Edits are validated and rolled back when they break syntax.
@@ -44,16 +45,17 @@ progress. Every Anthropic number below was measured on Claude models. On
 
 | Finding | Source | What SentientMilk does |
 |---|---|---|
-| Context is an "attention budget". Aim for "the smallest possible set of high-signal tokens". Recall degrades as context grows. | Anthropic, context engineering | Output caps, clearing, compaction, subagents (section 7). |
+| Context is an "attention budget". Aim for "the smallest possible set of high-signal tokens". Recall degrades as context grows. | Anthropic, context engineering | Output caps, clearing, compaction (section 7), agents (section 5.5), tools loaded on demand (section 7.4). |
 | Load data *just in time* through tools; keep only paths, queries and links up front. Claude Code loads its memory file up front and finds the rest with glob and grep. | Anthropic, context engineering | Search and read tools; no vector database. App memory and journal are the only things loaded up front. |
 | Tool-result clearing is the lightest compaction. After compaction, Claude Code keeps the summary plus the five most recently read files. | Anthropic, context engineering | Clear old tool results first. Re-read up to 5 recent files after compaction. |
 | KV-cache hit rate is "the single most important metric". About 100 input tokens per output token. Cached input is 10x cheaper on Claude. Keep the prefix stable, append only, and serialize deterministically. | Manus | Request layout of section 7.1. Cache hits are logged on every call. |
-| Don't add or remove tools in the middle of a task. | Manus | The tool list is fixed for a run. |
+| Don't add or remove tools in the middle of a task. | Manus | The tool list sent is fixed per profile; tools to load come into the conversation instead (section 7.4). |
 | Compression must be *restorable*: drop a page's text but keep its URL. | Manus | Cleared results say how to get them back. Big outputs are saved to files. |
 | Rewriting a todo list keeps the plan in recent attention ("recitation"). A typical task is about 50 tool calls. | Manus | `todo_write` tool. The full list is echoed back in its result. |
 | Leave failed actions and errors in context; they stop the model repeating them. | Manus | Errors stay in the log and in context until compaction. |
-| Share full traces. "Actions carry implicit decisions". Parallel subagents make conflicting choices. Claude Code's subagents only investigate. | Cognition | One writer per session; read-only subagents (section 5.5). |
-| Subagents explore with tens of thousands of tokens and return "1,000-2,000 tokens". Multi-agent research beat single-agent by 90.2%, at about 15x the tokens. | Anthropic, context engineering and multi-agent research | `agent_run` returns a capped summary. Use it for broad research, not by default. |
+| Share full traces. "Actions carry implicit decisions". Parallel subagents make conflicting choices. Claude Code's subagents only investigate. In 2026: "writes stay single-threaded", read-only helpers and clean-context reviewers work. | Cognition | Agents read by default; a writing agent gets its own part (section 5.5). |
+| Subagents explore with tens of thousands of tokens and return "1,000-2,000 tokens". Multi-agent research beat single-agent by 90.2%, at about 15x the tokens. Each subagent needs "an objective, an output format, guidance on the tools and sources to use, and clear task boundaries". | Anthropic, context engineering and multi-agent research | Agent reports are capped at about 2,000 tokens (the whole one goes to a file). `agent_start` asks for exactly that brief. |
+| Spawn returns an id at once; a wait collects results like a mailbox; persistent agents take follow-up messages; "smaller models ... forget to call kill_agent". | Schmid, subagent patterns 2026 | `agent_start`, `agents_wait`, `agent_message`, `agent_stop`; an idle agent closes by itself after a day. |
 | Long work spans many context windows. An initializer sets up the work; each later session does one item, commits, and updates a progress file. A fresh context rebuilds state from the progress file, the feature list and `git log`. JSON feature lists get corrupted less often than markdown. | Anthropic, harnesses for long-running agents | Task workspace with `progress.md`, `plan.json` and git (section 9.4). |
 | Self-evaluation is generous. A separate, skeptical evaluator is "a strong lever". Some models get "context anxiety" and wrap up early; resets helped Sonnet 4.5, compaction was enough for Opus 4.5. | Anthropic, harness design for long-running apps | Optional verifier subagent. Per-task choice of `compact` or `reset`, decided by evals. |
 | The loop is "gather context, take action, verify work, repeat". Linting is a good verifier; LLM-as-judge is "generally not a very robust method". | Claude Agent SDK post | Rules in the system prompt. Verification through tests and checks, not judgment. |
@@ -63,7 +65,7 @@ progress. Every Anthropic number below was measured on Claude models. On
 | Persist at every step. Assume at-least-once: anything after the last record may run again. Pause by persisting and returning, not by blocking a thread. Record model and config in the run's input. | LangGraph, Temporal | Section 5.3. Approvals pause the run and free the thread. |
 | MCP 2026-07-28 has a stateless core (no `initialize`, no sessions), `server/discover`, MRTR for elicitation, and deprecated sampling and roots. Tasks are an extension: `working`, `input_required`, `completed`, `failed`, `cancelled`. | MCP blog, Tasks overview | MCP host of section 8. Our run states use the same names. |
 | Python SDK `mcp` 2.3.0 (2026-10-02) is async only. It falls back to `initialize` for older servers and handles MRTR itself. It does *not* implement the Tasks extension yet. | MCP Python SDK docs, PyPI | A dedicated MCP thread with an event loop. Long MCP calls run as background tasks. |
-| Claude Code defers MCP tool definitions: only names cost context until a tool is used. Big MCP output is saved to a file. | Claude Code docs | Deferred tools above a threshold (section 7.6). |
+| Claude Code defers MCP tool definitions: only names cost context until a tool is used. Big MCP output is saved to a file. Picking tools gets worse past 30-50; keep the 3-5 most used loaded and search for the rest (Opus 4: 49% to 74%). | Claude Code docs; Anthropic, advanced tool use | Only core tools are sent; the others are listed and loaded on demand (section 7.4). |
 | Claude Code's scheduled tasks fire only between turns, with no catch-up. Recurring ones expire after 7 days. Its cloud routines run with the laptop off. | Claude Code docs | Durable schedules in the brain, with one catch-up run on start (section 9.6). |
 | DeepSeek caches prefixes automatically. Usage reports `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`. On flash, a hit costs $0.003 to $0.006 per million tokens and a miss $0.15 to $0.3. With tools, `reasoning_content` "must be fully passed back" or the API returns 400. Context is 1M tokens. | DeepSeek API docs | Assistant messages are stored whole, reasoning included. Context window is configured per model. |
 
@@ -84,7 +86,11 @@ Kept from the agreed v2 design:
 New in this document:
 
 - **Run**: one execution of the agent loop. Its kind is `turn` (an app is waiting), `task`
-  (background) or `subagent` (a helper of another run).
+  (background, started by an app or a schedule), `agent` (a run of an agent), `subagent` (a
+  task's reviewer, run to the end on the task's thread) or `compact`.
+- **Agent**: a copy of the model with a fresh context that does one part of a job in the
+  background, in a session of its own (`agent-<id>`). Its runs report to the session that
+  started it.
 - **Event**: one immutable record in the log, such as an input, a model reply, a tool call,
   a tool result, an approval or a compaction.
 - **Job**: a background shell command with a log file.
@@ -104,7 +110,7 @@ New in this document:
 | brain process (one per home; brain.lock)                    |
 |                                                             |
 |  HTTP threads -- start runs, stream their events            |
-|  run executor (worker threads) -- turns, tasks, subagents   |
+|  run executor (worker threads) -- turns, tasks, agents      |
 |  scheduler thread -- fires schedules                        |
 |  MCP thread -- one event loop, one task per MCP server      |
 |  summarizer queue -- compaction, journal notes              |
@@ -215,18 +221,49 @@ up to 200 with `max_steps`, as MilkChan does when it can use the computer), max 
 max tokens or cost. Hitting one ends the run as `failed` with type `budget`. Its progress
 is saved, so a new task can continue it. Today's `max_tool_rounds` becomes the step budget.
 
-### 5.5 Subagents
+### 5.5 Agents
 
-- `agent_run(goal, toolkits?, model?)` starts a child run with a fresh context and returns
-  only its final answer, capped at about 2,000 tokens.
-- By default a subagent gets read-only tools: search, read, web, memory read. It cannot
-  start subagents.
-- Several `agent_run` calls in one model reply run in parallel. This is safe because they
-  only read.
-- A subagent that writes exists only inside a background task that has its own workspace.
-  It never shares files with another writer.
-- The verifier of section 9.4 is a subagent with a skeptical prompt and the task's
-  acceptance checks.
+An agent is a copy of the model with a fresh context. It does one part of a job in the
+background, in its own session `agent-<id>` (the id of its first run), while the run that
+started it goes on. `agents.py` keeps them; `toolkits/agents.py` holds the model's tools.
+
+- **Tools** (turns and tasks only, so agents never start agents):
+  - `agent_start(name, task, access, toolkits)` starts one and returns at once.
+  - `agent_message(agent, message)`: a working agent reads it at its next step. An idle one
+    takes it as a new run in its session, so it keeps its whole history.
+  - `agents_wait(agents, timeout)` waits for the named agents, or every working one. It
+    returns when they finish, when the timeout runs out, or when the user writes. It hands
+    over every report not delivered yet.
+  - `agents_status(agent)` shows what each agent does now. Naming one shows its todo list,
+    progress note and last 15 steps.
+  - `agent_stop(agent)` stops and closes an agent.
+- **Access**:
+  - `read` (the default) gets the read-only toolset and the light model.
+  - `write` gets the parent's tools and the main model. Its changes ask the user: the run
+    pauses and the app hears `agent.input_required`.
+  - No agent gets app actions: the app's screen and input have one user at a time.
+- **Limits**:
+  - At most 5 working at once per parent session.
+  - Names are unique among open agents.
+  - Step budgets are 60 for read agents and 200 for write agents.
+  - An agent closes when stopped or after 24 h idle, so forgetting one costs nothing.
+- **Reports** reach the parent session exactly once (`claim`, under one lock):
+  1. `agents_wait`.
+  2. The parent's next model call, as a note.
+  3. The agent's end, if no run of the parent session is going on: a note, plus
+     `agent.finished` so the app can start a turn.
+  4. The parent's own end, for reports still unclaimed: the same as 3.
+
+  A report over 8,000 characters is cut, and the whole one is saved to
+  `runs/<id>/report.md`. A stop is not news: it is noted, and the app is not told.
+- **Lifecycle**:
+  - A stop from the user reaches the agents a run started (through `parent`).
+  - A turn given up because the user moved on does not stop its agents.
+  - After a restart, working agents resume like tasks.
+  - Deleting a chat deletes its idle agents at once. Working ones stop and delete their own
+    session when their run ends.
+- **The reviewer** of section 9.4 is the one synchronous helper left (`Runs.subagent`, kind
+  `subagent`): a read-only run with a skeptical prompt.
 
 ## 6. Environment interface: toolkits
 
@@ -258,15 +295,14 @@ is saved, so a new task can continue it. Today's `max_tool_rounds` becomes the s
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` | Scoped to the session's app (section 10). |
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
-| `agents` | `agent_run(goal, toolkits, model)` | Section 5.5. |
-| `tasks` | `task_start(goal, ...)`, `task_status(id)`, `task_cancel(id)` | Section 9. |
+| `agents` | `agent_start(name, task, access, toolkits)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)` | Section 5.5. |
+| (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
 | `schedule` | `schedule_create(when, what)`, `schedule_list()`, `schedule_delete(id)` | Section 9.6. |
 | `mcp:<server>` | the server's tools | Section 8. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
-MilkChan would enable `memory`, `web`, `todo` and `journal`. The CLI chat would also
-enable `files`, `shell`, `agents`, `tasks` and `schedule`, rooted in the folder it was
-started in.
+MilkChan enables `memory`, `web`, `todo`, `journal`, `schedule`, `files`, `shell` and
+`agents`. The CLI chat enables the same plus MCP, rooted in the folder it was started in.
 
 ### 6.3 Permissions
 
@@ -394,17 +430,40 @@ only when an eval shows the failure:
   question when you must.
 - Report what you verified and what you did not.
 
+A rule about a tool comes only with the tool: the todo, memory and agents rules check the
+run's toolset, not the app's toolkits. A read-only agent was told to save memories with a
+tool it did not have.
+
 ### 7.4 Many tools
 
-Tool definitions are sent before everything else, so every tool costs context on every
-call. Changing them breaks the cache. When enabled tools pass a threshold (say 30, tuned by
-evals), MCP tools are *deferred*:
+Tool definitions come first in a request, so every tool costs context on every call, and
+changing them misses the whole prompt cache. Picking the right tool also gets worse past
+30-50 tools (Anthropic, tool search). So only **core** tools are sent; the rest are loaded
+into the conversation when needed:
 
-- The system block lists them by name with one line each.
-- Two meta-tools take their place: `tools_describe(names)` returns their schemas, and
-  `tools_call(name, arguments)` calls one.
-- The tool list itself never changes, so the cache keeps hitting. This mirrors Claude
-  Code's deferred MCP tools.
+- Requests carry the core tools and, when there are others, `tools_search` and `tools_load`.
+  This list is the same on every step of a profile.
+  - Core tools are flagged by their toolkit (`Tool.core`): `memory_save`, `todo_write`,
+    `files_read`, `files_search`, `shell_run`, `shell_output`, `web_search`, `web_fetch`, and
+    `task_progress` for workers.
+  - An app marks the actions it wants sent with `"core": true`.
+- The system block lists the others under MORE TOOLS, by toolkit, with the toolkit's
+  description. A toolkit with more than 20 tools to load is listed by count only.
+- `tools_load(names)` returns their descriptions and parameters. The model then calls them
+  **by name**, like the others: the schemas sit in the conversation, which only grows at
+  its end.
+  - Measured on 2026-11-07 (Refuseless, `deepseek-v4.1-flash-fast`): a call to a tool not
+    in `tools`, after its schema came in a tool result, was passed on in 5 of 5 tries with
+    the right arguments.
+- `tools_search(query)` ranks every tool of the run by the query's words: name first, then
+  toolkit, then description and parameters. An empty query lists them all.
+- The brain accepts a call to any tool of the run, loaded or not. When the arguments are
+  wrong, the error shows the parameters. An unknown name gets the closest names and a
+  pointer to `tools_search`. So a schema forgotten after compaction costs one failed call,
+  and there is no "loaded" state to keep.
+- MilkChan, 2026-11-07: 26 tools (16.9k characters, about 4.2k tokens) went with every
+  request. Now 11 go (screenshot, the 8 core tools and the 2 meta-tools), and 19 more are
+  listed. In 99 turns, 12 tools were ever called.
 
 ### 7.5 Measuring
 
@@ -474,7 +533,8 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 | Kind | Started by | Lives | Reports |
 |---|---|---|---|
 | turn | an app sending input | until it replies | its own SSE stream |
-| task | the model (`task_start`), an app (`POST /v1/tasks`), a schedule, or a detached turn | until done; survives restarts | notifications plus a note in the parent session |
+| task | an app (`POST /v1/tasks`), a schedule, or a detached turn | until done; survives restarts | notifications plus a note in the parent session |
+| agent | the model (`agent_start`) | until stopped or idle for a day; its runs survive restarts | its report, exactly once: `agents_wait`, a note, or `agent.finished` (section 5.5) |
 | job | `shell_run(background=true)`, or a command still running after 30 s | until the process exits; *not* across a brain restart (marked lost) | `shell_output`; a note and a `job.finished` notification when it ends |
 | schedule | the model (with approval), an app, or the user | until deleted | creates tasks or wake notifications |
 
@@ -496,6 +556,8 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 - `GET /v1/events?app=<app>&after=<cursor>` is a server-sent event stream. Apps that were
   closed catch up from their cursor; nothing is lost.
 - Types: `task.updated`, `task.input_required`, `task.completed`, `task.failed`,
+  `agent.finished` (reports nobody collected, with `agents`: id, name, status),
+  `agent.input_required` (a writing agent waits for an approval: `agent`, `name`, `run`),
   `job.finished`, `schedule.fired`, `session.titled` (after a session's first reply the
   model names it in a few words, off the request path; a title the user gave stays).
 - Notifications are kept 7 days, and at most 1,000 per app.
@@ -595,7 +657,7 @@ the CLI brain knows what MilkChan's brain talked about this morning.
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**
-  model. The light one does compaction, journal notes and, by default, subagents. Both
+  model. The light one does compaction, journal notes and, by default, read-only agents. Both
   can be the same.
 - Each model entry has a `context_window` setting. Thresholds in section 7.2 use it. The
   Refuseless model name is not in DeepSeek's docs, so we set it by hand and verify it with
@@ -644,7 +706,9 @@ bearer token.
 |---|---|
 | `GET /v1/events?app=&after=` | notification stream (SSE) with a cursor |
 | `POST /v1/tasks` | start a task: session, goal, toolkits, budgets, pre-approved tools, context mode |
-| `GET /v1/tasks?app=&status=`, `GET /v1/tasks/<id>` | list tasks, or show one |
+| `GET /v1/tasks?app=&status=&kind=`, `GET /v1/tasks/<id>` | list tasks (or with `kind=agent` agents' runs), or show one |
+| `GET /v1/agents?app=&session=&all=` | the agents a session started (open ones; `all=1` adds closed ones) |
+| `GET /v1/agents/<id>`, `POST /v1/agents/<id>/stop` | one agent with its steps, todo and progress; stop and close it (the session hears that the user did) |
 | `GET /v1/tasks/<id>/events` | replay, then follow live (SSE) |
 | `POST /v1/tasks/<id>/cancel` | cancel cooperatively: a tool call that runs finishes first; text the model is writing stops within 0.3 s and is dropped; a run about to wait for answers ends instead |
 | `POST /v1/runs/<id>/answer` | answer an approval, question or action |
@@ -676,8 +740,9 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 
 ## 15. Not doing, and why
 
-- **Parallel writer agents**: conflicting decisions (Cognition). Read-only subagents give
-  most of the gain.
+- **Coordinated parallel writers** (locks, merges, agent teams that message each other):
+  conflicting decisions (Cognition). Agents read by default; a writing agent is given its
+  own part.
 - **Vector database or RAG**: just-in-time search is what Claude Code does, and it keeps
   results fresh.
 - **LangGraph or Temporal as dependencies**: too heavy for one user on one machine. We take
@@ -740,6 +805,14 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 - Measured on `deepseek-v4.1-flash-fast` through Refuseless, 2026-11-06: 8 of 8 pass;
   prompt cache hits 61-90% on multi-step tasks (Refuseless passes DeepSeek's prefix cache
   through); signals were valid in 6 of 6 screenshot turns.
+- Option updates of a run are one transaction (`Store.update_run_options`): the loop, steering,
+  stops and agents change them from different threads. Writing back a copy read earlier lost
+  a message steered while a turn started. Readers that come after a run (titles, the
+  journal, `Brain.profile`) use `Store.find_session`, which never creates a session; they
+  brought back chats the user had just deleted.
+- Calls run in the order the model wrote them; reads next to each other run together. A
+  call that waits for the user holds back the calls after it: a read after a write that
+  waited for approval used to run first.
 - MilkChan's proactive messages stay in MilkChan: an idle turn sends an `idle` event with
   `reply: optional`, and the brain may answer `[silent]`. Reminders and finished tasks reach
   MilkChan as notifications; it turns each into a turn so the character says it.
@@ -753,7 +826,9 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 - [Anthropic: How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)
 - [Claude: Building agents with the Claude Agent SDK](https://claude.com/blog/building-agents-with-the-claude-agent-sdk)
 - [Manus: Context Engineering for AI Agents](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus)
-- [Cognition: Don't Build Multi-Agents](https://cognition.com/blog/dont-build-multi-agents)
+- [Cognition: Don't Build Multi-Agents](https://cognition.com/blog/dont-build-multi-agents) and [Multi-agents: what's actually working](https://cognition.com/blog/multi-agents-working)
+- [Anthropic: Introducing advanced tool use](https://www.anthropic.com/engineering/advanced-tool-use) and the [tool search tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)
+- [Philipp Schmid: How agents manage other agents, four subagent patterns](https://www.philschmid.de/subagent-patterns-2026)
 - [MCP blog: the 2026-07-28 specification](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
 - [MCP: Tasks extension overview](https://modelcontextprotocol.io/extensions/tasks/overview)
 - [MCP Python SDK docs](https://py.sdk.modelcontextprotocol.io/) and [mcp on PyPI](https://pypi.org/project/mcp/)

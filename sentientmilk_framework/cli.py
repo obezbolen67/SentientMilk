@@ -33,7 +33,7 @@ CLI_DECLARATION = {
     "name": "SentientMilk",
     "environment": "You are talking with the user in a text terminal on their computer. Format replies as short "
                    "Markdown; show commands and code in fenced blocks.",
-    "toolkits": ["files", "shell", "web", "todo", "memory", "journal", "agents", "tasks", "schedule", "mcp:*"],
+    "toolkits": ["files", "shell", "web", "todo", "memory", "journal", "agents", "schedule", "mcp:*"],
 }
 
 

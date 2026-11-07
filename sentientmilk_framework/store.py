@@ -160,6 +160,26 @@ class Store:
         return [{"id": sid, "created": created, "last_active": last, "title": json.loads(settings).get("title"),
                  "preview": previews.get(sid, "")} for sid, created, settings, last in rows]
 
+    def has_session(self, app: str, session: str) -> bool:
+        with self._db() as db:
+            return db.execute("SELECT 1 FROM sessions WHERE app = ? AND id = ?", (app, session)).fetchone() is not None
+
+    def find_session(self, app: str, session: str) -> Optional[dict]:
+        """Like ``session`` but never creates one: None when there is no such session (a reader that comes
+        late, after the user deleted it, must not bring it back)."""
+        with self._db() as db:
+            row = db.execute("SELECT settings, state, created FROM sessions WHERE app = ? AND id = ?",
+                             (app, session)).fetchone()
+        return {"app": app, "id": session, "settings": json.loads(row[0]), "state": json.loads(row[1]),
+                "created": row[2]} if row else None
+
+    def child_sessions(self, app: str, parent: str) -> List[tuple]:
+        """(session, settings) of the agents ``parent`` started, the oldest first."""
+        with self._db() as db:
+            rows = db.execute("SELECT id, settings FROM sessions WHERE app = ? AND "
+                              "json_extract(settings, '$.agent.parent') = ? ORDER BY created", (app, parent)).fetchall()
+        return [(session, json.loads(settings)) for session, settings in rows]
+
     def delete_session(self, app: str, session: str) -> None:
         with self._db() as db:
             db.execute("DELETE FROM events WHERE app = ? AND session = ?", (app, session))
@@ -238,9 +258,10 @@ class Store:
             return _run(db.execute(f"SELECT {_RUN_COLUMNS} FROM runs WHERE id = ?", (run,)).fetchone())
 
     def runs(self, app: Optional[str] = None, kind: Optional[str] = None, statuses: Optional[tuple] = None,
-             limit: int = 100) -> List[dict]:
+             limit: int = 100, session: Optional[str] = None) -> List[dict]:
+        """The newest first."""
         query, params = f"SELECT {_RUN_COLUMNS} FROM runs WHERE 1=1", []
-        for column, value in (("app", app), ("kind", kind)):
+        for column, value in (("app", app), ("kind", kind), ("session", session)):
             if value:
                 query += f" AND {column} = ?"
                 params.append(value)
@@ -249,6 +270,31 @@ class Store:
             params += list(statuses)
         with self._db() as db:
             return [_run(row) for row in db.execute(query + " ORDER BY id DESC LIMIT ?", params + [limit])]
+
+    def undelivered_agent_runs(self, app: str, parent: str) -> List[dict]:
+        """Ended agent runs started for ``parent`` whose reports have not reached it, the oldest first."""
+        with self._db() as db:
+            return [_run(row) for row in db.execute(
+                f"SELECT {_RUN_COLUMNS} FROM runs WHERE app = ? AND kind = 'agent' AND status IN "
+                "('completed', 'failed', 'cancelled') AND json_extract(options, '$.parent_session') = ? "
+                "AND NOT coalesce(json_extract(options, '$.delivered'), 0) ORDER BY id", (app, parent))]
+
+    def undelivered_parents(self) -> List[tuple]:
+        """(app, session) of every session with agent reports that have not reached it."""
+        with self._db() as db:
+            return db.execute(
+                "SELECT DISTINCT app, json_extract(options, '$.parent_session') FROM runs WHERE kind = 'agent' "
+                "AND status IN ('completed', 'failed', 'cancelled') AND json_extract(options, '$.parent_session') "
+                "IS NOT NULL AND NOT coalesce(json_extract(options, '$.delivered'), 0)").fetchall()
+
+    def update_run_options(self, run: int, change: Callable[[dict], dict]) -> dict:
+        """Read-modify-write a run's options in one transaction: runs, steering, stops and agents change
+        them from different threads, and writing back a copy read earlier lost the others' changes."""
+        with self._db() as db:
+            row = db.execute("SELECT options FROM runs WHERE id = ?", (run,)).fetchone()
+            options = change(json.loads(row[0]) if row else {})
+            db.execute("UPDATE runs SET options = ?, updated = ? WHERE id = ?", (dump(options), time.time(), run))
+        return options
 
     def update_run(self, run: int, **fields: Any) -> None:
         columns = {key: dump(value) if key in ("options", "result", "error", "usage") else value

@@ -11,14 +11,11 @@ from sentientmilk_framework.testing import tool_call
 
 
 def test_a_task_works_in_its_own_session_and_reports_back(brain):
-    def reply(payload):  # the task and the rest of the turn race for the next reply
-        return "1, 2, 3. Done." if "## BACKGROUND TASK" in payload["messages"][0]["content"] else "Started it for you."
-
-    brain.provider.replies += [tool_call("task_start", {"goal": "Count to three."}, "t1"),
-                               reply, reply, "The task says: 1, 2, 3."]
+    brain.provider.replies += ["1, 2, 3. Done.", "The task says: 1, 2, 3."]
     events = brain.client.events("cli")
-    assert turn(brain, "cli", "count to three in the background")["reply"] == "Started it for you."
+    brain.client.start_task("cli", "Count to three.", session="main")
     task = wait_for(lambda: next((r for r in brain.store.runs(kind="task") if r["status"] == "completed"), None))
+    assert "task_progress" in [t["function"]["name"] for t in brain.provider.sent[0]["tools"]]
     assert task["session"] == f"task-{task['id']}" and task["result"]["reply"] == "1, 2, 3. Done."
     seen = []
     for notification in events:

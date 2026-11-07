@@ -43,6 +43,7 @@ class Tool:
     only_in: Optional[tuple] = None  # run kinds the tool exists in
     toolkit: str = ""
     action: bool = False  # run by the app, not the brain
+    core: bool = False  # sent with every request; the others are listed and loaded on demand (tools_load)
 
     def schema(self) -> dict:
         return {"type": "function",
@@ -141,7 +142,8 @@ def _schema(annotation: Any) -> dict:
 
 
 def tool(readonly: bool = False, policy: Optional[str] = None, rule_arg: Optional[str] = None,
-         args: Optional[Dict[str, Any]] = None, only_in: Optional[tuple] = None, name: Optional[str] = None):
+         args: Optional[Dict[str, Any]] = None, only_in: Optional[tuple] = None, name: Optional[str] = None,
+         core: bool = False):
     """Make a Tool from ``func(ctx, ...)``. ``args`` maps an argument to its description, or to a full
     JSON schema dict for arguments plain type hints cannot describe."""
     def wrap(func: Callable) -> Tool:
@@ -159,7 +161,7 @@ def tool(readonly: bool = False, policy: Optional[str] = None, rule_arg: Optiona
         parameters = {"type": "object", "properties": properties, **({"required": required} if required else {})}
         return Tool(name=name or func.__name__, description=inspect.getdoc(func) or "", parameters=parameters,
                     func=func, readonly=readonly, policy=policy or ("auto" if readonly else "ask"),
-                    rule_arg=rule_arg, only_in=only_in)
+                    rule_arg=rule_arg, only_in=only_in, core=core)
     return wrap
 
 
@@ -182,10 +184,9 @@ def cap(ctx: ToolContext, text: str, stem: str = "out") -> str:
 
 
 def builtin() -> Dict[str, Toolkit]:
-    from . import agents, files, journal, memory, schedule, shell, tasks, todo, web
+    from . import agents, files, journal, memory, schedule, shell, todo, web
 
-    return {kit.TOOLKIT.name: kit.TOOLKIT
-            for kit in (files, shell, web, todo, memory, journal, agents, tasks, schedule)}
+    return {kit.TOOLKIT.name: kit.TOOLKIT for kit in (files, shell, web, todo, memory, journal, agents, schedule)}
 
 
 def load_plugins(directory: Path) -> Dict[str, Toolkit]:

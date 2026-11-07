@@ -59,15 +59,19 @@ class Journal:
             for app, session, last in self.brain.store.quiet_sessions(time.time() - QUIET_SECONDS):
                 if session.startswith("agent-") or session.startswith("task-"):
                     continue  # helpers never; tasks when they end
-                if last > self.brain.store.session(app, session)["state"].get("journaled_upto", 0):
+                found = self.brain.store.find_session(app, session)  # events can outlive a deleted session
+                if found and last > found["state"].get("journaled_upto", 0):
                     self.request(app, session)
         except Exception:
             logger.exception("Journal check failed")
 
     def write(self, app: str, session: str) -> None:
         brain = self.brain
+        found = brain.store.find_session(app, session)
+        if found is None:  # deleted meanwhile
+            return
         profile = brain.profile(app, session)
-        state = brain.store.session(app, session)["state"]
+        state = found["state"]
         upto = state.get("journaled_upto", 0)
         events = brain.store.events(app, session, after=upto)
         if not events:

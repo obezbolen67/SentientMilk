@@ -10,7 +10,7 @@ import platform
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from . import signals as signal_format
 from .toolkits.todo import render as render_todo
@@ -42,6 +42,14 @@ RULES = """## HOW YOU WORK
 TODO_RULE = "- For work with three or more steps, keep a todo list with todo_write and keep it current."
 MEMORY_RULE = ("- When you learn something lasting about the user, save it with memory_save right away, unasked. "
                "Memory is for what stays true; one-time events and changes are not worth keeping.")
+AGENTS_RULE = ("- When a job splits into parts that can go on their own, or would fill your context, give the parts "
+               "to agents (agent_start) and put their reports together. Do small things yourself.")
+TOOL_RULES = (("todo_write", TODO_RULE), ("memory_save", MEMORY_RULE), ("agent_start", AGENTS_RULE))
+
+MORE_TOOLS = """## MORE TOOLS
+You have more tools than the ones sent with each request. Load the ones you need with tools_load: it shows
+how to call them, and then you call them by name like the others. tools_search finds tools by what they do.
+By toolkit:"""
 
 COMPACT_PROMPT = """You summarize the earlier part of a conversation between the user and you, so you can
 continue without it; YOU marks what you said and did, and the tools you used. Write the summary to
@@ -71,7 +79,11 @@ def computer_section(profile: dict, shell: str) -> Optional[str]:
     return "\n".join(lines)
 
 
-def system_prompt(profile: dict, snapshot: dict, deferred: List[dict], shell: str) -> str:
+def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str] = (),
+                  more_tools: Iterable[str] = ()) -> str:
+    """``tools``: the names of every tool the run has (rules about a tool only come with it); ``more_tools``: the
+    lines of the MORE TOOLS section (Toolset.listing), its tools not sent with each request."""
+    tools, more_tools = set(tools), list(more_tools)
     called = f"In this app you are called {profile['name']}. " if profile.get("name") else ""
     parts = [IDENTITY.format(called=called), profile["persona"]]  # the persona is who the model is
     if profile.get("environment"):
@@ -79,17 +91,15 @@ def system_prompt(profile: dict, snapshot: dict, deferred: List[dict], shell: st
     computer = computer_section(profile, shell)
     if computer:
         parts.append(computer)
-    parts.append(RULES + "".join("\n" + rule for kit, rule in (("todo", TODO_RULE), ("memory", MEMORY_RULE))
-                                 if kit in profile["toolkits"]))
+    parts.append(RULES + "".join("\n" + rule for name, rule in TOOL_RULES if name in tools))
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
     if snapshot.get("memory"):
         parts.append("## WHAT YOU REMEMBER IN THIS APP\n" + snapshot["memory"])
     if snapshot.get("journal"):
         parts.append("## RECENT NOTES FROM YOUR OTHER SESSIONS (oldest first)\n" + snapshot["journal"])
-    if deferred:
-        parts.append("## MORE TOOLS\nThese tools exist too. Get their parameters with tools_describe, then call them "
-                     "with tools_call:\n" + "\n".join(f"- {t['name']}: {t['summary']}" for t in deferred))
+    if more_tools:
+        parts.append(MORE_TOOLS + "\n" + "\n".join(more_tools))
     if profile.get("signals"):
         parts.append(signal_format.prompt_section(profile["signals"]))
     return "\n\n".join(parts)

@@ -276,9 +276,25 @@ class BrainClient:
         return self._call("POST", "/tasks", {"app": app, "goal": goal, **({"session": session} if session else {}),
                                              **options})
 
-    def tasks(self, app: Optional[str] = None, status: Optional[str] = None) -> List[dict]:
-        params = {key: value for key, value in (("app", app), ("status", status)) if value}
+    def tasks(self, app: Optional[str] = None, status: Optional[str] = None, kind: str = "task") -> List[dict]:
+        """Background runs, the newest first: tasks, or with ``kind`` "agent" the runs of agents."""
+        params = {key: value for key, value in (("app", app), ("status", status), ("kind", kind)) if value}
         return self._call("GET", "/tasks", params=params)["tasks"]
+
+    def agents(self, app: str, session: str, all: bool = False) -> List[dict]:
+        """The agents a session started, the newest first: ``id``, ``name``, ``access``, ``task``, ``status``
+        (working, waiting for the user, done, failed, stopped), ``step``, ``seconds``, ``activity`` (what it does
+        now), ``report``; only open ones unless ``all`` (stopped ones, and ones idle for a day, are closed)."""
+        params = {"app": app, "session": session, **({"all": "1"} if all else {})}
+        return self._call("GET", "/agents", params=params)["agents"]
+
+    def agent(self, agent: int) -> dict:
+        """One agent with its ``steps`` (``name``, ``arguments``, ``status``, ``result``), ``todo`` and ``progress``."""
+        return self._call("GET", f"/agents/{agent}")
+
+    def stop_agent(self, agent: int) -> dict:
+        """Stop an agent at once and close it; the session that started it hears that the user stopped it."""
+        return self._call("POST", f"/agents/{agent}/stop", {})
 
     def run_events(self, run: int) -> Iterator[dict]:
         """What a run did so far ("log" events), then live events until it ends."""
