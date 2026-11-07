@@ -43,7 +43,9 @@ TODO_RULE = "- For work with three or more steps, keep a todo list with todo_wri
 MEMORY_RULE = ("- When you learn something lasting about the user, save it with memory_save right away, unasked. "
                "Memory is for what stays true; one-time events and changes are not worth keeping.")
 AGENTS_RULE = ("- When a job splits into parts that can go on their own, or would fill your context, give the parts "
-               "to agents (agent_start) and put their reports together. Do small things yourself.")
+               "to agents (agent_start) and put their reports together. They have all your tools and know only "
+               "what you write in the task. Answer their questions with agent_message, and stop the ones you "
+               "need no more. Do small things yourself.")
 TOOL_RULES = (("todo_write", TODO_RULE), ("memory_save", MEMORY_RULE), ("agent_start", AGENTS_RULE))
 
 MORE_TOOLS = """## MORE TOOLS

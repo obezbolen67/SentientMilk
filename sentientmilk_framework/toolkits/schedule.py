@@ -13,7 +13,7 @@ def describe(schedule: dict) -> str:
             f"{schedule['payload']['text'][:200]} (next {upcoming}{'' if schedule['enabled'] else ', disabled'})")
 
 
-@tool(policy="ask", only_in=("turn", "task"), args={
+@tool(policy="ask", only_in=("turn", "task", "agent"), args={
     "when": "An ISO local time ('2026-11-06T17:00'), 'every 30m' / 'every 2h' / 'every 1d', or a 5-field cron "
             "expression ('0 9 * * 1-5' = weekdays at 9:00). Times are the user's local time.",
     "text": "For a reminder: what to remind about. For a task: the full goal.",
@@ -24,7 +24,8 @@ def schedule_create(ctx: ToolContext, when: str, text: str, mode: str = "wake"):
     if mode not in ("wake", "task"):
         raise ToolError("mode must be 'wake' or 'task'.")
     try:
-        schedule = ctx.brain.scheduler.create(ctx.app, ctx.session, when, text, mode, created_by="model")
+        session = ctx.run["options"].get("parent_session") or ctx.session  # an agent's is the lead's: it outlives it
+        schedule = ctx.brain.scheduler.create(ctx.app, session, when, text, mode, created_by="model")
     except ValueError as exc:
         raise ToolError(str(exc))
     return "Created. " + describe(schedule)

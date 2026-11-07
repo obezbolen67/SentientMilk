@@ -157,7 +157,7 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
                           parameters=action.get("parameters") or {"type": "object", "properties": {}},
                           func=None, readonly=bool(action.get("readonly")), policy=action.get("policy", "auto"),
                           toolkit="actions", core=bool(action.get("core")),
-                          action=True, only_in=("turn",)))  # only a turn has the app there to run it
+                          action=True, only_in=("turn", "agent")))  # the app runs those of a live turn and of agents
     mode = profile.get("mode")
     tools = [t for t in tools
              if (t.only_in is None or kind in t.only_in)
@@ -233,7 +233,7 @@ class Loop:
                     raise BrainError("budget", f"Stopped after {steps} steps (the step budget)",
                                      "Progress is kept; start a new task to continue.")
                 if run["kind"] in ("turn", "task"):
-                    self.brain.agents.take_reports(run)  # its agents' reports that came meanwhile
+                    self.brain.agents.take_mail(run)  # what its agents sent meanwhile
                 self._take_messages(run, emit)
                 message, usage = self._think(run, profile, toolset, emit)
                 store.add_event(run["app"], run["session"], run_id, "assistant", {"message": message, "usage": usage})

@@ -134,11 +134,13 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   progress file, can be checked by a reviewer (`verify=True`) and report back as a note in
   the parent session plus a `task.completed` notification.
 - **Agents** are the model's own background work: copies of it with a fresh context that
-  each do one part of a job, in sessions of their own. They read by default, or change things
-  with the user's approval (`agent.input_required`). Each report reaches the chat once:
-  through `agents_wait`, as a note, or with an `agent.finished` notification when nobody was
-  there to take it. `client.agents(app, session)`, `client.agent(id)` and `client.stop_agent(id)`
-  let apps show and stop them.
+  each do one part of a job, in sessions of their own. They have all of its tools, rules and
+  app actions (their approvals and actions reach the app as `agent.input_required`); what they
+  know is the task it writes. They can ask it questions (`ask_lead`) and send progress notes.
+  Each report, question and update reaches the chat once: through `agents_wait`, as a note,
+  or with `agent.finished` / `agent.asked` when nobody was there to take it. Apps hear
+  `agent.updated` as agents start and end; `client.agents(app, session)`, `client.agent(id)`
+  and `client.stop_agent(id)` (which deletes it) let them show and stop agents.
 - **Tools on demand**: requests carry only the core tools plus `tools_search` and
   `tools_load`; the rest are listed by name and loaded into the conversation when needed, so
   the tool list (and the prompt cache) stays the same. An action declared with

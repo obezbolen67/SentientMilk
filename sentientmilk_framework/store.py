@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS memory (
 CREATE TABLE IF NOT EXISTS journal (
     id INTEGER PRIMARY KEY, at REAL NOT NULL, app TEXT NOT NULL, session TEXT NOT NULL, note TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_mail (
+    id INTEGER PRIMARY KEY, app TEXT NOT NULL, parent TEXT NOT NULL, agent INTEGER NOT NULL, run INTEGER,
+    kind TEXT NOT NULL, text TEXT NOT NULL, data TEXT NOT NULL, at REAL NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS agent_mail_by_parent ON agent_mail(app, parent, delivered);
 """
 NOTIFICATION_DAYS = 7
 NOTIFICATIONS_PER_APP = 1000
@@ -175,10 +181,18 @@ class Store:
 
     def child_sessions(self, app: str, parent: str) -> List[tuple]:
         """(session, settings) of the agents ``parent`` started, the oldest first."""
+        return [(session, settings) for _, session, settings in self.agent_sessions(app, parent)]
+
+    def agent_sessions(self, app: Optional[str] = None, parent: Optional[str] = None) -> List[tuple]:
+        """(app, session, settings) of every agent, or of an app's, or of those ``parent`` started."""
+        query, params = "SELECT app, id, settings FROM sessions WHERE json_extract(settings, '$.agent') IS NOT NULL", []
+        if app is not None:
+            query, params = query + " AND app = ?", params + [app]
+        if parent is not None:
+            query, params = query + " AND json_extract(settings, '$.agent.parent') = ?", params + [parent]
         with self._db() as db:
-            rows = db.execute("SELECT id, settings FROM sessions WHERE app = ? AND "
-                              "json_extract(settings, '$.agent.parent') = ? ORDER BY created", (app, parent)).fetchall()
-        return [(session, json.loads(settings)) for session, settings in rows]
+            rows = db.execute(query + " ORDER BY created", params).fetchall()
+        return [(app_, session, json.loads(settings)) for app_, session, settings in rows]
 
     def delete_session(self, app: str, session: str) -> None:
         with self._db() as db:
@@ -271,21 +285,60 @@ class Store:
         with self._db() as db:
             return [_run(row) for row in db.execute(query + " ORDER BY id DESC LIMIT ?", params + [limit])]
 
-    def undelivered_agent_runs(self, app: str, parent: str) -> List[dict]:
-        """Ended agent runs started for ``parent`` whose reports have not reached it, the oldest first."""
-        with self._db() as db:
-            return [_run(row) for row in db.execute(
-                f"SELECT {_RUN_COLUMNS} FROM runs WHERE app = ? AND kind = 'agent' AND status IN "
-                "('completed', 'failed', 'cancelled') AND json_extract(options, '$.parent_session') = ? "
-                "AND NOT coalesce(json_extract(options, '$.delivered'), 0) ORDER BY id", (app, parent))]
+    # ============== Agent mail: what agents send the session that started them ==============
 
-    def undelivered_parents(self) -> List[tuple]:
-        """(app, session) of every session with agent reports that have not reached it."""
+    def post_mail(self, app: str, parent: str, agent: int, run: Optional[int], kind: str, text: str,
+                  data: Optional[dict] = None) -> None:
+        """An agent's ``report``, ``question`` or ``update`` for ``parent``. Only an agent's latest update
+        waits; a report also makes its waiting question moot."""
+        stale = {"update": ("update",), "report": ("update", "question")}.get(kind, ())
         with self._db() as db:
-            return db.execute(
-                "SELECT DISTINCT app, json_extract(options, '$.parent_session') FROM runs WHERE kind = 'agent' "
-                "AND status IN ('completed', 'failed', 'cancelled') AND json_extract(options, '$.parent_session') "
-                "IS NOT NULL AND NOT coalesce(json_extract(options, '$.delivered'), 0)").fetchall()
+            if stale:
+                db.execute(f"UPDATE agent_mail SET delivered = 1 WHERE app = ? AND agent = ? AND delivered = 0 "
+                           f"AND kind IN ({','.join('?' * len(stale))})", (app, agent, *stale))
+            db.execute("INSERT INTO agent_mail(app, parent, agent, run, kind, text, data, at) VALUES "
+                       "(?, ?, ?, ?, ?, ?, ?, ?)", (app, parent, agent, run, kind, text, dump(data or {}), time.time()))
+
+    def claim_mail(self, app: str, parent: str) -> List[dict]:
+        """The mail waiting for ``parent``, the oldest first, marked delivered in the same transaction: each
+        piece is handed out once, whichever thread asks first."""
+        with self._db() as db:
+            rows = db.execute("SELECT id, agent, run, kind, text, data FROM agent_mail WHERE app = ? AND parent = ? "
+                              "AND delivered = 0 ORDER BY id", (app, parent)).fetchall()
+            db.execute("UPDATE agent_mail SET delivered = 1 WHERE app = ? AND parent = ? AND delivered = 0 "
+                       "AND id <= ?", (app, parent, rows[-1][0] if rows else 0))
+        return [{"id": i, "agent": agent, "run": run, "kind": kind, "text": text, "data": json.loads(data)}
+                for i, agent, run, kind, text, data in rows]
+
+    def has_mail(self, app: str, parent: str, kind: str) -> bool:
+        with self._db() as db:
+            return db.execute("SELECT 1 FROM agent_mail WHERE app = ? AND parent = ? AND kind = ? AND delivered = 0 "
+                              "LIMIT 1", (app, parent, kind)).fetchone() is not None
+
+    def mail_parents(self) -> List[tuple]:
+        """(app, parent) of every session with a report or question waiting (updates never wake one)."""
+        with self._db() as db:
+            return db.execute("SELECT DISTINCT app, parent FROM agent_mail WHERE delivered = 0 AND kind IN "
+                              "('report', 'question')").fetchall()
+
+    def delete_mail(self, app: str, agent: Optional[int] = None, parent: Optional[str] = None) -> None:
+        with self._db() as db:
+            if agent is not None:
+                db.execute("DELETE FROM agent_mail WHERE app = ? AND agent = ?", (app, agent))
+            if parent is not None:
+                db.execute("DELETE FROM agent_mail WHERE app = ? AND parent = ?", (app, parent))
+
+    def count_events(self, run: int, type: str) -> int:
+        with self._db() as db:
+            return db.execute("SELECT COUNT(*) FROM events WHERE run = ? AND type = ?", (run, type)).fetchone()[0]
+
+    def run_tail(self, run: int) -> List[dict]:
+        """A run's last model step and what came after it: what it is doing now, without reading its
+        whole log."""
+        with self._db() as db:
+            return [_event(row) for row in db.execute(
+                f"SELECT {_EVENT_COLUMNS} FROM events WHERE run = ? AND id >= coalesce((SELECT MAX(id) FROM events "
+                "WHERE run = ? AND type = 'assistant'), 0) ORDER BY id", (run, run))]
 
     def update_run_options(self, run: int, change: Callable[[dict], dict]) -> dict:
         """Read-modify-write a run's options in one transaction: runs, steering, stops and agents change

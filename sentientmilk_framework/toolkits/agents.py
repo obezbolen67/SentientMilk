@@ -2,33 +2,31 @@
 
 from . import ToolContext, Toolkit, tool
 
-WORKERS = ("turn", "task")  # agents get none of these: no agents of agents
+WORKERS = ("turn", "task")  # the lead's tools: agents get none of these, no agents of agents
 
 
 @tool(policy="auto", only_in=WORKERS, args={
     "name": "A short name to call it by, e.g. tests or docs-research.",
     "task": "Everything it needs, as it does not see this conversation: the goal, what you know already, where "
-            "to look, its boundaries (what is not its part) and what to report.",
-    "access": "read (the default): it can only look (search, read, browse), so several can safely work at "
-              "once. write: it can also change files and run commands, each change approved like yours; give "
-              "each writing agent its own files.",
-    "toolkits": {"type": "array", "items": {"type": "string"},
-                 "description": "Only these toolkits (default: all of yours that fit its access)."}})
-def agent_start(ctx: ToolContext, name: str, task: str, access: str = "read", toolkits: list = None):
+            "to look, its boundaries (what is not its part, which files are its own) and what to report."})
+def agent_start(ctx: ToolContext, name: str, task: str):
     """Start an agent: a copy of you with a fresh context that does one part of a job on its own, in the
-    background, while you go on. Use agents for work that splits into parts that can go on their own
-    (research several questions, check several places, build separate pieces) or for a long job that
-    would fill your context; do the small things yourself. Start several in one reply to have them work at
-    once. Collect their reports with agents_wait, or end your turn: you hear from each when it finishes."""
-    agent = ctx.brain.agents.start(ctx.run, name, task, access, toolkits)
-    return (f"Started agent {agent['name']} (#{agent['id']}, {agent['access']}). It works in the background; "
-            "collect its report with agents_wait, or go on and it reaches you when it is done.")
+    background, while you go on. It has all your tools (it loads the ones it needs, as you do) and your
+    rules; it knows only what you write in the task. Use agents for work that splits into parts that can go
+    on their own (research several questions, check several places, build separate pieces) or for a long
+    job that would fill your context; do the small things yourself. Start several in one reply to have
+    them work at once. Collect their reports with agents_wait, or end your turn: you hear from each when it
+    finishes, and when it asks you something."""
+    agent = ctx.brain.agents.start(ctx.run, name, task)
+    return (f"Started agent {agent['name']} (#{agent['id']}). It works in the background; collect its report "
+            "with agents_wait, or go on and it reaches you when it is done.")
 
 
 @tool(policy="auto", only_in=WORKERS, args={"agent": "Its name (or #id).", "message": "What to tell it."})
 def agent_message(ctx: ToolContext, agent: str, message: str):
-    """Send a message to one of your agents. One that works reads it at its next step (to correct it or
-    add something); one that finished takes it as a new request and goes on with all it knew."""
+    """Send a message to one of your agents: to answer its question, correct it or add something. One that
+    works reads it at its next step; one that finished takes it as a new request and goes on with all it
+    knew."""
     return ctx.brain.agents.message(ctx.run, agent, message)
 
 
@@ -38,7 +36,8 @@ def agent_message(ctx: ToolContext, agent: str, message: str):
     "timeout": "Seconds to wait at most (default 600, at most 1800)."})
 def agents_wait(ctx: ToolContext, agents: list = None, timeout: int = 600):
     """Wait for your agents to finish and get their reports: those you name, or all that work. It ends
-    early when the user sends you a message. A report reaches you only once: here, or as a note."""
+    early when one asks you something or the user sends you a message. A report, question or progress
+    update reaches you only once: here, or as a note."""
     return ctx.brain.agents.wait(ctx, agents, timeout)
 
 
@@ -55,12 +54,20 @@ def agents_status(ctx: ToolContext, agent: str = ""):
 
 @tool(policy="auto", only_in=WORKERS, args={"agent": "Its name (or #id)."})
 def agent_stop(ctx: ToolContext, agent: str):
-    """Stop an agent at once and close it: for a part that is no longer needed or an agent that went wrong
-    beyond saving (to correct one, send it a message instead). It reports nothing more."""
+    """Stop an agent at once and delete it, with its session: when its part is done and you need nothing
+    more from it, or it went wrong beyond saving (to correct one, send it a message instead)."""
     found = ctx.brain.agents.find(ctx.app, ctx.session, agent)
     ctx.brain.agents.stop(ctx.app, found["id"])
-    return f"Stopped agent {found['name']} (#{found['id']})."
+    return f"Stopped agent {found['name']} (#{found['id']}); it is gone."
+
+
+@tool(core=True, readonly=True, only_in=("agent",), args={"question": "What you need to know, with the options "
+                                                                      "you see."})
+def ask_lead(ctx: ToolContext, question: str):
+    """Ask the you that started you (the lead) and wait for its answer: when the task is unclear or you need
+    a decision that is not yours. It knows the whole conversation and can ask the user."""
+    return ctx.brain.agents.ask(ctx, question)
 
 
 TOOLKIT = Toolkit("agents", "Copies of you that work on parts of a job in the background.",
-                  [agent_start, agent_message, agents_wait, agents_status, agent_stop])
+                  [agent_start, agent_message, agents_wait, agents_status, agent_stop, ask_lead])

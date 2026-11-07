@@ -55,7 +55,7 @@ progress. Every Anthropic number below was measured on Claude models. On
 | Leave failed actions and errors in context; they stop the model repeating them. | Manus | Errors stay in the log and in context until compaction. |
 | Share full traces. "Actions carry implicit decisions". Parallel subagents make conflicting choices. Claude Code's subagents only investigate. In 2026: "writes stay single-threaded", read-only helpers and clean-context reviewers work. | Cognition | Agents read by default; a writing agent gets its own part (section 5.5). |
 | Subagents explore with tens of thousands of tokens and return "1,000-2,000 tokens". Multi-agent research beat single-agent by 90.2%, at about 15x the tokens. Each subagent needs "an objective, an output format, guidance on the tools and sources to use, and clear task boundaries". | Anthropic, context engineering and multi-agent research | Agent reports are capped at about 2,000 tokens (the whole one goes to a file). `agent_start` asks for exactly that brief. |
-| Spawn returns an id at once; a wait collects results like a mailbox; persistent agents take follow-up messages; "smaller models ... forget to call kill_agent". | Schmid, subagent patterns 2026 | `agent_start`, `agents_wait`, `agent_message`, `agent_stop`; an idle agent closes by itself after a day. |
+| Spawn returns an id at once; a wait collects results like a mailbox; persistent agents take follow-up messages; "smaller models ... forget to call kill_agent". | Schmid, subagent patterns 2026 | `agent_start`, `agents_wait`, `agent_message`, `agent_stop`, and a mailbox table for what agents send; an idle agent is deleted after a day. |
 | Long work spans many context windows. An initializer sets up the work; each later session does one item, commits, and updates a progress file. A fresh context rebuilds state from the progress file, the feature list and `git log`. JSON feature lists get corrupted less often than markdown. | Anthropic, harnesses for long-running agents | Task workspace with `progress.md`, `plan.json` and git (section 9.4). |
 | Self-evaluation is generous. A separate, skeptical evaluator is "a strong lever". Some models get "context anxiety" and wrap up early; resets helped Sonnet 4.5, compaction was enough for Opus 4.5. | Anthropic, harness design for long-running apps | Optional verifier subagent. Per-task choice of `compact` or `reset`, decided by evals. |
 | The loop is "gather context, take action, verify work, repeat". Linting is a good verifier; LLM-as-judge is "generally not a very robust method". | Claude Agent SDK post | Rules in the system prompt. Verification through tests and checks, not judgment. |
@@ -225,43 +225,60 @@ is saved, so a new task can continue it. Today's `max_tool_rounds` becomes the s
 
 An agent is a copy of the model with a fresh context. It does one part of a job in the
 background, in its own session `agent-<id>` (the id of its first run), while the run that
-started it goes on. `agents.py` keeps them; `toolkits/agents.py` holds the model's tools.
+started it (the lead: a turn or a task) goes on. `agents.py` keeps them; `toolkits/agents.py`
+holds the tools.
 
-- **Tools** (turns and tasks only, so agents never start agents):
-  - `agent_start(name, task, access, toolkits)` starts one and returns at once.
-  - `agent_message(agent, message)`: a working agent reads it at its next step. An idle one
-    takes it as a new run in its session, so it keeps its whole history.
+- **What an agent has**: the lead's whole profile. That is every toolkit, MCP server and app
+  action, `tools_search` and `tools_load`, the lead's rules (its changes ask the user, naming
+  the agent) and the lead's model. What differs is the context: it knows only the task the
+  lead wrote. The first version gave agents an access level and a toolkit list. In use, the
+  model left `web` out for an agent that had to look up a price, and the agent spent three
+  minutes finding out it had no internet.
+- **The lead's tools** (turns and tasks only, so agents never start agents: one orchestrator):
+  - `agent_start(name, task)` starts one and returns at once.
+  - `agent_message(agent, message)`: a working agent reads it at its next step, and it
+    answers a question the agent asked. An idle agent takes it as a new run in its session,
+    so it keeps its whole history.
   - `agents_wait(agents, timeout)` waits for the named agents, or every working one. It
-    returns when they finish, when the timeout runs out, or when the user writes. It hands
-    over every report not delivered yet.
+    returns when they finish, one asks something, the timeout runs out, or the user writes.
+    It hands over all the mail that came.
   - `agents_status(agent)` shows what each agent does now. Naming one shows its todo list,
     progress note and last 15 steps.
-  - `agent_stop(agent)` stops and closes an agent.
-- **Access**:
-  - `read` (the default) gets the read-only toolset and the light model.
-  - `write` gets the parent's tools and the main model. Its changes ask the user: the run
-    pauses and the app hears `agent.input_required`.
-  - No agent gets app actions: the app's screen and input have one user at a time.
+  - `agent_stop(agent)` stops an agent and deletes it, with its session.
+- **The agent's own tools**: `ask_lead(question)` waits for the lead's message (at most 30
+  minutes, then it goes on by its best judgment and says what it assumed). `task_progress`
+  notes also reach the lead as updates.
+- **App actions**: an agent's action reaches the app as `agent.input_required`, with the
+  action in the run's `waiting` list. The app runs it and answers as for a live turn. An app
+  that declares actions must answer its agents' requests too, or they wait.
 - **Limits**:
-  - At most 5 working at once per parent session.
+  - At most 5 working at once per lead session.
   - Names are unique among open agents.
-  - Step budgets are 60 for read agents and 200 for write agents.
-  - An agent closes when stopped or after 24 h idle, so forgetting one costs nothing.
-- **Reports** reach the parent session exactly once (`claim`, under one lock):
-  1. `agents_wait`.
-  2. The parent's next model call, as a note.
-  3. The agent's end, if no run of the parent session is going on: a note, plus
-     `agent.finished` so the app can start a turn.
-  4. The parent's own end, for reports still unclaimed: the same as 3.
+  - The step budget is 200, as a task's.
+  - An agent idle for 24 h is deleted the next time the lead starts one, or when the brain
+    starts. Forgetting one costs nothing.
+- **Mail**: what agents send the lead goes through one table, `agent_mail`. Each piece is
+  claimed in one transaction, so it reaches the lead's session exactly once.
+
+  | kind | posted when | delivered |
+  |---|---|---|
+  | `report` | an agent run ends (done, failed, or stopped by a cascade) | `agents_wait`; a note before the lead's next model call; or, when no run of the lead session goes on, a note plus `agent.finished` (not for a stop) |
+  | `question` | `ask_lead` | the same, but the notification is `agent.asked` |
+  | `update` | `task_progress` | `agents_wait` or the lead's next model call. Never wakes the lead; only the latest per agent waits, and a report replaces it |
 
   A report over 8,000 characters is cut, and the whole one is saved to
-  `runs/<id>/report.md`. A stop is not news: it is noted, and the app is not told.
+  `runs/<id>/report.md`.
 - **Lifecycle**:
-  - A stop from the user reaches the agents a run started (through `parent`).
+  - Apps hear `agent.updated` (`agent`, `name`, `status`, `run`) when an agent starts, asks,
+    ends or is stopped. Statuses are working, asking, waiting (for the user), done, failed
+    and stopped.
+  - A stop from the user reaches the agents a run started (through `parent`). Such an agent
+    stays; its report says it was stopped.
   - A turn given up because the user moved on does not stop its agents.
   - After a restart, working agents resume like tasks.
   - Deleting a chat deletes its idle agents at once. Working ones stop and delete their own
-    session when their run ends.
+    session when their run ends. `agent_stop` works the same way.
+  - A reminder an agent sets belongs to the lead's session, which outlives the agent.
 - **The reviewer** of section 9.4 is the one synchronous helper left (`Runs.subagent`, kind
   `subagent`): a read-only run with a skeptical prompt.
 
@@ -295,7 +312,7 @@ started it goes on. `agents.py` keeps them; `toolkits/agents.py` holds the model
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` | Scoped to the session's app (section 10). |
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
-| `agents` | `agent_start(name, task, access, toolkits)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)` | Section 5.5. |
+| `agents` | `agent_start(name, task)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)`; for agents, `ask_lead(question)` | Section 5.5. |
 | (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
 | `schedule` | `schedule_create(when, what)`, `schedule_list()`, `schedule_delete(id)` | Section 9.6. |
 | `mcp:<server>` | the server's tools | Section 8. |
@@ -534,7 +551,7 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 |---|---|---|---|
 | turn | an app sending input | until it replies | its own SSE stream |
 | task | an app (`POST /v1/tasks`), a schedule, or a detached turn | until done; survives restarts | notifications plus a note in the parent session |
-| agent | the model (`agent_start`) | until stopped or idle for a day; its runs survive restarts | its report, exactly once: `agents_wait`, a note, or `agent.finished` (section 5.5) |
+| agent | the model (`agent_start`) | until stopped or idle for a day; its runs survive restarts | its mail, exactly once: `agents_wait`, a note, `agent.finished` or `agent.asked` (section 5.5) |
 | job | `shell_run(background=true)`, or a command still running after 30 s | until the process exits; *not* across a brain restart (marked lost) | `shell_output`; a note and a `job.finished` notification when it ends |
 | schedule | the model (with approval), an app, or the user | until deleted | creates tasks or wake notifications |
 
@@ -556,8 +573,11 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 - `GET /v1/events?app=<app>&after=<cursor>` is a server-sent event stream. Apps that were
   closed catch up from their cursor; nothing is lost.
 - Types: `task.updated`, `task.input_required`, `task.completed`, `task.failed`,
-  `agent.finished` (reports nobody collected, with `agents`: id, name, status),
-  `agent.input_required` (a writing agent waits for an approval: `agent`, `name`, `run`),
+  `agent.updated` (an agent started, asked, ended or was stopped: `agent`, `name`, `status`,
+  `run`), `agent.finished` (reports nobody collected, with `agents`: id, name, status),
+  `agent.asked` (a question nobody collected: `agent`, `name`, `question`, `run`),
+  `agent.input_required` (an agent waits for an approval or an app action: `agent`, `name`,
+  `run`),
   `job.finished`, `schedule.fired`, `session.titled` (after a session's first reply the
   model names it in a few words, off the request path; a title the user gave stays).
 - Notifications are kept 7 days, and at most 1,000 per app.
@@ -708,7 +728,7 @@ bearer token.
 | `POST /v1/tasks` | start a task: session, goal, toolkits, budgets, pre-approved tools, context mode |
 | `GET /v1/tasks?app=&status=&kind=`, `GET /v1/tasks/<id>` | list tasks (or with `kind=agent` agents' runs), or show one |
 | `GET /v1/agents?app=&session=&all=` | the agents a session started (open ones; `all=1` adds closed ones) |
-| `GET /v1/agents/<id>`, `POST /v1/agents/<id>/stop` | one agent with its steps, todo and progress; stop and close it (the session hears that the user did) |
+| `GET /v1/agents/<id>`, `POST /v1/agents/<id>/stop` | one agent with its steps, todo and progress; stop and delete it (the session hears that the user did) |
 | `GET /v1/tasks/<id>/events` | replay, then follow live (SSE) |
 | `POST /v1/tasks/<id>/cancel` | cancel cooperatively: a tool call that runs finishes first; text the model is writing stops within 0.3 s and is dropped; a run about to wait for answers ends instead |
 | `POST /v1/runs/<id>/answer` | answer an approval, question or action |

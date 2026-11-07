@@ -10,7 +10,10 @@ from . import ToolContext, tool
       args={"note": "What you did and what comes next, in a few lines."})
 def task_progress(ctx: ToolContext, note: str):
     """Record progress on your task. Your context may be summarized or reset during long work; the progress
-    notes and the todo list are what you then see, so keep them current. They also show how far you got."""
+    notes and the todo list are what you then see, so keep them current. They also show how far you got,
+    and an agent's notes reach the lead."""
     with open(ctx.run_dir() / "progress.md", "a", encoding="utf-8") as output:
         output.write(f"\n## {time.strftime('%Y-%m-%d %H:%M')}\n{note.strip()}\n")
+    if ctx.run["kind"] == "agent":
+        ctx.brain.agents.update(ctx.run, note)
     return "Progress recorded."

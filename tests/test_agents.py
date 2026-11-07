@@ -1,6 +1,6 @@
-"""Agents: copies of the model with a fresh context that work on parts of a job in the background, in their
-own sessions; the run that started them waits for them, messages them, watches and stops them, and each
-report reaches it exactly once."""
+"""Agents: full copies of the model with a fresh context that work on parts of a job in the background, in
+their own sessions; the run that started them (the lead) waits for them, messages them, answers their
+questions, watches and stops them, and each report, question and update reaches it exactly once."""
 
 import json
 import threading
@@ -49,8 +49,9 @@ def test_agents_work_at_once_and_each_report_comes_back_once(brain):
     def route(payload):
         if is_agent(payload):
             listed = payload["messages"][0]["content"].split("## MORE TOOLS")[-1]
-            assert not {"files_write", "files_edit", "shell_run"} & sent_names(payload)
-            assert "files_write" not in listed and "agent_start" not in listed  # it reads; no agents of its own
+            assert {"shell_run", "web_search", "tools_load", "ask_lead", "task_progress"} <= sent_names(payload)
+            assert "files_write" in listed and "schedule_create" in listed  # her tools, to load as she does
+            assert "agent_start" not in listed + str(sent_names(payload))  # no agents of its own
             both.wait()  # both are at work at the same time
             return "Report A." if "Say A." in text_of(payload) else "Report B."
         if not results(payload):
@@ -166,7 +167,7 @@ def test_a_writing_agent_asks_the_user_and_the_app_hears_whose_request_it_is(bra
                 return calls(("files_write", {"path": "out.txt", "content": "made"}, "w"))
             return "Wrote out.txt."
         if not results(payload):
-            return calls(("agent_start", {"name": "writer", "task": "Write out.txt.", "access": "write"}, "s"))
+            return calls(("agent_start", {"name": "writer", "task": "Write out.txt."}, "s"))
         return "Started."
 
     brain.provider.replies += [route] * 4
@@ -194,7 +195,7 @@ def test_names_are_unique_working_agents_are_capped_and_mistakes_explained(brain
                          ("agent_start", {"name": "one", "task": "Again."}, "b"),
                          ("agent_start", {"name": "two", "task": "More."}, "c"),
                          ("agent_start", {"name": "bad name!", "task": "x"}, "d"),
-                         ("agent_start", {"name": "three", "task": "x", "access": "admin"}, "e"),
+                         ("agent_start", {"name": "three", "task": " "}, "e"),
                          ("agent_message", {"agent": "nobody", "message": "hi"}, "f"))
         return "ok"
 
@@ -206,7 +207,7 @@ def test_names_are_unique_working_agents_are_capped_and_mistakes_explained(brain
     assert "already" in got["b"] and "agent_message" in got["b"]
     assert "1 agents are working" in got["c"]
     assert got["d"].startswith("Error:") and "name" in got["d"]
-    assert got["e"].startswith("Error:") and "read or write" in got["e"]
+    assert got["e"].startswith("Error:") and "task is empty" in got["e"]
     assert got["f"].startswith("Error:") and "one" in got["f"]  # the agents it has
 
 
@@ -235,8 +236,9 @@ def test_stopping_an_agent_closes_it_and_the_user_can_stop_one_too(brain):
     assert [a["name"] for a in listed] == ["b"] and listed[0]["status"] == "working"
     brain.client.stop_agent(listed[0]["id"])
     stopped.set()
-    wait_for(lambda: all(r["status"] == "cancelled" for r in agent_runs(brain)))
-    assert brain.client.agents("cli", "main") == []
+    sessions = {r["session"] for r in agent_runs(brain)}
+    wait_for(lambda: not agent_runs(brain))  # killed: its runs and session are gone once they end
+    assert brain.client.agents("cli", "main") == [] and not sessions & {s["id"] for s in brain.store.sessions("cli")}
     assert any("The user stopped your agent b" in n["text"] for n in brain.store.events("cli", "main", types=("note",)))
 
 
@@ -270,10 +272,10 @@ def test_watching_an_agent_shows_its_steps(brain):
 
 def test_agents_resume_after_a_restart(brain):
     run = brain.store.add_run("cli", "agent-90", "agent", {"input": None, "agent": 90, "parent_session": "main",
-                                                           "profile": {"from_session": "main", "mode": "readonly"}},
+                                                           "profile": {"from_session": "main"}},
                               status="working")
     brain.store.update_session("cli", "agent-90", "settings", lambda s: {"title": "r", "agent": {
-        "name": "r", "parent": "main", "access": "read", "task": "t", "created": 0}})
+        "name": "r", "parent": "main", "task": "t", "created": 0}})
     brain.store.add_event("cli", "agent-90", run, "input", {"content": "t", "display": "t"})
     brain.provider.replies.append("finished after the restart")
     brain.brain.runs.recover()
@@ -348,3 +350,120 @@ def test_deleting_a_chat_while_its_agent_works_stops_it_and_it_goes_when_it_ends
     wait_for(lambda: brain.store.run(run["id"]) is None)  # it ended (stopped), then its session went
     hold.set()
     assert not [s for s in brain.store.sessions("cli") if s["id"] in (run["session"], "chat-2")]
+
+
+def test_an_agent_runs_the_apps_actions_too(brain):
+    """It has her actions: the app hears agent.input_required with the action waiting, runs it, answers."""
+    brain.client.declare_app("acts", toolkits=["files", "agents"], actions=[
+        {"name": "look", "description": "See the screen.", "readonly": True, "core": True}])
+
+    def route(payload):
+        if is_agent(payload):
+            assert "look" in sent_names(payload)
+            if not results(payload):
+                return calls(("look", {}, "l"))
+            return "I saw: " + results(payload)["l"]
+        return "Started." if results(payload) else calls(("agent_start", {"name": "eyes", "task": "Look."}, "s"))
+
+    brain.provider.replies += [route] * 4
+    turn(brain, "acts", "look with an agent")
+    asked = wait_for(lambda: [n for n in brain.store.notifications("acts") if n["type"] == "agent.input_required"])
+    run = asked[0]["data"]["run"]
+    assert [(w["kind"], w["name"]) for w in brain.client.run(run)["waiting"]] == [("action", "look")]
+    brain.client.answer(run, call_id="l", result="a cat")
+    finished = wait_for(lambda: [n for n in brain.store.notifications("acts") if n["type"] == "agent.finished"])
+    assert finished and any("I saw: a cat" in n["text"] for n in brain.store.events("acts", "main", types=("note",)))
+
+
+def test_an_agent_asks_the_lead_and_goes_on_with_the_answer(brain):
+    def route(payload):
+        if is_agent(payload):
+            if not results(payload):
+                return calls(("ask_lead", {"question": "Which file, a or b?"}, "q"))
+            assert "answered" in results(payload)["q"] and "Use b." in text_of(payload)
+            return "Used b."
+        done = results(payload)
+        if not done:
+            return calls(("agent_start", {"name": "picky", "task": "Edit the file."}, "s"), ("agents_wait", {}, "w1"))
+        if "m" not in done:
+            assert "picky" in done["w1"] and "asks" in done["w1"] and "Which file, a or b?" in done["w1"]
+            return calls(("agent_message", {"agent": "picky", "message": "Use b."}, "m"), ("agents_wait", {}, "w2"))
+        return "It used b."
+
+    brain.provider.replies += [route] * 7
+    assert turn(brain, "cli", "edit it with an agent")["reply"] == "It used b."
+    assert "Used b." in results(main_requests(brain)[-1])["w2"]
+    assert len(agent_runs(brain)) == 1  # it went on in the same run
+
+
+def test_a_question_while_the_lead_is_idle_becomes_news(brain, monkeypatch):
+    monkeypatch.setattr(agents_module, "ASK_WAIT", 0.5)
+
+    def route(payload):
+        if is_agent(payload):
+            if not results(payload):
+                return calls(("ask_lead", {"question": "Shall I delete the cache?"}, "q"))
+            assert "No answer came" in results(payload)["q"]
+            return "I kept the cache."
+        return "Started." if results(payload) else calls(("agent_start", {"name": "careful", "task": "Clean up."}, "s"))
+
+    brain.provider.replies += [route] * 4
+    turn(brain, "cli", "clean up with an agent")
+    asked = wait_for(lambda: [n for n in brain.store.notifications("cli") if n["type"] == "agent.asked"])
+    assert asked[0]["session"] == "main" and asked[0]["data"]["name"] == "careful"
+    assert asked[0]["data"]["question"] == "Shall I delete the cache?"
+    assert any("Shall I delete the cache?" in n["text"] for n in brain.store.events("cli", "main", types=("note",)))
+    wait_for(lambda: agent_runs(brain, "completed"))  # no answer in time: it went on by itself
+
+
+def test_progress_notes_reach_the_lead_once_and_the_report_replaces_them(brain):
+    noted, release = threading.Event(), threading.Event()
+
+    def route(payload):
+        if is_agent(payload):
+            if not results(payload):
+                return calls(("task_progress", {"note": "Half of the files read."}, "p"))
+            noted.set()
+            assert release.wait(10)
+            return "All read."
+        done = results(payload)
+        if not done:
+            return calls(("agent_start", {"name": "reader", "task": "Read all."}, "s"))
+        if "f" not in done:
+            assert noted.wait(10)
+            return calls(("files_find", {"pattern": "*"}, "f"))
+        if "f2" not in done:
+            release.set()
+            wait_for(lambda: agent_runs(brain, "completed"))
+            return calls(("files_find", {"pattern": "*"}, "f2"))
+        return "ok"
+
+    brain.provider.replies += [route] * 7
+    turn(brain, "cli", "read with an agent")
+    requests = main_requests(brain)
+    assert "Half of the files read." in text_of(requests[2]) and "reader" in text_of(requests[2])
+    assert text_of(requests[-1]).count("Half of the files read.") == 1  # not again
+    assert "All read." in text_of(requests[-1])
+
+
+def test_apps_hear_when_agents_start_and_end(brain):
+    brain.provider.replies += [calls(("agent_start", {"name": "news", "task": "x"}, "s")), "report", "ok"]
+    turn(brain, "cli", "start one")
+    updated = wait_for(lambda: [n["data"]["status"] for n in brain.store.notifications("cli")
+                                if n["type"] == "agent.updated"][-1:] == ["done"] and
+                       [n for n in brain.store.notifications("cli") if n["type"] == "agent.updated"])
+    assert [n["data"]["status"] for n in updated] == ["working", "done"]
+    assert updated[0]["session"] == "main" and updated[0]["data"]["name"] == "news"
+
+
+def test_an_agent_idle_for_a_day_is_deleted_when_the_next_starts(brain):
+    brain.provider.replies += [calls(("agent_start", {"name": "old", "task": "x"}, "s")), "old report", "ok"]
+    turn(brain, "cli", "start one")
+    old = wait_for(lambda: agent_runs(brain, "completed"))[0]
+    with brain.store._db() as db:
+        db.execute("UPDATE runs SET updated = updated - 90000 WHERE id = ?", (old["id"],))
+    assert brain.client.agents("cli", "main") == []  # closed: not listed
+    brain.provider.replies += [calls(("agent_start", {"name": "old", "task": "y"}, "s2")), "new report", "ok"]
+    turn(brain, "cli", "start another")  # the name is free again, and the old one goes
+    assert old["session"] not in {s["id"] for s in brain.store.sessions("cli")}
+    assert [a["name"] for a in brain.client.agents("cli", "main")] == ["old"]
