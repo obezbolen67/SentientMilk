@@ -517,7 +517,7 @@ class BrainServer(ThreadingHTTPServer):
         with os.fdopen(fd, "w", encoding="utf-8") as output:
             json.dump({"url": self.url, "token": self.token, "pid": os.getpid(), "api": API_VERSION}, output)
         os.chmod(temporary, 0o600)
-        os.replace(temporary, self.home / DISCOVERY_FILE)
+        _while_read(lambda: os.replace(temporary, self.home / DISCOVERY_FILE))
 
     def close(self) -> None:
         """Stop serving, stop the brain's threads and withdraw the discovery file if it is ours.
@@ -532,11 +532,23 @@ class BrainServer(ThreadingHTTPServer):
             path = self.home / DISCOVERY_FILE
             try:
                 if json.loads(path.read_text(encoding="utf-8")).get("token") == self.token:
-                    path.unlink()
+                    _while_read(path.unlink)
             except (OSError, ValueError):
                 pass
             self._lock_handle.close()
             self._closed = True
+
+
+def _while_read(change, tries: int = 40) -> None:
+    """Windows refuses to delete or replace a file another process has open, as an app discovering the brain
+    does for a moment: try again for up to 2 s."""
+    for attempt in range(tries):
+        try:
+            return change()
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(0.05)
 
 
 def start(home: Optional[Path] = None, port: int = 0) -> BrainServer:

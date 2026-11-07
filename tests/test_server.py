@@ -3,6 +3,7 @@ import io
 import json
 import socket
 import sys
+import threading
 
 import pytest
 import requests
@@ -268,3 +269,22 @@ def test_a_session_tells_how_full_its_context_is(brain):
                                                                "clear_at": 0.5, "compact_at": 0.75}
     brain.client.clear_history("milk", "main")
     assert brain.client.session("milk", "main")["context"]["used"] == 0  # a new conversation holds nothing yet
+
+
+def test_the_discovery_file_goes_and_comes_while_an_app_reads_it(tmp_path):
+    """Windows refuses to delete or replace a file another process has open at that instant."""
+    home = tmp_path / "home"
+    first = start(home)
+    reading = open(home / "server.json", encoding="utf-8")  # an app discovering the brain right now
+    closing_brain = first.brain.close
+    first.brain.close = lambda: (closing_brain(), threading.Timer(0.3, reading.close).start())  # open at the delete
+    first.close()
+    assert not (home / "server.json").exists()
+    (home / "server.json").write_text('{"url": "http://127.0.0.1:9", "token": "old"}', encoding="utf-8")  # left over
+    reading = open(home / "server.json", encoding="utf-8")
+    threading.Timer(0.3, reading.close).start()
+    second = start(home)
+    try:
+        assert json.loads((home / "server.json").read_text(encoding="utf-8"))["token"] == second.token
+    finally:
+        second.close()
