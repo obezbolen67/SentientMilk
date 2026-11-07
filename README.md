@@ -89,7 +89,7 @@ client.declare_app("jarvis",
     toolkits=["memory", "web", "schedule", "tasks"],
     rules={"allow": ["schedule_create"]})
 result = client.turn("jarvis", "main", "Lights off, please.", context={"user": "Tony"},
-                     on_event=print)            # text.delta, tool.start, tool.end, ... as they happen
+                     on_event=print)  # text.delta, tool.start/end, retry, compacting, cleared, ... as they happen
 print(result["reply"], result["signals"], result["tools"])
 for notification in client.events("jarvis"):  # reminders, finished tasks; blocks
     print(notification["type"], notification["data"])

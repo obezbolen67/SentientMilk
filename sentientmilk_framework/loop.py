@@ -410,6 +410,7 @@ class Loop:
                         events + [{"id": 0, "type": "clearing", "ids": ids}], compaction), system)
                     store.add_event(run["app"], run["session"], run["id"], "clearing",
                                     {"ids": sorted(cleared), "after": after})
+                    self._emitter(run["id"])({"type": "cleared", "results": len(cleared)})
                     continue
             return messages
         return messages
@@ -428,6 +429,7 @@ class Loop:
         if cut == 0 and not previous:
             return
         older = events[:cut]
+        self._emitter(run["id"])({"type": "compacting"})  # it takes a model call: apps can show it
         state = store.session(app, session)["state"]
         if run["options"].get("context_mode") == "reset":
             summary = context.handoff(brain.home / "runs" / str(run["id"]), state.get("todo", []), profile.get("cwd"))

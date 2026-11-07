@@ -243,9 +243,11 @@ def test_old_tool_results_are_cleared_in_batches_with_a_way_back(brain):
     for index in range(14):
         (brain.work / f"f{index}.txt").write_text("\n".join([f"file {index}"] + ["y" * 99] * 18), encoding="utf-8")
     brain.provider.replies += [tool_call("files_read", {"path": f"f{i}.txt"}, f"r{i}") for i in range(14)] + ["ok"]
-    turn(brain, "cli", "read them all")
+    streamed = turn(brain, "cli", "read them all")["events"]
     clearings = brain.store.events("cli", "main", types=("clearing",))
     assert 1 <= len(clearings) <= 4  # in batches, not at every step
+    told = [e for e in streamed if e["type"] == "cleared"]  # apps can show it (MilkChan draws it)
+    assert len(told) == len(clearings) and told[0]["results"] == len(clearings[0]["ids"])
     results = tool_results(brain.provider.sent[-1])
     assert results["r0"] == context.CLEARED.format(name="files_read")
     assert "file 13" in results["r13"]
@@ -264,7 +266,10 @@ def test_a_long_session_is_compacted_into_a_summary(brain):
         return next(planned)
 
     brain.provider.replies += [reply] * 20
-    assert turn(brain, "cli", "read every file")["reply"] == "all read"
+    result = turn(brain, "cli", "read every file")
+    assert result["reply"] == "all read"
+    kinds = [e["type"] for e in result["events"]]
+    assert "compacting" in kinds and kinds.index("compacting") < kinds.index("compacted")  # apps see it start
     assert "compaction" in [e["type"] for e in brain.store.events("cli", "main")]
     summary_request = next(p for p in brain.provider.sent if p["messages"][0]["content"] == context.COMPACT_PROMPT)
     transcript = summary_request["messages"][1]["content"]
