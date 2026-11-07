@@ -14,7 +14,7 @@ import threading
 from dataclasses import replace
 from typing import Callable, Dict, List, Optional
 
-from . import context, permissions, transport
+from . import context, mentions, permissions, transport
 from . import signals as signal_format
 from .exceptions import BrainError, classify
 from .toolkits import Tool, ToolContext, ToolError, ToolResult, format_result, tool
@@ -276,8 +276,10 @@ class Loop:
                 store.update_run_options(run["id"], lambda options: {**options, "steer": []})
             runs.attention(run["id"]).settle()
         if items:
+            items = mentions.resolve(self.brain, run["app"], run["session"], items)
             content, display = context.input_content(items, {}, reminders=[])
-            store.add_event(run["app"], run["session"], run["id"], "input", {"content": content, "display": display})
+            store.add_event(run["app"], run["session"], run["id"], "input",
+                            {"content": content, "display": display, **mentions.stored(items)})
             emit({"type": "steered", "text": display or ""})
 
     def _emitter(self, run_id: int) -> Callable[[dict], None]:
@@ -294,9 +296,10 @@ class Loop:
             reminders.append(signal_format.FORMAT_REMINDER)
         if options.get("reply") == "optional":
             reminders.append(signal_format.OPTIONAL_REPLY)
-        content, display = context.input_content(options["input"], options.get("context") or {}, reminders=reminders)
+        items = mentions.resolve(self.brain, run["app"], run["session"], options["input"])
+        content, display = context.input_content(items, options.get("context") or {}, reminders=reminders)
         self.brain.store.add_event(run["app"], run["session"], run["id"], "input",
-                                   {"content": content, "display": display})
+                                   {"content": content, "display": display, **mentions.stored(items)})
         self.brain.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
 
     def _count(self, run_id: int, usage: dict) -> None:

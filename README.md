@@ -119,8 +119,12 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   under **WHO YOU ARE**, says a description written as "she" or by name means "you", and asks
   for thinking in the first person, as that self. Nothing else in the prompt calls the model an
   AI, an assistant or "the brain"; compaction summaries speak to it as "you".
-- A turn's input is a list of items: `text`, `image` (a data URL) and `event`
-  (`{"type": "event", "name": "idle", "text": "..."}`). With `reply="optional"` the
+- A turn's input is a list of items: `text`, `image` (a data URL), `event`
+  (`{"type": "event", "name": "idle", "text": "..."}`) and up to 8 `mention`s
+  (`{"type": "mention", "kind": "session", "ref": "chat-1", "label": "Groceries"}`; kinds:
+  `session`, `agent`, `plugin`, `file`). The brain turns each mention into a short card
+  after the user's text and keeps it with the message; history entries list them as
+  `mentions`, and `GET /apps/{app}/mentions` offers what an `@` picker shows. With `reply="optional"` the
   brain may stay silent (`result["silent"]`). `context` adds a line such as the user's
   name; the time is always added.
 - With **signals** declared, replies start with one JSON line (`{"mood": "calm"}`) that the
@@ -173,6 +177,7 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_delete` |
 | `mcp:<server>` | the server's tools, as `mcp__<server>__<tool>` |
 | `plugins` | `plugin_list`, `plugin_install`, `plugin_reload`: the model writes its own plugins (installing always asks) |
+| `sessions` | `sessions_list`, `sessions_read` (a summary, or the plain turns without tool calls), `sessions_search`, `session_rename`, `session_delete` (always asks): the app's other conversations |
 | `github` (plugin) | search, repositories and files, issues and pull requests (diffs, reviews, checks), Actions runs with the log of what failed, any REST read; opening, commenting, reviewing, merging and any other REST call ask first |
 
 An app enables the toolkits it lists, and every app gets the toolkits of enabled plugins;
@@ -255,6 +260,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `POST /apps/{app}/sessions/{id}/compact` | sum up the whole session now (a model call): `compacted`, and the context in tokens `before` and `after` |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); history an app kept before |
 | `POST /apps/{app}/sessions/{id}/turns` | `input`, `context`, `reply`: a stream ending in `done` or `error` |
+| `GET /apps/{app}/mentions?q=&kind=&session=`, `GET /apps/{app}/mentions/{kind}?ref=&session=` | what an `@` picker offers (`kind`, `ref`, `label`, `note`, `time`; a path lists that folder), and the card the brain reads for one |
 | `GET /events?app=&after=` | notifications from a cursor (`-1`: from now), then live |
 | `POST`/`GET /tasks`, `GET /tasks/{id}` | start and list tasks |
 | `GET /runs/{id}`, `GET /runs/{id}/events` | a run and what it waits for (`waiting`); its log, then live |

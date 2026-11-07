@@ -139,9 +139,11 @@ def input_content(items: List[dict], context: Dict[str, str], *, reminders: List
     """(content for the model, text for the transcript). Time and context lead, reminders close it."""
     stamp = time.strftime("%Y-%m-%d %H:%M (%A)")
     head = "[Context: " + " | ".join([f"time: {stamp}"] + [f"{k}: {v}" for k, v in context.items()]) + "]"
-    texts, images, display = [head], [], []
+    texts, images, display, cards = [head], [], [], []
     for item in items:
-        if item["type"] == "text":
+        if item["type"] == "mention":
+            cards.append(item["card"])  # after what the user wrote
+        elif item["type"] == "text":
             texts.append(item["text"])
             display.append(item["text"])
         elif item["type"] == "event":
@@ -150,7 +152,7 @@ def input_content(items: List[dict], context: Dict[str, str], *, reminders: List
         elif item["type"] == "image":
             images.append(item["url"])
     tail = "\n".join(f"[{reminder}]" for reminder in reminders)
-    text = "\n".join(texts)
+    text = "\n".join(texts + (["", *cards] if cards else []))
     if not images:
         return (text + ("\n\n" + tail if tail else "")), ("\n".join(display) or None)
     blocks = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": u}} for u in images]

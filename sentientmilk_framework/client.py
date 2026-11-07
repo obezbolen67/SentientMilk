@@ -173,6 +173,16 @@ class BrainClient:
         """The session and its history; refused (``busy``) while a turn of it goes on."""
         self._call("DELETE", f"/apps/{app}/sessions/{session}")
 
+    def mentions(self, app: str, query: str = "", kind: Optional[str] = None, session: str = "main") -> List[dict]:
+        """What an @ picker offers for ``query`` in ``session``: {kind, ref, label, note, time}; a query that
+        looks like a path lists that folder. ``kind``: session, agent, plugin or file."""
+        params = {"q": query, "session": session, **({"kind": kind} if kind else {})}
+        return self._call("GET", f"/apps/{app}/mentions", params=params)["mentions"]
+
+    def mention_card(self, app: str, kind: str, ref: str, session: str = "main") -> str:
+        """The card the brain reads for a mention: what a picker shows as its preview."""
+        return self._call("GET", f"/apps/{app}/mentions/{kind}", params={"ref": ref, "session": session})["card"]
+
     def compact_session(self, app: str, session: str) -> dict:
         """Sum up the whole session now: ``compacted`` (False when there was nothing to sum up), and the
         context in tokens ``before`` and ``after``. It takes a model call."""
@@ -263,10 +273,10 @@ class BrainClient:
         """Stop a run at once: waits end, calls still running are left behind, its helpers stop too."""
         self._call("POST", f"/runs/{run}/cancel", {})
 
-    def steer(self, run: int, text: str) -> None:
-        """Send a message to a turn that works: it reaches the model at its next step. Raises ``ended`` when
-        the turn is over: send it as a new turn then."""
-        self._call("POST", f"/runs/{run}/steer", {"input": [{"type": "text", "text": text}]})
+    def steer(self, run: int, text: str, items: Optional[List[dict]] = None) -> None:
+        """Send a message to a turn that works: it reaches the model at its next step. ``items``: more input
+        with it, such as mentions. Raises ``ended`` when the turn is over: send it as a new turn then."""
+        self._call("POST", f"/runs/{run}/steer", {"input": [{"type": "text", "text": text}] + list(items or [])})
 
     def detach(self, run: int) -> None:
         self._call("POST", f"/runs/{run}/detach", {})

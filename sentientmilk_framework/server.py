@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from . import mentions
 from .brain import Brain, validate_items, validate_name
 from .client import DISCOVERY_FILE, default_home
 from .exceptions import BrainError, classify
@@ -264,6 +265,13 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"sessions": brain.store.sessions(app)})
         elif rest == ["memory"] and method == "GET":
             self._send(200, {"memory": brain.store.memories(app)})
+        elif rest == ["mentions"] and method == "GET":
+            session = validate_name(query.get("session", "main"), "session id")
+            self._send(200, {"mentions": mentions.candidates(brain, app, session, query.get("q", ""),
+                                                             query.get("kind") or None)})
+        elif len(rest) == 2 and rest[0] == "mentions" and method == "GET":
+            session = validate_name(query.get("session", "main"), "session id")
+            self._send(200, {"card": mentions.card(brain, app, session, rest[1], query.get("ref", ""))})
         elif len(rest) == 3 and rest[0] == "memory" and method == "DELETE":
             found = brain.store.forget(app, rest[1], rest[2])
             self._send(200 if found else 404, {"status": "ok" if found else "not found"})

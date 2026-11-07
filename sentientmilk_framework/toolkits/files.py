@@ -38,11 +38,15 @@ def _inside(path: Path, root: Path) -> bool:
     return path_text == root_text or path_text.startswith(root_text + os.sep)
 
 
-def private(ctx: ToolContext, path: Path) -> bool:
+def closed(home, path: Path) -> bool:
     """Inside SentientMilk's own folder (its settings and keys, plugin trust, the server's token), which no
-    file tool opens; the saved outputs in its runs folder are the exception."""
-    home = Path(ctx.brain.home).resolve()
+    file tool opens nor a mention shows; the saved outputs in its runs folder are the exception."""
+    home = Path(home).resolve()
     return _inside(path, home) and not _inside(path, home / "runs")
+
+
+def private(ctx: ToolContext, path: Path) -> bool:
+    return closed(ctx.brain.home, path)
 
 
 def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:

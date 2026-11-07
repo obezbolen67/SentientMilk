@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
-from . import context, permissions, transport
+from . import context, mentions, permissions, transport
 from . import signals as signal_format
 from .agents import Agents
 from .config import BrainConfig, validate_rules, validate_setting
@@ -44,7 +44,7 @@ APP_SETTINGS = {"persona": (str, type(None)), "model": str, "disabled_toolkits":
 SESSION_SETTINGS = {"instructions": str, "disabled_toolkits": list, "rules": dict, "roots": list, "cwd": str,
                     "title": str}
 TITLE_CHARS = 80
-ITEM_TYPES = ("text", "image", "event")
+ITEM_TYPES = ("text", "image", "event", "mention")
 
 
 def validate_name(value: Any, what: str = "id") -> str:
@@ -91,7 +91,8 @@ def validate_declaration(data: Any) -> dict:
 
 
 def validate_items(items: Any) -> List[dict]:
-    """Turn input: text, image (data URL) and event items; images are stored at the size they are sent."""
+    """Turn input: text, image (data URL), event and mention items; images are stored at the size they are
+    sent, mentions become their cards when the turn starts."""
     if not isinstance(items, list) or not items:
         raise ValueError("input must be a non-empty list of items")
     result = []
@@ -105,6 +106,13 @@ def validate_items(items: Any) -> List[dict]:
         elif item["type"] == "image":
             url = transport.validate_image(item.get("url") or item.get("data"))
             result.append({"type": "image", "url": transport.encode_image(url, transport.IMAGE)})
+        elif item["type"] == "mention":
+            if item.get("kind") not in mentions.KINDS:
+                raise ValueError(f"mention kind must be one of: {', '.join(mentions.KINDS)}")
+            ref, name = item.get("ref"), item.get("label") or item.get("ref")
+            if not isinstance(ref, str) or not ref.strip() or len(ref) > 1000 or not isinstance(name, str):
+                raise ValueError("a mention needs a ref (at most 1000 characters) and a text label")
+            result.append({"type": "mention", "kind": item["kind"], "ref": ref.strip(), "label": name.strip()[:200]})
         else:
             if not isinstance(item.get("name"), str) or not item["name"].strip():
                 raise ValueError("event items need a name")
@@ -112,6 +120,8 @@ def validate_items(items: Any) -> List[dict]:
                 raise ValueError("event text must be a string and data an object")
             result.append({"type": "event", "name": item["name"], "text": item.get("text", ""),
                            **({"data": item["data"]} if item.get("data") else {})})
+    if sum(item["type"] == "mention" for item in result) > mentions.MAX_MENTIONS:
+        raise ValueError(f"a message can carry at most {mentions.MAX_MENTIONS} mentions")
     return result
 
 
@@ -331,7 +341,8 @@ class Brain:
             elif event["type"] == "shown":
                 entries.append({"role": event["role"], "text": event["text"], "time": event["at"]})
             elif event["type"] == "input" and event.get("display"):
-                entries.append({"role": "user", "text": event["display"], "time": event["at"]})
+                entries.append({"role": "user", "text": event["display"], "time": event["at"],
+                                **({"mentions": event["mentions"]} if event.get("mentions") else {})})
             elif event["type"] == "end" and event.get("reply"):
                 entries.append({"role": "assistant", "text": event["reply"], "signals": event.get("signals") or {},
                                 "time": event["at"]})

@@ -317,6 +317,7 @@ holds the tools.
 | `schedule` | `schedule_create(when, what)`, `schedule_list()`, `schedule_delete(id)` | Section 9.6. |
 | `mcp:<server>` | the server's tools | Section 8. |
 | `plugins` | `plugin_list`, `plugin_install(folder)`, `plugin_reload(name)` | Section 6.5: a model makes its own tools; installing always asks. |
+| `sessions` | `sessions_list(query)`, `sessions_read(session, part, offset)`, `sessions_search(query)`, `session_rename(session, title)`, `session_delete(session)` | The app's other conversations (not agents' or tasks'), named by id or exact title. `part="summary"` gives the session's mention card (`mentions.py`: newest journal note or compaction summary, last turns) and its journal notes; `part="turns"` its plain turns, 40 a page. Deleting always asks and refuses the current or a busy session. |
 | `github` (plugin) | `github_search`, `github_repo`, `github_files`, `github_issues`, `github_issue`, `github_diff`, `github_runs`, `github_run`, `github_get`; asking first: `github_issue_create`, `github_comment`, `github_issue_update`, `github_pr_create`, `github_pr_review`, `github_pr_merge`, `github_api` | Section 6.5. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
