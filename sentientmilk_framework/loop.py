@@ -583,14 +583,16 @@ class Loop:
                                                {"role": "user", "content": transcript}])
             summary = (message.get("content") or "").strip() or transcript[-8000:]
             excerpts = []
+            room = profile["context_window"]  # characters, about a quarter of the window: they must not overflow it
             for path in context.recent_files(older):
                 try:
                     target = resolve(ToolContext(brain, run, profile), path)
                 except ToolError:
                     continue
                 text = context.file_excerpt(target)
-                if text:
+                if text and len(text) <= room:
                     excerpts.append(f"### {target}\n```\n{text}\n```")
+                    room -= len(text)
             if excerpts:
                 summary += "\n\n## Files you read recently (their current start)\n" + "\n\n".join(excerpts)
             if state.get("todo"):

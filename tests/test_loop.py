@@ -274,7 +274,7 @@ def test_a_long_session_is_compacted_into_a_summary(brain):
     transcript = summary_request["messages"][1]["content"]
     assert "read every file" in transcript and "\nYOU:" in transcript and "ASSISTANT" not in transcript
     assert "AI assistant" not in context.COMPACT_PROMPT  # the summary speaks to her, not about "the assistant"
-    after = next(p for p in brain.provider.sent[brain.provider.sent.index(summary_request) + 1:])
+    after = brain.provider.sent[brain.provider.sent.index(summary_request) + 1]  # the summary fits: no second one
     assert after["messages"][1]["content"].startswith(context.SUMMARY_PREFIX + "SUMMARY: reading the files")
     assert "## Files you read recently" in after["messages"][1]["content"]
     assert len(brain.store.events("cli", "main", types=("tool",))) == 10  # the raw log keeps everything
