@@ -49,6 +49,15 @@ def private(ctx: ToolContext, path: Path) -> bool:
     return closed(ctx.brain.home, path)
 
 
+def _hidden(ctx: ToolContext, path: Path) -> bool:
+    """Left out of a search: SentientMilk's own folder, and a link Windows will not follow (an untrusted mount
+    point) or a folder it will not open, which cannot be checked for being SentientMilk's own."""
+    try:
+        return private(ctx, path.resolve())
+    except OSError:
+        return True
+
+
 def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:
     if not path or not isinstance(path, str):
         raise ToolError("path is required, e.g. path='src/app.py'")
@@ -172,7 +181,7 @@ SEARCH_SECONDS = 30  # without ripgrep a search walks in Python; a whole home fo
 
 def _walk(ctx: ToolContext, base: Path):
     for folder, dirs, names in os.walk(base):
-        dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS and not private(ctx, Path(folder, d).resolve()))
+        dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS and not _hidden(ctx, Path(folder, d)))
         for name in sorted(names):
             yield Path(folder) / name
 
@@ -244,7 +253,7 @@ def files_find(ctx: ToolContext, pattern: str, path: str = "."):
     """Find files by name with a glob pattern. Newest first, up to 300."""
     base = resolve(ctx, path)
     found = [p for p in base.glob(pattern) if p.is_file() and not SKIPPED_DIRS.intersection(p.relative_to(base).parts)
-             and not private(ctx, p.resolve())]
+             and not _hidden(ctx, p)]
     found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     if not found:
         return f"No files match {pattern!r} under {base}."

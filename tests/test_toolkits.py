@@ -1,3 +1,4 @@
+import sys
 import time
 from types import SimpleNamespace
 
@@ -98,6 +99,39 @@ def test_a_search_without_ripgrep_stops_in_time_and_says_so(brain, ctx, monkeypa
     assert "Stopped after -1 s and 0 files" in files.files_search.func(ctx, "needle")
 
 
+@pytest.mark.skipif(shell.shell_name("") != "powershell", reason="Windows PowerShell's own quirk")
+def test_a_program_keeps_its_exit_code_when_its_warnings_are_redirected(brain, ctx):
+    """Windows PowerShell makes `2>&1` lines of a program errors: $? turns false although the program
+    exited 0. The exit code is the program's own."""
+    (brain.work / "warn.py").write_text("import sys\nsys.stderr.write('a warning\\n')\nprint('done')\n"
+                                        "sys.exit(int(sys.argv[1]))\n", encoding="utf-8")
+    program = f'& "{sys.executable}" warn.py'
+    assert shell.shell_run.func(ctx, f"{program} 0 2>&1 | Select-Object -Last 5").startswith("[exit code 0]")
+    assert shell.shell_run.func(ctx, f"{program} 3 | Out-String").startswith("[exit code 3]")
+    assert shell.shell_run.func(ctx, "Get-Item no-such-file").startswith("[exit code 1]")  # a cmdlet that failed
+    assert shell.shell_run.func(ctx, "echo fine  # a comment at the end").startswith("[exit code 0]")
+
+
+def test_a_folder_that_cannot_be_followed_is_left_out_of_searches(brain, ctx, monkeypatch):
+    """Windows refuses some links (WinError 448, an untrusted mount point) or access: the search goes on."""
+    for folder in ("blocked", "open"):
+        (brain.work / folder).mkdir()
+        (brain.work / folder / "notes.txt").write_text("the needle", encoding="utf-8")
+    real = files.Path.resolve
+
+    def resolve(path, *args, **kwargs):
+        if "blocked" in path.parts:
+            raise OSError(22, "The path cannot be traversed because it contains an untrusted mount point")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(files.Path, "resolve", resolve)
+    monkeypatch.setattr(files.shutil, "which", lambda name: None)  # the search that walks in Python
+    found = files.files_search.func(ctx, "needle", ".")
+    assert "open" in found and "blocked" not in found
+    found = files.files_find.func(ctx, "**/notes.txt", ".")
+    assert "open" in found and "blocked" not in found
+
+
 def test_shell_runs_with_exit_codes_and_slow_commands_go_on_as_jobs(brain, ctx):
     assert shell.shell_run.func(ctx, "echo hello").startswith("[exit code 0]\nhello")
     assert "[exit code 3]" in shell.shell_run.func(ctx, "exit 3")
@@ -139,15 +173,42 @@ def test_an_app_that_calls_back_has_her_end_her_turn_instead_of_waiting_for_a_jo
     shell.shell_stop.func(ctx, job)
 
 
+def started_job(text):
+    return int(text.split()[2].rstrip(".;"))
+
+
+def job_news(brain, job):
+    return [n for n in brain.store.notifications("cli") if n["type"] == "job.finished" and n["data"]["job"] == job]
+
+
 def test_background_jobs_report_when_they_end(brain, ctx):
     started = shell.shell_run.func(ctx, "echo working", background=True)
-    job = int(started.split()[2].rstrip("."))
+    job = started_job(started)
     wait_for(lambda: brain.store.job(job)["status"] == "finished", 30)
     assert "working" in shell.shell_output.func(ctx, job)
-    # the job is marked finished first, then noted and announced
-    assert wait_for(lambda: brain.store.notifications("cli"))[-1]["type"] == "job.finished"
-    notes = brain.store.events("cli", "main", types=("note",))
+    # the job is marked finished first, then noted; her turn still works, so it reads the note itself
+    notes = wait_for(lambda: [n for n in brain.store.events("cli", "main", types=("note",)) if f"job {job}" in n["text"]])
     assert f"Background job {job} finished with exit code 0" in notes[-1]["text"]
+    time.sleep(1)
+    assert not job_news(brain, job)
+    brain.store.update_run(ctx.run["id"], status="completed")  # the turn ended without a step after the note
+    assert wait_for(lambda: job_news(brain, job))  # so the app calls her back
+
+
+def test_a_job_she_saw_end_in_her_turn_does_not_call_her_back(brain, ctx):
+    job = started_job(shell.shell_run.func(ctx, "echo working", background=True))
+    wait_for(lambda: [n for n in brain.store.events("cli", "main", types=("note",)) if f"job {job}" in n["text"]])
+    brain.store.add_event("cli", "main", ctx.run["id"], "assistant",  # her next step read the note
+                          {"message": {"role": "assistant", "content": "The command finished."}})
+    brain.store.update_run(ctx.run["id"], status="completed")
+    time.sleep(1.5)
+    assert not job_news(brain, job)
+
+
+def test_a_job_that_ends_while_she_is_idle_calls_her_back_at_once(brain, ctx):
+    brain.store.update_run(ctx.run["id"], status="completed")
+    job = started_job(shell.shell_run.func(ctx, "echo working", background=True))
+    assert wait_for(lambda: job_news(brain, job))
 
 
 def test_an_app_lists_its_jobs_and_stops_one(brain, ctx):

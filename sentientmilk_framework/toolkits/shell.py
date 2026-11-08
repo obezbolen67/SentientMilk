@@ -16,6 +16,7 @@ from .files import cwd as working_folder
 from .files import resolve
 
 WAIT, MAX_WAIT = 30, 600  # seconds shell_run waits before a command becomes a job; the longest shell_output wait
+WORKING = ("queued", "working", "input_required")  # a run in these reads a note at its next step
 OUTPUT_LINES = 200
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -29,8 +30,11 @@ def command_line(setting: str, command: str) -> list:
     if name in ("powershell", "pwsh"):
         # PowerShell 5.1 writes in the console code page unless told otherwise.
         prefix = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $ProgressPreference = 'SilentlyContinue'; "
+        # Its own exit code is 1 for any failure, and `2>&1` makes a program's stderr lines errors: a program
+        # that exits 0 with a warning "failed". The last program's own exit code says how it went.
+        suffix = "\n$ok = $?; if ($LASTEXITCODE -is [int]) { exit $LASTEXITCODE } elseif (-not $ok) { exit 1 }"
         return ["powershell.exe" if name == "powershell" else "pwsh", "-NoLogo", "-NoProfile", "-NonInteractive",
-                "-Command", prefix + command]
+                "-Command", prefix + command + suffix]
     if name == "cmd":
         return ["cmd.exe", "/d", "/s", "/c", command]
     return [name, "-c", command]
@@ -72,8 +76,8 @@ def _folder(ctx: ToolContext, folder: str) -> Path:
     "background": "Start it as a job and return at once: for servers, watchers and anything you know is long."})
 def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT,
               background: bool = False):
-    """Run a command in {shell}. Output (stdout and stderr together) comes back with the exit code; a
-    command still running after timeout goes on as a background job, so you can work on while it runs.
+    """Run a command in {shell}. Output (stdout and stderr together, so no 2>&1) comes back with the exit
+    code; a command still running after timeout goes on as a background job, so you can work on while it runs.
     No shell state carries over between calls: pass cwd instead of cd, and set variables in the same command.
     Prefer files_read/files_search/files_edit over cat, grep and sed."""
     if not command.strip():
@@ -147,11 +151,17 @@ def _watch(brain, job: int, process: subprocess.Popen, output) -> None:
     brain.store.update_job(job, status="stopped" if stopped else "finished", exit_code=code, ended=time.time())
     brain.jobs.pop(job, None)
     tail = "\n".join(_lines(record["log"])[-15:])
-    brain.note(record["app"], record["session"],
-               f"Background job {job} {'was stopped' if stopped else f'finished with exit code {code}'}: "
-               f"{record['command']}\nLast lines:\n{tail}")
-    brain.notify(record["app"], record["session"], "job.finished",
-                 {"job": job, "exit_code": code, "command": record["command"]})
+    app, session = record["app"], record["session"]
+    note = brain.note(app, session, f"Background job {job} {'was stopped' if stopped else f'finished with exit code {code}'}: "
+                                    f"{record['command']}\nLast lines:\n{tail}")
+    # A run of hers still working in the session reads the note at its next step: the app calls her back
+    # (a new turn) only if no step of hers came after the note by the time that run ends.
+    for run in brain.store.runs(app, statuses=WORKING, session=session):
+        while brain.store.run(run["id"])["status"] in WORKING and not brain.stopping.is_set():
+            time.sleep(0.5)
+    if brain.stopping.is_set() or brain.store.events(app, session, after=note["id"], types=("assistant",)):
+        return
+    brain.notify(app, session, "job.finished", {"job": job, "exit_code": code, "command": record["command"]})
 
 
 def _lines(path: str) -> list:

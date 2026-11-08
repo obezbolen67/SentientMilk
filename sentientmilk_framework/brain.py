@@ -396,9 +396,9 @@ class Brain:
 
     # ============== Telling ==============
 
-    def note(self, app: str, session: str, text: str) -> None:
+    def note(self, app: str, session: str, text: str) -> dict:
         """Something the model should know at its next step in that session (a task ended, a job finished)."""
-        self.store.add_event(app, session, None, "note", {"text": text})
+        return self.store.add_event(app, session, None, "note", {"text": text})
 
     def notify(self, app: str, session: Optional[str], type: str, data: dict) -> None:
         notification = self.store.notify(app, session, type, data)
