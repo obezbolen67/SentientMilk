@@ -8,6 +8,7 @@ from conftest import turn
 from test_plugins import make_plugin
 
 from sentientmilk_framework import BrainError, mentions
+from sentientmilk_framework.testing import tool_call
 
 
 def chat(brain, session, title, *exchanges, app="cli"):
@@ -140,3 +141,82 @@ def test_the_picker_endpoints(brain):
     assert card.startswith('[Mentioned session "Groceries"')
     with pytest.raises(BrainError, match="No session chat-9"):
         brain.client.mention_card("cli", "session", "chat-9", session="main")
+
+
+def picture(path, size=(40, 30)):
+    from PIL import Image
+    Image.new("RGB", size, (200, 120, 40)).save(path)
+    return path
+
+
+def attached(path, label=None):
+    return {"type": "mention", "kind": "file", "ref": str(path), "label": label or path.name, "attached": True}
+
+
+def test_an_attached_file_comes_as_its_path_and_excerpt_and_she_may_read_it(brain, tmp_path):
+    away = tmp_path / "elsewhere"  # outside the folders open to her
+    away.mkdir()
+    notes = away / "notes.txt"
+    notes.write_text("buy oat milk\nand bread", encoding="utf-8")
+    blob = away / "archive.bin"
+    blob.write_bytes(bytes(range(256)) * 4)
+    brain.provider.replies += [tool_call("files_read", {"path": str(notes)}), "Oat milk and bread.",
+                               tool_call("files_read", {"path": str(away / "other.txt")}), "Not open to me."]
+    (away / "other.txt").write_text("secret", encoding="utf-8")
+    turn(brain, "cli", "what is on it?", items=[attached(notes), attached(blob)])
+    sent = brain.provider.sent[-2]["messages"][-1]["content"]
+    assert f"[Attached file {notes} · " in sent and "buy oat milk" in sent
+    assert f"[Attached file {blob} · " in sent and "binary" in sent
+    read = brain.provider.sent[-1]["messages"][-1]["content"]
+    assert "buy oat milk" in read and "outside the folders" not in read  # files_read opened the attached file
+    turn(brain, "cli", "and the other one?")
+    assert "outside the folders" in brain.provider.sent[-1]["messages"][-1]["content"]  # only what was attached
+    entry = brain.client.history("cli", "main")[-4]
+    assert entry["text"] == "what is on it?" and entry["mentions"][0] == {
+        "kind": "file", "ref": str(notes), "label": "notes.txt", "attached": True}
+
+
+def test_an_attached_picture_comes_inline_or_as_its_path(brain, tmp_path):
+    photo = picture(tmp_path / "cat.png")
+    turn(brain, "cli", "", items=[attached(photo)])  # attachments alone are a message
+    content = brain.provider.sent[-1]["messages"][-1]["content"]
+    assert isinstance(content, list) and content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert f"[Attached picture {photo} · " in content[0]["text"] and "picture 1 with this message]" in content[0]["text"]
+    entry = brain.client.history("cli", "main")[-2]
+    assert entry["text"] == "" and entry["mentions"][0]["attached"] is True
+
+    fake = tmp_path / "broken.png"
+    fake.write_bytes(b"not a picture")
+    turn(brain, "cli", "and these", items=[attached(fake), attached(picture(tmp_path / "dog.jpg"))])
+    content = brain.provider.sent[-1]["messages"][-1]["content"]
+    assert "broken.png" in content[0]["text"] and "only its path, as it does not read as a picture]" in content[0]["text"]
+    assert "picture 1 with this message]" in content[0]["text"] and len(content) == 2  # the second is picture 1
+
+    brain.client.update_config(vision=False)
+    turn(brain, "cli", "now?", items=[attached(photo)])
+    content = brain.provider.sent[-1]["messages"][-1]["content"]
+    assert isinstance(content, str) and "only its path, as images are off here]" in content
+
+
+def test_attachments_are_checked(brain, tmp_path):
+    with pytest.raises(BrainError, match="at most 20 attachments"):
+        turn(brain, "cli", "many", items=[attached(tmp_path / f"{n}.txt") for n in range(21)])
+    with pytest.raises(BrainError, match="for a file mention"):
+        turn(brain, "cli", "odd", items=[{"type": "mention", "kind": "session", "ref": "x", "attached": True}])
+    turn(brain, "cli", "gone?", items=[attached(tmp_path / "nothing.txt")])
+    assert "[Attached file " in brain.provider.sent[-1]["messages"][-1]["content"]
+    assert "nothing.txt: it no longer exists]" in brain.provider.sent[-1]["messages"][-1]["content"]
+    turn(brain, "cli", "private?", items=[attached(brain.home / "config.json")])
+    assert "SentientMilk's own folder" in brain.provider.sent[-1]["messages"][-1]["content"]
+    turn(brain, "cli", "nine", items=[attached(tmp_path / "nothing.txt")] * 9)
+
+
+def test_a_message_of_attachments_only_is_a_place_to_return_to(brain, tmp_path):
+    photo = picture(tmp_path / "cat.png")
+    turn(brain, "cli", "hello")
+    turn(brain, "cli", "", items=[attached(photo)])
+    entry = brain.client.history("cli", "main")[-2]
+    preview = brain.client.rewind_preview("cli", "main", entry["id"])
+    assert preview["text"] == "" and preview["mentions"][0]["attached"] is True and preview["messages"] == 1
+    brain.client.rewind("cli", "main", entry["id"])
+    assert [e["text"] for e in brain.client.history("cli", "main")] == ["hello", "OK"]

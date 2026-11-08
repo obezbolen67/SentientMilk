@@ -90,7 +90,7 @@ def _plan(brain, app: str, session: str, event: int) -> Tuple[dict, dict]:
     store = brain.store
     target = store.event(event)
     if not target or (target["app"], target["session"], target["type"]) != (app, session, "input") or \
-            not target.get("display"):
+            target.get("display") is None:
         raise ValueError(f"{event} is not a message the user sent in this chat")
     return target, _work(store, app, session, target)
 
@@ -172,7 +172,7 @@ def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
     return {
         "to": target["id"], "text": target["display"], "mentions": target.get("mentions") or [],
         "skills": target.get("skills") or [],
-        "messages": sum(1 for e in later if e["type"] == "input" and e.get("display")),
+        "messages": sum(1 for e in later if e["type"] == "input" and e.get("display") is not None),
         "todo": _todo(store, app, session, target) != found["state"].get("todo", []),
         "agents": [{"id": agent_id, "name": record["name"]} for agent_id, record in work["agents"]],
         "stopped": stopped,

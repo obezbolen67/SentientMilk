@@ -68,6 +68,8 @@ def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:
     allowed = roots(ctx) + [ctx.run_dir(), ctx.brain.skills.folder.resolve()]  # her skills: to read and write
     if not write:
         allowed += [ctx.brain.home / "runs", ctx.brain.skills.built_in.resolve()]  # saved outputs, shipped skills
+        # what the user attached in this chat, wherever it is (mentions.attachment)
+        allowed += [Path(p) for p in ctx.store.session(ctx.app, ctx.session)["state"].get("attached", [])]
     if not any(_inside(target, root) for root in allowed):
         opened = ", ".join(str(root) for root in roots(ctx)) or "none"
         raise ToolError(f"{target} is outside the folders open to you here (opened: {opened}).")

@@ -1,19 +1,27 @@
 """@ mentions: what the user points the brain at in a message (one of the app's sessions, an agent of this
 session, a plugin, a file or folder), as a compact card the model reads with the message. The same cards
 serve an app's picker preview and the sessions toolkit; the matches for the picker come from here too.
-A card is stored with the message it came with, so the model sees the same text on every later call."""
+A card is stored with the message it came with, so the model sees the same text on every later call.
 
+An attachment is a file mention with ``attached``: its card says Attached, a picture comes with the message as
+an image the model sees (when it sees images), and the model may read the file (and inside an attached folder)
+with the file tools from then on, wherever it is."""
+
+import base64
 import os
 import re
 import time
 from pathlib import Path
 from typing import List, Optional
 
+from . import transport
 from .toolkits import ToolError
-from .toolkits.files import closed
+from .toolkits.files import IMAGES, closed
 
 KINDS = ("session", "agent", "plugin", "file")
 MAX_MENTIONS = 8  # in one message
+MAX_ATTACHMENTS = 20  # in one message, besides its mentions
+PICTURE_BYTES = 20 * 1024 * 1024  # an attached picture bigger than this goes as its path only
 CARD_CHARS, CARDS_CHARS = 1_500, 10_000  # one card; all the cards of a message
 PER_KIND, ONE_KIND = 5, 30  # matches of each kind, or of the one kind asked for
 LAST_TURNS = 4  # entries in a session card: the last two exchanges
@@ -273,27 +281,74 @@ def candidates(brain, app: str, session: str, query: str = "", kind: Optional[st
 
 
 def resolve(brain, app: str, session: str, items: List[dict]) -> List[dict]:
-    """Turn input with each mention's card filled in. One that names nothing any more becomes a line saying
-    so; the turn goes on either way."""
-    room, result = CARDS_CHARS, []
+    """Turn input with each mention's card filled in, and each attached picture after its card. One that names
+    nothing any more becomes a line saying so; the turn goes on either way."""
+    room, result, pictures = CARDS_CHARS, [], 0
     for item in items:
         if item["type"] != "mention" or "card" in item:
             result.append(item)
             continue
+        verb, picture = "Attached" if item.get("attached") else "Mentioned", None
         try:
-            text = card(brain, app, session, item["kind"], item["ref"])
+            if item.get("attached"):
+                text, picture = attachment(brain, app, session, item["ref"], pictures)
+            else:
+                text = card(brain, app, session, item["kind"], item["ref"])
         except Missing:
-            text = f"[Mentioned {item['kind']} {item['ref']}: it no longer exists]"
+            text = f"[{verb} {item['kind']} {item['ref']}: it no longer exists]"
         except (ValueError, OSError) as exc:
-            text = f"[Mentioned {item['kind']} {item['ref']}: {exc}]"
-        if len(text) > room:
-            text = f"[Mentioned {item['kind']} {item['ref']}: left out, the message's mentions are too long]"
+            text = f"[{verb} {item['kind']} {item['ref']}: {exc}]"
+        if len(text) > room:  # an attachment keeps its first line: its path
+            text = text.split("\n", 1)[0] if item.get("attached") else \
+                f"[Mentioned {item['kind']} {item['ref']}: left out, the message's mentions are too long]"
         room -= len(text)
         result.append({**item, "card": text})
+        if picture:
+            result.append(picture)
+            pictures += 1
     return result
+
+
+def attachment(brain, app: str, session: str, ref: str, pictures: int = 0) -> tuple:
+    """(card, picture or None) for a file the user attached: a picture comes as an image item the model sees,
+    or, when it cannot, its path and why. From now on the model may read it with the file tools."""
+    path = Path(os.path.expanduser(str(ref).strip())).resolve()
+    if closed(brain.home, path):
+        raise ValueError(f"{path} is in SentientMilk's own folder (its settings, keys and plugins): it cannot be "
+                         "attached.")
+    if not path.exists():
+        raise Missing(f"There is no file or folder {path}.")
+    _open_to(brain, app, session, path)
+    if not (path.is_file() and path.suffix.lower() in IMAGES):
+        return _file_card(brain, app, session, str(path), set(brain.profile(app, session)["toolkits"])).replace(
+            "[Mentioned", "[Attached", 1), None
+    info = path.stat()
+    head = f"[Attached picture {path} · {size(info.st_size)} · modified {stamp(info.st_mtime)}"
+    if not brain.config.values()["vision"]:
+        return f"{head}: only its path, as images are off here]", None
+    if info.st_size > PICTURE_BYTES:
+        return f"{head}: only its path, as it is bigger than {size(PICTURE_BYTES)}]", None
+    try:
+        url = transport.validate_image(f"data:{IMAGES[path.suffix.lower()]};base64,"
+                                       + base64.b64encode(path.read_bytes()).decode("ascii"))
+    except ValueError:
+        return f"{head}: only its path, as it does not read as a picture]", None
+    return f"{head}: picture {pictures + 1} with this message]", {
+        "type": "image", "url": transport.encode_image(url, transport.IMAGE)}
+
+
+def _open_to(brain, app: str, session: str, path: Path) -> None:
+    """The model may read what the user attached, wherever it is (files.resolve)."""
+    def change(state):
+        opened = state.setdefault("attached", [])
+        if str(path) not in opened:
+            opened.append(str(path))
+        return state
+    brain.store.update_session(app, session, "state", change)
 
 
 def stored(items: List[dict]) -> dict:
     """What an input event keeps of its mentions, for apps to show them again: {} without any."""
-    found = [{"kind": i["kind"], "ref": i["ref"], "label": i["label"]} for i in items if i["type"] == "mention"]
+    found = [{"kind": i["kind"], "ref": i["ref"], "label": i["label"], **({"attached": True} if i.get("attached") else {})}
+             for i in items if i["type"] == "mention"]
     return {"mentions": found} if found else {}

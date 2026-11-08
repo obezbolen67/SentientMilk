@@ -113,7 +113,11 @@ def validate_items(items: Any) -> List[dict]:
             ref, name = item.get("ref"), item.get("label") or item.get("ref")
             if not isinstance(ref, str) or not ref.strip() or len(ref) > 1000 or not isinstance(name, str):
                 raise ValueError("a mention needs a ref (at most 1000 characters) and a text label")
-            result.append({"type": "mention", "kind": item["kind"], "ref": ref.strip(), "label": name.strip()[:200]})
+            attached = item.get("attached", False)
+            if not isinstance(attached, bool) or (attached and item["kind"] != "file"):
+                raise ValueError("attached (true or false) is for a file mention: a file the user attached")
+            result.append({"type": "mention", "kind": item["kind"], "ref": ref.strip(), "label": name.strip()[:200],
+                           **({"attached": True} if attached else {})})
         elif item["type"] == "skill":
             name, arguments = item.get("name"), item.get("arguments", "")
             if not isinstance(name, str) or not skills.NAME.fullmatch(name.strip().lstrip("/")) or \
@@ -128,8 +132,10 @@ def validate_items(items: Any) -> List[dict]:
                 raise ValueError("event text must be a string and data an object")
             result.append({"type": "event", "name": item["name"], "text": item.get("text", ""),
                            **({"data": item["data"]} if item.get("data") else {})})
-    if sum(item["type"] == "mention" for item in result) > mentions.MAX_MENTIONS:
+    if sum(item["type"] == "mention" and not item.get("attached") for item in result) > mentions.MAX_MENTIONS:
         raise ValueError(f"a message can carry at most {mentions.MAX_MENTIONS} mentions")
+    if sum(bool(item.get("attached")) for item in result) > mentions.MAX_ATTACHMENTS:
+        raise ValueError(f"a message can carry at most {mentions.MAX_ATTACHMENTS} attachments")
     return result
 
 
@@ -351,7 +357,7 @@ class Brain:
                                 "seconds": None if start is None else round(event["at"] - start, 3)})
             elif event["type"] == "shown":
                 entries.append({"role": event["role"], "text": event["text"], "time": event["at"]})
-            elif event["type"] == "input" and event.get("display"):
+            elif event["type"] == "input" and event.get("display") is not None:  # "" when only files came
                 entries.append({"id": event["id"], "role": "user", "text": event["display"], "time": event["at"],
                                 **({"mentions": event["mentions"]} if event.get("mentions") else {})})
             elif event["type"] == "end" and event.get("reply"):

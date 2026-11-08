@@ -126,7 +126,12 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   (`{"type": "mention", "kind": "session", "ref": "chat-1", "label": "Groceries"}`; kinds:
   `session`, `agent`, `plugin`, `file`). The brain turns each mention into a short card
   after the user's text and keeps it with the message; history entries list them as
-  `mentions`, and `GET /apps/{app}/mentions` offers what an `@` picker shows. With `reply="optional"` the
+  `mentions`, and `GET /apps/{app}/mentions` offers what an `@` picker shows. A file the user
+  **attached** is a file mention with `"attached": true` (up to 20 a message, not counted as
+  mentions; a message may be attachments alone): the model gets its path (with the start of a
+  text file), a picture inline as well when images are on and it reads as one (up to 20 MB;
+  otherwise its path and why), and the file tools may read it from then on in that session,
+  wherever it is. With `reply="optional"` the
   brain may stay silent (`result["silent"]`). `context` adds a line such as the user's
   name; the time is always added.
 - With **signals** declared, replies start with one JSON line (`{"mood": "calm"}`) that the

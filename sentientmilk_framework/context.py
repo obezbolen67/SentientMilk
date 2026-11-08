@@ -160,12 +160,14 @@ def input_content(items: List[dict], context: Dict[str, str], *, reminders: List
             images.append(item["url"])
     tail = "\n".join(f"[{reminder}]" for reminder in reminders)
     text = "\n".join(texts + (["", *cards] if cards else []))
+    # what the user said; "" for a message of attached files only (still theirs: shown, a place to return to)
+    said = "\n".join(display) or ("" if any(item.get("attached") for item in items) else None)
     if not images:
-        return (text + ("\n\n" + tail if tail else "")), ("\n".join(display) or None)
+        return (text + ("\n\n" + tail if tail else "")), said
     blocks = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": u}} for u in images]
     if tail:
         blocks.append({"type": "text", "text": tail})
-    return blocks, ("\n".join(display) or None)
+    return blocks, said
 
 
 # ============== History ==============
