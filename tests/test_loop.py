@@ -302,6 +302,19 @@ def test_the_last_step_of_the_budget_asks_for_an_answer(brain, monkeypatch):
     assert "last step" in brain.provider.last_user_text()
 
 
+def test_an_empty_reply_goes_back_once_for_words_the_user_can_read(brain, monkeypatch):
+    brain.provider.replies += ["", "Done: the folder is clean."]
+    assert brain.client.turn("cli", "main", "tidy up")["reply"] == "Done: the folder is clean."
+    assert "empty" in brain.provider.last_user_text()
+    brain.provider.replies += ["", ""]  # once, not again and again
+    assert brain.client.turn("cli", "main", "again")["reply"] == ""
+    brain.provider.replies += [""]  # an optional reply may be empty: that is silence
+    assert brain.client.turn("cli", "main", "a job ended", reply="optional")["silent"]
+    monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 1)
+    brain.provider.replies += [""]  # on the last step an empty reply beats a budget error
+    assert brain.client.turn("cli", "main", "last")["reply"] == ""
+
+
 def test_the_step_budget_stops_runaway_loops(brain, monkeypatch):
     monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 3)
     brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"x{i}") for i in range(5)]

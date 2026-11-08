@@ -36,6 +36,8 @@ SEARCH_LIMIT, LOAD_LIMIT, SUMMARY_CHARS = 20, 20, 120
 APP_TOOLS = "this app's own"  # how MORE TOOLS names the app's actions
 META_TOOLS = ("tools_search", "tools_load")
 VERIFY_ROUNDS = 2
+EMPTY_REPLY = ("Your reply was empty, so the user saw nothing. Answer them now: what you did, what you found, "
+               "and what still runs.")
 LAST_STEP = ("This is your last step (the step budget): call no tools. Answer now with what you did, what you found "
              "and what is left to do.")
 INTERRUPTED_CALL = ("The brain stopped while this call was running. It may or may not have finished: check its "
@@ -648,6 +650,12 @@ class Loop:
         silent = run["options"].get("reply") == "optional" and signal_format.is_silent(reply)
         if silent:
             reply = ""
+        elif not reply and run["kind"] == "turn" and not run["options"].get("asked_for_words"):
+            steps = sum(1 for e in self.brain.store.run_events(run["id"]) if e["type"] == "assistant")
+            if steps < run["options"].get("max_steps", STEP_BUDGET["turn"]):  # once, and not on the last step
+                self.brain.store.update_run_options(run["id"], lambda options: {**options, "asked_for_words": True})
+                self.brain.note(run["app"], run["session"], EMPTY_REPLY)
+                return False
         if run["kind"] == "task" and run["options"].get("verify"):
             rounds = run["options"].get("verify_rounds", 0)
             if rounds < VERIFY_ROUNDS:
