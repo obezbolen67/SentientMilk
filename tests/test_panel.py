@@ -158,7 +158,38 @@ def test_a_plugin_she_made_is_trusted_here(brain):
     run(brain, scenario)
 
 
+def test_skills_show_here_and_hers_are_removed_after_asking(brain, monkeypatch):
+    folder = brain.home / "skills" / "packing-lists"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text("---\ndescription: Makes packing lists. Use for trips.\nargument-hint: '[trip]'\n"
+                                     "---\nList by bag.\n", encoding="utf-8")
+    opened = []
+    monkeypatch.setattr("sentientmilk_framework.panel.open_folder", opened.append)
+
+    async def scenario(panel, pilot):
+        panel.action_tab("skills")
+        table = panel.query_one("#skill-table", DataTable)
+        await until(pilot, lambda: table.row_count == 2)
+        assert [str(cell) for cell in table.get_row("packing-lists")][:2] == ["packing-lists", "you and her"]
+        table.move_cursor(row=table.get_row_index("packing-lists"))
+        await pilot.pause(0.1)
+        detail = str(panel.query_one("#skill-detail").render())
+        assert "Start it: /packing-lists [trip]" in detail and "packing-lists" in detail
+        await press(pilot, panel, "skill-open")
+        assert opened == [folder]
+        table.move_cursor(row=table.get_row_index("skill-creator"))
+        await press(pilot, panel, "skill-remove")
+        assert panel.screen is panel.main  # built in: nothing to ask
+        table.move_cursor(row=table.get_row_index("packing-lists"))
+        await press(pilot, panel, "skill-remove")
+        await press(pilot, panel, "yes")
+        await until(pilot, lambda: table.row_count == 1)
+    run(brain, scenario)
+    assert not folder.exists()
+
+
 def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
     panel = Panel(brain.home)  # no screens: as while it closes, with a row highlight still queued
     panel.show_plugin()
+    panel.show_skill()
     panel.show_task()

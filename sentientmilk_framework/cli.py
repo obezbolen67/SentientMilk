@@ -36,7 +36,7 @@ CLI_DECLARATION = {
     "name": "SentientMilk",
     "environment": "You are talking with the user in a text terminal on their computer. Format replies as short "
                    "Markdown; show commands and code in fenced blocks.",
-    "toolkits": ["files", "shell", "web", "todo", "memory", "journal", "agents", "schedule", "mcp:*"],
+    "toolkits": ["files", "shell", "web", "todo", "memory", "journal", "agents", "schedule", "skills", "mcp:*"],
 }
 
 
@@ -114,7 +114,8 @@ def _chat(client, session: str) -> None:
     folder = os.getcwd()
     client.update_session(CLI_APP, session, cwd=folder, roots=[folder])
     threading.Thread(target=_notifications, args=(client, CLI_APP), daemon=True).start()
-    print(f"Talking to the brain in {folder}. /clear forgets this conversation, /tasks lists tasks, /exit leaves.")
+    print(f"Talking to the brain in {folder}. /clear forgets this conversation, /tasks lists tasks, /skills lists "
+          "skills (/name starts one), /exit leaves.")
     while True:
         try:
             text = input("\nyou> ").strip()
@@ -130,12 +131,18 @@ def _chat(client, session: str) -> None:
             for task in client.tasks(CLI_APP):
                 print(f"  {task['id']} {task['status']}: {task['options'].get('goal', '')[:100]}")
             continue
+        if text == "/skills":
+            for skill in client.skills():
+                state = f"broken: {skill['error']}" if skill["error"] else skill["description"]
+                print(f"  /{skill['name']} {skill['argument_hint']}".rstrip() + f"  {state[:100]}")
+            continue
         if not text:
             continue
+        items = _skill_items(client, text)
         view = _ChatView()
         try:
-            result = client.turn(CLI_APP, session, text, context={"user": getpass.getuser()},
-                                 on_event=view.event, on_approval=view.approve)
+            result = client.turn(CLI_APP, session, None if items else text, items=items,
+                                 context={"user": getpass.getuser()}, on_event=view.event, on_approval=view.approve)
             if not view.streamed:
                 print("\n" + result["reply"])
             else:
@@ -146,6 +153,15 @@ def _chat(client, session: str) -> None:
             print("\n(interrupted: the brain stops after its current step)")
         except BrainError as exc:
             print(f"\n[{exc.type}] {exc.message}" + (f"\n{exc.details}" if exc.details else ""))
+
+
+def _skill_items(client, text: str) -> list:
+    """/name and what follows, when name is a skill the user may start: the turn's input; else nothing."""
+    if not text.startswith("/"):
+        return []
+    name, _, arguments = text[1:].partition(" ")
+    found = next((s for s in client.skills() if s["name"] == name and s["user_invocable"]), None)
+    return [{"type": "skill", "name": name, "arguments": arguments.strip()}] if found else []
 
 
 def _tasks(client, args) -> None:

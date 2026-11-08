@@ -6,7 +6,10 @@ are changed here, through the brain's own API, and every app uses them from its 
 
 from __future__ import annotations
 
+import os
 import shlex
+import subprocess
+import sys
 import time
 from datetime import datetime
 from functools import partial
@@ -47,7 +50,7 @@ OK, WARN, BAD, MUTED, ACCENT = "#7bd88f", "#f2c35b", "#ff6b7a", "#8b8fa3", "#b3a
 THEME = Theme(name="sentientmilk", primary=ACCENT, secondary="#7fd1c7", accent="#ffd59e", foreground="#e9e6f2",
               background="#0d0f15", surface="#141720", panel="#1b1f2c", success=OK, warning=WARN, error=BAD)
 FlatButton = partial(Button, flat=True)  # muted until hovered: calmer than solid blocks
-TABS = ("overview", "provider", "apps", "work", "journal", "tools", "plugins", "logs")
+TABS = ("overview", "provider", "apps", "work", "journal", "tools", "plugins", "skills", "logs")
 SHELL_NAMES = {"": "Automatic (Windows PowerShell on Windows, bash elsewhere)", "powershell": "Windows PowerShell 5.1",
                "pwsh": "PowerShell 7", "bash": "bash", "sh": "sh", "cmd": "cmd.exe"}
 STATUS_COLORS = {"working": ACCENT, "queued": MUTED, "input_required": WARN, "completed": OK, "failed": BAD,
@@ -101,6 +104,14 @@ def fill(table: DataTable, rows: Rows) -> None:
     keys = [key for key, _ in rows]
     if selected in keys:
         table.move_cursor(row=keys.index(selected))
+
+
+def open_folder(folder: Path) -> None:
+    """In the file manager, beside the panel."""
+    if sys.platform == "win32":
+        os.startfile(folder)  # noqa: S606 (a folder of ours)
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(folder)])
 
 
 def selected_key(table: DataTable) -> Optional[str]:
@@ -299,6 +310,7 @@ class Panel(App):
         self.app_record: dict = {}
         self.log_offset = 0
         self.plugins: dict = {}
+        self.skills: dict = {}
 
     @property
     def main(self) -> Screen:
@@ -326,6 +338,8 @@ class Panel(App):
                 yield from self.compose_tools()
             with TabPane("Plugins", id="plugins"):
                 yield from self.compose_plugins()
+            with TabPane("Skills", id="skills"):
+                yield from self.compose_skills()
             with TabPane("Logs", id="logs"):
                 yield Static("The brain's own log, live.", classes="hint")
                 yield RichLog(id="log", wrap=True, highlight=True, max_lines=2000)
@@ -496,6 +510,18 @@ class Panel(App):
                     yield FlatButton("Reload", id="plugin-reload")
                     yield FlatButton("Remove", id="plugin-remove", variant="error")
 
+    def compose_skills(self) -> ComposeResult:
+        yield Static("Skills are instructions she loads when a task needs them, in every app; you start one with "
+                     "/name. Ask her to make one, or put a skill's folder (with its SKILL.md) in her skills folder.",
+                     classes="hint")
+        with VerticalScroll():
+            with Vertical(classes="card", id="skills-card"):
+                yield DataTable(id="skill-table", cursor_type="row", zebra_stripes=True)
+                yield Static("", id="skill-detail")
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Open folder", id="skill-open", variant="primary")
+                    yield FlatButton("Remove", id="skill-remove", variant="error")
+
     def on_mount(self) -> None:
         self.register_theme(THEME)
         self.theme = "sentientmilk"
@@ -518,6 +544,7 @@ class Panel(App):
             "notes": ("When", "App", "Note"),
             "mcp": ("Server", "State", "Tools", "Runs", "Problem"),
             "plugin-table": ("Plugin", "Version", "State", "Tools", "From"),
+            "skill-table": ("Skill", "Started by", "State", "Description"),
         }
         for table, names in columns.items():
             self.main.query_one(f"#{table}", DataTable).add_columns(*names)
@@ -584,6 +611,7 @@ class Panel(App):
         self.load_apps()
         self.load_tools()
         self.load_plugins()
+        self.load_skills()
         self.refresh_live()
 
     def refresh_live(self) -> None:
@@ -1004,6 +1032,55 @@ class Panel(App):
             self.call_from_thread(self.notify, f"{installed['name']} {installed['version']} installed and on.")
             self.call_from_thread(self.load_plugins)
 
+    # ============== Skills ==============
+
+    def load_skills(self) -> None:
+        skills = self.call(lambda c: c.skills(), quiet=True)
+        if skills is None:
+            return
+        self.skills = {skill["name"]: skill for skill in skills}
+        rows = []
+        for skill in skills:
+            who = "nobody" if skill["error"] else "you and her" if skill["model_invocable"] and \
+                skill["user_invocable"] else "her" if skill["model_invocable"] else "you" if skill["user_invocable"] \
+                else "nobody"
+            state = f"[{BAD}]broken[/]" if skill["error"] else f"[{MUTED}]built in[/]" if skill["builtin"] else \
+                f"[{OK}]ready[/]"
+            rows.append((skill["name"], (skill["name"], who, state, cut(skill["description"], 70))))
+        fill(self.main.query_one("#skill-table", DataTable), rows)
+        self.show_skill()
+
+    @on(DataTable.RowHighlighted, "#skill-table")
+    def show_skill(self) -> None:
+        if not self.screen_stack:
+            return  # the panel closed with this row highlight still queued
+        skill = self.skills.get(selected_key(self.main.query_one("#skill-table", DataTable)) or "")
+        if not skill:
+            return self.main.query_one("#skill-detail", Static).update("")
+        lines = [escape(skill["description"])]
+        if skill["error"]:
+            lines.append(f"[{BAD}]{escape(skill['error'])}[/]")
+        if skill["user_invocable"]:
+            lines.append(escape(f"Start it: /{skill['name']} {skill['argument_hint']}".rstrip()))
+        lines.append(f"[{MUTED}]{escape(skill['path'])}[/]")
+        self.main.query_one("#skill-detail", Static).update("\n".join(lines))
+
+    def skill_button(self, button: str) -> None:
+        name = selected_key(self.main.query_one("#skill-table", DataTable))
+        skill = self.skills.get(name or "")
+        if button == "skill-open":
+            folder = Path(skill["path"]) if skill and not skill["builtin"] else self.home / "skills"
+            folder.mkdir(parents=True, exist_ok=True)
+            return open_folder(folder)
+        if not skill:
+            return
+        if skill["builtin"]:
+            return self.notify(f"{name} comes with SentientMilk. A skill of the same name in your skills folder "
+                               "replaces it.", severity="warning")
+        self.push_screen(Confirm(f"Remove the skill {name}? Its folder is deleted: {skill['path']}", "Remove"),
+                         lambda yes: yes and self.call(lambda c: c.remove_skill(name), done=f"{name} removed.")
+                         and self.load_skills())
+
     # ============== Logs ==============
 
     def tail_log(self) -> None:
@@ -1116,6 +1193,8 @@ class Panel(App):
             self.mcp_button(button)
         elif button and button.startswith("plugin-"):
             self.plugin_button(button)
+        elif button and button.startswith("skill-"):
+            self.skill_button(button)
 
     def clear_session(self) -> None:
         app, session = self.app_id, selected_key(self.main.query_one("#sessions", DataTable))

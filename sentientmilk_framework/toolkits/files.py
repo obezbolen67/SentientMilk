@@ -40,9 +40,9 @@ def _inside(path: Path, root: Path) -> bool:
 
 def closed(home, path: Path) -> bool:
     """Inside SentientMilk's own folder (its settings and keys, plugin trust, the server's token), which no
-    file tool opens nor a mention shows; the saved outputs in its runs folder are the exception."""
+    file tool opens nor a mention shows; the saved outputs in its runs folder and her skills are the exception."""
     home = Path(home).resolve()
-    return _inside(path, home) and not _inside(path, home / "runs")
+    return _inside(path, home) and not _inside(path, home / "runs") and not _inside(path, home / "skills")
 
 
 def private(ctx: ToolContext, path: Path) -> bool:
@@ -65,9 +65,9 @@ def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:
     if private(ctx, target):
         raise ToolError(f"{target} is in SentientMilk's own folder (its settings, keys and plugins): the file tools "
                         "cannot open it. Write plugins in a folder of your own and install them with plugin_install.")
-    allowed = roots(ctx) + [ctx.run_dir()]
+    allowed = roots(ctx) + [ctx.run_dir(), ctx.brain.skills.folder.resolve()]  # her skills: to read and write
     if not write:
-        allowed.append(ctx.brain.home / "runs")  # saved tool outputs
+        allowed += [ctx.brain.home / "runs", ctx.brain.skills.built_in.resolve()]  # saved outputs, shipped skills
     if not any(_inside(target, root) for root in allowed):
         opened = ", ".join(str(root) for root in roots(ctx)) or "none"
         raise ToolError(f"{target} is outside the folders open to you here (opened: {opened}).")
@@ -116,7 +116,7 @@ def syntax_problem(path: Path, text: str) -> Optional[str]:
     return None
 
 
-def _keep_version(ctx: ToolContext, path: Path) -> None:
+def keep_version(ctx: ToolContext, path: Path) -> None:
     """The file as it is before its first change since the session's latest message: returning to a message
     (rewind.py) brings it back. An agent's or a task's versions belong to the chat they work for."""
     chat = (ctx.run["options"].get("profile") or {}).get("from_session") or ctx.session
@@ -289,11 +289,11 @@ def files_edit(ctx: ToolContext, path: str, old: str, new: str, all: bool = Fals
         raise ToolError(f"old occurs {count} times. Add surrounding lines to make it unique, or set all=true.")
     index = text.index(old)
     updated = text.replace(old, new) if all else text.replace(old, new, 1)
-    _keep_version(ctx, target)
+    keep_version(ctx, target)
     _write_checked(target, updated, text)
     _remember_read(ctx, target)
     return f"Edited {target} ({count if all else 1} replacement{'s' if all and count > 1 else ''}):\n" + \
-        _snippet(updated, index, len(new))
+        _snippet(updated, index, len(new)) + _skill_status(ctx, target)
 
 
 @tool(rule_arg="path", args={"path": "The file to create or overwrite.", "content": "The complete new content."})
@@ -306,10 +306,17 @@ def files_write(ctx: ToolContext, path: str, content: str):
             raise ToolError(f"{target} is a folder.")
         _check_fresh(ctx, target)
         old = _read_text(target)
-    _keep_version(ctx, target)
+    keep_version(ctx, target)
     _write_checked(target, content, old)
     _remember_read(ctx, target)
-    return f"Wrote {target} ({content.count(chr(10)) + (1 if content and not content.endswith(chr(10)) else 0)} lines)."
+    lines = content.count(chr(10)) + (1 if content and not content.endswith(chr(10)) else 0)
+    return f"Wrote {target} ({lines} lines)." + _skill_status(ctx, target)
+
+
+def _skill_status(ctx: ToolContext, path: Path) -> str:
+    """A file of a skill changed: whether the skill reads well now."""
+    status = ctx.brain.skills.status(path)
+    return f"\n{status}" if status else ""
 
 
 TOOLKIT = Toolkit("files", "Read, search and change files in the folders opened to you.",

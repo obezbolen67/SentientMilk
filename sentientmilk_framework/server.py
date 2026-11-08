@@ -229,6 +229,11 @@ class _Handler(BaseHTTPRequestHandler):
         elif head == "plugins" and len(rest) == 1 and method == "DELETE":
             brain.remove_plugin(rest[0])
             self._send(200, {"status": "ok"})
+        elif route == ["skills"] and method == "GET":
+            self._send(200, {"skills": brain.skills.public()})
+        elif head == "skills" and len(rest) == 1 and method == "DELETE":
+            brain.skills.remove(rest[0])
+            self._send(200, {"status": "ok"})
         elif route == ["mcp"] and method == "GET":
             from .mcp_host import public
 

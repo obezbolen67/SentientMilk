@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
-from . import context, mentions, permissions, transport
+from . import context, mentions, permissions, skills, transport
 from . import signals as signal_format
 from .agents import Agents
 from .config import BrainConfig, validate_rules, validate_setting
@@ -26,6 +26,7 @@ from .plugins import Plugins
 from .provider import Provider
 from .runs import Bus, Runs
 from .scheduler import Scheduler
+from .skills import Skills
 from .store import Store
 from .toolkits import builtin
 from .toolkits.shell import shell_name
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 NAME = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 DEFAULT_PERSONA = "You are a helpful, capable assistant."
-DEFAULT_TOOLKITS = ["memory", "todo", "journal", "web"]
+DEFAULT_TOOLKITS = ["memory", "todo", "journal", "web", "skills"]
 DECLARATION = {"name": str, "environment": str, "persona": str, "signals": dict, "actions": list,
                "toolkits": list, "rules": dict, "roots": list, "journal": dict,
                "callbacks": bool}  # the app starts a turn when a job or agent of its turn ends: those never wait
@@ -44,7 +45,7 @@ APP_SETTINGS = {"persona": (str, type(None)), "model": str, "disabled_toolkits":
 SESSION_SETTINGS = {"instructions": str, "disabled_toolkits": list, "rules": dict, "roots": list, "cwd": str,
                     "title": str}
 TITLE_CHARS = 80
-ITEM_TYPES = ("text", "image", "event", "mention")
+ITEM_TYPES = ("text", "image", "event", "mention", "skill")
 
 
 def validate_name(value: Any, what: str = "id") -> str:
@@ -91,8 +92,8 @@ def validate_declaration(data: Any) -> dict:
 
 
 def validate_items(items: Any) -> List[dict]:
-    """Turn input: text, image (data URL), event and mention items; images are stored at the size they are
-    sent, mentions become their cards when the turn starts."""
+    """Turn input: text, image (data URL), event, mention and skill items; images are stored at the size they
+    are sent, mentions become their cards and skills (the user's /name) their instructions when the turn starts."""
     if not isinstance(items, list) or not items:
         raise ValueError("input must be a non-empty list of items")
     result = []
@@ -113,6 +114,13 @@ def validate_items(items: Any) -> List[dict]:
             if not isinstance(ref, str) or not ref.strip() or len(ref) > 1000 or not isinstance(name, str):
                 raise ValueError("a mention needs a ref (at most 1000 characters) and a text label")
             result.append({"type": "mention", "kind": item["kind"], "ref": ref.strip(), "label": name.strip()[:200]})
+        elif item["type"] == "skill":
+            name, arguments = item.get("name"), item.get("arguments", "")
+            if not isinstance(name, str) or not skills.NAME.fullmatch(name.strip().lstrip("/")) or \
+                    not isinstance(arguments, str) or len(arguments) > skills.ARGUMENT_CHARS:
+                raise ValueError("a skill item needs the skill's name and may have arguments (text, at most "
+                                 f"{skills.ARGUMENT_CHARS} characters)")
+            result.append({"type": "skill", "name": name.strip().lstrip("/"), "arguments": arguments.strip()})
         else:
             if not isinstance(item.get("name"), str) or not item["name"].strip():
                 raise ValueError("event items need a name")
@@ -134,6 +142,7 @@ class Brain:
         self.jobs: Dict[int, Any] = {}
         self.quiet_jobs: set = set()  # stopped by a return to before they started: their end is not told
         self.plugins = Plugins(self.home)
+        self.skills = Skills(self.home / "skills")
         self.mcp = McpHost(self)
         self.runs = Runs(self)
         self.agents = Agents(self)

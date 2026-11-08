@@ -175,6 +175,12 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
                    {name: kit.description for name, kit in kits.items()})
 
 
+def _stored(items: List[dict]) -> dict:
+    """What an input event keeps for apps besides its text: its mentions, and the skills the user started."""
+    started = [item["name"] for item in items if item["type"] == "skill"]
+    return {**mentions.stored(items), **({"skills": started} if started else {})}
+
+
 def _arguments(call: dict) -> dict:
     raw = (call.get("function") or {}).get("arguments") or "{}"
     try:
@@ -283,10 +289,10 @@ class Loop:
                 store.update_run_options(run["id"], lambda options: {**options, "steer": []})
             runs.attention(run["id"]).settle()
         if items:
-            items = mentions.resolve(self.brain, run["app"], run["session"], items)
+            items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], items))
             content, display = context.input_content(items, {}, reminders=[])
             logged = store.add_event(run["app"], run["session"], run["id"], "input",
-                                     {"content": content, "display": display, **mentions.stored(items)})
+                                     {"content": content, "display": display, **_stored(items)})
             emit({"type": "steered", "text": display or "", "id": logged["id"]})
 
     def _emitter(self, run_id: int) -> Callable[[dict], None]:
@@ -304,10 +310,10 @@ class Loop:
             reminders.append(signal_format.FORMAT_REMINDER)
         if options.get("reply") == "optional":
             reminders.append(signal_format.OPTIONAL_REPLY)
-        items = mentions.resolve(self.brain, run["app"], run["session"], options["input"])
+        items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], options["input"]))
         content, display = context.input_content(items, options.get("context") or {}, reminders=reminders)
         logged = self.brain.store.add_event(run["app"], run["session"], run["id"], "input",
-                                            {"content": content, "display": display, **mentions.stored(items)})
+                                            {"content": content, "display": display, **_stored(items)})
         self.brain.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
         emit({"type": "input", "id": logged["id"], "text": display})
 
@@ -494,7 +500,7 @@ class Loop:
         settings = brain.config.values()
         provider = brain.provider(run["options"].get("model") or profile["model"])
         system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
-                                       toolset.by_name, toolset.listing())
+                                       toolset.by_name, toolset.listing(), brain.skills.prompt())
 
         def text(delta):
             emit({"type": "text.delta", "text": delta})
@@ -633,7 +639,7 @@ class Loop:
             events = [e for e in store.events(app, session, after=compaction["upto"]) if e["type"] != "compaction"]
             turn_tools = brain.toolset(profile, "turn")
             system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
-                                           turn_tools.by_name, turn_tools.listing())
+                                           turn_tools.by_name, turn_tools.listing(), brain.skills.prompt())
             after = context.estimate_tokens(context.project(events, compaction), system)
             store.update_session(app, session, "state", lambda state: {**state, "context_tokens": after})
         self._end(store.run(run["id"]), "completed", emit, extra={"compacted": compacted, "before": before,

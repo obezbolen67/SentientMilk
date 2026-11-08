@@ -295,10 +295,12 @@ class BrainClient:
         """Stop a run at once: waits end, calls still running are left behind, its helpers stop too."""
         self._call("POST", f"/runs/{run}/cancel", {})
 
-    def steer(self, run: int, text: str, items: Optional[List[dict]] = None) -> None:
+    def steer(self, run: int, text: Optional[str], items: Optional[List[dict]] = None) -> None:
         """Send a message to a turn that works: it reaches the model at its next step. ``items``: more input
-        with it, such as mentions. Raises ``ended`` when the turn is over: send it as a new turn then."""
-        self._call("POST", f"/runs/{run}/steer", {"input": [{"type": "text", "text": text}] + list(items or [])})
+        with it, such as mentions, or instead of text (a skill the user started). Raises ``ended`` when the turn
+        is over: send it as a new turn then."""
+        inputs = ([{"type": "text", "text": text}] if text else []) + list(items or [])
+        self._call("POST", f"/runs/{run}/steer", {"input": inputs})
 
     def detach(self, run: int) -> None:
         self._call("POST", f"/runs/{run}/detach", {})
@@ -378,6 +380,15 @@ class BrainClient:
 
     def remove_plugin(self, name: str) -> None:
         self._call("DELETE", f"/plugins/{quote(name, safe='')}")
+
+    def skills(self) -> List[dict]:
+        """Every skill: name, description, argument_hint, model_invocable (she may load it), user_invocable (the
+        user may start it: a ``skill`` input item, {"type": "skill", "name", "arguments"}), builtin, path, error."""
+        return self._call("GET", "/skills")["skills"]
+
+    def remove_skill(self, name: str) -> None:
+        """Delete one of the user's skills (its folder); a shipped one cannot be."""
+        self._call("DELETE", f"/skills/{quote(name, safe='')}")
 
     def mcp(self) -> dict:
         return self._call("GET", "/mcp")

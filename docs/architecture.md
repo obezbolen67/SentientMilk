@@ -343,12 +343,14 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `schedule` | `schedule_create(when, what)`, `schedule_list()`, `schedule_delete(id)` | Section 9.6. |
 | `mcp:<server>` | the server's tools | Section 8. |
 | `plugins` | `plugin_list`, `plugin_install(folder)`, `plugin_reload(name)` | Section 6.5: a model makes its own tools; installing always asks. |
+| `skills` | `skill_use(name, arguments)`, `skill_list()`, `skill_delete(name)` | Section 6.6. `skill_use` is a core tool. |
 | `sessions` | `sessions_list(query)`, `sessions_read(session, part, offset)`, `sessions_search(query)`, `session_rename(session, title)`, `session_delete(session)` | The app's other conversations (not agents' or tasks'), named by id or exact title. `part="summary"` gives the session's mention card (`mentions.py`: newest journal note or compaction summary, last turns) and its journal notes; `part="turns"` its plain turns, 40 a page. Deleting always asks and refuses the current or a busy session. |
 | `github` (plugin) | `github_search`, `github_repo`, `github_files`, `github_issues`, `github_issue`, `github_diff`, `github_runs`, `github_run`, `github_get`; asking first: `github_issue_create`, `github_comment`, `github_issue_update`, `github_pr_create`, `github_pr_review`, `github_pr_merge`, `github_api` | Section 6.5. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
-MilkChan enables `memory`, `web`, `todo`, `journal`, `schedule`, `files`, `shell` and
-`agents`. The CLI chat enables the same plus MCP, rooted in the folder it was started in.
+MilkChan enables `memory`, `web`, `todo`, `journal`, `schedule`, `files`, `shell`,
+`agents`, `plugins`, `sessions` and `skills`. The CLI chat enables most of them plus MCP,
+rooted in the folder it was started in.
 
 ### 6.3 Permissions
 
@@ -456,6 +458,43 @@ the rate limit resets on 403, that a private repository needs a token on 404, an
 GitHub's own reasons on 422. `github_get` and `github_api` reach everything else the REST
 API has (releases, branches, gists, workflow re-runs).
 
+### 6.6 Skills
+
+Copied from Claude's Agent Skills, which work well because they cost almost nothing until
+used (progressive disclosure):
+
+1. **Listed**: the system prompt has a SKILLS section with each skill's name and
+   description (about 50-100 tokens each; past 8,000 characters only names). It says where
+   the skills folder is.
+2. **Loaded**: when a task matches, the model calls `skill_use(name, arguments)`. The result
+   is `Base directory for this skill: <folder>` and the SKILL.md body with arguments filled
+   in, and stays in the conversation like any tool result.
+3. **Read as needed**: the skill's other files, through the file tools (the skills folder
+   and the shipped skills are readable; the skills folder is writable).
+
+`skills.py` reads `<home>/skills/<name>/SKILL.md` and the shipped `assets/skills`, again
+whenever a SKILL.md changes (by mtime), so a skill the model writes counts from its next
+step; a change costs one prompt-cache miss. Frontmatter is the subset skills use (plain
+and quoted values, `|` and `>` blocks; other fields are kept and ignored), read without a
+YAML dependency. Fields acted on: `name` (must equal the folder), `description` (at most
+1,024 characters, no XML tags; without one, the body's first line), `argument-hint`,
+`disable-model-invocation`, `user-invocable`. A skill that breaks a rule is listed by
+`skill_list` and the panel with what is wrong, and not offered to the model.
+
+The user starts a skill with a `skill` input item (`/name` in an app): at the start of the
+turn, or when steered, it becomes `[The user started the skill /name with: ...]` and the
+loaded skill, stored in the input event (`skills` names it, so a return puts `/name`
+back). Arguments follow Claude Code: `$ARGUMENTS`, `$N` and `$ARGUMENTS[N]` (shell-like
+words), `${SKILL_DIR}` (and `${CLAUDE_SKILL_DIR}`), a backslash before `$` for a dollar
+sign; arguments no placeholder took are added as `ARGUMENTS: ...`.
+
+The model writes skills with `files_write`/`files_edit`, guided by the shipped
+`skill-creator` skill rather than prompt text; a write into the skills folder ends with
+whether the skill now reads well. Writes ask as usual, keep versions (a return undoes
+them), and `skill_delete` keeps a version of every file it deletes. Not copied:
+`allowed-tools` (approval rules already do that), forked contexts, hooks, `paths`,
+project-level skill folders, and `!command` expansion.
+
 ## 7. Context management
 
 ### 7.1 Request layout
@@ -463,9 +502,9 @@ API has (releases, branches, gists, workflow re-runs).
 ```
 + system ------------------------------------------+  stable for the session;
 | who you are (persona), environment, rules,       |  rebuilt only at compaction
-| app instructions                                 |
-| app memory snapshot, journal snapshot            |
-| signal format                                    |
+| app instructions                                 |  (the skills listing: when a
+| app memory snapshot, journal snapshot            |  skill changes)
+| more tools, skills listing, signal format        |
 + tools -------------------------------------------+  fixed for a run
 + history -----------------------------------------+  append-only between
 | [compaction summary]                             |  compactions
@@ -855,6 +894,7 @@ bearer token.
 | `GET /v1/journal`, `DELETE /v1/journal/<id>` | view and prune the journal |
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
 | `GET/POST /v1/apps/<app>/sessions/<id>/rewind` | preview or go back to before a user message (section 5.6) |
+| `GET /v1/skills`, `DELETE /v1/skills/<name>` | skills (section 6.6), removing one of the user's |
 
 ## 14. Build plan
 
@@ -886,8 +926,6 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
   their rules (persist every step, at-least-once, pause by returning) and keep SQLite.
 - **Hooks**: plugin toolkits, edit checks and app actions cover the known needs. Add
   pre- and post-tool hooks only when one is missing.
-- **Skills** (instruction packs loaded on demand): useful later for the CLI. They fit the
-  deferred-tools pattern of section 7.4.
 - **A sandbox**: for now, path confinement plus approvals. An OS sandbox for `shell` is a
   later phase if the brain gets riskier jobs.
 - **SentientMilk as an MCP server**: apps use its HTTP API; nothing needs this yet.

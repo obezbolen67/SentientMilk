@@ -56,9 +56,11 @@ none runs and shows it live:
 - **Tools**: toolkits on or off for every app, approval rules, MCP servers.
 - **Plugins**: install (a folder or a git URL), turn on or off, settings (secrets
   write-only), remove.
+- **Skills**: every skill, who starts it, what is wrong with a broken one; open its folder,
+  remove it.
 - **Logs**: `brain.log` as it grows.
 
-Keys: `1`-`8` tabs, `s` start, `x` stop, `r` refresh, `ctrl+s` save the open page, `q` quit.
+Keys: `1`-`9` tabs, `s` start, `x` stop, `r` refresh, `ctrl+s` save the open page, `q` quit.
 
 The brain is a background service: it runs until it is stopped, never on its own, and
 closing the panel leaves it running. While it runs, its milk carton sits in the Windows
@@ -177,6 +179,7 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_delete` |
 | `mcp:<server>` | the server's tools, as `mcp__<server>__<tool>` |
 | `plugins` | `plugin_list`, `plugin_install`, `plugin_reload`: the model writes its own plugins (installing always asks) |
+| `skills` | `skill_use` (sent with every request, like Claude's Skill tool), `skill_list`, `skill_delete`: her skills (see Skills) |
 | `sessions` | `sessions_list`, `sessions_read` (a summary, or the plain turns without tool calls), `sessions_search`, `session_rename`, `session_delete` (always asks): the app's other conversations |
 | `github` (plugin) | search, repositories and files, issues and pull requests (diffs, reviews, checks), Actions runs with the log of what failed, any REST read; opening, commenting, reviewing, merging and any other REST call ask first |
 
@@ -235,6 +238,37 @@ def weather_now(ctx, city: str):
 TOOLKIT = Toolkit("weather", "Current weather.", [weather_now])
 ```
 
+## Skills
+
+Skills work as they do in Claude: instructions for a kind of task that load only when a
+task needs them. A skill is a folder in `~/.sentientmilk/skills/` with a `SKILL.md`:
+
+```markdown
+---
+name: filing-receipts
+description: Files receipt photos into the expenses sheet. Use when the user sends a receipt.
+argument-hint: "[month]"
+---
+
+1. Read the receipt ...
+```
+
+Every app with the `skills` toolkit lists each skill's name and description in the
+model's prompt. When a task matches one, it loads the instructions with `skill_use`, and
+reads the skill's other files (references, scripts, templates) only when they say to.
+The user starts one directly with `/name` and arguments (a `skill` input item; the
+MilkChan chat and `sentientmilk chat` offer it). `$ARGUMENTS`, `$0`, `$1` and
+`${SKILL_DIR}` in the instructions take what was passed and the skill's folder.
+`disable-model-invocation: true` makes a skill the user's only; `user-invocable: false`
+keeps it out of the `/` list. The folder's name is the skill's name (lowercase letters,
+numbers and hyphens); the description says what it does and when to use it.
+
+The model writes and edits skills with its file tools (the skills folder is open to them;
+the rest of `~/.sentientmilk` stays closed), after loading the built-in `skill-creator`.
+A file write asks you as usual, a change counts from its next step, and returning to an
+earlier message takes it back. Skills written for Claude work as they are: copy a skill's
+folder in. A skill of yours replaces a built-in one of the same name.
+
 ## How it works
 
 Every turn, task and helper is a **run** of one agent loop. Each step is written to an
@@ -260,7 +294,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `POST /apps/{app}/sessions/{id}/compact` | sum up the whole session now (a model call): `compacted`, and the context in tokens `before` and `after` |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); each entry's `id` is its event's; history an app kept before |
 | `GET`/`POST /apps/{app}/sessions/{id}/rewind` (`?to=` / `{"to"}`: a user message's `id`) | go back to just before that message (GET: what it would do). Undone: what came after it, files changed since with `files_write`/`files_edit` (also by agents started since), the todo list, work started since (jobs, agents' runs, tasks of new reminders: stopped quietly), new agents and reminders (deleted). Answers `text` and `mentions` (the message), `messages`, `files` ({path, change}), `todo`, `agents`, `stopped`, `reminders`, `kept` (calls whose effects stay: {name, count}) and, after a POST, `problems`; refused (409 `busy`) while a run of the session goes on |
-| `POST /apps/{app}/sessions/{id}/turns` | `input`, `context`, `reply`: a stream ending in `done` or `error` |
+| `POST /apps/{app}/sessions/{id}/turns` | `input` (text, image, event, mention and skill items: `{"type": "skill", "name", "arguments"}` starts a skill as the user's `/name` does), `context`, `reply`: a stream ending in `done` or `error` |
 | `GET /apps/{app}/mentions?q=&kind=&session=`, `GET /apps/{app}/mentions/{kind}?ref=&session=` | what an `@` picker offers (`kind`, `ref`, `label`, `note`, `time`; a path lists that folder), and the card the brain reads for one |
 | `GET /events?app=&after=` | notifications from a cursor (`-1`: from now), then live |
 | `POST`/`GET /tasks`, `GET /tasks/{id}` | start and list tasks |
@@ -269,6 +303,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET`/`POST /schedules`, `PATCH`/`DELETE /schedules/{id}` | schedules |
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
 | `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
+| `GET /skills`, `DELETE /skills/{name}` | skills (`name`, `description`, `argument_hint`, `model_invocable`, `user_invocable`, `builtin`, `path`, `error`); removing one of the user's |
 | `GET /apps`, `DELETE /apps/{app}/memory/{category}/{key}`, `POST /shutdown` | apps, forgetting a memory, stopping the brain |
 | `GET /journal?q=`, `DELETE /journal/{id}`, `GET /jobs/{id}` | the journal; background shell jobs |
 | `GET /apps/{app}/jobs?since=`, `POST /jobs/{id}/stop` | an app's running jobs and those that ended after `since`, each with its newest output line (`last`); stopping one and everything it started |

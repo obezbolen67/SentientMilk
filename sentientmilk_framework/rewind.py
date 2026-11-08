@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 STOP_WAIT = 10  # seconds the work being stopped has to end before its files are restored
 # Calls whose effects a return takes back, or that only touch the work it stops.
-UNDONE = {"files_write", "files_edit", "todo_write", "schedule_create", "agent_start", "agent_message", "task_progress"}
+UNDONE = {"files_write", "files_edit", "skill_delete", "todo_write", "schedule_create", "agent_start", "agent_message",
+          "task_progress"}
 BUSY = "She is still working in this chat: stop her first, or wait."
 
 
@@ -170,6 +171,7 @@ def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
                 for run in running if run["kind"] == "task"]
     return {
         "to": target["id"], "text": target["display"], "mentions": target.get("mentions") or [],
+        "skills": target.get("skills") or [],
         "messages": sum(1 for e in later if e["type"] == "input" and e.get("display")),
         "todo": _todo(store, app, session, target) != found["state"].get("todo", []),
         "agents": [{"id": agent_id, "name": record["name"]} for agent_id, record in work["agents"]],

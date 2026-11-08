@@ -83,9 +83,10 @@ def computer_section(profile: dict, shell: str) -> Optional[str]:
 
 
 def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str] = (),
-                  more_tools: Iterable[str] = ()) -> str:
+                  more_tools: Iterable[str] = (), skills: str = "") -> str:
     """``tools``: the names of every tool the run has (rules about a tool only come with it); ``more_tools``: the
-    lines of the MORE TOOLS section (Toolset.listing), its tools not sent with each request."""
+    lines of the MORE TOOLS section (Toolset.listing), its tools not sent with each request; ``skills``: the
+    SKILLS section (Skills.prompt), for a run that has skill_use."""
     tools, more_tools = set(tools), list(more_tools)
     called = f"In this app you are called {profile['name']}. " if profile.get("name") else ""
     parts = [IDENTITY.format(called=called), profile["persona"]]  # the persona is who the model is
@@ -103,6 +104,8 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
         parts.append("## RECENT NOTES FROM YOUR OTHER SESSIONS (oldest first)\n" + snapshot["journal"])
     if more_tools:
         parts.append(MORE_TOOLS + "\n" + "\n".join(more_tools))
+    if skills and "skill_use" in tools:
+        parts.append(skills)
     if profile.get("signals"):
         parts.append(signal_format.prompt_section(profile["signals"]))
     return "\n\n".join(parts)
@@ -147,6 +150,9 @@ def input_content(items: List[dict], context: Dict[str, str], *, reminders: List
         elif item["type"] == "text":
             texts.append(item["text"])
             display.append(item["text"])
+        elif item["type"] == "skill":  # the user's /name, its instructions filled in (Skills.expand)
+            texts.append(item["text"])
+            display.append(f"/{item['name']} {item.get('arguments', '')}".rstrip())
         elif item["type"] == "event":
             data = f" {json.dumps(item['data'], ensure_ascii=False)}" if item.get("data") else ""
             texts.append(f"[Event: {item['name']}] {item.get('text', '')}{data}".rstrip())
