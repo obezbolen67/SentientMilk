@@ -116,6 +116,14 @@ def syntax_problem(path: Path, text: str) -> Optional[str]:
     return None
 
 
+def _keep_version(ctx: ToolContext, path: Path) -> None:
+    """The file as it is before its first change since the session's latest message: returning to a message
+    (rewind.py) brings it back. An agent's or a task's versions belong to the chat they work for."""
+    chat = (ctx.run["options"].get("profile") or {}).get("from_session") or ctx.session
+    ctx.store.keep_version(ctx.app, chat, ctx.session, ctx.run["id"], ctx.run["created"], str(path),
+                           lambda: path.read_bytes() if path.is_file() else None)
+
+
 def _write_checked(path: Path, text: str, old: Optional[str]) -> None:
     """Refuse content that breaks a file which parsed before (or a new file that does not parse)."""
     problem = syntax_problem(path, text)
@@ -281,6 +289,7 @@ def files_edit(ctx: ToolContext, path: str, old: str, new: str, all: bool = Fals
         raise ToolError(f"old occurs {count} times. Add surrounding lines to make it unique, or set all=true.")
     index = text.index(old)
     updated = text.replace(old, new) if all else text.replace(old, new, 1)
+    _keep_version(ctx, target)
     _write_checked(target, updated, text)
     _remember_read(ctx, target)
     return f"Edited {target} ({count if all else 1} replacement{'s' if all and count > 1 else ''}):\n" + \
@@ -297,6 +306,7 @@ def files_write(ctx: ToolContext, path: str, content: str):
             raise ToolError(f"{target} is a folder.")
         _check_fresh(ctx, target)
         old = _read_text(target)
+    _keep_version(ctx, target)
     _write_checked(target, content, old)
     _remember_read(ctx, target)
     return f"Wrote {target} ({content.count(chr(10)) + (1 if content and not content.endswith(chr(10)) else 0)} lines)."

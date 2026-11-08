@@ -79,10 +79,19 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
     """Run a command in {shell}. Output (stdout and stderr together, so no 2>&1) comes back with the exit
     code; a command still running after timeout goes on as a background job, so you can work on while it runs.
     No shell state carries over between calls: pass cwd instead of cd, and set variables in the same command.
-    Prefer files_read/files_search/files_edit over cat, grep and sed."""
+    Prefer files_read/files_search/files_edit over cat, grep and sed. Change files with files_write and
+    files_edit, not with commands (Set-Content, Out-File, >, WriteAllText): the user can take their changes
+    back by returning to an earlier message, but not a command's."""
     if not command.strip():
         raise ToolError("command is empty.")
     folder = _folder(ctx, cwd)
+    same = next((job for job in ctx.store.jobs(ctx.app, time.time(), limit=1000) if job["status"] == "running"
+                 and job["command"].strip() == command.strip() and os.path.normcase(job["cwd"] or "")
+                 == os.path.normcase(str(folder))), None)
+    if same:  # seen twice in a row: the same download started again while the first still ran
+        raise ToolError(f"Not started: job {same['id']} runs this same command in this folder already (for "
+                        f"{int(time.time() - same['started'])} s). Read it with shell_output(job={same['id']}); to "
+                        f"start it afresh, stop it first with shell_stop(job={same['id']}).")
     line = command_line(ctx.brain.config.values()["shell"], command)
     log = ctx.run_dir() / f"job-{time.time_ns()}.log"  # a file, not a pipe: the command may outlive the call
     output = open(log, "wb")
@@ -110,7 +119,7 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
             kill_tree(process)
             output.close()
             so_far = "\n".join(_lines(str(log))[-40:])
-            log.unlink(missing_ok=True)
+            _drop(log)
             return cap(ctx, f"[stopped: {STOPPED_BY_USER} The command was ended.]\n{so_far}".rstrip(), "shell")
         if ctx.attention.woken.is_set() or time.monotonic() >= deadline:
             why = MESSAGE_FROM_USER if ctx.attention.woken.is_set() else f"Still running after {timeout} s."
@@ -128,8 +137,17 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
                             f"Work on meanwhile, or tell the user it is running.]\n{so_far}".rstrip(), "shell")
     output.close()
     text = "\n".join(_lines(str(log)))
-    log.unlink(missing_ok=True)
+    _drop(log)
     return cap(ctx, f"[exit code {code}]\n{text}".rstrip(), "shell")
+
+
+def _drop(log: Path) -> None:
+    """A log nobody reads again. A process the command left behind may still hold it (Windows refuses with
+    WinError 32): it then stays in the run's folder."""
+    try:
+        log.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _keep_as_job(ctx: ToolContext, command: str, folder: Path, log: Path, process: subprocess.Popen,
@@ -150,6 +168,9 @@ def _watch(brain, job: int, process: subprocess.Popen, output) -> None:
     stopped = record["status"] == "stopping"
     brain.store.update_job(job, status="stopped" if stopped else "finished", exit_code=code, ended=time.time())
     brain.jobs.pop(job, None)
+    if job in brain.quiet_jobs:
+        brain.quiet_jobs.discard(job)
+        return
     tail = "\n".join(_lines(record["log"])[-15:])
     app, session = record["app"], record["session"]
     note = brain.note(app, session, f"Background job {job} {'was stopped' if stopped else f'finished with exit code {code}'}: "
@@ -223,11 +244,14 @@ def shell_stop(ctx: ToolContext, job: int):
     return stop(ctx.brain, _job(ctx, job))
 
 
-def stop(brain, record: dict) -> str:
-    """Stop a running job and everything it started (her tool, and the app's stop button)."""
+def stop(brain, record: dict, quiet: bool = False) -> str:
+    """Stop a running job and everything it started (her tool, and the app's stop button). ``quiet``: its end
+    leaves no note and tells nobody (a return to before it started)."""
     process = brain.jobs.get(record["id"])
     if record["status"] != "running" or process is None:
         return f"Job {record['id']} is not running ({record['status']})."
+    if quiet:
+        brain.quiet_jobs.add(record["id"])
     brain.store.update_job(record["id"], status="stopping")
     kill_tree(process)
     return f"Stopped job {record['id']}."

@@ -400,7 +400,7 @@ class Agents:
         """An agent's run about to end (with its final status and result): its report goes into the lead's
         mailbox first, so whoever sees the agent done (agents_wait, the lead's next step, an app) finds it."""
         app, parent, agent = run["app"], run["options"].get("parent_session"), run["options"].get("agent")
-        if run["kind"] != "agent" or not parent:
+        if run["kind"] != "agent" or not parent or run["options"].get("quiet"):  # quiet: a return stopped it
             return
         record = self.record(app, run["session"])
         if not record.get("stopped") and self.store.has_session(app, parent):

@@ -7,7 +7,7 @@ user message is what keeps it reliable (see FORMAT_REMINDER).
 """
 
 import json
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 SILENT = "[silent]"
 FORMAT_REMINDER = "Start your final reply with the signals JSON line described in OUTPUT FORMAT."
@@ -58,8 +58,10 @@ def prompt_section(signals: Dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
-def split(text: str) -> Tuple[Optional[dict], str]:
-    """The signals header (if the reply starts with one) and the reply without it."""
+def split(text: str, names: Iterable[str] = ()) -> Tuple[Optional[dict], str]:
+    """The signals header (if the reply starts with one) and the reply without it. Given the signals' ``names``,
+    a header on a later line is found too, as a line holding only an object of those signals (seen: junk
+    before the header left its JSON in the reply); the reply is then the text around it."""
     stripped = text.lstrip()
     if stripped.startswith("```"):  # a fenced header: ```json\n{...}\n```\nreply
         fence_end = stripped.find("```", 3)
@@ -70,9 +72,19 @@ def split(text: str) -> Tuple[Optional[dict], str]:
             return header, stripped[fence_end + 3:].strip()
     first, _, rest = stripped.partition("\n")
     header = _object(first.strip())
-    if header is None:
-        return None, text.strip()
-    return header, rest.strip()
+    if header is not None:
+        return header, rest.strip()
+    lines = stripped.splitlines()
+    for index, line in enumerate(lines):
+        header = _object(line.strip())
+        if header and names and set(header) <= set(names):
+            before, after = lines[:index], lines[index + 1:]
+            if before and before[-1].strip().startswith("```"):  # its fence
+                before = before[:-1]
+            if after and after[0].strip() == "```":
+                after = after[1:]
+            return header, "\n".join(before + after).strip()
+    return None, text.strip()
 
 
 def _object(text: str) -> Optional[dict]:

@@ -66,10 +66,11 @@ def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
     assert "arms_down: neutral, smile" in system
     newest = user_text(brain.provider.sent[0]["messages"][-1])
     assert "user: Tester" in newest and newest.endswith(f"[{signal_format.FORMAT_REMINDER}]")
-    assert brain.client.history("milk", "main") == [
-        {"role": "user", "text": "Hi!", "time": pytest.approx(0, abs=1e10)},
-        {"role": "assistant", "text": "Hello there!", "signals": {"expression": "arms_down/smile"},
-         "time": pytest.approx(0, abs=1e10)}]
+    said, replied = brain.client.history("milk", "main")
+    assert said["id"] < replied["id"]  # a message's id is where a return to it goes
+    assert said == {"id": said["id"], "role": "user", "text": "Hi!", "time": pytest.approx(0, abs=1e10)}
+    assert replied == {"id": replied["id"], "role": "assistant", "text": "Hello there!",
+                       "signals": {"expression": "arms_down/smile"}, "time": pytest.approx(0, abs=1e10)}
 
 
 def test_history_can_include_tool_calls(brain):
@@ -164,6 +165,9 @@ def test_imported_history_fills_only_an_empty_session_and_memory_is_per_app(brai
     assert caught.value.type == "bad_request"
     assert brain.store.memories("milk") == {"user": {"name": "Tester"}}
     assert brain.store.memories("cli") == {}
+    brain.client.import_history("milk", "old", messages, {}, transcript=[{"role": "user", "text": "I am Tester"}])
+    assert brain.client.history("milk", "old") == [  # what the app showed is no place to return to: no id
+        {"role": "user", "text": "I am Tester", "time": pytest.approx(0, abs=1e10)}]
 
 
 def test_models_never_send_the_stored_key_elsewhere(brain, monkeypatch):

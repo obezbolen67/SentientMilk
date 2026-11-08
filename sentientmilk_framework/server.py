@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import mentions
+from . import mentions, rewind
 from .brain import Brain, validate_items, validate_name
 from .client import DISCOVERY_FILE, default_home
 from .exceptions import BrainError, classify
@@ -316,6 +316,16 @@ class _Handler(BaseHTTPRequestHandler):
         elif rest == ["history"] and method == "DELETE":
             brain.store.clear_session(app, session)
             self._send(200, {"status": "ok"})
+        elif rest == ["rewind"] and method in ("GET", "POST"):
+            if method == "POST" and set(body) - {"to"}:
+                raise ValueError(f"Unknown rewind fields: {sorted(set(body) - {'to'})}")
+            event = _number((query if method == "GET" else body).get("to"), "to (the id of a message the user sent)")
+            try:
+                self._send(200, (rewind.preview if method == "GET" else rewind.rewind)(brain, app, session, event))
+            except BrainError as exc:
+                if exc.http_status != 409:
+                    raise
+                return self._fail(409, exc.type, exc.message) or True
         elif rest == ["import"] and method == "POST":
             brain.import_history(app, session, body)
             self._send(200, {"status": "ok"})

@@ -220,7 +220,7 @@ class Loop:
                                  "Open the SentientMilk control panel (run sentientmilk) and set it under Provider.")
             if run["kind"] == "compact":
                 return self._compact_now(run, profile, emit)
-            self._log_input(run, profile)
+            self._log_input(run, profile, emit)
             toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
             while True:
                 run = store.run(run_id)
@@ -281,16 +281,17 @@ class Loop:
         if items:
             items = mentions.resolve(self.brain, run["app"], run["session"], items)
             content, display = context.input_content(items, {}, reminders=[])
-            store.add_event(run["app"], run["session"], run["id"], "input",
-                            {"content": content, "display": display, **mentions.stored(items)})
-            emit({"type": "steered", "text": display or ""})
+            logged = store.add_event(run["app"], run["session"], run["id"], "input",
+                                     {"content": content, "display": display, **mentions.stored(items)})
+            emit({"type": "steered", "text": display or "", "id": logged["id"]})
 
     def _emitter(self, run_id: int) -> Callable[[dict], None]:
         def emit(event: dict) -> None:
             self.brain.bus.publish(("run", run_id), {"run": run_id, **event})
         return emit
 
-    def _log_input(self, run: dict, profile: dict) -> None:
+    def _log_input(self, run: dict, profile: dict, emit) -> None:
+        """The run's input, logged once; apps hear its event id (``input``), the place to return to (rewind.py)."""
         options = run["options"]
         if options.get("input") is None or any(e["type"] == "input" for e in self.brain.store.run_events(run["id"])):
             return
@@ -301,9 +302,10 @@ class Loop:
             reminders.append(signal_format.OPTIONAL_REPLY)
         items = mentions.resolve(self.brain, run["app"], run["session"], options["input"])
         content, display = context.input_content(items, options.get("context") or {}, reminders=reminders)
-        self.brain.store.add_event(run["app"], run["session"], run["id"], "input",
-                                   {"content": content, "display": display, **mentions.stored(items)})
+        logged = self.brain.store.add_event(run["app"], run["session"], run["id"], "input",
+                                            {"content": content, "display": display, **mentions.stored(items)})
         self.brain.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
+        emit({"type": "input", "id": logged["id"], "text": display})
 
     def _count(self, run_id: int, usage: dict) -> None:
         run = self.brain.store.run(run_id)
@@ -640,7 +642,7 @@ class Loop:
         content = message.get("content") or ""
         values: dict = {}
         if profile["signals"] and run["kind"] == "turn":
-            header, reply = signal_format.split(content)
+            header, reply = signal_format.split(content, profile["signals"])
             values, problems = signal_format.check(header, profile["signals"])
             if problems:
                 self.brain.note(run["app"], run["session"], "About your last reply: " + " ".join(problems) +

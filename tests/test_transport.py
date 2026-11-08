@@ -105,6 +105,16 @@ def test_signal_headers_split_off_the_reply(text, header, reply):
     assert signals.split(text) == (header, reply)
 
 
+@pytest.mark.parametrize("text, header, reply", [
+    ('assistant\n{"expression": "arms_down/smile"}\nHello', {"expression": "arms_down/smile"}, "assistant\nHello"),
+    ('Sure.\n```json\n{"tone": "calm"}\n```\nHi', {"tone": "calm"}, "Sure.\nHi"),
+    ('Here is JSON:\n{"name": "x"}\nok', None, 'Here is JSON:\n{"name": "x"}\nok'),  # not her signals: kept
+])
+def test_a_header_after_junk_is_found_and_taken_out(text, header, reply):
+    assert signals.split(text, SPEC) == (header, reply)
+    assert signals.split(text)[0] is None  # without the names nothing later counts
+
+
 def test_signal_values_are_checked_against_the_declared_options():
     assert signals.check({"expression": "arms_down/smile", "tone": "calm"}, SPEC) == (
         {"expression": "arms_down/smile", "tone": "calm"}, [])

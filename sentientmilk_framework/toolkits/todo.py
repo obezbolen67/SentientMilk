@@ -8,6 +8,12 @@ ITEMS = {"type": "array", "description": "The whole list, in order.",
                    "properties": {"text": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}}}}
 
 
+def clean(items: list) -> list:
+    """The list as it is kept: items with text, trimmed."""
+    return [{"text": i["text"].strip(), "status": i["status"]} for i in items
+            if isinstance(i, dict) and isinstance(i.get("text"), str) and i.get("status") in STATUSES and i["text"].strip()]
+
+
 def render(items: list) -> str:
     if not items:
         return "The todo list is empty."
@@ -22,7 +28,7 @@ def todo_write(ctx: ToolContext, items: list):
     if not isinstance(items, list) or not all(
             isinstance(i, dict) and isinstance(i.get("text"), str) and i.get("status") in STATUSES for i in items):
         raise ToolError("items must be a list of {text, status} with status pending, doing or done.")
-    items = [{"text": i["text"].strip(), "status": i["status"]} for i in items if i["text"].strip()]
+    items = clean(items)
 
     def change(state):
         state["todo"] = items

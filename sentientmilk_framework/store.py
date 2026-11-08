@@ -5,6 +5,7 @@ messages and the transcript apps show are both projections of it.
 """
 
 import json
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -59,6 +60,12 @@ CREATE TABLE IF NOT EXISTS agent_mail (
     delivered INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS agent_mail_by_parent ON agent_mail(app, parent, delivered);
+CREATE TABLE IF NOT EXISTS file_versions (
+    id INTEGER PRIMARY KEY, app TEXT NOT NULL, chat TEXT NOT NULL, session TEXT NOT NULL, run INTEGER,
+    started REAL NOT NULL, key TEXT NOT NULL, path TEXT NOT NULL, since INTEGER NOT NULL, content BLOB,
+    at REAL NOT NULL, UNIQUE (app, session, key, since)
+);
+CREATE INDEX IF NOT EXISTS file_versions_by_chat ON file_versions(app, chat);
 """
 NOTIFICATION_DAYS = 7
 NOTIFICATIONS_PER_APP = 1000
@@ -198,10 +205,12 @@ class Store:
         return [(app_, session, json.loads(settings)) for app_, session, settings in rows]
 
     def delete_session(self, app: str, session: str) -> None:
+        """An agent's versions stay with the chat they were made for: a return there still restores them."""
         with self._db() as db:
             db.execute("DELETE FROM events WHERE app = ? AND session = ?", (app, session))
             db.execute("DELETE FROM runs WHERE app = ? AND session = ?", (app, session))
             db.execute("DELETE FROM sessions WHERE app = ? AND id = ?", (app, session))
+            db.execute("DELETE FROM file_versions WHERE app = ? AND chat = ?", (app, session))
 
     def update_session(self, app: str, session: str, field: str, change: Callable[[dict], dict],
                        create: bool = True) -> Optional[dict]:
@@ -222,6 +231,58 @@ class Store:
         with self._db() as db:
             db.execute("DELETE FROM events WHERE app = ? AND session = ?", (app, session))
             db.execute("UPDATE sessions SET state = '{}' WHERE app = ? AND id = ?", (app, session))
+            db.execute("DELETE FROM file_versions WHERE app = ? AND chat = ?", (app, session))
+
+    def rewind(self, app: str, session: str, event: int, versions: List[int], mail_runs: List[int],
+               change: Callable[[dict], dict]) -> None:
+        """One transaction: the session's events from ``event`` on go, a ``rewound`` mark takes the last one's id
+        (SQLite gives a deleted top id out again, and saved ids such as file versions' must never point at a
+        later message), the restored ``versions`` and the waiting mail of ``mail_runs`` go, ``change`` its state."""
+        with self._db() as db:
+            last = db.execute("SELECT MAX(id) FROM events WHERE app = ? AND session = ? AND id >= ?",
+                              (app, session, event)).fetchone()[0]
+            db.execute("DELETE FROM events WHERE app = ? AND session = ? AND id >= ?", (app, session, event))
+            if last is not None:
+                db.execute("INSERT INTO events(id, app, session, run, at, type, data) VALUES (?, ?, ?, NULL, ?, "
+                           "'rewound', ?)", (last, app, session, time.time(), dump({"to": event})))
+            db.executemany("DELETE FROM file_versions WHERE id = ?", [(v,) for v in versions])
+            db.executemany("DELETE FROM agent_mail WHERE app = ? AND run = ? AND delivered = 0",
+                           [(app, run) for run in mail_runs])
+            row = db.execute("SELECT state FROM sessions WHERE app = ? AND id = ?", (app, session)).fetchone()
+            if row is not None:
+                db.execute("UPDATE sessions SET state = ? WHERE app = ? AND id = ?",
+                           (dump(change(json.loads(row[0]))), app, session))
+
+    # ============== File versions: a file as it was before its first change after a message ==============
+
+    def keep_version(self, app: str, chat: str, session: str, run: int, started: float, path: str,
+                     read: Callable[[], Optional[bytes]]) -> None:
+        """Before a file tool changes ``path``: its content (``read()``, None when it does not exist), unless a
+        version was kept since the session's latest message. ``chat`` is the conversation the work is for."""
+        key = os.path.normcase(path)
+        with self._db() as db:
+            since = db.execute("SELECT COALESCE(MAX(id), 0) FROM events WHERE app = ? AND session = ? AND "
+                               "type = 'input'", (app, session)).fetchone()[0]
+            if db.execute("SELECT 1 FROM file_versions WHERE app = ? AND session = ? AND key = ? AND since = ?",
+                          (app, session, key, since)).fetchone():
+                return
+            db.execute("INSERT INTO file_versions(app, chat, session, run, started, key, path, since, content, at) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       (app, chat, session, run, started, key, path, since, read(), time.time()))
+
+    def versions(self, app: str, chat: str) -> List[dict]:
+        """Every version kept for a conversation (its own and its agents' and tasks'), the oldest first, without
+        its content (``version_content``); ``existed`` False: the file did not exist then."""
+        keys = ("id", "session", "run", "started", "key", "path", "since", "at", "existed")
+        with self._db() as db:
+            rows = db.execute("SELECT id, session, run, started, key, path, since, at, content IS NOT NULL FROM "
+                              "file_versions WHERE app = ? AND chat = ? ORDER BY id", (app, chat)).fetchall()
+        return [{**dict(zip(keys, row)), "existed": bool(row[-1])} for row in rows]
+
+    def version_content(self, version: int) -> Optional[bytes]:
+        with self._db() as db:
+            row = db.execute("SELECT content FROM file_versions WHERE id = ?", (version,)).fetchone()
+        return row[0] if row else None
 
     # ============== Events ==============
 
@@ -242,6 +303,23 @@ class Store:
             params += list(types)
         with self._db() as db:
             return [_event(row) for row in db.execute(query + " ORDER BY id", params)]
+
+    def event(self, event: int) -> Optional[dict]:
+        with self._db() as db:
+            row = db.execute(f"SELECT {_EVENT_COLUMNS} FROM events WHERE id = ?", (event,)).fetchone()
+        return _event(row) if row else None
+
+    def last_event(self, app: str, session: str, before: int, type: str, name: str = "") -> Optional[dict]:
+        """The session's newest event of ``type`` before event ``before``; with ``name``, a call of that tool
+        that went well."""
+        query = f"SELECT {_EVENT_COLUMNS} FROM events WHERE app = ? AND session = ? AND id < ? AND type = ?"
+        params: list = [app, session, before, type]
+        if name:
+            query += " AND json_extract(data, '$.name') = ? AND json_extract(data, '$.status') = 'ok'"
+            params.append(name)
+        with self._db() as db:
+            row = db.execute(query + " ORDER BY id DESC LIMIT 1", params).fetchone()
+        return _event(row) if row else None
 
     def run_events(self, run: int, after: int = 0) -> List[dict]:
         with self._db() as db:
@@ -269,6 +347,12 @@ class Store:
             return db.execute("INSERT INTO runs(app, session, kind, parent, status, options, created, updated) "
                               "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                               (app, session, kind, parent, status, dump(options), now, now)).lastrowid
+
+    def runs_since(self, app: str, since: float) -> List[dict]:
+        """An app's runs created at ``since`` or later, the oldest first (a run comes after the run that started it)."""
+        with self._db() as db:
+            return [_run(row) for row in db.execute(f"SELECT {_RUN_COLUMNS} FROM runs WHERE app = ? AND created >= ? "
+                                                    "ORDER BY id", (app, since))]
 
     def run(self, run: int) -> Optional[dict]:
         with self._db() as db:

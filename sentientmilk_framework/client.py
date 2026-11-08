@@ -202,6 +202,18 @@ class BrainClient:
         """What the user said and the brain replied; ``tools`` adds each tool call between them."""
         return self._call("GET", f"/apps/{app}/sessions/{session}/history" + ("?tools=1" if tools else ""))["history"]
 
+    def rewind_preview(self, app: str, session: str, event: int) -> dict:
+        """What returning to a message the user sent (its history entry's ``id``) would undo: ``messages``,
+        ``files`` ({path, change: restore or delete}), ``todo`` (changes or not), ``agents`` (deleted),
+        ``stopped`` (jobs, agents' runs and tasks: {kind, id, name}), ``reminders`` (removed), and ``kept``
+        ({name, count}: calls whose effects stay). ``text`` and ``mentions`` are the message's."""
+        return self._call("GET", f"/apps/{app}/sessions/{session}/rewind", params={"to": event})
+
+    def rewind(self, app: str, session: str, event: int) -> dict:
+        """Return the chat to just before that message and undo the rest as previewed; ``problems`` lists the
+        files that could not be put back. Refused (``busy``) while a turn of the chat goes on."""
+        return self._call("POST", f"/apps/{app}/sessions/{session}/rewind", {"to": event}, timeout=60)
+
     def clear_history(self, app: str, session: str) -> None:
         self._call("DELETE", f"/apps/{app}/sessions/{session}/history")
 

@@ -172,6 +172,7 @@ Run states use the MCP Tasks names plus `queued`: `queued`, `working`, `input_re
 | `compaction` | the summary and the range of events it replaces; the raw events stay |
 | `clearing` | the tool results that were cleared |
 | `end` | status, reply, signals, total usage |
+| `rewound` | the user went back to before event `to` (section 5.6); it takes the id of the last event that went |
 
 Model messages and the app transcript are both *projections* of the log. The projection is
 deterministic, so the same log always gives the same request bytes.
@@ -283,6 +284,29 @@ holds the tools.
   `subagent`), with a skeptical prompt. Like Claude Code's subagents it has its task's tools, folders and
   permissions: a call that needs approval is asked through the app (`task.input_required` with its
   `run`), so an app in bypass mode allows it and otherwise the user decides.
+
+### 5.6 Going back to a message
+
+Like Claude Code's rewind, an app can take a chat back to just before a message the user sent
+(`rewind.py`; `GET` previews, `POST` does it; refused with 409 while a run of the chat goes on).
+
+- **The log**: every event of the session from that message on is deleted, compactions and clearings
+  made since included. A `rewound` event takes the id of the last one deleted, because SQLite gives a
+  deleted top id out again and ids are kept elsewhere (file versions, apps' history entries): an id
+  never names two messages. The input event's id is what apps name; a run tells it as it logs the
+  message (`input`, and `steered` for a message read mid-turn).
+- **Files**: `files_write` and `files_edit` keep the file as it was before its first change since the
+  session's latest message (`file_versions`: content, or none for a new file). A return puts each file
+  back to its first version since that message, or deletes it. An agent's or a task's versions belong to
+  the chat they work for and outlive the agent's session, so a stopped agent's changes still go back.
+  A file that cannot be written keeps its versions for a later return; the answer names it.
+- **Work started since**: runs of the chat's agents started since, of tasks fired by reminders set
+  since, and what those started, are cancelled quietly (no report, no note, no notification), as are
+  jobs started since. Agents started since are deleted, reminders set since removed. The todo list goes
+  back to the last one written before the message; files read since count as unread.
+- **Kept**: calls that change something and are not undone are named (`kept`): commands, app actions
+  (the screen), the web and other services, memories (the app's) and the journal.
+- Agents and tasks that started before the message go on, and their changes stay.
 
 ## 6. Environment interface: toolkits
 
@@ -827,6 +851,7 @@ bearer token.
 | `POST /v1/plugins/<name>/reload` | copy a plugin in again from its source and import it |
 | `GET /v1/journal`, `DELETE /v1/journal/<id>` | view and prune the journal |
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
+| `GET/POST /v1/apps/<app>/sessions/<id>/rewind` | preview or go back to before a user message (section 5.6) |
 
 ## 14. Build plan
 
@@ -922,6 +947,11 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 - Calls run in the order the model wrote them; reads next to each other run together. A
   call that waits for the user holds back the calls after it: a read after a write that
   waited for approval used to run first.
+- A command the same as one still running as a job, in the same folder, is not started again: the answer
+  points to that job (the model started one download twice in a row). A job log a leftover process still
+  holds stays in the run's folder instead of failing the command (WinError 32).
+- A signals line after other text (junk the model wrote first) is still found, as a line holding only an
+  object of the app's signals, and taken out of the reply.
 - MilkChan's proactive messages stay in MilkChan: an idle turn sends an `idle` event with
   `reply: optional`, and the brain may answer `[silent]`. Reminders and finished tasks reach
   MilkChan as notifications; it turns each into a turn so the character says it.

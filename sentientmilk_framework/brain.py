@@ -132,6 +132,7 @@ class Brain:
         self.store = Store(self.home / "brain.sqlite3")
         self.bus = Bus()
         self.jobs: Dict[int, Any] = {}
+        self.quiet_jobs: set = set()  # stopped by a return to before they started: their end is not told
         self.plugins = Plugins(self.home)
         self.mcp = McpHost(self)
         self.runs = Runs(self)
@@ -325,7 +326,9 @@ class Brain:
 
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """The conversation as apps show it: what the user said and what the brain replied; with
-        ``tools`` also each tool call between them (its output capped as in live tool events)."""
+        ``tools`` also each tool call between them (its output capped as in live tool events). Each entry's
+        ``id`` is its event's: a user message's is what a return to it (rewind.py) names. What an app showed
+        before it used the brain (imported) has none: it is not the log the model works from."""
         entries, started = [], {}
         types = ("input", "end", "shown") + (("tool_start", "action_request", "tool") if tools else ())
         for event in self.store.events(app, session, types=types):
@@ -333,18 +336,18 @@ class Brain:
                 started[event["call_id"]] = event["at"]
             elif event["type"] == "tool":
                 start = started.get(event["call_id"])
-                entries.append({"role": "tool", "call_id": event["call_id"], "name": event["name"],
+                entries.append({"id": event["id"], "role": "tool", "call_id": event["call_id"], "name": event["name"],
                                 "arguments": event.get("arguments") or {}, "status": event["status"],
                                 "text": event["content"][:2000], "time": event["at"],
                                 "seconds": None if start is None else round(event["at"] - start, 3)})
             elif event["type"] == "shown":
                 entries.append({"role": event["role"], "text": event["text"], "time": event["at"]})
             elif event["type"] == "input" and event.get("display"):
-                entries.append({"role": "user", "text": event["display"], "time": event["at"],
+                entries.append({"id": event["id"], "role": "user", "text": event["display"], "time": event["at"],
                                 **({"mentions": event["mentions"]} if event.get("mentions") else {})})
             elif event["type"] == "end" and event.get("reply"):
-                entries.append({"role": "assistant", "text": event["reply"], "signals": event.get("signals") or {},
-                                "time": event["at"]})
+                entries.append({"id": event["id"], "role": "assistant", "text": event["reply"],
+                                "signals": event.get("signals") or {}, "time": event["at"]})
         return entries
 
     def import_history(self, app: str, session: str, data: dict) -> None:

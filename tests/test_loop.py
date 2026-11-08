@@ -367,10 +367,10 @@ def test_a_message_sent_while_a_turn_starts_is_not_lost(brain, monkeypatch):
     """Updating a run's options read the run, then wrote it whole: a message steered in between was lost."""
     original = loop_module.Loop._log_input
 
-    def log_input(self, run, profile):
+    def log_input(self, run, profile, emit):
         if run["kind"] == "turn" and not sent:
             sent.append(brain.brain.runs.steer(run["id"], [{"type": "text", "text": "Also this."}]))
-        return original(self, run, profile)
+        return original(self, run, profile, emit)
 
     sent = []
     monkeypatch.setattr(loop_module.Loop, "_log_input", log_input)

@@ -188,7 +188,8 @@ class Scheduler:
         data = {"schedule": schedule["id"], "mode": payload["mode"], "text": payload["text"], "late": late}
         try:
             if payload["mode"] == "task":
-                data["task"] = self.brain.runs.start_task(schedule["app"], schedule["session"], payload["text"])
+                data["task"] = self.brain.runs.start_task(schedule["app"], schedule["session"], payload["text"],
+                                                           schedule=schedule["id"])
             self.brain.notify(schedule["app"], schedule["session"], "schedule.fired", data)
         except Exception:
             logger.exception("Schedule %s could not fire", schedule["id"])

@@ -93,13 +93,14 @@ class Runs:
         for _ in self._workers:
             self._tasks.put(None)
 
-    def _lock(self, app: str, session: str) -> threading.Lock:
+    def session_lock(self, app: str, session: str) -> threading.Lock:
+        """Held while a run of the session runs (and while it is rewound): one at a time."""
         with self._locks_guard:
             return self._session_locks.setdefault((app, session), threading.Lock())
 
     def _execute(self, run_id: int) -> None:
         run = self.store.run(run_id)
-        with self._lock(run["app"], run["session"]):
+        with self.session_lock(run["app"], run["session"]):
             self.loop.execute(run_id)
 
     def _work(self) -> None:
@@ -139,7 +140,9 @@ class Runs:
 
     def start_task(self, app: str, parent_session: Optional[str], goal: str, *, toolkits: Optional[list] = None,
                    verify: bool = False, allow: Optional[list] = None, context: str = "compact",
-                   max_steps: Optional[int] = None, parent: Optional[int] = None, cwd: Optional[str] = None) -> int:
+                   max_steps: Optional[int] = None, parent: Optional[int] = None, cwd: Optional[str] = None,
+                   schedule: Optional[int] = None) -> int:
+        """``schedule``: the reminder that fired it (a return to before that reminder was set stops it)."""
         if context not in ("compact", "reset"):
             raise ValueError("context must be compact or reset")
         options = {"goal": goal, "parent_session": parent_session, "verify": verify, "context_mode": context,
@@ -148,6 +151,8 @@ class Runs:
                                "allow": allow or [], "from_session": parent_session, "cwd": cwd}}
         if max_steps:
             options["max_steps"] = int(max_steps)
+        if schedule is not None:
+            options["schedule"] = schedule
         run_id = self.store.add_run(app, "pending", "task", options, parent=parent)
         self.store.update_run(run_id, session=f"task-{run_id}")
         self.brain.notify(app, parent_session, "task.updated", {"task": run_id, "status": "queued", "goal": goal})
@@ -334,7 +339,7 @@ class Runs:
     def finished(self, run: dict) -> None:
         with self._attention_lock:
             self._attention.pop(run["id"], None)
-        if run["kind"] == "task":
+        if run["kind"] == "task" and not run["options"].get("quiet"):  # quiet: a return stopped it
             options, result = run["options"], run["result"] or {}
             parent = options.get("parent_session")
             message = (run["error"] or {}).get("message", "")
