@@ -842,6 +842,8 @@ class Panel(App):
 
     @on(DataTable.RowHighlighted, "#tasks")
     def show_task(self) -> None:
+        if not self.screen_stack:
+            return  # the panel closed with this row highlight still queued
         key = selected_key(self.main.query_one("#tasks", DataTable))
         task = self.call(lambda c: c.run(int(key)), quiet=True) if key else None
         if not task:
@@ -936,6 +938,8 @@ class Panel(App):
 
     @on(DataTable.RowHighlighted, "#plugin-table")
     def show_plugin(self) -> None:
+        if not self.screen_stack:
+            return  # the panel closed with this row highlight still queued
         plugin = self.plugins.get(selected_key(self.main.query_one("#plugin-table", DataTable)) or "")
         if not plugin:
             return self.main.query_one("#plugin-detail", Static).update("")

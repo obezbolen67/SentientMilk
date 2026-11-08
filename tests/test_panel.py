@@ -156,3 +156,9 @@ def test_a_plugin_she_made_is_trusted_here(brain):
         assert not brain.brain.plugins.trusted("moon")  # changed files: asked again
         await until(pilot, lambda: "untrusted" in str(table.get_row("moon")))
     run(brain, scenario)
+
+
+def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
+    panel = Panel(brain.home)  # no screens: as while it closes, with a row highlight still queued
+    panel.show_plugin()
+    panel.show_task()
