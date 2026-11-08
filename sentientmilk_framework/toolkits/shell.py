@@ -161,6 +161,18 @@ def _lines(path: str) -> list:
         return []
 
 
+def last_line(path: str) -> str:
+    """A job's newest non-empty output line, read from the end of its log (which may be long)."""
+    try:
+        with open(path, "rb") as log:
+            log.seek(0, os.SEEK_END)
+            log.seek(max(0, log.tell() - 4096))
+            tail = log.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    return next((line.strip() for line in reversed(tail.splitlines()) if line.strip()), "")[:300]
+
+
 def _job(ctx: ToolContext, job: int) -> dict:
     record = ctx.store.job(int(job))
     if not record or record["app"] != ctx.app:
@@ -198,13 +210,17 @@ def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
 @tool(readonly=False, policy="auto", args={"job": "Job id from shell_run."})
 def shell_stop(ctx: ToolContext, job: int):
     """Stop a background job and everything it started."""
-    record = _job(ctx, job)
-    process = ctx.brain.jobs.get(record["id"])
+    return stop(ctx.brain, _job(ctx, job))
+
+
+def stop(brain, record: dict) -> str:
+    """Stop a running job and everything it started (her tool, and the app's stop button)."""
+    process = brain.jobs.get(record["id"])
     if record["status"] != "running" or process is None:
-        return f"Job {job} is not running ({record['status']})."
-    ctx.store.update_job(record["id"], status="stopping")
+        return f"Job {record['id']} is not running ({record['status']})."
+    brain.store.update_job(record["id"], status="stopping")
     kill_tree(process)
-    return f"Stopped job {job}."
+    return f"Stopped job {record['id']}."
 
 
 TOOLKIT = Toolkit("shell", "Run commands on the user's computer.", [shell_run, shell_output, shell_stop])

@@ -270,6 +270,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
 | `GET /apps`, `DELETE /apps/{app}/memory/{category}/{key}`, `POST /shutdown` | apps, forgetting a memory, stopping the brain |
 | `GET /journal?q=`, `DELETE /journal/{id}`, `GET /jobs/{id}` | the journal; background shell jobs |
+| `GET /apps/{app}/jobs?since=`, `POST /jobs/{id}/stop` | an app's running jobs and those that ended after `since`, each with its newest output line (`last`); stopping one and everything it started |
 
 Errors answer `{"error": {"type", "message", "details", "http_status"}}`. The stored API
 key is only ever sent to the stored `base_url`.

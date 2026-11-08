@@ -249,6 +249,13 @@ class _Handler(BaseHTTPRequestHandler):
             from .toolkits.shell import _lines
 
             self._send(200, {**job, "tail": _lines(job["log"])[-50:]})
+        elif head == "jobs" and len(rest) == 2 and rest[1] == "stop" and method == "POST":
+            job = brain.store.job(_number(rest[0], "job id"))
+            if not job:
+                return False
+            from .toolkits.shell import stop
+
+            self._send(200, {"job": job["id"], "message": stop(brain, job)})
         else:
             return False
         return True
@@ -265,6 +272,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"sessions": brain.store.sessions(app)})
         elif rest == ["memory"] and method == "GET":
             self._send(200, {"memory": brain.store.memories(app)})
+        elif rest == ["jobs"] and method == "GET":
+            from .toolkits.shell import last_line
+
+            try:
+                since = float(query.get("since", 0))
+            except ValueError:
+                raise ValueError("since must be a time in seconds since the epoch")
+            shown = ("id", "session", "command", "cwd", "status", "exit_code", "started", "ended")
+            self._send(200, {"jobs": [{**{key: job[key] for key in shown}, "last": last_line(job["log"])}
+                                      for job in brain.store.jobs(app, since)]})
         elif rest == ["mentions"] and method == "GET":
             session = validate_name(query.get("session", "main"), "session id")
             self._send(200, {"mentions": mentions.candidates(brain, app, session, query.get("q", ""),

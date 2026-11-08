@@ -179,6 +179,16 @@ class BrainClient:
         params = {"q": query, "session": session, **({"kind": kind} if kind else {})}
         return self._call("GET", f"/apps/{app}/mentions", params=params)["mentions"]
 
+    def jobs(self, app: str, since: float = 0) -> List[dict]:
+        """An app's background commands: the running ones and those that ended after ``since`` (epoch seconds),
+        the newest first: ``id``, ``session``, ``command``, ``cwd``, ``status`` (running, stopping, finished,
+        stopped), ``exit_code``, ``started``, ``ended`` and ``last``, its newest output line."""
+        return self._call("GET", f"/apps/{app}/jobs", params={"since": since})["jobs"]
+
+    def stop_job(self, job: int) -> dict:
+        """Stop a running background command and everything it started; ``message`` says what happened."""
+        return self._call("POST", f"/jobs/{job}/stop")
+
     def mention_card(self, app: str, kind: str, ref: str, session: str = "main") -> str:
         """The card the brain reads for a mention: what a picker shows as its preview."""
         return self._call("GET", f"/apps/{app}/mentions/{kind}", params={"ref": ref, "session": session})["card"]

@@ -94,6 +94,9 @@ _RUN_COLUMNS = "id, app, session, kind, parent, status, options, result, error, 
 _EVENT_COLUMNS = "id, app, session, run, at, type, data"
 
 
+JOB_KEYS = ("id", "run", "app", "session", "command", "cwd", "pid", "status", "exit_code", "log", "started",
+            "ended")
+
 class Store:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -366,11 +369,16 @@ class Store:
                               (run, app, session, command, cwd, log, time.time())).lastrowid
 
     def job(self, job: int) -> Optional[dict]:
-        keys = ("id", "run", "app", "session", "command", "cwd", "pid", "status", "exit_code", "log", "started",
-                "ended")
         with self._db() as db:
-            row = db.execute(f"SELECT {', '.join(keys)} FROM jobs WHERE id = ?", (job,)).fetchone()
-        return dict(zip(keys, row)) if row else None
+            row = db.execute(f"SELECT {', '.join(JOB_KEYS)} FROM jobs WHERE id = ?", (job,)).fetchone()
+        return dict(zip(JOB_KEYS, row)) if row else None
+
+    def jobs(self, app: str, since: float, limit: int = 50) -> List[dict]:
+        """An app's running jobs and those that ended after ``since``, the newest first."""
+        with self._db() as db:
+            rows = db.execute(f"SELECT {', '.join(JOB_KEYS)} FROM jobs WHERE app = ? AND (ended IS NULL OR ended >= ?) "
+                              "ORDER BY id DESC LIMIT ?", (app, since, limit)).fetchall()
+        return [dict(zip(JOB_KEYS, row)) for row in rows]
 
     def update_job(self, job: int, **fields: Any) -> None:
         with self._db() as db:

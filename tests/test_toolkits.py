@@ -5,7 +5,7 @@ import pytest
 import requests
 from conftest import wait_for
 
-from sentientmilk_framework import permissions, toolkits
+from sentientmilk_framework import BrainError, permissions, toolkits
 from sentientmilk_framework.toolkits import RESULT_CAP, ToolContext, ToolError, cap, files, shell, todo, web
 from sentientmilk_framework.toolkits import memory as memory_kit
 
@@ -148,6 +148,26 @@ def test_background_jobs_report_when_they_end(brain, ctx):
     assert wait_for(lambda: brain.store.notifications("cli"))[-1]["type"] == "job.finished"
     notes = brain.store.events("cli", "main", types=("note",))
     assert f"Background job {job} finished with exit code 0" in notes[-1]["text"]
+
+
+def test_an_app_lists_its_jobs_and_stops_one(brain, ctx):
+    wait = "Start-Sleep -Seconds 30" if shell.shell_name("") == "powershell" else "sleep 30"
+    started = shell.shell_run.func(ctx, f"echo first; echo 'second line'; {wait}", background=True)
+    job = int(started.split()[2].rstrip("."))
+    old = brain.store.add_job(None, "cli", "main", "echo old", str(brain.work), str(brain.work / "old.log"))
+    brain.store.update_job(old, status="finished", exit_code=0, ended=time.time() - 3600)
+    brain.store.add_job(None, "milk", "main", "echo theirs", str(brain.work), str(brain.work / "theirs.log"))
+    recent = time.time() - 600
+    [listed] = wait_for(lambda: [j for j in brain.client.jobs("cli", since=recent) if j["last"] == "second line"])
+    assert [j["id"] for j in brain.client.jobs("cli", since=recent)] == [job]  # not the old one, not another app's
+    assert (listed["session"], listed["status"]) == ("main", "running")
+    assert "echo first" in listed["command"] and "log" not in listed
+    assert brain.client.stop_job(job)["message"] == f"Stopped job {job}."
+    wait_for(lambda: brain.store.job(job)["status"] == "stopped", 30)
+    assert brain.client.jobs("cli", since=recent)[0]["status"] == "stopped"  # it ended just now: still listed
+    assert "is not running (stopped)" in brain.client.stop_job(job)["message"]
+    with pytest.raises(BrainError):
+        brain.client.stop_job(9999)
 
 
 def test_web_pages_become_text_and_search_needs_a_key(brain, ctx, monkeypatch):
