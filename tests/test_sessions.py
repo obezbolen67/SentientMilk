@@ -26,7 +26,8 @@ def test_a_session_is_named_after_its_first_reply_once_and_announced(brain):
     assert entry["preview"].startswith("Can you help me find") and entry["last_active"]
     asked = brain.provider.title_requests[0]["messages"][-1]["content"]
     assert "Can you help me find a Roblox server?" in asked and "Sure, which game?" in asked
-    titled = [n for n in brain.store.notifications("milk", 0) if n["type"] == "session.titled"]
+    # the title is stored, then announced: a busy machine reads between the two
+    titled = wait_for(lambda: [n for n in brain.store.notifications("milk", 0) if n["type"] == "session.titled"])
     assert [n["data"] for n in titled] == [{"session": "chat-1", "title": "Roblox server hunt"}]
 
     turn(brain, "milk", "Item Asylum", session="chat-1")
