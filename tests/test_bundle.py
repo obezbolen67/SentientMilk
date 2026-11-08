@@ -9,6 +9,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="the bundle is the Windows build")
+WINDOW, CONSOLE = 2, 3  # a program's PE subsystem: Windows opens a console only for the second
+
+
+def subsystem(program: Path) -> int:
+    data = program.read_bytes()
+    header = int.from_bytes(data[0x3C:0x40], "little")  # PE header; its optional header starts 24 bytes in
+    return int.from_bytes(data[header + 24 + 68:header + 24 + 70], "little")
 
 
 def bundle(tmp_path):
@@ -42,8 +49,10 @@ def test_the_app_runs_on_the_bundled_python_and_its_own_packages_only(tmp_path):
     site = out / "runtime" / "Lib" / "site-packages"
     assert (site / "requests").is_dir() and not (site / "pytest").exists()  # only what the app needs
     programs = {p.relative_to(out).as_posix() for p in out.rglob("*.exe")}  # its own, and Python's signed ones
-    assert {"Tiny.exe", "runtime/python.exe", "runtime/pythonw.exe"} <= programs
-    assert all(p == "Tiny.exe" or p.count("/") == 1 or p.startswith("runtime/Lib/venv/scripts/") for p in programs)
+    assert {"Tiny.exe", "Tinyw.exe", "runtime/python.exe", "runtime/pythonw.exe"} <= programs
+    assert all(p in ("Tiny.exe", "Tinyw.exe") or p.count("/") == 1 or p.startswith("runtime/Lib/venv/scripts/")
+               for p in programs)
+    assert subsystem(out / "Tiny.exe") == CONSOLE and subsystem(out / "Tinyw.exe") == WINDOW  # starts with no console
     assert (out / "runtime" / "bundle.json").exists()
     assert subprocess.run([str(out / "Tiny.cmd")], capture_output=True, text=True).stdout.strip() == "tiny ran"
     assert (out / "Tiny.lnk").exists()

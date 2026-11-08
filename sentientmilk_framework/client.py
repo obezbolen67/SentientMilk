@@ -436,6 +436,14 @@ def panel_command(home: Path) -> List[str]:
     return _command(home)
 
 
+def start_command(home: Path) -> List[str]:
+    """What Windows runs at sign-in (Start with Windows): no console; it starts the brain and exits."""
+    from .autostart import windowless
+
+    program, *rest = _command(home, "start")
+    return [str(windowless(Path(program))), *rest]
+
+
 def record_launch(home: Path) -> None:
     """SentientMilk notes how it is installed, so apps start it that way (it decides, not them)."""
     home.mkdir(parents=True, exist_ok=True)

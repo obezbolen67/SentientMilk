@@ -40,8 +40,8 @@ from textual.widgets import (
     TextArea,
 )
 
-from . import __version__
-from .client import BrainClient, connect
+from . import __version__, autostart
+from .client import BrainClient, connect, start_command
 from .config import DEFAULT_BASE_URL, DEFAULT_MODEL, SHELLS
 from .exceptions import BrainError
 from .thinking import THINKING_MODES
@@ -56,6 +56,7 @@ SHELL_NAMES = {"": "Automatic (Windows PowerShell on Windows, bash elsewhere)", 
 STATUS_COLORS = {"working": ACCENT, "queued": MUTED, "input_required": WARN, "completed": OK, "failed": BAD,
                  "cancelled": MUTED}
 Rows = List[Tuple[str, tuple]]
+AUTOSTART = "SentientMilk"  # its name in Windows' Startup apps
 
 
 def ago(at: Optional[float]) -> str:
@@ -273,6 +274,8 @@ class Panel(App):
     .field > Button { margin-left: 1; }
     .buttons { height: auto; margin: 1 0 0 0; }
     .buttons > Button { margin-right: 1; }
+    .toggle { height: auto; margin: 1 0 0 0; }
+    .toggle-label { width: 1fr; height: 3; content-align: left middle; padding-left: 1; }
     Button:disabled { opacity: 45%; }
     #usage-empty { margin: 1 0 0 0; }
     .subtitle { margin: 1 0 0 0; color: $text-muted; }
@@ -355,6 +358,11 @@ class Panel(App):
                     yield FlatButton("Start", id="brain-start", variant="success")
                     yield FlatButton("Restart", id="brain-restart")
                     yield FlatButton("Stop", id="brain-stop", variant="error")
+                if autostart.AVAILABLE:
+                    with Horizontal(classes="toggle"):
+                        yield Switch(value=autostart.enabled(AUTOSTART), id="autostart")
+                        yield Static("Start with Windows: the brain starts in the background when you sign in, "
+                                     "with only its tray icon", classes="toggle-label")
             with Vertical(classes="card", id="provider-card"):
                 yield Static(id="provider-info")
                 with Horizontal(classes="buttons"):
@@ -655,6 +663,7 @@ class Panel(App):
                  ("Runs", "in the background until stopped here or from its tray icon; closing this "
                           "window leaves it running")]
         self.main.query_one("#brain-info", Static).update(self.lines(rows))
+        self.show_autostart()
         thinking = dict((v, k) for k, v in THINKING_MODES).get(settings.get("thinking_mode"), "?")
         provider = [
             ("Service", escape(settings.get("base_url") or f"{DEFAULT_BASE_URL} (default)")),
@@ -1134,6 +1143,24 @@ class Panel(App):
     def tab_shown(self) -> None:
         self.refresh_live()
         self.tail_log()
+
+    @on(Switch.Changed, "#autostart")
+    def autostart_changed(self, event: Switch.Changed) -> None:
+        try:
+            autostart.set_enabled(AUTOSTART, start_command(self.home) if event.value else None)
+        except OSError as exc:
+            self.notify(f"Windows did not take it: {exc}", severity="error")
+        else:
+            self.notify("SentientMilk starts with Windows from now on." if event.value
+                        else "SentientMilk no longer starts with Windows.")
+        self.show_autostart()
+
+    def show_autostart(self) -> None:
+        """As Windows has it: Task Manager may turn it off too."""
+        if autostart.AVAILABLE:
+            switch = self.main.query_one("#autostart", Switch)
+            with switch.prevent(Switch.Changed):
+                switch.value = autostart.enabled(AUTOSTART)
 
     @on(Button.Pressed)
     def pressed(self, event: Button.Pressed) -> None:

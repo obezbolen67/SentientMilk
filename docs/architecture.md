@@ -934,9 +934,13 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 
 1. **Shell on Windows**: PowerShell 5.1 by default, since every Windows has it. The `shell`
    setting picks another one (`pwsh`, `cmd`, `bash`).
-2. **Autostart**: none. The brain keeps running while an app is open, work is pending or a
-   schedule is enabled. After a reboot, a schedule that came due fires when the next app
-   starts the brain (`catch_up`).
+2. **Autostart**: off unless switched on (2026-11-08, the user asked for it). The panel's
+   **Start with Windows** writes the current user's Run key (`autostart.py`, which MilkChan
+   uses for its own switch too); Task Manager's off (StartupApproved) reads as off. Windows
+   runs `SentientMilkw.exe` (a no-console build of the same host) with `start`, which starts
+   the brain as apps do and exits, so the brain keeps a hidden console for what it runs.
+   Without it, a schedule that came due after a reboot fires when the brain next starts
+   (`catch_up`).
 3. **Light model**: the same `deepseek-v4.1-flash-fast` (`light_model` empty means the main
    model).
 

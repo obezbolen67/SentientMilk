@@ -72,7 +72,11 @@ same, and the panel's `x` stops it.
 Opening SentientMilk (the panel or any command) records how to start it in `launch.json`.
 Apps start the brain that way when none runs, each as its own process; a packaged app on
 a computer where SentientMilk was never opened says so instead. One brain runs per home
-folder. There is no autostart: after a reboot, a schedule that came due fires when the
+folder. On Windows, **Start with Windows** on the panel's Overview starts the brain in the
+background when you sign in, with only its tray icon: an entry in Windows' Startup apps
+(the current user's Run key; Task Manager can turn it off too, and the switch shows that).
+It runs `SentientMilkw.exe ... start`, the same program built with no console, which starts
+the brain the recorded way and exits. Without it, a schedule that came due fires when the
 brain next starts.
 
 Other commands: `serve` (run in the foreground), `tasks [show|cancel ID]`,

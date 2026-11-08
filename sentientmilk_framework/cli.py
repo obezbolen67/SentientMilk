@@ -251,6 +251,8 @@ def main(argv=None) -> None:
     serve = commands.add_parser("serve", help="run the brain server")
     serve.add_argument("--port", type=int, default=0, help="fixed port (default: any free port)")
     serve.add_argument("--log", action="store_true", help="log to brain.log in the home folder")
+    commands.add_parser("start", help="start the brain in the background, if it is not running (Start with "
+                        "Windows runs this)")
     config = commands.add_parser("config", help="show or change the brain's settings")
     config.add_argument("changes", nargs="*", metavar="KEY=VALUE")
     chat = commands.add_parser("chat", help="talk to the brain in this terminal")
@@ -284,6 +286,9 @@ def main(argv=None) -> None:
     evaluate.add_argument("--report", default="", help="write the results as JSON here")
     args = parser.parse_args(argv)
     home = Path(args.home or default_home()).expanduser().resolve()
+    if args.command == "start":  # run windowless: the brain it starts is the one recorded, with its console
+        connect(home)
+        return None
     record_launch(home)
     if args.command == "setup":
         return None

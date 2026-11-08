@@ -129,19 +129,21 @@ def host_source(name: str, module: str, version: str, publisher: str) -> str:
     return source
 
 
-def host(out: Path, name: str, module: str, console: bool, icon: str, version: str, publisher: str) -> None:
-    """NAME.exe, compiled by the C# compiler of the .NET Framework every Windows has."""
+def host(out: Path, name: str, module: str, console: bool, icon: str, version: str, publisher: str,
+         exe: str = "") -> None:
+    """NAME.exe (or EXE.exe), compiled by the C# compiler of the .NET Framework every Windows has."""
+    exe = exe or name
     compiler = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe"
     with tempfile.TemporaryDirectory() as folder:
         source = Path(folder) / "host.cs"
         source.write_text(host_source(name, module, version, publisher), encoding="utf-8")
         command = [str(compiler), "/nologo", "/optimize+", "/platform:x64", f"/target:{'exe' if console else 'winexe'}",
-                   f"/out:{out / (name + '.exe')}", str(source)]
+                   f"/out:{out / (exe + '.exe')}", str(source)]
         if icon:
             command.insert(-1, f"/win32icon:{icon}")
         done = subprocess.run(command, capture_output=True, text=True)
     if done.returncode:
-        raise SystemExit(f"Could not compile {name}.exe:\n{done.stdout}{done.stderr}")
+        raise SystemExit(f"Could not compile {exe}.exe:\n{done.stdout}{done.stderr}")
 
 
 def main(argv=None) -> int:
@@ -186,6 +188,8 @@ def main(argv=None) -> int:
     (out / "runtime" / MARK).write_text(json.dumps({"name": args.name, "module": args.module}), encoding="utf-8")
     launchers(out, args.name, args.module, args.console, icon)
     host(out, args.name, args.module, args.console, icon, version, publisher)
+    if args.console:  # NAMEw.exe, as pythonw.exe is to python.exe: what Windows starts at sign-in
+        host(out, args.name, args.module, False, icon, version, publisher, exe=f"{args.name}w")
     check = subprocess.run([str(out / "runtime" / "python.exe"), "-c", f"import {args.module}"],
                            capture_output=True, text=True)
     if check.returncode:
