@@ -154,7 +154,7 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   `agent.updated` as agents start and end; `client.agents(app, session)`, `client.agent(id)`
   and `client.stop_agent(id)` (which deletes it) let them show and stop agents.
 - **Tools on demand**: requests carry only the core tools plus `tools_search` and
-  `tools_load`; the rest are listed by name and loaded into the conversation when needed, so
+  `tools_load`; the rest are listed with their parameters and loaded into the conversation when needed, so
   the tool list (and the prompt cache) stays the same. An action declared with
   `"core": true` is always sent.
 - **Schedules** (`at 2026-11-06T09:00`, `every 30m`, or 5-field cron) either wake the app

@@ -244,7 +244,7 @@ def test_old_tool_results_are_cleared_in_batches_with_a_way_back(brain):
     brain.provider.replies += [tool_call("files_read", {"path": f"f{i}.txt"}, f"r{i}") for i in range(14)] + ["ok"]
     streamed = turn(brain, "cli", "read them all")["events"]
     clearings = brain.store.events("cli", "main", types=("clearing",))
-    assert 1 <= len(clearings) <= 4  # in batches, not at every step
+    assert 1 <= len(clearings) <= 6  # in batches, not at every step (14); how many moves with the prompt's size
     told = [e for e in streamed if e["type"] == "cleared"]  # apps can show it (MilkChan draws it)
     assert len(told) == len(clearings) and told[0]["results"] == len(clearings[0]["ids"])
     results = tool_results(brain.provider.sent[-1])

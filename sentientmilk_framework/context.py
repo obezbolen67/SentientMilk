@@ -49,8 +49,9 @@ AGENTS_RULE = ("- When a job splits into parts that can go on their own, or woul
 TOOL_RULES = (("todo_write", TODO_RULE), ("memory_save", MEMORY_RULE), ("agent_start", AGENTS_RULE))
 
 MORE_TOOLS = """## MORE TOOLS
-You have more tools than the ones sent with each request. Load the ones you need with tools_load: it shows
-how to call them, and then you call them by name like the others. tools_search finds tools by what they do.
+You have more tools than the ones sent with each request, listed here with their parameters (? marks an
+optional one). Load the ones you need with tools_load: it shows how to call them, and then you call them by
+name like the others. tools_search finds tools by what they do.
 By toolkit:"""
 
 COMPACT_PROMPT = """You summarize the earlier part of a conversation between the user and you, so you can

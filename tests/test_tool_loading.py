@@ -30,7 +30,8 @@ def test_requests_carry_the_core_tools_and_list_the_rest(brain):
                                       "shell_output", "web_search", "web_fetch", "tools_search", "tools_load"}
     assert all(other["tools"] == first["tools"] for other in others)  # one tool list: the cache keeps hitting
     listed = system(first).split("## MORE TOOLS", 1)[1]
-    assert "- schedule (Reminders and recurring tasks.): schedule_create, schedule_list, schedule_delete" in listed
+    assert "- schedule (Reminders and recurring tasks.): schedule_create(when, text, mode?), schedule_list(), "         "schedule_delete(id)" in listed
+    assert "files_edit(path, old, new, all?)" in listed  # called right before it is loaded
     assert "files_edit" in listed and "files_read" not in listed and "agent_start" in listed
 
 
@@ -96,7 +97,7 @@ def test_an_app_marks_the_actions_it_wants_sent(brain):
     turn(brain, "acts", "hello")
     names = sent_names(brain.provider.sent[0])
     assert "look" in names and "act" not in names and "tools_load" in names
-    assert "- this app's own: act" in system(brain.provider.sent[0])
+    assert "- this app's own: act()" in system(brain.provider.sent[0])
     with pytest.raises(BrainError) as caught:
         brain.client.declare_app("acts", actions=[{"name": "look", "core": "yes"}])
     assert caught.value.type == "bad_request"

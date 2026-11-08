@@ -576,7 +576,10 @@ into the conversation when needed:
     `task_progress` for workers.
   - An app marks the actions it wants sent with `"core": true`.
 - The system block lists the others under MORE TOOLS, by toolkit, with the toolkit's
-  description. A toolkit with more than 20 tools to load is listed by count only.
+  description and each tool's parameter names (`files_edit(path, old, new, all?)`). A toolkit
+  with more than 20 tools to load is listed by count only. With only the names, the model
+  often called a tool before loading it with arguments it guessed (`old_string`, in 2 of 4 eval
+  runs); with the parameters listed, 0 of 3.
 - `tools_load(names)` returns their descriptions and parameters. The model then calls them
   **by name**, like the others: the schemas sit in the conversation, which only grows at
   its end.

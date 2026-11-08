@@ -74,10 +74,14 @@ class Toolset:
         return APP_TOOLS if toolkit == "actions" else toolkit
 
     def listing(self) -> List[str]:
-        """The MORE TOOLS lines: each toolkit's deferred tools by name, or only how many for a big one."""
+        """The MORE TOOLS lines: each toolkit's deferred tools with their parameters, or only how many for a big
+        one. With the parameter names in view she calls a tool right before she loads it (evals: files_edit
+        was called with old_string/new_string)."""
         groups: Dict[str, List[str]] = {}
         for t in self.deferred:
-            groups.setdefault(t.toolkit, []).append(t.name)
+            required = set(t.parameters.get("required") or [])
+            parameters = ", ".join(p + ("" if p in required else "?") for p in t.parameters.get("properties") or {})
+            groups.setdefault(t.toolkit, []).append(f"{t.name}({parameters})")
         lines = []
         for kit, names in groups.items():
             about = self.kits.get(kit, "")
