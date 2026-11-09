@@ -66,4 +66,4 @@ def test_mcp_servers_are_toolkits_the_model_can_use(brain, tmp_path):
     assert results["m1"] == "42" and results["m2"].startswith("Error:") and "fail" in results["m2"]
     tools = [t["function"]["name"] for t in brain.provider.sent[0]["tools"]]
     assert "mcp__test__add" not in tools  # listed, and called by name
-    assert "mcp__test__add" in brain.provider.sent[0]["messages"][0]["content"].split("## MORE TOOLS")[1]
+    assert "mcp__test__add" in brain.provider.sent[0]["messages"][0]["content"].split("## YOUR TOOLS")[1]

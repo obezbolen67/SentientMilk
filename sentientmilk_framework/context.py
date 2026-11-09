@@ -39,30 +39,22 @@ RULES = """## HOW YOU WORK
 - Notes in square brackets in user messages are not from the user: they tell you the time, events and
   finished tasks.
 - Never talk about yourself as "an AI" or "a language model": you are who WHO YOU ARE says."""
-TODO_RULE = "- For work with three or more steps, keep a todo list with todo_write and keep it current."
-MEMORY_RULE = ("- When you learn something lasting about the user, save it with memory_save right away, unasked. "
-               "Memory is for what stays true; one-time events and changes are not worth keeping.")
-AGENTS_RULE = ("- When a job splits into parts that can go on their own, or would fill your context, give the parts "
-               "to agents (agent_start) and put their reports together. They have all your tools and know only "
-               "what you write in the task. Answer their questions with agent_message, and stop the ones you "
-               "need no more. Do small things yourself.")
-SUPER_RULE = ("- You have super agents: {label}, a stronger model (Claude, not a copy of you), through Claude Code. "
-              "None waits around between jobs: you make one with agent_start and super_agent=true, then talk "
-              "to it with agent_message like any agent, until you stop it. So when the user talks about your "
-              "super agent (or Claude, or the super model), wants you to talk to it or give it something, make "
-              "one right away. Code is theirs: when a request needs code written, changed, fixed or reviewed "
-              "(even a small script), start one instead of writing it yourself. The same for problems that "
-              "need deep, careful thinking: a hard bug, a design, a tricky analysis or proof. Put the whole job "
-              "in the task: what to make, where, and how to check it. It works in your folders with its own "
-              "tools, the user approves its changes, and it reports like any agent. Chat, lookups, running "
-              "commands and simple file chores stay yours.")
-TOOL_RULES = (("todo_write", TODO_RULE), ("memory_save", MEMORY_RULE), ("agent_start", AGENTS_RULE))
-
-MORE_TOOLS = """## MORE TOOLS
-You have more tools than the ones sent with each request, listed here with their parameters (? marks an
-optional one). Load the ones you need with tools_load: it shows how to call them, and then you call them by
-name like the others. tools_search finds tools by what they do.
-By toolkit:"""
+LISTED_PER_KIT = 20  # a toolkit with more tools to load is listed by count; tools_search finds them
+TOOLS = """## YOUR TOOLS
+All you can do, by toolkit, with what to know about using it. The user sets you up in SentientMilk's control
+panel and in this app's settings (models, super agents, plugins, skills, MCP servers): whatever they say they
+made, installed or set up for you is here, as something you can do."""
+PARTS = """Toolkits marked [part of you] are parts of you: they live inside you (SentientMilk keeps them), not
+on the screen or in the user's files. When the user talks about one, in any words ("your helper", "the agent
+I made you", "your notes"), they mean the part here: see it and use it only with its tools, never by looking
+for it on the screen or in files. What its tools show is the whole truth about it: when they show nothing,
+there is nothing to find elsewhere, not on the screen and not in files or folders (SentientMilk's own
+included). When the user speaks of something they do not show, find what they mean among what you can do
+here (often something you make yourself) and do it; if nothing fits, say what you see and ask."""
+LOADING = """Tools after "load:" are not sent with each request: load them with tools_load (it shows how to
+call them), then call them by name like the others. ? marks an optional parameter. tools_search finds tools
+by what they do."""
+CHANGED = "Your tools changed since this app last used them (YOUR TOOLS has them as they are now):"
 
 COMPACT_PROMPT = """You summarize the earlier part of a conversation between the user and you, so you can
 continue without it; YOU marks what you said and did, and the tools you used. Write the summary to
@@ -92,12 +84,57 @@ def computer_section(profile: dict, shell: str) -> Optional[str]:
     return "\n".join(lines)
 
 
+def tools_section(toolmap: List[dict]) -> Optional[str]:
+    """YOUR TOOLS: every toolkit of the run (Toolset.toolmap) with its tools and, under it, the guides of its
+    tools (a rule comes only with its tool). One place for what the model can do, so what the user says maps
+    to it; parts of the model are marked, and are never looked for on the computer."""
+    if not toolmap:
+        return None
+    lines = [TOOLS]
+    if any(group["part"] for group in toolmap):
+        lines.append(PARTS)
+    if any(group["load"] for group in toolmap):
+        lines.append(LOADING)
+    for group in toolmap:
+        head = f"- {group['kit']}" + (" [part of you]" if group["part"] else "") + \
+            (f" [{group['origin']}]" if group.get("origin") else "") + \
+            (f" ({group['about']})" if group["about"] else "") + ":"
+        tools = [", ".join(group["ready"])] if group["ready"] else []
+        if len(group["load"]) > LISTED_PER_KIT:
+            tools.append(f"load: {len(group['load'])} tools (find them with tools_search)")
+        elif group["load"]:
+            tools.append("load: " + ", ".join(group["load"]))
+        lines.append(head + " " + "; ".join(tools))
+        lines += ["  " + line for guide in group["guides"] for line in guide.splitlines()]
+    return "\n".join(lines)
+
+
+def tools_changed(before: dict, after: dict) -> str:
+    """What changed between two views of an app's tools (Loop._tool_news), as a note; "" for nothing to say."""
+    lines = []
+    for kit, now in after.items():
+        then = before.get(kit)
+        if then is None:
+            lines.append(f"- new: {kit}: {', '.join(now['tools'])}")
+            continue
+        added = [name for name in now["tools"] if name not in then["tools"]]
+        gone = [name for name in then["tools"] if name not in now["tools"]]
+        if added:
+            lines.append(f"- {kit}: new {', '.join(added)}")
+        if gone:
+            lines.append(f"- {kit}: gone {', '.join(gone)}")
+        lines += [f"- {kit}, now: {line}" for line in now["guides"] if line not in then["guides"]]
+        lines += [f"- {kit}, no longer: {line[:160]}" for line in then["guides"] if line not in now["guides"]]
+    lines += [f"- gone: {kit}" for kit in before if kit not in after]
+    return "\n".join([CHANGED] + lines) if lines else ""
+
+
 def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str] = (),
-                  more_tools: Iterable[str] = (), skills: str = "") -> str:
-    """``tools``: the names of every tool the run has (rules about a tool only come with it); ``more_tools``: the
-    lines of the MORE TOOLS section (Toolset.listing), its tools not sent with each request; ``skills``: the
-    SKILLS section (Skills.prompt), for a run that has skill_use."""
-    tools, more_tools = set(tools), list(more_tools)
+                  toolmap: Iterable[dict] = (), skills: str = "") -> str:
+    """``tools``: the names of every tool the run has; ``toolmap``: its toolkits (Toolset.toolmap), shown as
+    YOUR TOOLS with each tool's guide; ``skills``: the SKILLS section (Skills.prompt), for a run that has
+    skill_use."""
+    tools, toolmap = set(tools), list(toolmap)
     called = f"In this app you are called {profile['name']}. " if profile.get("name") else ""
     parts = [IDENTITY.format(called=called), profile["persona"]]  # the persona is who the model is
     if profile.get("environment"):
@@ -105,18 +142,16 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
     computer = computer_section(profile, shell)
     if computer:
         parts.append(computer)
-    rules = [rule for name, rule in TOOL_RULES if name in tools]
-    if profile.get("super") and "agent_start" in tools:
-        rules.append(SUPER_RULE.format(label=profile["super"]))
-    parts.append(RULES + "".join("\n" + rule for rule in rules))
+    parts.append(RULES)
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
     if snapshot.get("memory"):
         parts.append("## WHAT YOU REMEMBER IN THIS APP\n" + snapshot["memory"])
     if snapshot.get("journal"):
         parts.append("## RECENT NOTES FROM YOUR OTHER SESSIONS (oldest first)\n" + snapshot["journal"])
-    if more_tools:
-        parts.append(MORE_TOOLS + "\n" + "\n".join(more_tools))
+    section = tools_section(toolmap)
+    if section:
+        parts.append(section)
     if skills and "skill_use" in tools:
         parts.append(skills)
     if profile.get("signals"):

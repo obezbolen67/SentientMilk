@@ -47,4 +47,5 @@ def schedule_delete(ctx: ToolContext, id: int):
     return f"Deleted schedule {id}."
 
 
-TOOLKIT = Toolkit("schedule", "Reminders and recurring tasks.", [schedule_create, schedule_list, schedule_delete])
+TOOLKIT = Toolkit("schedule", "Reminders and recurring tasks.", [schedule_create, schedule_list, schedule_delete],
+                  part=True)

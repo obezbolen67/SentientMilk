@@ -12,7 +12,7 @@ import logging
 import re
 import threading
 from dataclasses import replace
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 from . import context, mentions, permissions, transport
 from . import signals as signal_format
@@ -31,9 +31,8 @@ STOP_GRACE = 0.5  # seconds a stopped run gives tools that noticed to end with w
 STEP_BUDGET = {"turn": 40, "task": 200, "agent": 60, "subagent": 60}  # agents.STEPS: by access
 RETRIES = (2, 8, 30)  # seconds between attempts at a provider that is busy or down
 RETRIED = ("rate_limit", "server_error", "timeout", "network")
-LISTED_PER_KIT = 20  # a toolkit with more tools to load is listed by count; tools_search finds them
 SEARCH_LIMIT, LOAD_LIMIT, SUMMARY_CHARS = 20, 20, 120
-APP_TOOLS = "this app's own"  # how MORE TOOLS names the app's actions
+APP_TOOLS = "this app's own"  # how YOUR TOOLS names the app's actions
 META_TOOLS = ("tools_search", "tools_load")
 VERIFY_ROUNDS = 2
 EMPTY_REPLY = ("Your reply was empty, so the user saw nothing. Answer them now: what you did, what you found, "
@@ -58,10 +57,14 @@ class Toolset:
     """Every tool a run may call (``by_name``). Requests carry ``tools`` (the core ones and, when there are
     more, tools_search and tools_load), the same on every step so the provider's prompt cache keeps hitting;
     the others (``deferred``) are listed in the system prompt, loaded into the conversation with tools_load
-    and called by name (the provider passes such calls on: 5/5 on 2026-11-07)."""
+    and called by name (the provider passes such calls on: 5/5 on 2026-11-07). ``kits``: each toolkit's
+    description; ``parts``: the toolkits that are parts of the model (Toolkit.part); ``order``: the toolkits
+    in the profile's order; ``origins``: where a toolkit the user added came from (a plugin, an MCP server)."""
 
-    def __init__(self, tools: List[Tool], deferred: List[Tool], kits: Optional[Dict[str, str]] = None):
-        self.deferred, self.kits = deferred, kits or {}
+    def __init__(self, tools: List[Tool], deferred: List[Tool], kits: Optional[Dict[str, str]] = None,
+                 parts: Iterable[str] = (), order: Iterable[str] = (), origins: Optional[Dict[str, str]] = None):
+        self.deferred, self.kits, self.parts, self.order = deferred, kits or {}, set(parts), list(order)
+        self.origins = origins or {}
         self.tools = tools + (meta_tools(self) if deferred else [])
         self.by_name: Dict[str, Tool] = {t.name: t for t in self.tools + deferred}
         self.sent = {t.name for t in self.tools}
@@ -73,23 +76,31 @@ class Toolset:
     def kit_label(toolkit: str) -> str:
         return APP_TOOLS if toolkit == "actions" else toolkit
 
-    def listing(self) -> List[str]:
-        """The MORE TOOLS lines: each toolkit's deferred tools with their parameters, or only how many for a big
-        one. With the parameter names in view she calls a tool right before she loads it (evals: files_edit
-        was called with old_string/new_string)."""
-        groups: Dict[str, List[str]] = {}
-        for t in self.deferred:
-            required = set(t.parameters.get("required") or [])
-            parameters = ", ".join(p + ("" if p in required else "?") for p in t.parameters.get("properties") or {})
-            groups.setdefault(t.toolkit, []).append(f"{t.name}({parameters})")
-        lines = []
-        for kit, names in groups.items():
-            about = self.kits.get(kit, "")
-            if len(names) > LISTED_PER_KIT:
-                lines.append(f"- {self.kit_label(kit)} ({len(names)} tools)" + (f": {about}" if about else ""))
+    def toolmap(self, profile: dict) -> List[dict]:
+        """Every toolkit of the run, in the profile's order: ``kit``, ``about``, ``part``, ``origin``, its tools sent with
+        each request (``ready``), those to load with their parameters (``load``; with the parameter names in
+        view she calls a tool right before she loads it: files_edit was called with old_string/new_string)
+        and the ``guides`` of its tools as the brain is now. YOUR TOOLS shows it (context.tools_section);
+        what an app last saw of it tells a turn what changed (Loop._tool_news)."""
+        groups: Dict[str, dict] = {}
+        for t in self.tools + self.deferred:
+            if t.name in META_TOOLS:
+                continue
+            group = groups.setdefault(t.toolkit, {"kit": self.kit_label(t.toolkit), "about": self.kits.get(t.toolkit, ""),
+                                                  "part": t.toolkit in self.parts,
+                                                  "origin": self.origins.get(t.toolkit, ""), "ready": [], "load": [],
+                                                  "guides": []})
+            if t.name in self.sent:
+                group["ready"].append(t.name)
             else:
-                lines.append(f"- {self.kit_label(kit)}{f' ({about})' if about else ''}: {', '.join(names)}")
-        return lines
+                required = set(t.parameters.get("required") or [])
+                group["load"].append(t.name + "(" + ", ".join(p + ("" if p in required else "?")
+                                                              for p in t.parameters.get("properties") or {}) + ")")
+            guide = t.guide_for(profile)
+            if guide:
+                group["guides"].append(guide)
+        rank = {kit: index for index, kit in enumerate(self.order)}
+        return [groups[kit] for kit in sorted(groups, key=lambda kit: rank.get(kit, len(rank)))]
 
     def search(self, query: str, limit: int) -> List[Tool]:
         """Tools ranked by the query's words: in the name counts most, then the toolkit, then the description
@@ -137,7 +148,7 @@ def meta_tools(toolset: Toolset) -> List[Tool]:
         return "\n".join(toolset.line(t) for t in found) or "No tool matches. Try other words, or an empty query."
 
     @tool(readonly=True, args={"names": {"type": "array", "items": {"type": "string"},
-                                         "description": "Names from MORE TOOLS or tools_search."}})
+                                         "description": "Names from YOUR TOOLS or tools_search."}})
     def tools_load(ctx: ToolContext, names: list):
         """Load tools so you can use them: shows how to call each (description and parameters). Then call
         them by name, like your other tools."""
@@ -154,7 +165,7 @@ def meta_tools(toolset: Toolset) -> List[Tool]:
     return [tools_search, tools_load]
 
 
-def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
+def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Optional[Dict[str, str]] = None) -> Toolset:
     tools: List[Tool] = []
     for name in profile["toolkits"]:
         kit = kits.get(name)
@@ -172,7 +183,9 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str) -> Toolset:
         tools.append(task_progress)  # every worker keeps notes that outlive its context
     unique = list({t.name: t for t in tools}.values())
     return Toolset([t for t in unique if t.core], [t for t in unique if not t.core],
-                   {name: kit.description for name, kit in kits.items()})
+                   {name: kit.description for name, kit in kits.items()},
+                   parts=[name for name, kit in kits.items() if kit.part],
+                   order=list(dict.fromkeys(t.toolkit for t in unique)), origins=origins)
 
 
 def _stored(items: List[dict]) -> dict:
@@ -232,8 +245,10 @@ class Loop:
                                  "Open the SentientMilk control panel (run sentientmilk) and set it under Provider.")
             if run["kind"] == "compact":
                 return self._compact_now(run, profile, emit)
-            self._log_input(run, profile, emit)
             toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
+            if run["kind"] == "turn":
+                self._tool_news(run, profile, toolset)
+            self._log_input(run, profile, emit)
             while True:
                 run = store.run(run_id)
                 if run["options"].get("cancel"):
@@ -296,6 +311,27 @@ class Loop:
             logged = store.add_event(run["app"], run["session"], run["id"], "input",
                                      {"content": content, "display": display, **_stored(items)})
             emit({"type": "steered", "text": display or "", "id": logged["id"]})
+
+    def _tool_news(self, run: dict, profile: dict, toolset: Toolset) -> None:
+        """The first turn after an app's tools changed (a plugin installed, an MCP server connected, a toolkit
+        turned off, a setting such as the super model) hears what changed, before the user's message: the
+        user may be telling it about the change ("I made you a super agent"). Kept per app, in seen/<app>.json:
+        what its turns last saw. Nothing on an app's first turn."""
+        seen = {g["kit"]: {"tools": sorted(name.split("(")[0] for name in g["ready"] + g["load"]),
+                           "guides": [line for guide in g["guides"] for line in guide.splitlines()]}
+                for g in toolset.toolmap(profile)}
+        path = self.brain.home / "seen" / f"{run['app']}.json"
+        try:
+            before = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            before = None
+        if before == seen:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(seen, ensure_ascii=False), encoding="utf-8")
+        news = context.tools_changed(before, seen) if before is not None else ""
+        if news:
+            self.brain.note(run["app"], run["session"], news)
 
     def _emitter(self, run_id: int) -> Callable[[dict], None]:
         def emit(event: dict) -> None:
@@ -502,7 +538,7 @@ class Loop:
         settings = brain.config.values()
         provider = brain.provider(run["options"].get("model") or profile["model"])
         system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
-                                       toolset.by_name, toolset.listing(), brain.skills.prompt())
+                                       toolset.by_name, toolset.toolmap(profile), brain.skills.prompt())
 
         def text(delta):
             emit({"type": "text.delta", "text": delta})
@@ -641,7 +677,7 @@ class Loop:
             events = [e for e in store.events(app, session, after=compaction["upto"]) if e["type"] != "compaction"]
             turn_tools = brain.toolset(profile, "turn")
             system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
-                                           turn_tools.by_name, turn_tools.listing(), brain.skills.prompt())
+                                           turn_tools.by_name, turn_tools.toolmap(profile), brain.skills.prompt())
             after = context.estimate_tokens(context.project(events, compaction), system)
             store.update_session(app, session, "state", lambda state: {**state, "context_tokens": after})
         self._end(store.run(run["id"]), "completed", emit, extra={"compacted": compacted, "before": before,

@@ -29,10 +29,14 @@ def test_requests_carry_the_core_tools_and_list_the_rest(brain):
     assert set(sent_names(first)) == {"memory_save", "todo_write", "files_read", "files_search", "shell_run",
                                       "shell_output", "web_search", "web_fetch", "tools_search", "tools_load"}
     assert all(other["tools"] == first["tools"] for other in others)  # one tool list: the cache keeps hitting
-    listed = system(first).split("## MORE TOOLS", 1)[1]
-    assert "- schedule (Reminders and recurring tasks.): schedule_create(when, text, mode?), schedule_list(), "         "schedule_delete(id)" in listed
+    listed = system(first).split("## YOUR TOOLS", 1)[1]
+    assert "- schedule [part of you] (Reminders and recurring tasks.): load: schedule_create(when, text, mode?), " \
+        "schedule_list(), schedule_delete(id)" in listed
     assert "files_edit(path, old, new, all?)" in listed  # called right before it is loaded
-    assert "files_edit" in listed and "files_read" not in listed and "agent_start" in listed
+    # one map of all it can do: the tools sent by name, the others to load with their parameters
+    assert "- files (Read, search and change files in the folders opened to you.): files_read, files_search; " \
+        "load: files_find(pattern, path?)" in listed
+    assert "agent_start(name, task, super_agent?)" in listed
 
 
 def test_a_listed_tool_is_loaded_then_called_by_name(brain):
@@ -83,8 +87,10 @@ def test_many_mcp_tools_are_listed_by_toolkit_and_found_by_search(brain, monkeyp
                                tool_call("mcp__big__t7", {"x": 3}, "c"), "done"]
     turn(brain, "big", "use t7")
     assert not any(name.startswith("mcp__") for name in sent_names(brain.provider.sent[0]))
-    listed = system(brain.provider.sent[0]).split("## MORE TOOLS", 1)[1]
-    assert "- mcp:big (80 tools): A big server." in listed and "mcp__big__t7" not in listed
+    listed = system(brain.provider.sent[0]).split("## YOUR TOOLS", 1)[1]
+    assert "- mcp:big [from an MCP server the user added] (A big server.): load: 80 tools (find them with " \
+        "tools_search)" in listed
+    assert "mcp__big__t7" not in listed
     assert tool_results(brain.provider.sent[1])["s"].splitlines()[0].startswith("mcp__big__t7 ")
     assert calls == [(7, 3)] and tool_results(brain.provider.sent[2])["c"] == "t7 got 3"
 
@@ -97,7 +103,7 @@ def test_an_app_marks_the_actions_it_wants_sent(brain):
     turn(brain, "acts", "hello")
     names = sent_names(brain.provider.sent[0])
     assert "look" in names and "act" not in names and "tools_load" in names
-    assert "- this app's own: act()" in system(brain.provider.sent[0])
+    assert "- this app's own: look; load: act()" in system(brain.provider.sent[0])
     with pytest.raises(BrainError) as caught:
         brain.client.declare_app("acts", actions=[{"name": "look", "core": "yes"}])
     assert caught.value.type == "bad_request"
@@ -109,7 +115,8 @@ def test_with_nothing_to_load_there_are_no_meta_tools(brain):
     brain.provider.replies += ["hi"]
     turn(brain, "small", "hello")
     assert sent_names(brain.provider.sent[0]) == ["web_search", "web_fetch"]
-    assert "MORE TOOLS" not in system(brain.provider.sent[0])
+    assert "- web (Search the web and read pages.): web_search, web_fetch" in system(brain.provider.sent[0])
+    assert "tools_load" not in system(brain.provider.sent[0]) and "part of you" not in system(brain.provider.sent[0])
 
 
 def test_rules_come_only_with_the_tools_they_name(brain):
@@ -118,7 +125,7 @@ def test_rules_come_only_with_the_tools_they_name(brain):
     turn(brain, "cli", "hello")
     turn(brain, "small", "hello")
     full, small = system(brain.provider.sent[0]), system(brain.provider.sent[1])
-    assert "memory_save right away" in full and "todo_write" in full and "(agent_start)" in full
+    assert "memory_save right away" in full and "todo_write" in full and "give the parts to agents" in full
     assert "memory_save" not in small and "todo_write" not in small and "agent_start" not in small
 
 
@@ -145,3 +152,37 @@ def test_an_app_action_waits_for_the_calls_before_it(brain):
     brain.client.turn("acts", "main", "write, then act", on_approval=lambda request: "allow",
                       on_action=lambda request: seen.append((brain.work / "c.txt").exists()) or "acted")
     assert seen == [True]
+
+
+def test_one_map_of_all_it_can_do_marks_the_parts_of_it(brain):
+    brain.provider.replies += ["hi"]
+    turn(brain, "cli", "hello")
+    listed = system(brain.provider.sent[0]).split("## YOUR TOOLS", 1)[1]
+    flat = " ".join(listed.split())
+    assert "never by looking for it on the screen or in files" in flat and "is the whole truth about it" in flat
+    assert "whatever they say they made, installed or set up for you is here" in flat
+    assert "- memory [part of you] (What you remember about the user" in listed
+    assert "- agents [part of you]" in listed and "- web (Search the web" in listed  # the world is not a part
+    # a tool's guide comes under its toolkit, with the tool
+    assert listed.index("save it with memory_save right away") > listed.index("- memory [part of you]")
+
+
+def test_the_first_turn_after_its_tools_changed_hears_what_changed(brain, tmp_path, monkeypatch):
+    import sys
+
+    from test_plugins import make_plugin
+
+    monkeypatch.setattr(brain.brain.superagents, "argv", lambda: [sys.executable])  # super agents can start
+    brain.provider.replies += ["hi"] * 4
+    turn(brain, "cli", "hello")
+    assert "Your tools changed" not in str(brain.provider.sent[-1]["messages"])  # an app's first turn: nothing
+    brain.client.install_plugin(str(make_plugin(tmp_path / "notes")))
+    brain.client.update_config(super_model="")
+    turn(brain, "cli", "I installed something for you, and turned the super model off")
+    said = brain.provider.sent[-1]["messages"][-1]["content"]
+    assert said.index("Your tools changed") < said.index("I installed something")  # before what the user says
+    assert "- new: notes: notes_token" in said and "- agents, no longer: Super agents: Opus 5.5" in said
+    # where it came from: the user may say "I installed it for you"
+    assert "- notes [from the plugin notes, which the user installed]" in system(brain.provider.sent[-1])
+    turn(brain, "cli", "and now?")
+    assert "Your tools changed" not in brain.provider.sent[-1]["messages"][-1]["content"]  # said once

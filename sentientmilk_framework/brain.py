@@ -284,8 +284,13 @@ class Brain:
         }
 
     def toolset(self, profile: dict, kind: str) -> Toolset:
-        kits = {**builtin(), **self.plugins.toolkits(), **self.mcp.toolkits()}
-        return build_toolset(kits, profile, kind, self.shell_label())
+        servers = self.mcp.toolkits()
+        kits = {**builtin(), **self.plugins.toolkits(), **servers}
+        # where what the user set up for the model came from: it may say "I installed X for you"
+        origins = {**{kit: f"from the plugin {plugin}, which the user installed"
+                      for kit, plugin in self.plugins.installed().items()},
+                   **{kit: "from an MCP server the user added" for kit in servers}}
+        return build_toolset(kits, profile, kind, self.shell_label(), origins)
 
     def shell_label(self) -> str:
         return {"powershell": "Windows PowerShell 5.1", "pwsh": "PowerShell 7", "bash": "bash", "sh": "sh",

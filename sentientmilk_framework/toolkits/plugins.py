@@ -103,4 +103,4 @@ def plugin_reload(ctx: ToolContext, name: str):
 
 
 TOOLKIT = Toolkit("plugins", "Make your own tools: write a plugin, install it, fix it (asks the user).",
-                  [plugin_list, plugin_install, plugin_reload])
+                  [plugin_list, plugin_install, plugin_reload], part=True)

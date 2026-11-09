@@ -59,4 +59,4 @@ def skill_delete(ctx: ToolContext, name: str):
 
 
 TOOLKIT = Toolkit("skills", "Your skills: instructions for kinds of tasks, loaded when a task needs them.",
-                  [skill_use, skill_list, skill_delete])
+                  [skill_use, skill_list, skill_delete], part=True)

@@ -20,7 +20,8 @@ def render(items: list) -> str:
     return "\n".join(f"{n}. [{STATUSES[item['status']]}] {item['text']}" for n, item in enumerate(items, 1))
 
 
-@tool(core=True, policy="auto", args={"items": ITEMS})
+@tool(core=True, policy="auto", args={"items": ITEMS},
+      guide="For work with three or more steps, keep a todo list with todo_write and keep it current.")
 def todo_write(ctx: ToolContext, items: list):
     """Keep a todo list for work with three or more steps: write it before you start, then send the whole
     updated list each time an item starts (doing) or ends (done). Keep at most one item doing. The list
@@ -37,4 +38,4 @@ def todo_write(ctx: ToolContext, items: list):
     return render(items)
 
 
-TOOLKIT = Toolkit("todo", "A todo list for multi-step work.", [todo_write])
+TOOLKIT = Toolkit("todo", "Your todo list for work with several steps, in this chat.", [todo_write], part=True)

@@ -50,7 +50,7 @@ def test_agents_work_at_once_and_each_report_comes_back_once(brain):
 
     def route(payload):
         if is_agent(payload):
-            listed = payload["messages"][0]["content"].split("## MORE TOOLS")[-1]
+            listed = payload["messages"][0]["content"].split("## YOUR TOOLS")[-1]
             assert {"shell_run", "web_search", "tools_load", "ask_lead", "task_progress"} <= sent_names(payload)
             assert "files_write" in listed and "schedule_create" in listed  # her tools, to load as she does
             assert "agent_start" not in listed + str(sent_names(payload))  # no agents of its own

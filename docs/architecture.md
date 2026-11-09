@@ -311,15 +311,13 @@ holds the tools.
     a finished agent resumes its Claude Code session (`--resume`, kept in the session state)
     in a new run. A stop kills the process tree. After a brain restart the run resumes its
     session with a note to go on.
-  - The lead hears it has super agents (a rule in HOW YOU WORK, with the model's name) only
-    while one can start: a super model is set and Claude Code is found. Otherwise
-    `super_agent=true` is refused with why, and the lead starts an ordinary agent. The rule
-    gives them all code, even a small script, and deep thinking. The first wording ("what you
-    would struggle with") left a small script with the lead in a live test (2026-11-09): next
-    to "do small things yourself", a model judges code it can write as small. It also says
-    none waits around (the lead makes one per job, then talks to it), and `agents_status`
-    with no agents says how to make one: told "I made a superagent for you, talk to him",
-    MilkChan looked for an existing one in her agents, then on the screen and in her files.
+  - The lead hears it has super agents (a line of `agent_start`'s guide in YOUR TOOLS, 7.3,
+    with the model's name) only while one can start: a super model is set and Claude Code is
+    found. Otherwise `super_agent=true` is refused with why, and the lead starts an ordinary
+    agent. The guide gives them all code, even a small script, and deep thinking. The first
+    wording ("what you would struggle with") left a small script with the lead in a live test
+    (2026-11-09): next to "do small things yourself", a model judges code it can write as
+    small.
   - It signs in as Claude Code does for the user and counts against their Claude plan; the
     brain takes nothing out of it. `GET /config` carries `super`: the model, effort, the
     command and its version, and whether it is ready (the panel's Provider page shows it).
@@ -454,7 +452,7 @@ overwritten.
 
 Every enabled plugin's toolkits are offered to every app on top of the toolkits the app
 declares, and the usual three levels (brain, app, session) switch them off. They are not
-core, so they cost one line of the MORE TOOLS listing (7.4) until the model loads them. A
+core, so they cost one line of YOUR TOOLS (7.3) until the model loads them. A
 plugin that fails to load (a bad manifest, an import error, a toolkit name already taken)
 is listed with its error; the brain and every other plugin go on. A plugin runs as the
 user, inside the brain, with the brain's rights: the panel says to install only plugins
@@ -636,9 +634,46 @@ only when an eval shows the failure:
   question when you must.
 - Report what you verified and what you did not.
 
-A rule about a tool comes only with the tool: the todo, memory and agents rules check the
-run's toolset, not the app's toolkits. A read-only agent was told to save memories with a
-tool it did not have.
+**YOUR TOOLS** is the one place for what the model can do (`context.tools_section`, from
+`Toolset.toolmap`): every toolkit of the run, in the profile's order, with its description,
+the tools sent with each request by name and the others after "load:" with their parameters.
+Under a toolkit come its tools' **guides** (`Tool.guide`): when and how to use the tool, as
+the brain is now (a guide can be a function of the profile: `agent_start`'s adds super
+agents while one can start). A rule about a tool comes only with the tool, in the run's
+toolset: a read-only agent was once told to save memories with a tool it did not have.
+
+- **Parts of the model** (`Toolkit.part`: memory, journal, schedule, todo, agents, sessions,
+  skills, plugins) are marked "[part of you]", under one principle: they live in the brain,
+  not on the computer; whatever words the user uses for one mean it; the model sees them
+  only through their tools, never on the screen or in files; what those tools show is the
+  whole truth (when they show nothing, there is nothing to find elsewhere, SentientMilk's own
+  folder included); and when the user speaks of something they do not show, the model finds
+  what they mean among its abilities, or asks.
+- **Where things come from**: the section says the user sets the model up in SentientMilk's
+  panel and the app's settings, so what they "made", "installed" or "set up" is in the map;
+  a toolkit from a plugin the user installed or an MCP server they added says so
+  (`Toolset.origins`), and a guide that follows a setting names it (super agents: Provider >
+  Super model). Without that, told "I made a superagent for you", she reasoned it might be
+  "a Claude Code subagent" in a config file, and went looking in the home folder.
+- Why (2026-11-09): told "I made a superagent for you, can you talk to him?", MilkChan
+  checked `agents_status` (empty), then took screenshots and read windows to find "him",
+  twice, the second time after a rule and `agents_status` both said she makes them herself:
+  the user's claim beat the tool. Her tools were split over three places (MORE TOOLS listed
+  only the tools to load, rules sat in HOW YOU WORK, super agents had a rule of their own),
+  and nothing said what lived in the brain; the one place described was YOUR COMPUTER.
+- **What changed**: the first turn after an app's tool map changed (a plugin installed or
+  removed, an MCP server connected or gone, a toolkit switched off, a guide changed with a
+  setting such as the super model) gets a note before the user's message, listing new and
+  gone tools and changed guide lines (`Loop._tool_news`; what the app's turns last saw is
+  kept in `seen/<app>.json`, and an app's first turn says nothing). The user often says
+  "I installed X for you" right after the change.
+- Measured (2026-11-09, MilkChan on `deepseek-v4.1-flash-abliterated`, thinking high, her screen
+  tools on a fake desktop, fresh chats): "I made a superagent for you, can you talk to him?"
+  went from 0 of 3 clean (6 screenshots, windows and commands before making one) to 7 of 7
+  (0); "I installed a new plugin for you, try it out" from 2 of 3 (10 file and shell calls)
+  to 3 of 3, its tool called at once; "I set up a reminder for you earlier" (none) stopped
+  searching SentientMilk's folder, and half the turns still search the home folder once for
+  a note.
 
 ### 7.4 Many tools
 
@@ -653,7 +688,7 @@ into the conversation when needed:
     `files_read`, `files_search`, `shell_run`, `shell_output`, `web_search`, `web_fetch`, and
     `task_progress` for workers.
   - An app marks the actions it wants sent with `"core": true`.
-- The system block lists the others under MORE TOOLS, by toolkit, with the toolkit's
+- YOUR TOOLS (7.3) lists the others after "load:", by toolkit, with the toolkit's
   description and each tool's parameter names (`files_edit(path, old, new, all?)`). A toolkit
   with more than 20 tools to load is listed by count only. With only the names, the model
   often called a tool before loading it with arguments it guessed (`old_string`, in 2 of 4 eval

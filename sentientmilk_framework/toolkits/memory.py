@@ -13,7 +13,9 @@ def _need(**values):
 
 @tool(core=True, policy="auto", args={"category": "user (who they are), preferences (how they like things) or projects.",
                            "key": "A short name for the fact, such as job or main_project.",
-                           "value": "The fact as it stands now, in a sentence or two."})
+                           "value": "The fact as it stands now, in a sentence or two."},
+      guide="When you learn something lasting about the user, save it with memory_save right away, unasked. "
+            "Memory is for what stays true; one-time events and changes are not worth keeping.")
 def memory_save(ctx: ToolContext, category: str, key: str, value: str):
     """Remember a lasting fact for later conversations in this app: one that will still be true and useful
     another day. Who the user is (name, work, the people and pets in their life), what they like and how
@@ -54,4 +56,5 @@ def memory_forget(ctx: ToolContext, category: str, key: str):
     return f"Forgot {category}/{key}." if found else f"Nothing was remembered as {category}/{key}."
 
 
-TOOLKIT = Toolkit("memory", "Long-term memory of this app.", [memory_save, memory_get, memory_list, memory_forget])
+TOOLKIT = Toolkit("memory", "What you remember about the user in this app, across chats.",
+                  [memory_save, memory_get, memory_list, memory_forget], part=True)

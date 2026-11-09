@@ -19,4 +19,4 @@ def journal_search(ctx: ToolContext, query: str = ""):
     return "\n".join(line(note) for note in notes)
 
 
-TOOLKIT = Toolkit("journal", "Your short notes about past sessions, in every app.", [journal_search])
+TOOLKIT = Toolkit("journal", "Your short notes about past chats, in every app.", [journal_search], part=True)

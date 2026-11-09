@@ -3,14 +3,30 @@
 from . import ToolContext, Toolkit, tool
 
 WORKERS = ("turn", "task")  # the lead's tools: agents get none of these, no agents of agents
+GUIDE = ("When a job splits into parts that can go on their own, or would fill your context, give the parts to "
+         "agents and put their reports together. An agent exists only once you start it, for one job, and knows "
+         "only what you write in the task: ordinary ones are copies of you, with all your tools. Answer their "
+         "questions and send them more with agent_message, and stop the ones you need no more. Do small things "
+         "yourself.")
+SUPER = ("Super agents: {label}, a stronger model (Claude, not a copy of you), through Claude Code: agent_start "
+         "with super_agent=true. Code is theirs: when a request needs code written, changed, fixed or reviewed "
+         "(even a small script), start one instead of writing it yourself. The same for problems that need deep, "
+         "careful thinking: a hard bug, a design, a tricky analysis or proof. Put the whole job in the task: what "
+         "to make, where, and how to check it. It works in your folders with its own tools, the user approves its "
+         "changes, and it reports like any agent. The user turned them on in SentientMilk (Provider > Super model).")
 
 
-@tool(policy="auto", only_in=WORKERS, args={
+def guide(profile: dict) -> str:
+    """How to use agents; with super agents while one can start (superagent.py), as the brain is now."""
+    return GUIDE + ("\n" + SUPER.format(label=profile["super"]) if profile.get("super") else "")
+
+
+@tool(policy="auto", only_in=WORKERS, guide=guide, args={
     "name": "A short name to call it by, e.g. tests or docs-research.",
     "task": "Everything it needs, as it does not see this conversation: the goal, what you know already, where "
             "to look, its boundaries (what is not its part, which files are its own) and what to report.",
     "super_agent": "true: a super agent, a stronger model (Claude, through Claude Code), for writing or changing "
-                   "code and for problems that need deep thinking. Only when your rules say you have super "
+                   "code and for problems that need deep thinking. Only when YOUR TOOLS says you have super "
                    "agents."})
 def agent_start(ctx: ToolContext, name: str, task: str, super_agent: bool = False):
     """Start an agent: a copy of you with a fresh context that does one part of a job on its own, in the
@@ -53,10 +69,8 @@ def agents_status(ctx: ToolContext, agent: str = ""):
     if agent:
         return agents.describe_details(ctx.app, agents.find(ctx.app, ctx.session, agent))
     found = agents.open(ctx.app, ctx.session)
-    none = "You have no agents now: none waits around, you start each one for a job (agent_start)."
-    if ctx.profile.get("super"):  # where a model looks for "the super agent the user made"
-        none += f" super_agent=true makes a super agent ({ctx.profile['super']}, through Claude Code)."
-    return "\n".join(agents.describe(a) for a in found) or none
+    return "\n".join(agents.describe(a) for a in found) or \
+        "You have no agents now: an agent exists only once you start it for a job (agent_start)."
 
 
 @tool(policy="auto", only_in=WORKERS, args={"agent": "Its name (or #id)."})
@@ -76,5 +90,5 @@ def ask_lead(ctx: ToolContext, question: str):
     return ctx.brain.agents.ask(ctx, question)
 
 
-TOOLKIT = Toolkit("agents", "Copies of you that work on parts of a job in the background.",
-                  [agent_start, agent_message, agents_wait, agents_status, agent_stop, ask_lead])
+TOOLKIT = Toolkit("agents", "Helpers that each do one part of a job in the background, in chats of their own.",
+                  [agent_start, agent_message, agents_wait, agents_status, agent_stop, ask_lead], part=True)

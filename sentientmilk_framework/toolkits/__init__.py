@@ -3,6 +3,11 @@
 A tool is a Python function whose first argument is the ToolContext; its schema
 comes from the type hints and its description from the docstring. Plugins (see
 ``plugins``) define ``TOOLKIT = Toolkit(...)`` the same way.
+
+What the model knows of its tools is the YOUR TOOLS section (context.tools_section): every toolkit of the run
+with its description and tools, and under it each tool's ``guide``, a rule that comes only with its tool. A
+toolkit marked ``part`` is a part of the model kept in the brain (its memory, agents, reminders...): it learns
+to use those through their tools, never by looking for them on the computer.
 """
 
 import inspect
@@ -43,6 +48,12 @@ class Tool:
     toolkit: str = ""
     action: bool = False  # run by the app, not the brain
     core: bool = False  # sent with every request; the others are listed and loaded on demand (tools_load)
+    # when and how to use it, shown with its toolkit in YOUR TOOLS while the run has it: text, or a function
+    # of the profile for what depends on the brain's state ("" for nothing)
+    guide: Any = ""
+
+    def guide_for(self, profile: dict) -> str:
+        return (self.guide(profile) if callable(self.guide) else self.guide) or ""
 
     def schema(self) -> dict:
         return {"type": "function",
@@ -52,8 +63,9 @@ class Tool:
 @dataclass
 class Toolkit:
     name: str
-    description: str
+    description: str  # what it is, in the user's words too: the model maps what the user says to it
     tools: List[Tool]
+    part: bool = False  # a part of the model kept in the brain (memory, agents...), not something on the computer
 
     def __post_init__(self):
         for item in self.tools:
@@ -152,9 +164,9 @@ def _schema(annotation: Any) -> dict:
 
 def tool(readonly: bool = False, policy: Optional[str] = None, rule_arg: Optional[str] = None,
          args: Optional[Dict[str, Any]] = None, only_in: Optional[tuple] = None, name: Optional[str] = None,
-         core: bool = False):
+         core: bool = False, guide: Any = ""):
     """Make a Tool from ``func(ctx, ...)``. ``args`` maps an argument to its description, or to a full
-    JSON schema dict for arguments plain type hints cannot describe."""
+    JSON schema dict for arguments plain type hints cannot describe. ``guide``: see Tool.guide."""
     def wrap(func: Callable) -> Tool:
         hints = get_type_hints(func)
         properties, required = {}, []
@@ -170,7 +182,7 @@ def tool(readonly: bool = False, policy: Optional[str] = None, rule_arg: Optiona
         parameters = {"type": "object", "properties": properties, **({"required": required} if required else {})}
         return Tool(name=name or func.__name__, description=inspect.getdoc(func) or "", parameters=parameters,
                     func=func, readonly=readonly, policy=policy or ("auto" if readonly else "ask"),
-                    rule_arg=rule_arg, only_in=only_in, core=core)
+                    rule_arg=rule_arg, only_in=only_in, core=core, guide=guide)
     return wrap
 
 

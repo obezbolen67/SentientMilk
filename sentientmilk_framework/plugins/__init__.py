@@ -249,6 +249,13 @@ class Plugins:
         return {name: kit if self.trusted(plugin.name) else _asking(kit)
                 for plugin in plugins if self.enabled(plugin.name) for name, kit in plugin.toolkits.items()}
 
+    def installed(self) -> Dict[str, str]:
+        """Toolkit name -> the plugin the user installed that brings it (built-in plugins are not "installed")."""
+        with self._lock:
+            plugins = list(self._plugins.values())
+        return {name: plugin.name for plugin in plugins if not plugin.builtin and self.enabled(plugin.name)
+                for name in plugin.toolkits}
+
     def offered(self) -> List[str]:
         """Toolkit names every app gets: the plugins' own and their MCP servers'."""
         return list(self.toolkits()) + [f"mcp:{name}" for name in self.mcp_servers()]

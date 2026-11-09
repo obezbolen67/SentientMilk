@@ -126,4 +126,4 @@ def session_delete(ctx: ToolContext, session: str):
 
 
 TOOLKIT = Toolkit("sessions", "Your other conversations in this app: list, read, search, rename, delete.",
-                  [sessions_list, sessions_read, sessions_search, session_rename, session_delete])
+                  [sessions_list, sessions_read, sessions_search, session_rename, session_delete], part=True)
