@@ -53,7 +53,10 @@ def agents_status(ctx: ToolContext, agent: str = ""):
     if agent:
         return agents.describe_details(ctx.app, agents.find(ctx.app, ctx.session, agent))
     found = agents.open(ctx.app, ctx.session)
-    return "\n".join(agents.describe(a) for a in found) or "You have no agents now."
+    none = "You have no agents now: none waits around, you start each one for a job (agent_start)."
+    if ctx.profile.get("super"):  # where a model looks for "the super agent the user made"
+        none += f" super_agent=true makes a super agent ({ctx.profile['super']}, through Claude Code)."
+    return "\n".join(agents.describe(a) for a in found) or none
 
 
 @tool(policy="auto", only_in=WORKERS, args={"agent": "Its name (or #id)."})

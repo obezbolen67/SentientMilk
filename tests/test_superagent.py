@@ -118,6 +118,13 @@ def test_the_lead_is_told_it_has_super_agents_and_how_to_start_one(brain, claude
     system = brain.provider.sent[-1]["messages"][0]["content"]
     assert "You have super agents: Opus 5.5" in system and "super_agent=true" in system
     assert agent_start.parameters["properties"]["super_agent"]["type"] == "boolean"
+
+    def look(payload):  # where a model looks for "the super agent the user made": it learns it makes one
+        return calls(("agents_status", {}, "a")) if payload["messages"][-1]["role"] != "tool" else "none"
+    brain.provider.replies += [look] * 2
+    turn(brain, "cli", "talk to your super agent")
+    status = [m for m in brain.provider.sent[-1]["messages"] if m["role"] == "tool"][-1]["content"]
+    assert "none waits around" in status and "super agent (Opus 5.5" in status
     brain.client.update_config(super_model="")  # turned off: no rule
     brain.provider.replies += ["hi"]
     turn(brain, "cli", "hello")

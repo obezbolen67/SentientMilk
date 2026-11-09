@@ -316,7 +316,10 @@ holds the tools.
     `super_agent=true` is refused with why, and the lead starts an ordinary agent. The rule
     gives them all code, even a small script, and deep thinking. The first wording ("what you
     would struggle with") left a small script with the lead in a live test (2026-11-09): next
-    to "do small things yourself", a model judges code it can write as small.
+    to "do small things yourself", a model judges code it can write as small. It also says
+    none waits around (the lead makes one per job, then talks to it), and `agents_status`
+    with no agents says how to make one: told "I made a superagent for you, talk to him",
+    MilkChan looked for an existing one in her agents, then on the screen and in her files.
   - It signs in as Claude Code does for the user and counts against their Claude plan; the
     brain takes nothing out of it. `GET /config` carries `super`: the model, effort, the
     command and its version, and whether it is ready (the panel's Provider page shows it).
