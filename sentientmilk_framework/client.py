@@ -234,7 +234,7 @@ class BrainClient:
         requests with "allow", "always", "deny" or ("deny", reason); without it they are denied.
         ``on_action(event)`` runs a declared action (``event["name"]``, ``event["arguments"]``) and
         returns its result, or ``(result, [image data URLs])``; an exception becomes an error result.
-        ``max_steps``: more model calls than a turn's default, for long work such as using the computer."""
+        ``max_steps``: a limit on the turn's model calls, which has none otherwise (an eval's cap)."""
         inputs = list(items or [])
         if text:
             inputs.append({"type": "text", "text": text})

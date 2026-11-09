@@ -45,7 +45,6 @@ the lead's. Nobody watches you live.
 - End with a compact report, findings first (at most about 2,000 tokens): the exact paths, names, URLs,
   line numbers and results that are needed. Put long output (data, drafts, code) in files and name them."""
 MESSAGE = "[A message from the lead]\n{text}"
-STEPS = 200  # as a task's
 MAX_WORKING = 5  # at once per lead session; Anthropic's lead agent starts 3-5
 OPEN_HOURS = 24  # an idle agent is deleted after this (the next start or brain start), and its name is free
 REPORT_CHARS = 8_000  # about 2,000 tokens; the whole report goes to a file
@@ -231,7 +230,6 @@ class Agents:
     def _options(self, record: dict, agent_id: int, text: str) -> dict:
         return {"input": [{"type": "text", "text": text}], "agent": agent_id, "parent_session": record["parent"],
                 "goal": f"agent {record['name']}: {text}",  # what lists of background work show
-                "max_steps": STEPS,
                 "profile": {"instructions": AGENT_PROMPT, "from_session": record.get("base") or record["parent"],
                             "signals": False}, **({"super": True} if record.get("super") else {})}
 

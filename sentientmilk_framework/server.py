@@ -25,7 +25,7 @@ from . import mentions, rewind
 from .brain import Brain, validate_items, validate_name
 from .client import DISCOVERY_FILE, default_home
 from .exceptions import BrainError, classify
-from .loop import STEP_BUDGET, TERMINAL
+from .loop import TERMINAL
 from .tray import Tray
 
 logger = logging.getLogger(__name__)
@@ -352,9 +352,8 @@ class _Handler(BaseHTTPRequestHandler):
         if reply not in ("required", "optional"):
             raise ValueError("reply must be required or optional")
         steps = body.get("max_steps")
-        if steps is not None and (not isinstance(steps, int) or isinstance(steps, bool)
-                                  or not 1 <= steps <= STEP_BUDGET["task"]):
-            raise ValueError(f"max_steps must be a whole number from 1 to {STEP_BUDGET['task']}")
+        if steps is not None and (not isinstance(steps, int) or isinstance(steps, bool) or steps < 1):
+            raise ValueError("max_steps must be a whole number from 1")
         run_id, listener = self.server.brain.runs.start_turn(app, session, items, context, reply, max_steps=steps)
         self._stream_start()
         if self._stream({"type": "run.started", "run": run_id}):

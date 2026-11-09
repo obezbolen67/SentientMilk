@@ -293,16 +293,15 @@ def test_projection_never_puts_notes_between_a_call_and_its_result():
     assert context.project(events, None)[-1]["content"] == "[Note: job finished]\n\nnext"
 
 
-def test_the_last_step_of_the_budget_asks_for_an_answer(brain, monkeypatch):
-    monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 3)
+def test_the_last_step_of_a_budget_the_caller_set_asks_for_an_answer(brain):
     brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"z{i}") for i in range(2)] + \
         ["Found two; the third is left."]
-    assert brain.client.turn("cli", "main", "look around")["reply"] == "Found two; the third is left."
+    assert brain.client.turn("cli", "main", "look around", max_steps=3)["reply"] == "Found two; the third is left."
     assert "last step" not in json.dumps(brain.provider.sent[1]["messages"])
     assert "last step" in brain.provider.last_user_text()
 
 
-def test_an_empty_reply_goes_back_once_for_words_the_user_can_read(brain, monkeypatch):
+def test_an_empty_reply_goes_back_once_for_words_the_user_can_read(brain):
     brain.provider.replies += ["", "Done: the folder is clean."]
     assert brain.client.turn("cli", "main", "tidy up")["reply"] == "Done: the folder is clean."
     assert "empty" in brain.provider.last_user_text()
@@ -310,25 +309,25 @@ def test_an_empty_reply_goes_back_once_for_words_the_user_can_read(brain, monkey
     assert brain.client.turn("cli", "main", "again")["reply"] == ""
     brain.provider.replies += [""]  # an optional reply may be empty: that is silence
     assert brain.client.turn("cli", "main", "a job ended", reply="optional")["silent"]
-    monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 1)
     brain.provider.replies += [""]  # on the last step an empty reply beats a budget error
-    assert brain.client.turn("cli", "main", "last")["reply"] == ""
+    assert brain.client.turn("cli", "main", "last", max_steps=1)["reply"] == ""
 
 
-def test_the_step_budget_stops_runaway_loops(brain, monkeypatch):
-    monkeypatch.setitem(loop_module.STEP_BUDGET, "turn", 3)
-    brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"x{i}") for i in range(5)]
-    with pytest.raises(BrainError) as caught:
-        brain.client.turn("cli", "main", "loop forever")
-    assert caught.value.type == "budget"
+def test_a_turn_has_no_step_limit_unless_the_caller_sets_one(brain):
+    # she works until the job is done or the user stops her: no budget ends a long turn
+    brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"x{i}") for i in range(250)] + ["done"]
+    assert brain.client.turn("cli", "main", "a long job")["reply"] == "done"
+    assert "last step" not in brain.provider.last_user_text()
 
-    # An app gives a long turn more steps (computer use); the server takes no more than a task's.
+    # a caller that wants a limit (an eval) still gets one
     brain.provider.replies.clear()
-    brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"y{i}") for i in range(4)] + ["done"]
-    assert brain.client.turn("cli", "main", "five steps", max_steps=5)["reply"] == "done"
-    for wrong in (10_000, "9"):
+    brain.provider.replies += [tool_call("files_find", {"pattern": f"*{i}"}, f"y{i}") for i in range(5)]
+    with pytest.raises(BrainError) as caught:
+        brain.client.turn("cli", "main", "loop", max_steps=3)
+    assert caught.value.type == "budget"
+    for wrong in (-1, "9"):
         with pytest.raises(BrainError) as caught:
-            brain.client.turn("cli", "main", "too many", max_steps=wrong)
+            brain.client.turn("cli", "main", "wrong", max_steps=wrong)
         assert caught.value.type == "bad_request"
 
 

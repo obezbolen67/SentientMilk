@@ -182,7 +182,7 @@ deterministic, so the same log always gives the same request bytes.
 ```
 run(r):
     while True:
-        check budgets (steps, tokens, wall time, cost)   -> end(failed, "budget")
+        check the caller's budget (max_steps), if any   -> end(failed, "budget")
         request = build_context(r)                       # section 7
         if request is too big: compact(r); continue
         message = provider.call(request, stream=r.streams)   # text.delta events
@@ -217,10 +217,10 @@ At startup the brain finds runs marked `working`:
 
 ### 5.4 Limits
 
-Each run has budgets: max steps (default 200 for tasks, 40 for turns; an app may give a turn
-up to 200 with `max_steps`, as MilkChan does when it can use the computer), max wall time, and
-max tokens or cost. Hitting one ends the run as `failed` with type `budget`. Its progress
-is saved, so a new task can continue it. Today's `max_tool_rounds` becomes the step budget.
+A run has no step limit: a turn, a task or an agent works until its job is done or the user
+stops it. A turn that ended at 40 steps left the user's job half done (the user, 2026-11-09).
+A caller that wants a limit sets `max_steps` (the evals do); hitting it ends the run as
+`failed` with type `budget`, and its progress is saved, so a new task can continue it.
 
 ### 5.5 Agents
 
@@ -255,7 +255,7 @@ holds the tools.
 - **Limits**:
   - At most 5 working at once per lead session.
   - Names are unique among open agents.
-  - The step budget is 200, as a task's.
+  - No step limit, as a turn's.
   - An agent idle for 24 h is deleted the next time the lead starts one, or when the brain
     starts. Forgetting one costs nothing.
 - **Mail**: what agents send the lead goes through one table, `agent_mail`. Each piece is
@@ -828,8 +828,8 @@ For tasks that may take hours, following Anthropic's long-running harness:
 4. **Verify before done**: when every item is done, an optional verifier subagent runs the
    checks with a skeptical prompt. A failed check reopens its item. Anthropic found a
    separate skeptical evaluator far easier to tune than self-criticism.
-5. **Budgets** stop runaway tasks (section 5.4). The workspace keeps everything, so the
-   task can be resumed.
+5. **No step limit** (section 5.4): the user stops a task that runs away. The workspace keeps
+   everything, so the task can be resumed.
 
 Small tasks ("look this up and tell me") skip steps 1 and 4. The model decides by the
 task's size, and the app can force either.

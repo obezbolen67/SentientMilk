@@ -28,7 +28,6 @@ TERMINAL = ("completed", "failed", "cancelled")
 ACTIVE = ("queued", "working", "input_required")
 STOPPED_CALL = "Stopped: the user stopped you while this call ran. It may not have finished."
 STOP_GRACE = 0.5  # seconds a stopped run gives tools that noticed to end with what they have
-STEP_BUDGET = {"turn": 40, "task": 200, "agent": 60, "subagent": 60}  # agents.STEPS: by access
 RETRIES = (2, 8, 30)  # seconds between attempts at a provider that is busy or down
 RETRIED = ("rate_limit", "server_error", "timeout", "network")
 SEARCH_LIMIT, LOAD_LIMIT, SUMMARY_CHARS = 20, 20, 120
@@ -277,11 +276,12 @@ class Loop:
                     profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
                     toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
                 steps = sum(1 for e in store.run_events(run_id) if e["type"] == "assistant")
-                budget = run["options"].get("max_steps", STEP_BUDGET[run["kind"]])
-                if steps >= budget:
+                # no step limit unless the caller set one (an eval): a run ends when its work is done or it is stopped
+                budget = run["options"].get("max_steps")
+                if budget and steps >= budget:
                     raise BrainError("budget", f"Stopped after {steps} steps (the step budget)",
                                      "Progress is kept; start a new task to continue.")
-                if steps == budget - 1:  # an answer with what it has beats an error with nothing
+                if budget and steps == budget - 1:  # an answer with what it has beats an error with nothing
                     brain.note(run["app"], run["session"], LAST_STEP)
                 if run["kind"] in ("turn", "task"):
                     self.brain.agents.take_mail(run)  # what its agents sent meanwhile
@@ -721,7 +721,7 @@ class Loop:
             reply = ""
         elif not reply and run["kind"] == "turn" and not run["options"].get("asked_for_words"):
             steps = sum(1 for e in self.brain.store.run_events(run["id"]) if e["type"] == "assistant")
-            if steps < run["options"].get("max_steps", STEP_BUDGET["turn"]):  # once, and not on the last step
+            if steps < (run["options"].get("max_steps") or steps + 1):  # once, and not on the last step
                 self.brain.store.update_run_options(run["id"], lambda options: {**options, "asked_for_words": True})
                 self.brain.note(run["app"], run["session"], EMPTY_REPLY)
                 return False
