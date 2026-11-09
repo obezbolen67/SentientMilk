@@ -28,6 +28,7 @@ from .runs import Bus, Runs
 from .scheduler import Scheduler
 from .skills import Skills
 from .store import Store
+from .superagent import SuperAgents
 from .toolkits import builtin
 from .toolkits.shell import shell_name
 
@@ -152,6 +153,7 @@ class Brain:
         self.mcp = McpHost(self)
         self.runs = Runs(self)
         self.agents = Agents(self)
+        self.superagents = SuperAgents(self)
         self.scheduler = Scheduler(self)
         self.journal = Journal(self)
         self._started = False
@@ -174,6 +176,7 @@ class Brain:
         self.scheduler.stop()
         self.journal.stop()
         self.runs.stop()
+        self.superagents.close()
         self.mcp.stop()
 
     # ============== Apps ==============
@@ -277,6 +280,7 @@ class Brain:
             "cwd": overrides.get("cwd") or session_settings.get("cwd"), "journal": journal,
             "model": settings.get("model") or values["model"], "light_model": values["light_model"],
             "context_window": values["context_window"], "callbacks": bool(declaration.get("callbacks")),
+            "super": self.superagents.label() if self.superagents.ready() else "",  # its agents can be Claude
         }
 
     def toolset(self, profile: dict, kind: str) -> Toolset:

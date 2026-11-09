@@ -46,6 +46,13 @@ AGENTS_RULE = ("- When a job splits into parts that can go on their own, or woul
                "to agents (agent_start) and put their reports together. They have all your tools and know only "
                "what you write in the task. Answer their questions with agent_message, and stop the ones you "
                "need no more. Do small things yourself.")
+SUPER_RULE = ("- You have super agents: {label}, a stronger model, through Claude Code. Code is theirs: when a "
+              "request needs code written, changed, fixed or reviewed (even a small script), start a super agent "
+              "(agent_start with super_agent=true) instead of writing it yourself. The same for problems that "
+              "need deep, careful thinking: a hard bug, a design, a tricky analysis or proof. Put the whole job "
+              "in the task: what to make, where, and how to check it. It works in your folders with its own "
+              "tools, the user approves its changes, and it reports like any agent. Chat, lookups, running "
+              "commands and simple file chores stay yours.")
 TOOL_RULES = (("todo_write", TODO_RULE), ("memory_save", MEMORY_RULE), ("agent_start", AGENTS_RULE))
 
 MORE_TOOLS = """## MORE TOOLS
@@ -95,7 +102,10 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
     computer = computer_section(profile, shell)
     if computer:
         parts.append(computer)
-    parts.append(RULES + "".join("\n" + rule for name, rule in TOOL_RULES if name in tools))
+    rules = [rule for name, rule in TOOL_RULES if name in tools]
+    if profile.get("super") and "agent_start" in tools:
+        rules.append(SUPER_RULE.format(label=profile["super"]))
+    parts.append(RULES + "".join("\n" + rule for rule in rules))
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
     if snapshot.get("memory"):

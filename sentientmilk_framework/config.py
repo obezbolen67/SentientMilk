@@ -1,4 +1,4 @@
-"""The brain's settings: provider, models, limits, tool keys and permission rules.
+"""The brain's settings: provider, models, the super model, limits, tool keys and permission rules.
 
 Stored as JSON in the brain's home. Secrets are never returned through the
 API; apps only learn whether they are set.
@@ -36,6 +36,10 @@ DEFAULTS = {
     "task_workers": 2,
     "rules": {"allow": [], "ask": [], "deny": []},
     "disabled_toolkits": [],
+    # Super agents (superagent.py): Claude, through the user's own Claude Code, for code and hard thinking.
+    "super_model": "claude-opus-5-5",  # empty: no super agents
+    "super_effort": "high",
+    "super_command": "",  # empty: claude, found on PATH or where its installer puts it
 }
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,7 @@ SECRETS = ("api_key", "web_search_key")
 MIN_BUDGET, MAX_BUDGET = 128 * 1024, 16 * 1024 * 1024
 SHELLS = ("", "powershell", "pwsh", "bash", "sh", "cmd")
 RULE_KINDS = ("allow", "ask", "deny")
+EFFORTS = ("low", "medium", "high", "xhigh", "max")  # Claude Code's --effort
 
 
 def normalize_base_url(base_url: str) -> str:
@@ -84,6 +89,8 @@ def validate_setting(key, value):
         raise ValueError(f"shell must be one of: {', '.join(s or '(empty)' for s in SHELLS)}")
     elif key == "rules":
         value = validate_rules(value)
+    elif key == "super_effort" and value not in EFFORTS:
+        raise ValueError(f"super_effort must be one of: {', '.join(EFFORTS)}")
     elif key == "disabled_toolkits" and not all(isinstance(item, str) for item in value):
         raise ValueError("disabled_toolkits must be a list of toolkit names")
     elif isinstance(value, str):

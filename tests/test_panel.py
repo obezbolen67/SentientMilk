@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from conftest import wait_for
-from textual.widgets import Button, DataTable, Input, OptionList, SelectionList, TextArea
+from textual.widgets import Button, DataTable, Input, OptionList, Select, SelectionList, TextArea
 
 from sentientmilk_framework.panel import Panel
 
@@ -44,11 +44,16 @@ def test_the_panel_shows_the_brain_and_saves_the_provider(brain):
         await press(pilot, panel, "p-save")
         assert brain.brain.config.values()["model"] != "another-model"  # nothing saved with a bad field
         panel.query_one("#p-budget", Input).value = "512"
+        assert panel.query_one("#p-super-model", Select).value == "claude-opus-5-5"  # the default: Opus 5.5, high
+        panel.query_one("#p-super-model", Select).value = "claude-sonnet-5-5"
+        panel.query_one("#p-super-effort", Select).value = "max"
         await press(pilot, panel, "p-save")
         assert panel.query_one("#p-key", Input).value == ""
+        assert "Sonnet 5.5 · Max effort" in str(panel.query_one("#p-super-status").render())
     run(brain, scenario)
     values = brain.brain.config.values()
     assert (values["model"], values["api_key"], values["request_budget"]) == ("another-model", "sk-replaced", 512 * 1024)
+    assert (values["super_model"], values["super_effort"]) == ("claude-sonnet-5-5", "max")
 
 
 def test_apps_get_their_persona_toolkits_and_memory_managed_here(brain):

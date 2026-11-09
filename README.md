@@ -164,6 +164,11 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   or with `agent.finished` / `agent.asked` when nobody was there to take it. Apps hear
   `agent.updated` as agents start and end; `client.agents(app, session)`, `client.agent(id)`
   and `client.stop_agent(id)` (which deletes it) let them show and stop agents.
+- **Super agents** are agents Claude does, through the user's own Claude Code, for code and
+  deep thinking: `agent_start(..., super_agent=true)`. The model and its thinking effort (low
+  to max) are set under Provider > Super model in the control panel (default: Opus 5.5, high).
+  They work like any agent, asking before changes; they need Claude Code installed and signed
+  in, and use the user's Claude plan.
 - **Tools on demand**: requests carry only the core tools plus `tools_search` and
   `tools_load`; the rest are listed with their parameters and loaded into the conversation when needed, so
   the tool list (and the prompt cache) stays the same. An action declared with

@@ -96,6 +96,7 @@ class Agents:
             "seconds": (time.time() if working else latest["updated"]) - latest["created"],
             "activity": activity, "report": reply, "error": (latest["error"] or {}).get("message", ""),
             "created": record.get("created"), "updated": latest["updated"],
+            "super": record.get("super", ""),  # the model of a super agent
         }
 
     def all(self, app: str, parent: str, only_open: bool = False) -> List[dict]:
@@ -161,7 +162,8 @@ class Agents:
 
     def describe(self, agent: dict) -> str:
         """One line about an agent, for the model."""
-        head = f"- {agent['name']} (#{agent['id']}): {agent['status']}"
+        kind = f" [super agent, {agent['super']}]" if agent.get("super") else ""
+        head = f"- {agent['name']} (#{agent['id']}){kind}: {agent['status']}"
         if agent["working"]:
             head += f", step {agent['step']}, {duration(agent['seconds'])}. Now: {agent['activity']}"
         else:
@@ -188,16 +190,20 @@ class Agents:
 
     # ============== Starting, messages, questions, stopping ==============
 
-    def start(self, parent_run: dict, name, task) -> dict:
+    def start(self, parent_run: dict, name, task, super_agent: bool = False) -> dict:
+        """``super_agent``: Claude does it, through Claude Code (superagent.py)."""
         name, task = str(name or "").strip(), str(task or "").strip()
         if not NAME.fullmatch(name):
             raise ToolError("The name must be 1-32 letters, digits, '-', '_' or '.', starting with a letter or "
                             "digit, e.g. tests or docs-research.")
         if not task:
             raise ToolError("The task is empty: say what the agent must do, with everything it needs.")
+        if super_agent and not self.brain.superagents.ready():
+            raise ToolError(self.brain.superagents.why_not() + " Start an ordinary agent instead.")
         app, parent = parent_run["app"], parent_run["session"]
         base = (parent_run["options"].get("profile") or {}).get("from_session") or parent  # a task works for a chat
-        record = {"name": name, "parent": parent, "base": base, "task": task, "created": time.time()}
+        record = {"name": name, "parent": parent, "base": base, "task": task, "created": time.time(),
+                  **({"super": self.brain.superagents.label()} if super_agent else {})}
         with self._lock:
             self.sweep(app, parent)
             self._check_room(app, parent, name)
@@ -224,7 +230,7 @@ class Agents:
                 "goal": f"agent {record['name']}: {text}",  # what lists of background work show
                 "max_steps": STEPS,
                 "profile": {"instructions": AGENT_PROMPT, "from_session": record.get("base") or record["parent"],
-                            "signals": False}}
+                            "signals": False}, **({"super": True} if record.get("super") else {})}
 
     def message(self, parent_run: dict, ref, text) -> str:
         text = str(text or "").strip()

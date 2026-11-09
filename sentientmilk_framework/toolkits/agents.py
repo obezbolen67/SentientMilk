@@ -8,8 +8,11 @@ WORKERS = ("turn", "task")  # the lead's tools: agents get none of these, no age
 @tool(policy="auto", only_in=WORKERS, args={
     "name": "A short name to call it by, e.g. tests or docs-research.",
     "task": "Everything it needs, as it does not see this conversation: the goal, what you know already, where "
-            "to look, its boundaries (what is not its part, which files are its own) and what to report."})
-def agent_start(ctx: ToolContext, name: str, task: str):
+            "to look, its boundaries (what is not its part, which files are its own) and what to report.",
+    "super_agent": "true: a super agent, a stronger model (Claude, through Claude Code), for writing or changing "
+                   "code and for problems that need deep thinking. Only when your rules say you have super "
+                   "agents."})
+def agent_start(ctx: ToolContext, name: str, task: str, super_agent: bool = False):
     """Start an agent: a copy of you with a fresh context that does one part of a job on its own, in the
     background, while you go on. It has all your tools (it loads the ones it needs, as you do) and your
     rules; it knows only what you write in the task. Use agents for work that splits into parts that can go
@@ -17,8 +20,9 @@ def agent_start(ctx: ToolContext, name: str, task: str):
     job that would fill your context; do the small things yourself. Start several in one reply to have
     them work at once. Collect their reports with agents_wait, or end your turn: you hear from each when it
     finishes, and when it asks you something."""
-    agent = ctx.brain.agents.start(ctx.run, name, task)
-    return (f"Started agent {agent['name']} (#{agent['id']}). It works in the background; collect its report "
+    agent = ctx.brain.agents.start(ctx.run, name, task, super_agent=bool(super_agent))
+    kind = f"super agent ({agent['super']})" if agent["super"] else "agent"
+    return (f"Started {kind} {agent['name']} (#{agent['id']}). It works in the background; collect its report "
             "with agents_wait, or go on and it reaches you when it is done.")
 
 

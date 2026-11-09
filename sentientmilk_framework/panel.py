@@ -44,9 +44,26 @@ from . import __version__, autostart
 from .client import BrainClient, connect, start_command
 from .config import DEFAULT_BASE_URL, DEFAULT_MODEL, SHELLS
 from .exceptions import BrainError
+from .superagent import EFFORT_NAMES, MODELS
 from .thinking import THINKING_MODES
 
 OK, WARN, BAD, MUTED, ACCENT = "#7bd88f", "#f2c35b", "#ff6b7a", "#8b8fa3", "#b3a4ff"
+
+
+def super_line(status: dict, where: bool = True) -> str:
+    """The super model, its effort and the Claude Code that runs it (the brain's ``super`` status); ``where``:
+    with the path of claude."""
+    if not status:
+        return f"[{MUTED}]unknown (an older brain)[/]"
+    if not status["model"]:
+        return f"[{MUTED}]off: apps have no super agents[/]"
+    head = f"{escape(status['label'])} · {EFFORT_NAMES.get(status['effort'], status['effort'])} effort"
+    if not status["command"]:
+        return f"{head} · [{BAD}]✗ Claude Code not found: install it and sign in, or set its path[/]"
+    path = f" [{MUTED}]{escape(status['command'])}[/]" if where else ""
+    return f"{head} · [{OK}]✓ {escape(status['version'] or 'Claude Code')}[/]{path}"
+
+
 THEME = Theme(name="sentientmilk", primary=ACCENT, secondary="#7fd1c7", accent="#ffd59e", foreground="#e9e6f2",
               background="#0d0f15", surface="#141720", panel="#1b1f2c", success=OK, warning=WARN, error=BAD)
 FlatButton = partial(Button, flat=True)  # muted until hovered: calmer than solid blocks
@@ -407,6 +424,19 @@ class Panel(App):
                     yield Input(type="integer", id="p-budget")
                     yield Label("Brave search key")
                     yield Input(password=True, id="p-web-key")
+            with Vertical(classes="card", id="super-card"):
+                yield Static("Super agents do the apps' code and hard thinking: Claude, through your own Claude "
+                             "Code (its sign-in, its plan). Off: the apps' own model does it.", classes="hint")
+                with Grid(classes="form"):
+                    yield Label("Super model")
+                    yield Select([(name, model) for model, name in MODELS] + [("Off: no super agents", "")],
+                                 allow_blank=False, id="p-super-model")
+                    yield Label("Thinking effort")
+                    yield Select([(name, effort) for effort, name in EFFORT_NAMES.items()], allow_blank=False,
+                                 id="p-super-effort")
+                    yield Label("Claude Code")
+                    yield Input(placeholder="found by itself (default) · or the path of claude", id="p-super-command")
+                yield Static(id="p-super-status")
             with Horizontal(classes="buttons"):
                 yield FlatButton("Save", id="p-save", variant="primary")
                 yield FlatButton("Remove API key", id="p-remove-key", variant="error")
@@ -535,7 +565,8 @@ class Panel(App):
         self.theme = "sentientmilk"
         for card, title in (("brain-card", "Brain"), ("provider-card", "Provider"), ("usage-card", "Usage by app"),
                             ("activity-card", "Activity"), ("service-card", "Service"),
-                            ("thinking-card", "Thinking and requests"), ("apps-pane", "Apps"),
+                            ("thinking-card", "Thinking and requests"), ("super-card", "Super model"),
+                            ("apps-pane", "Apps"),
                             ("persona-card", "Persona"), ("app-settings-card", "Settings"),
                             ("sessions-card", "Conversations"), ("memory-card", "Memory"),
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
@@ -674,6 +705,7 @@ class Panel(App):
             ("Thinking", f"{thinking} · images {'on' if settings.get('vision', True) else 'off'}"),
             ("Web search", f"[{OK}]✓ Brave key saved[/]" if settings.get("web_search_key_set")
              else f"[{MUTED}]no Brave key (pages can still be read)[/]"),
+            ("Super model", super_line(settings.get("super") or {}, where=False)),
         ]
         self.main.query_one("#provider-info", Static).update(self.lines(provider))
         stats = self.call(lambda c: c.stats(), quiet=True) or {"apps": {}}
@@ -722,6 +754,14 @@ class Panel(App):
         self.main.query_one("#p-vision", Switch).value = settings["vision"]
         self.main.query_one("#p-stream", Switch).value = settings["stream"]
         self.main.query_one("#p-budget", Input).value = str(settings["request_budget"] // 1024)
+        model = self.main.query_one("#p-super-model", Select)
+        if settings["super_model"] not in dict(MODELS) and settings["super_model"]:  # one set by hand
+            model.set_options([(name, m) for m, name in MODELS] + [(settings["super_model"], settings["super_model"]),
+                                                                    ("Off: no super agents", "")])
+        model.value = settings["super_model"]
+        self.main.query_one("#p-super-effort", Select).value = settings["super_effort"]
+        self.main.query_one("#p-super-command", Input).value = settings["super_command"]
+        self.main.query_one("#p-super-status", Static).update(super_line(settings.get("super") or {}))
 
     def save_provider(self) -> None:
         try:
@@ -735,6 +775,9 @@ class Panel(App):
                 "vision": self.main.query_one("#p-vision", Switch).value,
                 "stream": self.main.query_one("#p-stream", Switch).value,
                 "request_budget": number(self.main.query_one("#p-budget", Input), "Request size limit") * 1024,
+                "super_model": self.main.query_one("#p-super-model", Select).value,
+                "super_effort": self.main.query_one("#p-super-effort", Select).value,
+                "super_command": self.main.query_one("#p-super-command", Input).value.strip(),
             }
         except ValueError as exc:
             return self.notify(str(exc), severity="error")

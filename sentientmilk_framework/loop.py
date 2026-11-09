@@ -225,6 +225,8 @@ class Loop:
         try:
             store.update_run(run_id, status="working")
             profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
+            if run["options"].get("super"):  # Claude does it, through Claude Code (superagent.py)
+                return brain.superagents.execute(run, profile, emit)
             if not brain.config.values()["api_key"]:
                 raise BrainError("config_missing", "SentientMilk has no provider API key",
                                  "Open the SentientMilk control panel (run sentientmilk) and set it under Provider.")

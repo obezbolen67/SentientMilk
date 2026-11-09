@@ -284,6 +284,42 @@ holds the tools.
   `subagent`), with a skeptical prompt. Like Claude Code's subagents it has its task's tools, folders and
   permissions: a call that needs approval is asked through the app (`task.input_required` with its
   `run`), so an app in bypass mode allows it and otherwise the user decides.
+- **Super agents** (`superagent.py`): `agent_start(..., super_agent=true)` starts an agent that
+  Claude does through the user's own Claude Code, for code and for problems that need deep
+  thinking. To the lead and to apps it is an agent like any other: its session, steps, mail,
+  approvals, messages and stopping all work the same, and its summary carries `super` (the
+  model's name). Only the engine differs:
+  - Each run is one Claude Code process in headless mode (`claude -p`, stream-json both
+    ways), on the panel's **super model** (`super_model`, default `claude-opus-5-5`; empty:
+    no super agents) at its **thinking effort** (`super_effort`: low, medium, high, xhigh or
+    max; default high). `super_command` says where `claude` is when it is not found on
+    `PATH` or in `~/.local/bin`.
+  - It runs in `--restricted` mode: the user's own Claude Code settings, hooks, plugins and
+    MCP servers stay out, file tools stay in the app's folders (the session's `cwd`, the
+    other roots as `--add-dir`), and bypassing permissions is refused. Its tools are named:
+    Bash, PowerShell, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task.
+  - What Claude Code would ask the user comes to the host over stdio
+    (`--permission-prompt-tool stdio`). The brain's rules decide first, under the brain's
+    names (`shell_run(command)` for Bash and PowerShell, `files_write(path)`,
+    `files_edit(path)`, `web_fetch(url)`) and under Claude's own; the rest is an
+    `approval_request` like any agent's call (`agent.input_required`, the run's `waiting`
+    list). "Always" saves the brain-named rule.
+  - Its words, tool calls and results are written into the session as they happen, so apps
+    show its steps. Usage counts input, cache writes and cache reads as prompt tokens, plus
+    `cost_usd` as Claude Code reports it.
+  - A message to a working super agent is the next user message of the same process. One to
+    a finished agent resumes its Claude Code session (`--resume`, kept in the session state)
+    in a new run. A stop kills the process tree. After a brain restart the run resumes its
+    session with a note to go on.
+  - The lead hears it has super agents (a rule in HOW YOU WORK, with the model's name) only
+    while one can start: a super model is set and Claude Code is found. Otherwise
+    `super_agent=true` is refused with why, and the lead starts an ordinary agent. The rule
+    gives them all code, even a small script, and deep thinking. The first wording ("what you
+    would struggle with") left a small script with the lead in a live test (2026-11-09): next
+    to "do small things yourself", a model judges code it can write as small.
+  - It signs in as Claude Code does for the user and counts against their Claude plan; the
+    brain takes nothing out of it. `GET /config` carries `super`: the model, effort, the
+    command and its version, and whether it is ready (the panel's Provider page shows it).
 
 ### 5.6 Going back to a message
 
