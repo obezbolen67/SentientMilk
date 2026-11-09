@@ -194,14 +194,20 @@ def _stored(items: List[dict]) -> dict:
     return {**mentions.stored(items), **({"skills": started} if started else {})}
 
 
-def _arguments(call: dict) -> dict:
+def _parameters(tool_: Tool) -> str:
+    return f"Its parameters: {json.dumps(tool_.parameters, ensure_ascii=False)}"
+
+
+def _arguments(call: dict, tool_: Tool) -> dict:
+    """A call's arguments; when they are broken, the error names the tool and how to call it."""
     raw = (call.get("function") or {}).get("arguments") or "{}"
     try:
-        value = json.loads(raw) if isinstance(raw, str) else raw
+        value = json.loads(raw, strict=False) if isinstance(raw, str) else raw  # raw line breaks in long text are fine
     except ValueError as exc:
-        raise ToolError(f"The arguments are not valid JSON ({exc}). Send a JSON object.")
+        raise ToolError(f"The arguments for {tool_.name} are not valid JSON ({exc}). Send one JSON object, with "
+                        f"quotes and line breaks inside text escaped as \\\" and \\n. {_parameters(tool_)}")
     if not isinstance(value, dict):
-        raise ToolError("The arguments must be a JSON object.")
+        raise ToolError(f"The arguments for {tool_.name} must be a JSON object. {_parameters(tool_)}")
     return value
 
 
@@ -445,7 +451,6 @@ class Loop:
         """Any tool of the run may be called, sent with the request or not: loading only shows the model
         how (a call with wrong arguments shows the parameters, see _run_tools)."""
         name = (call.get("function") or {}).get("name", "")
-        arguments = _arguments(call)
         tool_ = toolset.by_name.get(name)
         if tool_ is None:
             close = difflib.get_close_matches(name, list(toolset.by_name), n=3, cutoff=0.6)
@@ -453,7 +458,7 @@ class Loop:
             more = " Find tools with tools_search." if "tools_search" in toolset.by_name else \
                 f" Your tools: {', '.join(toolset.by_name)}."
             raise ToolError(f"There is no tool {name!r}.{hint}{more}")
-        return name, tool_, arguments
+        return name, tool_, _arguments(call, tool_)
 
     def _ask(self, run: dict, kind: str, call: dict, name: str, arguments: dict, emit, always_ask: bool = False) -> None:
         """``always_ask``: the user must answer, even in an app that allows everything on its own."""
@@ -478,8 +483,7 @@ class Loop:
             except ToolError as exc:
                 return ToolResult(f"Error: {exc}"), "error"
             except TypeError as exc:  # wrong or missing arguments: how to call it, for a schema it may not have
-                return ToolResult(f"Error: {exc}. Its parameters: "
-                                  f"{json.dumps(tool_.parameters, ensure_ascii=False)}"), "error"
+                return ToolResult(f"Error: {exc}. {_parameters(tool_)}"), "error"
             except Exception as exc:
                 logger.exception("Tool %s failed", name)
                 return ToolResult(f"Error: {type(exc).__name__}: {exc}"), "error"

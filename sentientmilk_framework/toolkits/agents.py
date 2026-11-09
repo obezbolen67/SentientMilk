@@ -5,9 +5,12 @@ from . import ToolContext, Toolkit, tool
 WORKERS = ("turn", "task")  # the lead's tools: agents get none of these, no agents of agents
 GUIDE = ("When a job splits into parts that can go on their own, or would fill your context, give the parts to "
          "agents and put their reports together. An agent exists only once you start it, for one job, and knows "
-         "only what you write in the task: ordinary ones are copies of you, with all your tools. Answer their "
-         "questions and send them more with agent_message, and stop the ones you need no more. Do small things "
-         "yourself.")
+         "only what you write in the task: ordinary ones are copies of you, with all your tools. Say plainly in "
+         "the task what the job is. Answer their questions and send them more with agent_message, and stop the "
+         "ones you need no more. Do small things yourself.\n"
+         "Tell the user what an agent reported in its own terms: what it says it did, checked and found, and "
+         "nothing it did not say. When one stops, fails or says no, give its reason as it put it and let the user "
+         "decide what next; don't reword the task to get past it.")
 SUPER = ("Super agents: {label}, a stronger model (Claude, not a copy of you), through Claude Code: agent_start "
          "with super_agent=true. Code is theirs: when a request needs code written, changed, fixed or reviewed "
          "(even a small script), start one instead of writing it yourself. The same for problems that need deep, "
@@ -23,8 +26,9 @@ def guide(profile: dict) -> str:
 
 @tool(policy="auto", only_in=WORKERS, guide=guide, args={
     "name": "A short name to call it by, e.g. tests or docs-research.",
-    "task": "Everything it needs, as it does not see this conversation: the goal, what you know already, where "
-            "to look, its boundaries (what is not its part, which files are its own) and what to report.",
+    "task": "Everything it needs, as it does not see this conversation: the job, said plainly, the goal, what you "
+            "know already, where to look, its boundaries (what is not its part, which files are its own) and what "
+            "to report.",
     "super_agent": "true: a super agent, a stronger model (Claude, through Claude Code), for writing or changing "
                    "code and for problems that need deep thinking. Only when YOUR TOOLS says you have super "
                    "agents."})

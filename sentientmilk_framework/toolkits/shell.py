@@ -79,9 +79,10 @@ def shell_run(ctx: ToolContext, command: str, cwd: str = "", timeout: int = WAIT
     """Run a command in {shell}. Output (stdout and stderr together, so no 2>&1) comes back with the exit
     code; a command still running after timeout goes on as a background job, so you can work on while it runs.
     No shell state carries over between calls: pass cwd instead of cd, and set variables in the same command.
-    Prefer files_read/files_search/files_edit over cat, grep and sed. Change files with files_write and
-    files_edit, not with commands (Set-Content, Out-File, >, WriteAllText): the user can take their changes
-    back by returning to an earlier message, but not a command's."""
+    Prefer files_read/files_search/files_edit over cat, grep and sed, and the app's own tools for the screen
+    and windows (when you have them) over a command that captures or reads the screen. Change files with
+    files_write and files_edit, not with commands (Set-Content, Out-File, >, WriteAllText): the user can take
+    their changes back by returning to an earlier message, but not a command's."""
     if not command.strip():
         raise ToolError("command is empty.")
     folder = _folder(ctx, cwd)

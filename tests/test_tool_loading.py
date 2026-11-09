@@ -51,11 +51,21 @@ def test_a_listed_tool_is_loaded_then_called_by_name(brain):
 
 
 def test_wrong_arguments_and_unknown_names_say_how_to_call(brain):
+    broken = tool_call("files_find", {}, "j")
+    broken["tool_calls"][0]["function"]["arguments"] = '{"pattern": "say "hi"\n"}'  # a long text, unescaped
+    listed = tool_call("files_find", {}, "l")
+    listed["tool_calls"][0]["function"]["arguments"] = '["*.txt"]'
+    lines = tool_call("files_find", {}, "b")
+    lines["tool_calls"][0]["function"]["arguments"] = '{"pattern": "*.txt\n"}'  # a raw line break is accepted
     brain.provider.replies += [tool_call("files_find", {"glob": "*.txt"}, "w"), tool_call("files_findd", {}, "u"),
-                               tool_call("tools_load", {"names": ["nope"]}, "n"), "ok"]
+                               tool_call("tools_load", {"names": ["nope"]}, "n"), broken, listed, lines, "ok"]
     turn(brain, "cli", "find")
     results = tool_results(brain.provider.sent[-1])
     assert results["w"].startswith("Error:") and '"pattern"' in results["w"]  # its parameters
+    for broken_id in "jl":  # broken JSON names the tool and shows how to call it, as wrong keys do
+        assert results[broken_id].startswith("Error: The arguments for files_find") and '"pattern"' in results[broken_id]
+    assert "not valid JSON" in results["j"] and "escaped" in results["j"]
+    assert not results["b"].startswith("Error")
     assert "There is no tool 'files_findd'" in results["u"] and "files_find" in results["u"] \
         and "tools_search" in results["u"]
     assert results["n"].startswith("Error:") and "tools_search" in results["n"]
