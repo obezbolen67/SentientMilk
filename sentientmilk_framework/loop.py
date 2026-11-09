@@ -33,6 +33,8 @@ RETRIES = (2, 8, 30)  # seconds between attempts at a provider that is busy or d
 RETRIED = ("rate_limit", "server_error", "timeout", "network")
 SEARCH_LIMIT, LOAD_LIMIT, SUMMARY_CHARS = 20, 20, 120
 APP_TOOLS = "this app's own"  # how YOUR TOOLS names the app's actions
+# what an agent is told of the app's actions only the lead may call (an action declared with agents: false)
+LEAD_ONLY = "The lead's, not yours: {tools}. Ask the lead (ask_lead) when your part needs one."
 META_TOOLS = ("tools_search", "tools_load")
 VERIFY_ROUNDS = 2
 EMPTY_REPLY = ("Your reply was empty, so the user saw nothing. Answer them now: what you did, what you found, "
@@ -62,8 +64,10 @@ class Toolset:
     in the profile's order; ``origins``: where a toolkit the user added came from (a plugin, an MCP server)."""
 
     def __init__(self, tools: List[Tool], deferred: List[Tool], kits: Optional[Dict[str, str]] = None,
-                 parts: Iterable[str] = (), order: Iterable[str] = (), origins: Optional[Dict[str, str]] = None):
+                 parts: Iterable[str] = (), order: Iterable[str] = (), origins: Optional[Dict[str, str]] = None,
+                 withheld: Iterable[str] = ()):
         self.deferred, self.kits, self.parts, self.order = deferred, kits or {}, set(parts), list(order)
+        self.withheld = list(withheld)  # the app's actions only the lead may call, left out of an agent's run
         self.origins = origins or {}
         self.tools = tools + (meta_tools(self) if deferred else [])
         self.by_name: Dict[str, Tool] = {t.name: t for t in self.tools + deferred}
@@ -83,13 +87,16 @@ class Toolset:
         and the ``guides`` of its tools as the brain is now. YOUR TOOLS shows it (context.tools_section);
         what an app last saw of it tells a turn what changed (Loop._tool_news)."""
         groups: Dict[str, dict] = {}
+
+        def group_of(toolkit: str) -> dict:
+            return groups.setdefault(toolkit, {"kit": self.kit_label(toolkit), "about": self.kits.get(toolkit, ""),
+                                               "part": toolkit in self.parts, "origin": self.origins.get(toolkit, ""),
+                                               "ready": [], "load": [], "guides": []})
+
         for t in self.tools + self.deferred:
             if t.name in META_TOOLS:
                 continue
-            group = groups.setdefault(t.toolkit, {"kit": self.kit_label(t.toolkit), "about": self.kits.get(t.toolkit, ""),
-                                                  "part": t.toolkit in self.parts,
-                                                  "origin": self.origins.get(t.toolkit, ""), "ready": [], "load": [],
-                                                  "guides": []})
+            group = group_of(t.toolkit)
             if t.name in self.sent:
                 group["ready"].append(t.name)
             else:
@@ -99,6 +106,8 @@ class Toolset:
             guide = t.guide_for(profile)
             if guide:
                 group["guides"].append(guide)
+        if self.withheld:
+            group_of("actions")["guides"].append(LEAD_ONLY.format(tools=", ".join(self.withheld)))
         rank = {kit: index for index, kit in enumerate(self.order)}
         return [groups[kit] for kit in sorted(groups, key=lambda kit: rank.get(kit, len(rank)))]
 
@@ -171,7 +180,10 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Opt
         kit = kits.get(name)
         if kit:
             tools += [replace(t, description=t.description.replace("{shell}", shell)) for t in kit.tools]
+    withheld = [a["name"] for a in profile.get("actions", []) if kind == "agent" and a.get("agents") is False]
     for action in profile.get("actions", []):
+        if action["name"] in withheld:
+            continue
         tools.append(Tool(name=action["name"], description=action.get("description", ""),
                           parameters=action.get("parameters") or {"type": "object", "properties": {}},
                           func=None, readonly=bool(action.get("readonly")), policy=action.get("policy", "auto"),
@@ -185,7 +197,7 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Opt
     return Toolset([t for t in unique if t.core], [t for t in unique if not t.core],
                    {name: kit.description for name, kit in kits.items()},
                    parts=[name for name, kit in kits.items() if kit.part],
-                   order=list(dict.fromkeys(t.toolkit for t in unique)), origins=origins)
+                   order=list(dict.fromkeys(t.toolkit for t in unique)), origins=origins, withheld=withheld)
 
 
 def _stored(items: List[dict]) -> dict:
@@ -452,6 +464,9 @@ class Loop:
         how (a call with wrong arguments shows the parameters, see _run_tools)."""
         name = (call.get("function") or {}).get("name", "")
         tool_ = toolset.by_name.get(name)
+        if tool_ is None and name in toolset.withheld:
+            raise ToolError(f"{name} is the lead's, not yours: ask the lead with ask_lead to do it, or say in your "
+                            "report what the lead should do.")
         if tool_ is None:
             close = difflib.get_close_matches(name, list(toolset.by_name), n=3, cutoff=0.6)
             hint = f" Did you mean {', '.join(close)}?" if close else ""

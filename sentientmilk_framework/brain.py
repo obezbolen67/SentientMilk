@@ -89,6 +89,8 @@ def validate_declaration(data: Any) -> dict:
             raise ValueError(f"action {action['name']}: policy must be auto or ask")
         if not isinstance(action.get("core", False), bool):
             raise ValueError(f"action {action['name']}: core must be true (sent with every request) or false")
+        if not isinstance(action.get("agents", True), bool):
+            raise ValueError(f"action {action['name']}: agents must be true or false (only the lead may call it)")
     return data
 
 

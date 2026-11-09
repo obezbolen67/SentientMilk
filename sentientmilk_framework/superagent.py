@@ -56,6 +56,8 @@ approves your changes when you are asked.
 - Stay within the task: change only what it covers.
 - Find out what you can by yourself. If a decision is not yours, take the safest choice and say what you
   assumed.
+- The user's computer is {name}'s: never look at the screen or use the mouse and keyboard (no screenshots,
+  no input scripts). When a part needs that, say in your report what {name} should do there.
 - Verify what you did (run it, test it) before you report.
 - End with a compact report for the lead, findings first: what you did, the exact paths, names and results,
   what you verified and what you did not. Put long output in files and name them."""

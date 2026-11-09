@@ -7,7 +7,8 @@ GUIDE = ("When a job splits into parts that can go on their own, or would fill y
          "agents and put their reports together. An agent exists only once you start it, for one job, and knows "
          "only what you write in the task: ordinary ones are copies of you, with all your tools. Say plainly in "
          "the task what the job is. Answer their questions and send them more with agent_message, and stop the "
-         "ones you need no more. Do small things yourself.\n"
+         "ones you need no more. Do small things yourself. Agents never use the computer (the screen, mouse and "
+         "keyboard): that part is yours, and when one asks you for it, do it and answer.\n"
          "Tell the user what an agent reported in its own terms: what it says it did, checked and found, and "
          "nothing it did not say. When one stops, fails or says no, give its reason as it put it and let the user "
          "decide what next; don't reword the task to get past it.")

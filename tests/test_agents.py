@@ -6,6 +6,8 @@ import json
 import threading
 import time
 
+import pytest
+
 from conftest import turn, wait_for
 
 from sentientmilk_framework import agents as agents_module
@@ -419,6 +421,35 @@ def test_an_agent_runs_the_apps_actions_too(brain):
     brain.client.answer(run, call_id="l", result="a cat")
     finished = wait_for(lambda: [n for n in brain.store.notifications("acts") if n["type"] == "agent.finished"])
     assert finished and any("I saw: a cat" in n["text"] for n in brain.store.events("acts", "main", types=("note",)))
+
+
+def test_actions_only_the_lead_may_call_are_not_an_agents(brain):
+    """An action declared with agents: false (the app's computer) is the lead's: an agent has no such tool,
+    its YOUR TOOLS says whose it is, a call to it says to ask the lead, and the lead keeps it."""
+    brain.client.declare_app("pc", toolkits=["files", "agents"], actions=[
+        {"name": "look", "description": "See the screen.", "readonly": True, "core": True, "agents": False},
+        {"name": "send", "description": "Give the user a file.", "readonly": True}])
+    seen = {}
+
+    def route(payload):
+        if is_agent(payload):
+            if not results(payload):
+                seen.update(tools=sent_names(payload), system=payload["messages"][0]["content"])
+                return calls(("look", {}, "l"))
+            seen["called"] = results(payload)["l"]
+            return "I need the screen: the lead should look at it."
+        seen.setdefault("lead", sent_names(payload))
+        return "Started." if results(payload) else calls(("agent_start", {"name": "eyes", "task": "Look."}, "s"))
+
+    brain.provider.replies += [route] * 4
+    turn(brain, "pc", "look with an agent")
+    wait_for(lambda: [n for n in brain.store.notifications("pc") if n["type"] == "agent.finished"])
+    assert "look" in seen["lead"] and "look" not in seen["tools"]
+    assert "The lead's, not yours: look." in seen["system"] and "never look at the screen" in seen["system"]
+    assert "send" in seen["system"].split("## YOUR TOOLS", 1)[1]  # the app's other actions stay its
+    assert seen["called"].startswith("Error: look is the lead's, not yours: ask the lead with ask_lead")
+    with pytest.raises(Exception, match="agents must be true or false"):
+        brain.client.declare_app("pc", actions=[{"name": "look", "agents": "no"}])
 
 
 def test_an_agent_asks_the_lead_and_goes_on_with_the_answer(brain):
