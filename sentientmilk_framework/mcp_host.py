@@ -27,7 +27,16 @@ from functools import partial
 from typing import Dict, Optional
 
 from .loop import TERMINAL
-from .toolkits import MESSAGE_FROM_USER, STOPPED_BY_USER, Tool, ToolContext, ToolError, Toolkit, ToolResult, cap
+from .toolkits import (
+    MESSAGE_FROM_USER,
+    STOPPED_BY_USER,
+    Tool,
+    ToolContext,
+    ToolError,
+    Toolkit,
+    ToolResult,
+    cap,
+)
 from .toolkits.shell import WAIT
 
 logger = logging.getLogger(__name__)

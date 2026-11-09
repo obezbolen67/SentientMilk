@@ -1,4 +1,4 @@
-"""Sessions: your other conversations in this app (not your agents' or tasks'), to draw on what was said
+"""Sessions: your conversations in this app (not your agents' or tasks'), to draw on what was said
 there: list them, read one's summary or its plain turns, search them, rename or delete one."""
 
 from .. import mentions
@@ -41,13 +41,11 @@ def sessions_list(ctx: ToolContext, query: str = ""):
     "part": "summary (its card and every journal note about it) or turns (what was said, without tool calls).",
     "offset": "For turns: skip this many turns, to read on."})
 def sessions_read(ctx: ToolContext, session: str, part: str = "summary", offset: int = 0):
-    """Read one of your other conversations: its summary, or its plain turns (the user's messages and your
-    replies, without tool calls), a page at a time."""
+    """Read one of your conversations, including this one: its summary, or its plain turns (user messages and
+    your replies, without tool calls), a page at a time."""
     if part not in ("summary", "turns"):
         raise ToolError("part must be summary or turns.")
     found = _find(ctx, session)
-    if found["id"] == ctx.session:
-        return "That is the conversation you are in: you have it already."
     if part == "summary":
         text = mentions.card(ctx.brain, ctx.app, ctx.session, "session", found["id"])
         notes = mentions.journal_notes(ctx.brain, ctx.app, found["id"])
@@ -70,15 +68,13 @@ def sessions_read(ctx: ToolContext, session: str, part: str = "summary", offset:
 
 @tool(readonly=True, args={"query": "Words to find, e.g. 'oat milk' (any case)."})
 def sessions_search(ctx: ToolContext, query: str):
-    """Find words in the plain turns of your other conversations: each match as session, turn number and the
+    """Find words in the plain turns of your conversations, including this one: each match as session, turn and
     line around it. Read more of one with sessions_read(part="turns", offset=...)."""
     needle = query.strip().casefold()
     if not needle:
         raise ToolError("Give words to search for, e.g. query='oat milk'.")
     found = []
     for chat in mentions.chats(ctx.brain, ctx.app):
-        if chat["id"] == ctx.session:
-            continue
         for number, entries in enumerate(mentions.turns(ctx.brain, ctx.app, chat["id"]), 1):
             for entry in entries:
                 text = " ".join(entry["text"].split())
@@ -90,7 +86,7 @@ def sessions_search(ctx: ToolContext, query: str):
                     text = ("…" if begin else "") + text[begin:begin + SNIPPET] + "…"
                 found.append(f"{_name(chat)} #{number} {mentions.speaker(entry)}: {text}")
     if not found:
-        return f"No turn of your other conversations has {query!r}."
+        return f"No turn of your conversations has {query!r}."
     return cap(ctx, "\n".join(found), "search")
 
 
@@ -120,5 +116,5 @@ def session_delete(ctx: ToolContext, session: str):
     return f"Deleted {_name(found)} and its history."
 
 
-TOOLKIT = Toolkit("sessions", "Your other conversations in this app: list, read, search, rename, delete.",
+TOOLKIT = Toolkit("sessions", "Your conversations in this app: list, read, search, rename, delete.",
                   [sessions_list, sessions_read, sessions_search, session_rename, session_delete], part=True)

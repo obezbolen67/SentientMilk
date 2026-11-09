@@ -1,4 +1,4 @@
-"""The sessions toolkit: she lists, reads, searches, renames and (asking every time) deletes her other chats."""
+"""The sessions toolkit: she reads all her chats, and may rename or (asking every time) delete other chats."""
 
 import pytest
 from conftest import turn
@@ -45,17 +45,18 @@ def test_she_reads_a_summary_or_the_plain_turns_page_by_page(brain, talk, monkey
     first, second = kit.sessions_read.func(talk, "chat-1", part="turns"), kit.sessions_read.func(
         talk, "chat-1", part="turns", offset=1)
     assert "add oat milk" not in first and "offset=1" in first and second.startswith("2. user: add oat milk")
-    assert "conversation you are in" in kit.sessions_read.func(talk, "main")
+    assert 'Mentioned session "Today" (main)' in kit.sessions_read.func(talk, "main")
+    assert kit.sessions_read.func(talk, "main", part="turns").startswith("1. user: hello")
     with pytest.raises(ToolError, match="No session chat-9"):
         kit.sessions_read.func(talk, "chat-9")
     with pytest.raises(ToolError, match="part"):
         kit.sessions_read.func(talk, "chat-1", part="everything")
 
 
-def test_she_searches_the_plain_turns_of_her_other_chats(brain, talk):
+def test_she_searches_the_plain_turns_of_her_chats_including_this_one(brain, talk):
     found = kit.sessions_search.func(talk, "OAT milk")
     assert found.splitlines() == ['chat-1 "Groceries" #2 user: add oat milk', 'chat-1 "Groceries" #2 you: Added oat milk.']
-    assert "No turn" in kit.sessions_search.func(talk, "hello")  # only in this chat, which she has
+    assert kit.sessions_search.func(talk, "hello") == 'main "Today" #1 user: hello'
     with pytest.raises(ToolError):
         kit.sessions_search.func(talk, " ")
 

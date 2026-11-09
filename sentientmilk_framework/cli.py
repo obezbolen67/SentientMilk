@@ -284,6 +284,8 @@ def main(argv=None) -> None:
     evaluate.add_argument("names", nargs="*")
     evaluate.add_argument("--model", default="")
     evaluate.add_argument("--report", default="", help="write the results as JSON here")
+    evaluate.add_argument("--context-pair", action="store_true",
+                          help="run chat tasks both normally and with compaction between every turn")
     args = parser.parse_args(argv)
     home = Path(args.home or default_home()).expanduser().resolve()
     if args.command == "start":  # run windowless: the brain it starts is the one recorded, with its console
@@ -306,7 +308,7 @@ def main(argv=None) -> None:
     if args.command == "eval":
         from .evals import main as run_evals
 
-        return run_evals(args.names, model=args.model, report=args.report)
+        return run_evals(args.names, model=args.model, report=args.report, context_pair=args.context_pair)
     client = connect(home)
     if args.command == "config":
         if args.changes:

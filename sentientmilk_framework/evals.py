@@ -6,6 +6,7 @@ session; check replies, signals, schedules, what the app remembered). Tasks mark
 
     sentientmilk eval                 every task
     sentientmilk eval fix-failing-test --report results.json
+    sentientmilk eval context-continuity --context-pair --report continuity.json
 """
 
 import base64
@@ -97,7 +98,7 @@ def check(spec: dict, folder: Path, replies: List[str], extra: dict) -> tuple:
     return True, "ok"
 
 
-def run_one(spec: dict, settings: dict) -> dict:
+def run_one(spec: dict, settings: dict, *, compact_between_turns: bool = False) -> dict:
     from .server import start
 
     root = Path(tempfile.mkdtemp(prefix=f"sm-eval-{spec['name']}-"))
@@ -135,10 +136,13 @@ def run_one(spec: dict, settings: dict) -> dict:
             screenshot = _screenshot() if spec.get("screenshot") else None
             for index, prompt in enumerate(spec["turns"]):
                 session = spec.get("sessions", ["main"] * len(spec["turns"]))[index]
-                result = client.turn("eval", session, prompt, image=screenshot, context={"user": "Tester"})
+                result = client.turn("eval", session, prompt, image=screenshot, context={"user": "Tester"},
+                                     max_steps=spec.get("max_steps"))
                 replies.append(result["reply"])
                 extra["signals_ok"] = extra.get("signals_ok", 0) + bool(result["signals"])
                 runs.append(client.run(result["run"]))
+                if compact_between_turns and index < len(spec["turns"]) - 1:
+                    client.compact_session("eval", session)
             extra["schedules"] = len(client.schedules("eval"))
             extra["memory"] = json.dumps(server.brain.store.memories("eval"), ensure_ascii=False)
         passed, why = (False, error) if error else check(spec, work, replies, extra)
@@ -147,9 +151,15 @@ def run_one(spec: dict, settings: dict) -> dict:
     events = [e for r in runs for e in server.brain.store.run_events(r["id"])]
     usage = {key: sum((r.get("usage") or {}).get(key) or 0 for r in runs)
              for key in ("calls", "prompt_tokens", "cached_tokens", "completion_tokens")}
+    tools = server.brain.toolset(server.brain.profile("eval", "main"), spec.get("kind", "task")).by_name
+    readonly = {name for name, item in tools.items() if item.readonly}
+    compactions = sum(e["type"] == "compaction" for session in {r["session"] for r in runs}
+                      for e in server.brain.store.events("eval", session))
     result = {"name": spec["name"], "holdout": spec.get("holdout", False), "passed": passed, "why": why,
+              "mode": "forced_compaction" if compact_between_turns else "baseline", "compactions": compactions,
               "seconds": round(time.time() - started, 1), "steps": usage["calls"],
               "tool_calls": sum(e["type"] == "tool" for e in events),
+              "mutating_tool_calls": sum(e["type"] == "tool" and e.get("name") not in readonly for e in events),
               "tool_errors": sum(e["type"] == "tool" and e.get("status") == "error" for e in events),
               "prompt_tokens": usage["prompt_tokens"], "cached_tokens": usage["cached_tokens"],
               "completion_tokens": usage["completion_tokens"], "folder": str(root)}
@@ -159,7 +169,7 @@ def run_one(spec: dict, settings: dict) -> dict:
     return result
 
 
-def main(names: Optional[List[str]] = None, model: str = "", report: str = "") -> None:
+def main(names: Optional[List[str]] = None, model: str = "", report: str = "", *, context_pair: bool = False) -> None:
     values = BrainConfig(default_home() / "config.json").values()
     if not values["api_key"]:
         raise SystemExit("Set the provider key first: sentientmilk config api_key")
@@ -167,16 +177,19 @@ def main(names: Optional[List[str]] = None, model: str = "", report: str = "") -
     if model:
         settings["model"] = model
     results = []
-    print(f"{'task':<26} {'result':<6} {'time':>6} {'steps':>5} {'tools':>5} {'errors':>6} {'cache':>6}  why")
+    print(f"{'task':<26} {'mode':<17} {'result':<6} {'time':>6} {'steps':>5} {'tools':>5} "
+          f"{'errors':>6} {'cache':>6}  why")
     for spec in load(names):
-        result = run_one(spec, settings)
-        results.append(result)
-        cache = f"{result['cached_tokens'] / result['prompt_tokens']:.0%}" if result["prompt_tokens"] else "-"
-        print(f"{result['name'] + (' (holdout)' if result['holdout'] else ''):<26} "
-              f"{'PASS' if result['passed'] else 'FAIL':<6} {result['seconds']:>5}s {result['steps']:>5} "
-              f"{result['tool_calls']:>5} {result['tool_errors']:>6} {cache:>6}  "
-              f"{'' if result['passed'] else result['why'][:300] + ' (kept in ' + result['folder'] + ')'}",
-              flush=True)
+        paired = context_pair and spec.get("kind", "task") == "chat"
+        for compact in (False, True) if paired else (False,):
+            result = run_one(spec, settings, compact_between_turns=compact)
+            results.append(result)
+            cache = f"{result['cached_tokens'] / result['prompt_tokens']:.0%}" if result["prompt_tokens"] else "-"
+            print(f"{result['name'] + (' (holdout)' if result['holdout'] else ''):<26} {result['mode']:<17} "
+                  f"{'PASS' if result['passed'] else 'FAIL':<6} {result['seconds']:>5}s {result['steps']:>5} "
+                  f"{result['tool_calls']:>5} {result['tool_errors']:>6} {cache:>6}  "
+                  f"{'' if result['passed'] else result['why'][:300] + ' (kept in ' + result['folder'] + ')'}",
+                  flush=True)
     passed = sum(r["passed"] for r in results)
     print(f"\n{passed}/{len(results)} passed")
     if report:

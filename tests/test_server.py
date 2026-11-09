@@ -269,8 +269,8 @@ def test_a_session_tells_how_full_its_context_is(brain):
     brain.provider.replies.append('{"expression": "arms_down/smile"}\nHi.')
     turn(brain, "milk", "hi")
     window = brain.client.config()["context_window"]
-    assert brain.client.session("milk", "main")["context"] == {"used": 4321, "window": window,
-                                                               "clear_at": 0.5, "compact_at": 0.75}
+    assert brain.client.session("milk", "main")["context"] == {"used": 4331, "window": window,
+        "clear_at": 0.5, "compact_at": 0.75, 'source': 'provider', 'input_tokens': 4321, 'output_tokens': 10}
     brain.client.clear_history("milk", "main")
     assert brain.client.session("milk", "main")["context"]["used"] == 0  # a new conversation holds nothing yet
 

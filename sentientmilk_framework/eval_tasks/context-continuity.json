@@ -1,0 +1,26 @@
+{
+  "kind": "chat",
+  "toolkits": [
+    "files",
+    "shell"
+  ],
+  "turns": [
+    "Create calculator.py in the working folder with add(a, b), returning a + b without converting the arguments. Its exact module docstring must be \"Tiny calculator: continuity-keep-7.\" (including the final period inside the quotes). Keep contract.txt byte-for-byte unchanged. Use no imports or dependencies in calculator.py, and do not create requirements files. These constraints apply to every later turn too. Make the smallest change and verify it.",
+    "Add subtract(a, b), returning a - b without converting the arguments. Preserve add and every original constraint. Read the existing file and make the smallest edit; do not repeat completed writes merely to recall what happened.",
+    "Verify both functions on positive and negative integers, zero and decimal.Decimal inputs. Keep the original contract and module docstring unchanged. Fix only a real failure; otherwise do not rewrite completed work. In your final reply include the continuity marker from the original request and say what you verified."
+  ],
+  "files": {
+    "contract.txt": "Marker: continuity-keep-7\nKeep this original contract unchanged.\n"
+  },
+  "check": {
+    "file": "calculator.py",
+    "checker_files": {
+      "check_continuity.py": "import ast\nfrom decimal import Decimal\nfrom pathlib import Path\nimport inspect\nimport calculator\n\nsource = Path('calculator.py').read_text(encoding='utf-8')\ntree = ast.parse(source)\nassert ast.get_docstring(tree) == 'Tiny calculator: continuity-keep-7.'\nassert not any(isinstance(node, (ast.Import, ast.ImportFrom)) for node in ast.walk(tree))\nassert str(inspect.signature(calculator.add)) == '(a, b)'\nassert str(inspect.signature(calculator.subtract)) == '(a, b)'\nfor a, b, total, difference in [(2, 3, 5, -1), (-5, 2, -3, -7), (0, 0, 0, 0), (0, -4, -4, 4), (Decimal('0.1'), Decimal('0.2'), Decimal('0.3'), Decimal('-0.1'))]:\n    assert calculator.add(a, b) == total, (a, b, 'add')\n    assert calculator.subtract(a, b) == difference, (a, b, 'subtract')\nassert isinstance(calculator.add(Decimal('0.1'), Decimal('0.2')), Decimal)\nassert isinstance(calculator.subtract(Decimal('0.1'), Decimal('0.2')), Decimal)\nassert Path('contract.txt').read_bytes() == b'Marker: continuity-keep-7\\nKeep this original contract unchanged.\\n'\nassert not list(Path('.').glob('requirements*'))\n"
+    },
+    "command": "{python} check_continuity.py",
+    "reply_contains": [
+      "continuity-keep-7"
+    ]
+  },
+  "max_steps": 20
+}

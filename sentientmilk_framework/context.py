@@ -70,7 +70,9 @@ yourself, in the second person ("you read the files"), never about "the assistan
 5. Errors and fixes: problems met and how they were solved.
 6. Open problems.
 7. Next steps.
-Be specific and complete. Leave out chatter and raw tool output that no longer matters.
+Be specific and complete. Preserve constraints and exact references to original events (history_read).
+Only describe a check as passed when its actual command result supports that claim. Keep failures and
+remaining verification explicit. Leave out chatter and raw tool output that no longer matters.
 Write in the language of the conversation."""
 
 
@@ -319,10 +321,10 @@ def _held_content(event: dict):
     return note_text(event) if event["type"] == "note" else event["content"]
 
 
-def estimate_tokens(messages: List[dict], system: str = "") -> int:
+def estimate_tokens(messages: List[dict], system: str = "", tools=()) -> int:
     """About 4 characters a token, 300 per image (measured: about 250 at any size): good enough for
     thresholds, no tokenizer needed."""
-    chars, images = len(system), 0
+    chars, images = len(system) + (len(json.dumps(list(tools), ensure_ascii=False)) if tools else 0), 0
     for message in messages:
         content = message.get("content")
         if isinstance(content, list):
@@ -381,20 +383,21 @@ def choose_cut(events: List[dict], keep_chars: int) -> int:
         cut = index
     while cut < len(events) and events[cut]["type"] not in ("input", "assistant"):
         cut += 1
-    if cut == 0:  # everything is recent: still summarize all but the newest step
-        cut = max((i for i, e in enumerate(events) if e["type"] in ("input", "assistant")), default=len(events))
+    if cut == 0:  # keep the newest exchange; a single long exchange keeps its newest step
+        newest = max((i for i, e in enumerate(events) if e['type'] == 'input'), default=0)
+        cut = newest or max((i for i, e in enumerate(events) if e['type'] == 'assistant'), default=0)
     return cut
 
 
 def transcript_for_summary(events: List[dict], previous: Optional[dict], per_result: int = 1500) -> str:
-    lines = [f"EARLIER SUMMARY:\n{previous['summary']}"] if previous else []
+    lines = [f"EARLIER SUMMARY:\n{previous.get('checkpoint', {}).get('summary', previous['summary'])}"] if previous else []
     for event in events:
         kind = event["type"]
         if kind == "input":
             content = event["content"]
             text = content if isinstance(content, str) else " ".join(
                 b.get("text", "") if b["type"] == "text" else "[image]" for b in content)
-            lines.append(f"USER: {text}")
+            lines.append(f"USER [event {event['id']}]: {text}" if event.get('id') else f"USER: {text}")
         elif kind == "assistant":
             message = event["message"]
             line = f"YOU: {message.get('content') or ''}".rstrip()
@@ -404,7 +407,10 @@ def transcript_for_summary(events: List[dict], previous: Optional[dict], per_res
         elif kind == "tool":
             content = event["content"]
             shown = content if len(content) <= per_result else content[:per_result] + f" [... {len(content):,} chars]"
-            lines.append(f"RESULT of {event['name']}: {shown}")
+            reference = f" [event {event['id']}; history_read(event={event['id']})]" if event.get('id') else ''
+            lines.append(f"RESULT of {event['name']}{reference}: {shown}")
+        elif kind == 'attachment':
+            lines.append(f"IMAGES [event {event['id']}]: recover original images with history_read(event={event['id']})")
         elif kind == "note":
             lines.append(f"NOTE: {event['text']}")
     return "\n\n".join(lines)

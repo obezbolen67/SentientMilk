@@ -14,7 +14,7 @@ import threading
 from dataclasses import replace
 from typing import Callable, Dict, Iterable, List, Optional
 
-from . import context, mentions, permissions, transport
+from . import checkpoint, context, mentions, permissions, transport
 from . import signals as signal_format
 from .exceptions import BrainError, classify
 from .toolkits import Tool, ToolContext, ToolError, ToolResult, cap, format_result, tool
@@ -176,6 +176,9 @@ def meta_tools(toolset: Toolset) -> List[Tool]:
 
 def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Optional[Dict[str, str]] = None) -> Toolset:
     tools: List[Tool] = []
+    for internal in ('history', 'continuation'):
+        if internal in kits:
+            tools += kits[internal].tools
     for name in profile["toolkits"]:
         kit = kits.get(name)
         if kit:
@@ -279,6 +282,11 @@ class Loop:
                     return self._end(run, "cancelled", emit)
                 if self._settle(run, profile, toolset, emit):
                     return  # waiting for the user or the app
+                requested = store.run(run_id)['options'].get('compact_requested')
+                if requested:
+                    store.update_run_options(run_id, lambda options: {**options, 'compact_requested': None})
+                    brain.note(run['app'], run['session'], 'Continuation progress: ' + requested)
+                    self.compact(run, profile)
                 if brain.plugins.version != plugins:  # a plugin came, went or changed: the next step has it
                     profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
                     toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
@@ -296,9 +304,14 @@ class Loop:
                 message, usage = self._think(run, profile, toolset, emit)
                 store.add_event(run["app"], run["session"], run_id, "assistant", {"message": message, "usage": usage})
                 self._count(run_id, usage)
-                if usage.get("prompt_tokens"):  # what the session holds now, as the provider counted it
-                    store.update_session(run["app"], run["session"], "state",
-                                         lambda state: {**state, "context_tokens": usage["prompt_tokens"]})
+                input_tokens, output_tokens = usage.get("prompt_tokens"), usage.get("completion_tokens")
+                if isinstance(input_tokens, int) and input_tokens >= 0:
+                    if not isinstance(output_tokens, int) or output_tokens < 0:
+                        output_tokens = None
+                    self._context(run, profile, used=input_tokens + (output_tokens or 0), source="provider",
+                                  input_tokens=input_tokens, output_tokens=output_tokens)
+                else:
+                    self._context(run, profile)
                 if message.get("tool_calls"):
                     continue
                 if self._finish(run, profile, message, emit):
@@ -564,8 +577,9 @@ class Loop:
         brain = self.brain
         settings = brain.config.values()
         provider = brain.provider(run["options"].get("model") or profile["model"])
-        system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
-                                       toolset.by_name, toolset.toolmap(profile), brain.skills.prompt())
+        def system():
+            return context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
+                                         toolset.by_name, toolset.toolmap(profile), brain.skills.prompt())
 
         def text(delta):
             emit({"type": "text.delta", "text": delta})
@@ -581,9 +595,9 @@ class Loop:
             feed(delta)
         compacted = False
         for attempt in range(len(RETRIES) + 1):
-            messages = self._messages(run, profile, system)
+            messages = self._messages(run, profile, system, toolset.schemas())
             try:
-                sent = transport.prepare_messages([{"role": "system", "content": system}] + messages,
+                sent = transport.prepare_messages([{"role": "system", "content": system()}] + messages,
                                                   settings["request_budget"], support_images=settings["vision"])
             except transport.RequestPayloadTooLarge:
                 if compacted:
@@ -613,7 +627,24 @@ class Loop:
                     raise Stopped()
         raise BrainError("payload_too_large", "The conversation does not fit even after compaction")
 
-    def _messages(self, run: dict, profile: dict, system: str) -> List[dict]:
+    def _context(self, run: dict, profile: dict, *, used=None, source='estimate',
+                 input_tokens=None, output_tokens=None) -> dict:
+        brain, store = self.brain, self.brain.store
+        if used is None:
+            compaction = store.last_compaction(run['app'], run['session'])
+            events = store.events(run['app'], run['session'], after=compaction['upto'] if compaction else 0)
+            tools = brain.toolset(profile, run['kind'])
+            system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
+                                           tools.by_name, tools.toolmap(profile), brain.skills.prompt())
+            used = context.estimate_tokens(context.project(events, compaction), system, tools.schemas())
+        store.update_session(run['app'], run['session'], 'state', lambda state: {
+            **state, 'context_tokens': used, 'context_source': source,
+            'context_input': input_tokens, 'context_output': output_tokens})
+        measured = brain.session_info(run['app'], run['session'])['context']
+        self._emitter(run['id'])({'type': 'context', **measured})
+        return measured
+
+    def _messages(self, run: dict, profile: dict, system, schemas=()) -> List[dict]:
         store = self.brain.store
         window = profile["context_window"]
         for _ in range(3):
@@ -621,22 +652,24 @@ class Loop:
             events = [e for e in store.events(run["app"], run["session"], after=compaction["upto"] if compaction else 0)
                       if e["type"] != "compaction"]
             messages = context.project(events, compaction)
-            tokens = context.estimate_tokens(messages, system)
-            if tokens > context.COMPACT_AT * window:
-                self.compact(run, profile)
-                continue
+            tokens = context.estimate_tokens(messages, system() if callable(system) else system, schemas)
             if tokens > context.CLEAR_AT * window:
                 ids = context.clearable(events, window, tokens)
                 if ids:
                     cleared = set(ids)
                     after = context.estimate_tokens(context.project(
-                        events + [{"id": 0, "type": "clearing", "ids": ids}], compaction), system)
+                        events + [{"id": 0, "type": "clearing", "ids": ids}], compaction),
+                        system() if callable(system) else system, schemas)
                     store.add_event(run["app"], run["session"], run["id"], "clearing",
                                     {"ids": sorted(cleared), "after": after})
                     self._emitter(run["id"])({"type": "cleared", "results": len(cleared)})
+                    self._context(run, profile)
                     continue
+            if tokens > context.COMPACT_AT * window and self.compact(run, profile):
+                continue
             return messages
-        return messages
+        latest = store.last_compaction(run['app'], run['session'])
+        return context.project(store.events(run['app'], run['session'], after=latest['upto'] if latest else 0), latest)
 
     # ============== Compaction ==============
 
@@ -647,13 +680,13 @@ class Loop:
         app, session = run["app"], run["session"]
         previous = store.last_compaction(app, session)
         events = [e for e in store.events(app, session, after=previous["upto"] if previous else 0)
-                  if e["type"] != "compaction"]
+                  if e['type'] in ('input', 'assistant', 'tool', 'note', 'attachment', 'clearing')]
         if keep is None:
             keep = int(context.KEEP_RECENT * profile["context_window"] * 4 * (0.3 if force else 1))
         elif not events:
             return False
         cut = context.choose_cut(events, keep)
-        if cut == 0 and not previous:
+        if cut == 0:
             return False
         older = events[:cut]
         self._emitter(run["id"])({"type": "compacting"})  # it takes a model call: apps can show it
@@ -669,7 +702,10 @@ class Loop:
             message, _ = self._unless_stopped(run["id"], provider.complete,
                                               [{"role": "system", "content": context.COMPACT_PROMPT},
                                                {"role": "user", "content": transcript}])
-            summary = (message.get("content") or "").strip() or transcript[-8000:]
+            content = message.get('content')
+            summary = (content.strip() if isinstance(content, str) else '') or transcript[-8000:]
+            summary = summary[:min(16000, profile['context_window'])]
+            model_summary = summary
             excerpts = []
             room = profile["context_window"]  # characters, about a quarter of the window: they must not overflow it
             for path in context.recent_files(older):
@@ -686,8 +722,30 @@ class Loop:
             if state.get("todo"):
                 summary += "\n\n## Your todo list\n" + render_todo(state["todo"])
         upto = older[-1]["id"] if older else (previous["upto"] if previous else 0)
-        store.add_event(app, session, run["id"], "compaction", {"summary": summary, "upto": upto})
+        model_summary = summary if run['options'].get('context_mode') == 'reset' else model_summary
+        record = checkpoint.build(brain, run, profile, upto, model_summary)
+        saved = checkpoint.save(brain, run, record)
         brain.refresh_snapshot(profile)
+        tools = brain.toolset(profile, run['kind'])
+        system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
+                                       tools.by_name, tools.toolmap(profile), brain.skills.prompt())
+        fixed = context.estimate_tokens([], system, tools.schemas())
+        budget = max(1600, min(profile['context_window'] * 2, int(profile['context_window'] * .6 - fixed) * 4))
+        extras = summary[len(model_summary):]
+        summary = model_summary[:max(256, budget // 3)]
+        summary += checkpoint.render(record, saved, max(256, min(6000, budget - len(summary) - 600)))
+        if record['todo']:
+            extras = '\n\n## Your todo list\n' + render_todo(record['todo']) + extras
+        if record['progress']:
+            extras = '\n\n## Your progress notes\n' + '\n'.join(p['text'] for p in record['progress']) + extras
+        if len(summary) + len(extras) <= budget:
+            summary += extras
+        elif extras:
+            summary += '\n\n[Additional notes and excerpts are in the durable record; reread current files.]'
+        store.add_event(app, session, run["id"], "compaction", {
+            "summary": summary, "upto": upto, 'checkpoint': {'event': saved, 'summary': record['summary']}})
+        brain.refresh_snapshot(profile)
+        self._context(run, profile)
         brain.journal.request(app, session)
         self._emitter(run["id"])({"type": "compacted"})
         return True
@@ -697,7 +755,7 @@ class Loop:
         brain, store = self.brain, self.brain.store
         app, session = run["app"], run["session"]
         before = store.session(app, session)["state"].get("context_tokens", 0)
-        compacted = self.compact(run, profile, keep=0)
+        compacted = self.compact(run, profile)
         after = before
         if compacted:
             compaction = store.last_compaction(app, session)
@@ -705,8 +763,8 @@ class Loop:
             turn_tools = brain.toolset(profile, "turn")
             system = context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
                                            turn_tools.by_name, turn_tools.toolmap(profile), brain.skills.prompt())
-            after = context.estimate_tokens(context.project(events, compaction), system)
-            store.update_session(app, session, "state", lambda state: {**state, "context_tokens": after})
+            after = context.estimate_tokens(context.project(events, compaction), system, turn_tools.schemas())
+            self._context(run, profile, used=after)
         self._end(store.run(run["id"]), "completed", emit, extra={"compacted": compacted, "before": before,
                                                                     "after": after})
 

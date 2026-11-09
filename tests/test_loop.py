@@ -71,7 +71,7 @@ def test_app_actions_run_in_the_app(brain):
 
     assert brain.client.turn("bot", "main", "wave!", on_action=wave)["reply"] == "I waved."
     assert asked == ["wave"] and tool_results(brain.provider.sent[1])["w1"] == "waved 2x"
-    assert brain.provider.sent[0]["tools"][0]["function"]["name"] == "wave"
+    assert "wave" in [tool["function"]["name"] for tool in brain.provider.sent[0]["tools"]]
     brain.provider.replies += [tool_call("wave", {"times": 100_000}, "w2"), "Long."]
     brain.client.turn("bot", "main", "wave a lot", on_action=lambda event: "x" * 100_000 + " end")
     shown = tool_results(brain.provider.sent[-1])["w2"]  # a long action result goes to a file, as a tool's does
@@ -242,7 +242,7 @@ def test_an_interrupted_turn_ends_failed_and_history_stays_valid(brain):
 
 
 def test_old_tool_results_are_cleared_in_batches_with_a_way_back(brain):
-    brain.client.update_config(context_window=8000)
+    brain.client.update_config(context_window=16000)
     for index in range(14):
         (brain.work / f"f{index}.txt").write_text("\n".join([f"file {index}"] + ["y" * 99] * 18), encoding="utf-8")
     brain.provider.replies += [tool_call("files_read", {"path": f"f{i}.txt"}, f"r{i}") for i in range(14)] + ["ok"]
@@ -258,7 +258,7 @@ def test_old_tool_results_are_cleared_in_batches_with_a_way_back(brain):
 
 def test_short_results_are_never_cleared(brain):
     # what a call did or measured is the record of the work: it stays, only long results are cleared
-    brain.client.update_config(context_window=8000)
+    brain.client.update_config(context_window=16000)
     for index in range(10):
         (brain.work / f"big{index}.txt").write_text("\n".join(["y" * 99] * 20), encoding="utf-8")
     (brain.work / "small.txt").write_text("hands at 399,605", encoding="utf-8")
@@ -295,7 +295,7 @@ def test_a_long_session_is_compacted_into_a_summary(brain):
     assert "AI assistant" not in context.COMPACT_PROMPT  # the summary speaks to her, not about "the assistant"
     after = brain.provider.sent[brain.provider.sent.index(summary_request) + 1]  # the summary fits: no second one
     assert after["messages"][1]["content"].startswith(context.SUMMARY_PREFIX + "SUMMARY: reading the files")
-    assert "## Files you read recently" in after["messages"][1]["content"]
+    assert 'history_read(event=' in after['messages'][1]['content']  # bounded checkpoint links to full evidence
     assert len(brain.store.events("cli", "main", types=("tool",))) == 10  # the raw log keeps everything
 
 
@@ -379,6 +379,37 @@ def test_usage_and_cache_hits_are_counted(brain):
     stats = brain.client.stats()["apps"]["cli"]
     assert stats["prompt_tokens"] == 100 and stats["cached_tokens"] == 60 and stats["cache_hit_rate"] == 0.6
     assert json.loads(json.dumps(stats))
+
+
+def test_context_reports_each_calls_occupancy_before_tools_and_turn_end(brain):
+    def first(_payload):
+        brain.provider.usage = {"prompt_tokens": 12_345, "completion_tokens": 67}
+        return tool_call("memory_list", {}, "context-call")
+
+    def second(_payload):
+        brain.provider.usage = {"prompt_tokens": 23_456, "completion_tokens": 89}
+        return "Done."
+
+    brain.provider.replies += [first, second]
+    result = turn(brain, "cli", "read memory")
+    events = result["events"]
+    samples = [event for event in events if event["type"] == "context" and event["source"] == "provider"]
+    assert [(s["used"], s["input_tokens"], s["output_tokens"]) for s in samples] == [
+        (12_412, 12_345, 67), (23_545, 23_456, 89)]
+    assert events.index(samples[0]) < next(i for i, event in enumerate(events) if event["type"] == "tool.start")
+    assert events.index(samples[1]) < next(i for i, event in enumerate(events) if event["type"] == "done")
+    stored = brain.client.session("cli", "main")["context"]
+    assert stored == {key: value for key, value in samples[-1].items() if key not in ("type", "run")}
+
+
+@pytest.mark.parametrize("input_tokens,output_tokens,used", [(0, 0, 0), (123, None, 123)])
+def test_context_keeps_zero_and_missing_output_counts(brain, input_tokens, output_tokens, used):
+    brain.provider.usage = {"prompt_tokens": input_tokens, "completion_tokens": output_tokens}
+    brain.provider.replies.append("Hi.")
+    result = turn(brain, "cli", "hi")
+    samples = [event for event in result["events"] if event["type"] == "context"]
+    assert samples[-1]["used"] == used and samples[-1]["source"] == "provider"
+    assert samples[-1]["input_tokens"] == input_tokens and samples[-1]["output_tokens"] == output_tokens
 
 
 def test_a_message_sent_while_a_turn_starts_is_not_lost(brain, monkeypatch):

@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-09",
+  "model": "deepseek-v4.1-flash-fast",
+  "light_model": "deepseek-v4.1-flash-fast",
+  "context_window": 256000,
+  "results": [
+    {
+      "name": "context-continuity",
+      "holdout": false,
+      "passed": true,
+      "why": "ok",
+      "mode": "baseline",
+      "compactions": 0,
+      "seconds": 61.0,
+      "steps": 17,
+      "tool_calls": 21,
+      "mutating_tool_calls": 14,
+      "tool_errors": 0,
+      "prompt_tokens": 88523,
+      "cached_tokens": 75520,
+      "completion_tokens": 4219
+    },
+    {
+      "name": "context-continuity",
+      "holdout": false,
+      "passed": true,
+      "why": "ok",
+      "mode": "forced_compaction",
+      "compactions": 2,
+      "seconds": 83.5,
+      "steps": 19,
+      "tool_calls": 16,
+      "mutating_tool_calls": 12,
+      "tool_errors": 0,
+      "prompt_tokens": 106128,
+      "cached_tokens": 86400,
+      "completion_tokens": 5067
+    }
+  ],
+  "initial_attempt": "Both modes failed the same ambiguous unquoted docstring punctuation; rerun quotes the exact string including its period."
+}

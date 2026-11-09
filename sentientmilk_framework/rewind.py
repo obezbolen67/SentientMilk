@@ -64,11 +64,18 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
                 summary["problems"].append(f"{change['path']}: {exc.strerror or exc}")
         todo = _todo(brain.store, app, session, target)
         last = brain.store.last_event(app, session, target["id"], "assistant")
-        tokens = ((last or {}).get("usage") or {}).get("prompt_tokens") or 0
+        usage = (last or {}).get('usage') or {}
+        inputs, outputs = usage.get('prompt_tokens'), usage.get('completion_tokens')
+        measured = isinstance(inputs, int) and inputs >= 0
+        outputs = outputs if isinstance(outputs, int) and outputs >= 0 else None
+        tokens = inputs + (outputs or 0) if measured else 0
 
         def change_state(state: dict) -> dict:
             state["todo"] = todo
             state["context_tokens"] = tokens
+            state['context_source'] = 'provider' if measured else 'estimate'
+            state['context_input'] = inputs if measured else None
+            state['context_output'] = outputs if measured else None
             state.pop("read", None)  # files read since are unread again; she reads before she edits
             return state
         # a file that could not be put back keeps its versions: a later return can still restore it

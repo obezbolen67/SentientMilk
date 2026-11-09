@@ -28,6 +28,18 @@ def said(brain, session="main"):
     return [entry for entry in brain.client.history("cli", session) if entry["role"] == "user"]
 
 
+def test_a_return_restores_usage_from_the_retained_response(brain):
+    brain.provider.usage = {'prompt_tokens': 100, 'completion_tokens': 7}
+    turn(brain, 'cli', 'Keep this exchange')
+    brain.provider.usage = {'prompt_tokens': 900, 'completion_tokens': 20}
+    turn(brain, 'cli', 'Undo this exchange')
+    brain.client.rewind('cli', 'main', said(brain)[1]['id'])
+    usage = brain.client.session('cli', 'main')['context']
+    assert usage['used'] == 107
+    assert usage['input_tokens'] == 100 and usage['output_tokens'] == 7
+    assert usage['source'] == 'provider'
+
+
 def test_a_return_takes_back_the_chat_her_files_and_her_todo_list(brain):
     notes = brain.work / "notes.txt"
     notes.write_text("first\n", encoding="utf-8")

@@ -7,10 +7,8 @@ import threading
 import time
 
 import pytest
-
 from conftest import turn, wait_for
 
-from sentientmilk_framework import agents as agents_module
 from sentientmilk_framework import toolkits
 
 AGENT = "## YOU ARE AN AGENT"

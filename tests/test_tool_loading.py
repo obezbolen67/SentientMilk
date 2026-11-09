@@ -27,7 +27,8 @@ def test_requests_carry_the_core_tools_and_list_the_rest(brain):
     turn(brain, "cli", "and now?")
     first, *others = brain.provider.sent
     assert set(sent_names(first)) == {"memory_save", "todo_write", "files_read", "files_search", "shell_run",
-                                      "shell_output", "web_search", "web_fetch", "tools_search", "tools_load"}
+                                      "shell_output", "web_search", "web_fetch", "tools_search", "tools_load",
+                                      'history_read', 'history_search', 'context_compact'}
     assert all(other["tools"] == first["tools"] for other in others)  # one tool list: the cache keeps hitting
     listed = system(first).split("## YOUR TOOLS", 1)[1]
     assert "- schedule [part of you] (Reminders and recurring tasks.): load: schedule_create(when, text, mode?), " \
@@ -144,9 +145,10 @@ def test_with_nothing_to_load_there_are_no_meta_tools(brain):
     brain.client.update_app("small", disabled_toolkits=["github"])  # plugins come to every app unless switched off
     brain.provider.replies += ["hi"]
     turn(brain, "small", "hello")
-    assert sent_names(brain.provider.sent[0]) == ["web_search", "web_fetch"]
+    assert set(sent_names(brain.provider.sent[0])) == {'history_read', 'history_search', 'context_compact',
+                                                     'web_search', 'web_fetch'}
     assert "- web (Search the web and read pages.): web_search, web_fetch" in system(brain.provider.sent[0])
-    assert "tools_load" not in system(brain.provider.sent[0]) and "part of you" not in system(brain.provider.sent[0])
+    assert "tools_load" not in system(brain.provider.sent[0]) and 'memory_save' not in system(brain.provider.sent[0])
 
 
 def test_rules_come_only_with_the_tools_they_name(brain):
