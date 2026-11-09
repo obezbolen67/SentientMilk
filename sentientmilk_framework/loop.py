@@ -17,7 +17,7 @@ from typing import Callable, Dict, Iterable, List, Optional
 from . import context, mentions, permissions, transport
 from . import signals as signal_format
 from .exceptions import BrainError, classify
-from .toolkits import Tool, ToolContext, ToolError, ToolResult, format_result, tool
+from .toolkits import Tool, ToolContext, ToolError, ToolResult, cap, format_result, tool
 from .toolkits.files import resolve
 from .toolkits.tasks import task_progress
 from .toolkits.todo import render as render_todo
@@ -30,7 +30,7 @@ STOPPED_CALL = "Stopped: the user stopped you while this call ran. It may not ha
 STOP_GRACE = 0.5  # seconds a stopped run gives tools that noticed to end with what they have
 RETRIES = (2, 8, 30)  # seconds between attempts at a provider that is busy or down
 RETRIED = ("rate_limit", "server_error", "timeout", "network")
-SEARCH_LIMIT, LOAD_LIMIT, SUMMARY_CHARS = 20, 20, 120
+SUMMARY_CHARS = 120  # a tool's line in a listing; tools_load shows all of it
 APP_TOOLS = "this app's own"  # how YOUR TOOLS names the app's actions
 # what an agent is told of the app's actions only the lead may call (an action declared with agents: false)
 LEAD_ONLY = "The lead's, not yours: {tools}. Ask the lead (ask_lead) when your part needs one."
@@ -101,7 +101,8 @@ class Toolset:
             else:
                 required = set(t.parameters.get("required") or [])
                 group["load"].append(t.name + "(" + ", ".join(p + ("" if p in required else "?")
-                                                              for p in t.parameters.get("properties") or {}) + ")")
+                                                              for p in t.parameters.get("properties") or {}) + ")" +
+                                     (f": {_first_sentence(t.description)}" if t.toolkit.startswith("mcp:") else ""))
             guide = t.guide_for(profile)
             if guide:
                 group["guides"].append(guide)
@@ -142,7 +143,7 @@ def _stem(word: str) -> str:
 
 def meta_tools(toolset: Toolset) -> List[Tool]:
     @tool(readonly=True, args={"query": "What you want to do, in a few words (empty: list every tool).",
-                               "limit": f"How many to show (default 5, at most {SEARCH_LIMIT})."})
+                               "limit": "How many to show (default 5)."})
     def tools_search(ctx: ToolContext, query: str = "", limit: int = 5):
         """Find tools by what they do, among all of yours: those sent with each request (ready) and those
         to load first. An empty query lists them all, by toolkit."""
@@ -152,7 +153,7 @@ def meta_tools(toolset: Toolset) -> List[Tool]:
                 if t.name not in META_TOOLS:
                     groups.setdefault(toolset.kit_label(t.toolkit), []).append("  " + toolset.line(t))
             return "\n".join(f"{kit}:\n" + "\n".join(lines) for kit, lines in groups.items())
-        found = toolset.search(query, max(1, min(int(limit or 5), SEARCH_LIMIT)))
+        found = toolset.search(query, max(1, int(limit or 5)))
         return "\n".join(toolset.line(t) for t in found) or "No tool matches. Try other words, or an empty query."
 
     @tool(readonly=True, args={"names": {"type": "array", "items": {"type": "string"},
@@ -160,7 +161,7 @@ def meta_tools(toolset: Toolset) -> List[Tool]:
     def tools_load(ctx: ToolContext, names: list):
         """Load tools so you can use them: shows how to call each (description and parameters). Then call
         them by name, like your other tools."""
-        names = [str(name) for name in names or []][:LOAD_LIMIT]
+        names = [str(name) for name in names or []]
         unknown = [name for name in names if name not in toolset.by_name]
         found = [toolset.by_name[name] for name in names if name in toolset.by_name and name not in META_TOOLS]
         if not found:
@@ -220,6 +221,12 @@ def _arguments(call: dict, tool_: Tool) -> dict:
     if not isinstance(value, dict):
         raise ToolError(f"The arguments for {tool_.name} must be a JSON object. {_parameters(tool_)}")
     return value
+
+
+def _first_sentence(text: str) -> str:
+    """What an MCP tool is for, in its server's words: its first sentence, short."""
+    first = re.split(r"(?<=[.!?])\s|\n", (text or "").strip(), maxsplit=1)[0]
+    return first if len(first) <= SUMMARY_CHARS else first[:SUMMARY_CHARS - 1].rstrip() + "…"
 
 
 def _in_thread(work: Callable, *args, **kwargs) -> concurrent.futures.Future:
@@ -432,8 +439,9 @@ class Loop:
             if tool_.action:  # the app runs it
                 if call["id"] in results:
                     answer = results[call["id"]]
-                    self._result(run, call, name, arguments, format_result(answer["result"]),
-                                 answer.get("status", "ok"), emit)
+                    shown = format_result(answer["result"])  # long ones go to a file, as a tool's do
+                    shown = replace(shown, text=cap(ToolContext(self.brain, run, profile), shown.text, "action"))
+                    self._result(run, call, name, arguments, shown, answer.get("status", "ok"), emit)
                     self._attach(run, answer.get("images") or [])
                 else:  # the app runs it as soon as it is asked: only once the calls before it are done
                     if not waiting and not ready and (call["id"], "action_request") not in asked:

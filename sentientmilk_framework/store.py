@@ -567,25 +567,22 @@ class Store:
 
     # ============== Journal (shared by every app) ==============
 
-    def add_note(self, app: str, session: str, note: str, capacity: int) -> int:
-        """Add a note, then delete the oldest notes until all of them fit ``capacity`` characters."""
+    def add_note(self, app: str, session: str, note: str) -> int:
         with self._db() as db:
-            nid = db.execute("INSERT INTO journal(at, app, session, note) VALUES (?, ?, ?, ?)",
-                             (time.time(), app, session, note)).lastrowid
-            rows = db.execute("SELECT id, LENGTH(note) FROM journal ORDER BY at DESC, id DESC").fetchall()
-            total, doomed = 0, []
-            for row_id, length in rows:
-                total += length
-                if total > capacity and row_id != nid:
-                    doomed.append(row_id)
-            db.executemany("DELETE FROM journal WHERE id = ?", [(row_id,) for row_id in doomed])
-        return nid
+            return db.execute("INSERT INTO journal(at, app, session, note) VALUES (?, ?, ?, ?)",
+                              (time.time(), app, session, note)).lastrowid
 
-    def notes(self, query: str = "", limit: int = 1000) -> List[dict]:
-        sql, params = "SELECT id, at, app, session, note FROM journal", []
+    def notes(self, query: str = "", limit: int = -1, app: Optional[str] = None,
+              session: Optional[str] = None) -> List[dict]:
+        """Journal notes, newest first (``limit`` -1: all of them), of one session when given."""
+        where, params = [], []
         if query:
-            sql += " WHERE note LIKE ? ESCAPE '\\'"
+            where.append("note LIKE ? ESCAPE '\\'")
             params.append("%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
+        if app is not None and session is not None:
+            where.append("app = ? AND session = ?")
+            params += [app, session]
+        sql = "SELECT id, at, app, session, note FROM journal" + (" WHERE " + " AND ".join(where) if where else "")
         with self._db() as db:
             rows = db.execute(sql + " ORDER BY at DESC, id DESC LIMIT ?", params + [limit]).fetchall()
         return [{"id": i, "at": at, "app": a, "session": s, "note": n} for i, at, a, s, n in rows]

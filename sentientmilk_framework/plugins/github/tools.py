@@ -187,9 +187,8 @@ def _labels(item: dict) -> str:
     return f" [{', '.join(names)}]" if names else ""
 
 
-def _body(text: Optional[str], limit: int = 6000) -> str:
-    text = (text or "").strip() or "(no description)"
-    return text if len(text) <= limit else f"{text[:limit]}\n[... {len(text) - limit:,} more characters]"
+def _body(text: Optional[str]) -> str:
+    return (text or "").strip() or "(no description)"
 
 
 def _repo_of(item: dict) -> str:
@@ -219,16 +218,19 @@ def _search_line(kind: str, item: dict) -> str:
     "query": "GitHub search syntax: 'agents language:python stars:>100', 'repo:owner/name is:pr is:open', "
              "'user:octocat', 'filename:pyproject.toml repo:owner/name'.",
     "kind": "repositories, issues (issues and pull requests), code, commits or users.",
-    "limit": "How many, at most 50."})
-def github_search(ctx: ToolContext, query: str, kind: str = "repositories", limit: int = 10):
+    "limit": "How many a page (GitHub gives at most 100).", "page": "Page of results, from 1."})
+def github_search(ctx: ToolContext, query: str, kind: str = "repositories", limit: int = 10, page: int = 1):
     """Search GitHub: repositories, issues and pull requests, code, commits or users. Code search needs a
     token. For one repository's issues, github_issues lists them without a query."""
     if kind not in SEARCH_KINDS:
         raise ToolError(f"kind must be one of {', '.join(SEARCH_KINDS)}")
-    data = _request(ctx, "GET", f"/search/{kind}", params={"q": query, "per_page": max(1, min(int(limit), 50))})
+    per_page, page = max(1, min(int(limit), 100)), max(1, int(page))
+    data = _request(ctx, "GET", f"/search/{kind}", params={"q": query, "per_page": per_page, "page": page})
     items = data.get("items", [])
-    head = f"{data.get('total_count', len(items)):,} found" + (f", the first {len(items)}:" if items else ".")
-    return "\n".join([head] + [_search_line(kind, item) for item in items])
+    total = data.get("total_count", len(items))
+    head = f"{total:,} found" + (f", page {page}:" if items else ".")
+    more = [f"[More with page={page + 1}.]"] if items and page * per_page < total else []
+    return cap(ctx, "\n".join([head] + [_search_line(kind, item) for item in items] + more), "github")
 
 
 @tool(readonly=True, args={"repo": "owner/name, or its URL."})
@@ -296,7 +298,7 @@ def github_files(ctx: ToolContext, repo: str, path: str = "", ref: str = "", off
     start = max(1, int(offset))
     shown = lines[start - 1:start - 1 + max(1, int(limit))]
     end = start + len(shown) - 1
-    body = "\n".join(f"{number:>6}\t{line[:2000]}" for number, line in enumerate(shown, start))
+    body = "\n".join(f"{number:>6}\t{line}" for number, line in enumerate(shown, start))
     footer = f"[{where}: lines {start}-{end} of {len(lines)}" + (f"; read on with offset={end + 1}]" if end < len(lines) else "]")
     return cap(ctx, f"{body}\n{footer}", "github")
 
@@ -374,7 +376,7 @@ def github_issue(ctx: ToolContext, repo: str, number: int, comments: int = 20):
             lines.append(f"\n[{len(listed) - len(shown)} earlier comments left out]")
         for comment in shown:
             lines += ["", f"--- {_user(comment.get('user'))} {_when(comment.get('created_at'))}",
-                      _body(comment.get("body"), 3000)]
+                      _body(comment.get("body"))]
     return cap(ctx, "\n".join(lines), "github")
 
 
@@ -397,11 +399,11 @@ def github_diff(ctx: ToolContext, repo: str, number: int = 0, base: str = "", he
 
 @tool(readonly=True, args={"repo": "owner/name.", "branch": "Only this branch's runs.",
                            "status": "Only runs in this state: failure, success, in_progress, queued...",
-                           "limit": "How many, at most 50."})
-def github_runs(ctx: ToolContext, repo: str, branch: str = "", status: str = "", limit: int = 10):
+                           "limit": "How many a page (GitHub gives at most 100).", "page": "Page, from 1."})
+def github_runs(ctx: ToolContext, repo: str, branch: str = "", status: str = "", limit: int = 10, page: int = 1):
     """GitHub Actions runs of a repository, newest first, with their ids. Why one failed: github_run."""
     repo = _repo(repo)
-    params = {"per_page": max(1, min(int(limit), 50)), **({"branch": branch} if branch else {}),
+    params = {"per_page": max(1, min(int(limit), 100)), "page": max(1, int(page)), **({"branch": branch} if branch else {}),
               **({"status": status} if status else {})}
     runs = _request(ctx, "GET", f"/repos/{repo}/actions/runs", params=params).get("workflow_runs", [])
     if not runs:

@@ -230,8 +230,7 @@ def test_a_writing_agent_asks_the_user_and_the_app_hears_whose_request_it_is(bra
     assert (brain.work / "out.txt").read_text(encoding="utf-8") == "made"
 
 
-def test_names_are_unique_working_agents_are_capped_and_mistakes_explained(brain, monkeypatch):
-    monkeypatch.setattr(agents_module, "MAX_WORKING", 1)
+def test_names_are_unique_any_number_work_and_mistakes_explained(brain):
     hold = threading.Event()
 
     def route(payload):
@@ -247,13 +246,13 @@ def test_names_are_unique_working_agents_are_capped_and_mistakes_explained(brain
                          ("agent_message", {"agent": "nobody", "message": "hi"}, "f"))
         return "ok"
 
-    brain.provider.replies += [route] * 3
+    brain.provider.replies += [route] * 4
     turn(brain, "cli", "many")
     hold.set()
     got = results(main_requests(brain)[1])
     assert got["a"].startswith("Started agent one")
     assert "already" in got["b"] and "agent_message" in got["b"]
-    assert "1 agents are working" in got["c"]
+    assert got["c"].startswith("Started agent two")  # no cap on how many work at once
     assert got["d"].startswith("Error:") and "name" in got["d"]
     assert got["e"].startswith("Error:") and "task is empty" in got["e"]
     assert got["f"].startswith("Error:") and "one" in got["f"]  # the agents it has
@@ -473,14 +472,12 @@ def test_an_agent_asks_the_lead_and_goes_on_with_the_answer(brain):
     assert len(agent_runs(brain)) == 1  # it went on in the same run
 
 
-def test_a_question_while_the_lead_is_idle_becomes_news(brain, monkeypatch):
-    monkeypatch.setattr(agents_module, "ASK_WAIT", 0.5)
-
+def test_a_question_while_the_lead_is_idle_becomes_news(brain):
     def route(payload):
         if is_agent(payload):
             if not results(payload):
                 return calls(("ask_lead", {"question": "Shall I delete the cache?"}, "q"))
-            assert "No answer came" in results(payload)["q"]
+            assert "The lead answered" in results(payload)["q"]  # it waited for the answer, however long
             return "I kept the cache."
         return "Started." if results(payload) else calls(("agent_start", {"name": "careful", "task": "Clean up."}, "s"))
 
@@ -490,7 +487,10 @@ def test_a_question_while_the_lead_is_idle_becomes_news(brain, monkeypatch):
     assert asked[0]["session"] == "main" and asked[0]["data"]["name"] == "careful"
     assert asked[0]["data"]["question"] == "Shall I delete the cache?"
     assert any("Shall I delete the cache?" in n["text"] for n in brain.store.events("cli", "main", types=("note",)))
-    wait_for(lambda: agent_runs(brain, "completed"))  # no answer in time: it went on by itself
+    time.sleep(1)
+    assert not agent_runs(brain, "completed")  # it waits for the answer: it never goes on by guessing
+    brain.brain.agents.message(brain.store.runs(kind="turn")[0], "careful", "Keep the cache.")
+    wait_for(lambda: agent_runs(brain, "completed"))
 
 
 def test_progress_notes_reach_the_lead_once_and_the_report_replaces_them(brain):
@@ -533,14 +533,13 @@ def test_apps_hear_when_agents_start_and_end(brain):
     assert updated[0]["session"] == "main" and updated[0]["data"]["name"] == "news"
 
 
-def test_an_agent_idle_for_a_day_is_deleted_when_the_next_starts(brain):
+def test_an_idle_agent_stays_until_it_is_stopped(brain):
+    # no lifetime cap: a day idle, it is still there with its whole history (the user, 2026-11-09)
     brain.provider.replies += [calls(("agent_start", {"name": "old", "task": "x"}, "s")), "old report", "ok"]
     turn(brain, "cli", "start one")
     old = wait_for(lambda: agent_runs(brain, "completed"))[0]
     with brain.store._db() as db:
         db.execute("UPDATE runs SET updated = updated - 90000 WHERE id = ?", (old["id"],))
-    assert brain.client.agents("cli", "main") == []  # closed: not listed
-    brain.provider.replies += [calls(("agent_start", {"name": "old", "task": "y"}, "s2")), "new report", "ok"]
-    turn(brain, "cli", "start another")  # the name is free again, and the old one goes
-    assert old["session"] not in {s["id"] for s in brain.store.sessions("cli")}
+    brain.brain.agents.sweep("cli")
     assert [a["name"] for a in brain.client.agents("cli", "main")] == ["old"]
+    assert old["session"] in {s["id"] for s in brain.store.sessions("cli")}

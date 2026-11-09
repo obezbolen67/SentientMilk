@@ -15,8 +15,9 @@ from sentientmilk_framework.toolkits.agents import agent_start
 FAKE = textwrap.dedent('''
     import json, os, sys, time
     args = sys.argv[1:]
+    mcp = json.load(open(args[args.index("--mcp-config") + 1])) if "--mcp-config" in args else None
     with open(os.environ["FAKE_LOG"], "a", encoding="utf-8") as log:
-        log.write(json.dumps({"args": args, "cwd": os.getcwd()}) + "\\n")
+        log.write(json.dumps({"args": args, "cwd": os.getcwd(), "mcp": mcp}) + "\\n")
     resumed = args[args.index("--resume") + 1] if "--resume" in args else None
     session = resumed or "claude-session-1"
 
@@ -148,6 +149,28 @@ def test_a_super_agent_writes_with_the_users_approval_and_reports_to_the_lead(br
     assert usage["prompt_tokens"] == 115 and usage["cached_tokens"] == 100 and usage["cost_usd"] == 0.01
     agent = brain.client.agents("cli", "main", all=True)[0]
     assert agent["super"] == "Opus 5.5" and agent["report"] == "Wrote out.txt."
+
+
+def test_a_super_agent_has_the_leads_mcp_servers(brain, claude, monkeypatch):
+    # code in an app the user connected (a game editor) is Claude's too, checked there (2026-11-09)
+    from sentientmilk_framework.mcp_host import _Server
+
+    host = brain.brain.mcp
+    studio = _Server("studio", {"command": "cmd.exe", "args": ["/c", "mcp.bat"], "env": {"KEY": "k"}})
+    studio.state = "connected"
+    broken = _Server("broken", {"url": "http://x"})  # failed: the lead does not have it either
+    monkeypatch.setattr(host, "_servers", {"studio": studio, "broken": broken})
+    assert host.for_claude(["mcp:studio", "mcp:broken"]) == {
+        "studio": {"type": "stdio", "command": "cmd.exe", "args": ["/c", "mcp.bat"], "env": {"KEY": "k"}}}
+    assert host.for_claude(["files"]) == {}  # turned off for the app
+
+    monkeypatch.setattr(host, "for_claude", lambda kits: {"studio": {"type": "stdio", "command": "x", "args": []}})
+    run = start_super(brain, "Say done.")
+    assert ended(brain, run["id"])["status"] == "completed"
+    started = claude.started()[0]
+    assert started["mcp"] == {"mcpServers": {"studio": {"type": "stdio", "command": "x", "args": []}}}
+    assert "--strict-mcp-config" in started["args"]
+    assert not list(brain.brain.home.glob("super-mcp-*.json"))  # its keys do not stay on disk
 
 
 def test_the_brains_rules_decide_for_claudes_tools(brain, claude):

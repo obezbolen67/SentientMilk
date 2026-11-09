@@ -6,7 +6,6 @@ import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework import context, scheduler
-from sentientmilk_framework.journal import CAPACITY
 from sentientmilk_framework.testing import tool_call
 
 
@@ -197,10 +196,10 @@ def test_the_journal_keeps_short_notes_from_every_app_and_drops_the_oldest(brain
     turn(brain, "cli", "hello")
     system = brain.provider.sent[-1]["messages"][0]["content"]
     assert "RECENT NOTES FROM YOUR OTHER SESSIONS" in system and "milk] Talked with the user." in system
-    for index in range(CAPACITY // 300 + 5):
-        brain.store.add_note("cli", "main", f"{index:04d} " + "z" * 295, CAPACITY)
+    for index in range(100):  # no caps: every note stays, the oldest too
+        brain.store.add_note("cli", "main", f"{index:04d} " + "z" * 295)
     notes = brain.store.notes()
-    assert sum(len(n["note"]) for n in notes) <= CAPACITY and notes[-1]["note"] != "Talked with the user."
+    assert len(notes) == 101 and notes[-1]["note"] == "Talked with the user."
 
 
 def test_an_app_can_keep_its_sessions_out_of_the_journal(brain):

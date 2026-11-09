@@ -39,7 +39,7 @@ def test_a_session_card_brings_its_title_summary_and_last_turns(brain):
                           "  you: Added. Anything else?"]
     assert "sessions_read" not in card  # the CLI has no sessions toolkit to read more with
 
-    brain.store.add_note("cli", "chat-1", "You planned the week's shopping; the user wants no dairy.", 24_000)
+    brain.store.add_note("cli", "chat-1", "You planned the week's shopping; the user wants no dairy.")
     assert "Summary: You planned the week's shopping; the user wants no dairy." in \
         mentions.card(brain.brain, "cli", "main", "session", "chat-1")
     time.sleep(0.01)
@@ -126,8 +126,9 @@ def test_a_mention_in_a_message_brings_its_card_and_shows_as_a_chip(brain):
 
     turn(brain, "cli", "and @Old?", items=[{"type": "mention", "kind": "session", "ref": "chat-9", "label": "Old"}])
     assert "[Mentioned session chat-9: it no longer exists]" in brain.provider.sent[-1]["messages"][-1]["content"]
-    with pytest.raises(BrainError, match="at most 8 mentions"):
-        turn(brain, "cli", "many", items=[{"type": "mention", "kind": "session", "ref": "chat-1"}] * 9)
+    brain.provider.replies += ["All of them."]  # no cap on mentions: every one brings its card
+    turn(brain, "cli", "many", items=[{"type": "mention", "kind": "session", "ref": "chat-1"}] * 9)
+    assert brain.provider.sent[-1]["messages"][-1]["content"].count('[Mentioned session "Groceries"') == 9
     with pytest.raises(BrainError, match="kind"):
         turn(brain, "cli", "odd", items=[{"type": "mention", "kind": "memory", "ref": "x"}])
 
@@ -199,8 +200,6 @@ def test_an_attached_picture_comes_inline_or_as_its_path(brain, tmp_path):
 
 
 def test_attachments_are_checked(brain, tmp_path):
-    with pytest.raises(BrainError, match="at most 20 attachments"):
-        turn(brain, "cli", "many", items=[attached(tmp_path / f"{n}.txt") for n in range(21)])
     with pytest.raises(BrainError, match="for a file mention"):
         turn(brain, "cli", "odd", items=[{"type": "mention", "kind": "session", "ref": "x", "attached": True}])
     turn(brain, "cli", "gone?", items=[attached(tmp_path / "nothing.txt")])

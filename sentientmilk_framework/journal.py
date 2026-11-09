@@ -1,7 +1,7 @@
 """The journal: short, timestamped notes about sessions in every app, written off the request path.
 
 A note is written when a session has been quiet for a while, at compaction and when a
-task ends. All notes together stay under CAPACITY characters: the oldest go first.
+task ends. Every note is kept (no caps): the newest go in her prompt, journal_search finds the rest.
 """
 
 import logging
@@ -11,7 +11,6 @@ import time
 
 logger = logging.getLogger(__name__)
 
-CAPACITY = 24_000  # characters, about 6,000 tokens
 NOTE_CHARS = 400
 QUIET_SECONDS = 20 * 60
 TRANSCRIPT_CHARS = 12_000
@@ -96,7 +95,7 @@ class Journal:
                 [{"role": "system", "content": PROMPT}, {"role": "user", "content": f"{header}\n\n{transcript}"}])
             note = " ".join((message.get("content") or "").split())[:NOTE_CHARS]
             if note:
-                brain.store.add_note(app, session, note, CAPACITY)
+                brain.store.add_note(app, session, note)
         last = events[-1]["id"]
 
         def change(state):

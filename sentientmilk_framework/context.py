@@ -16,7 +16,12 @@ from . import signals as signal_format
 from .toolkits.todo import render as render_todo
 
 SUMMARY_PREFIX = "[Summary of the earlier conversation, written when it no longer fit]\n"
-CLEARED = "[Result cleared to save space. Call {name} again with the same arguments if you need it.]"
+CLEARED = ("[Result cleared to save space ({chars:,} characters). Get it again with a tool if you need it; calling "
+           "one that changes something does that again.]")
+# Results this long stay whole: what a call did and measured ("patched 6/6", "hands at 399,605") is the record
+# of the work and costs little; clearing all but the newest 5 made the model measure the same things again
+# (a Roblox turn, 2026-11-09: 113 of the 146 cleared results were this short, about 6k tokens in all).
+SHORT_RESULT = 1000
 INTERRUPTED = "[No result: the call was interrupted.]"
 KEPT_RESULTS = 5  # tool results never cleared
 CLEAR_AT, CLEAR_STEP, COMPACT_AT, KEEP_RECENT = 0.5, 0.1, 0.75, 0.1  # fractions of the context window
@@ -39,7 +44,6 @@ RULES = """## HOW YOU WORK
 - Notes in square brackets in user messages are not from the user: they tell you the time, events and
   finished tasks.
 - Never talk about yourself as "an AI" or "a language model": you are who WHO YOU ARE says."""
-LISTED_PER_KIT = 20  # a toolkit with more tools to load is listed by count; tools_search finds them
 TOOLS = """## YOUR TOOLS
 All you can do, by toolkit, with what to know about using it. The user sets you up in SentientMilk's control
 panel and in this app's settings (models, super agents, plugins, skills, MCP servers): whatever they say they
@@ -100,9 +104,14 @@ def tools_section(toolmap: List[dict]) -> Optional[str]:
             (f" [{group['origin']}]" if group.get("origin") else "") + \
             (f" ({group['about']})" if group["about"] else "") + ":"
         tools = [", ".join(group["ready"])] if group["ready"] else []
-        if len(group["load"]) > LISTED_PER_KIT:
-            tools.append(f"load: {len(group['load'])} tools (find them with tools_search)")
-        elif group["load"]:
+        if group["kit"].startswith("mcp:"):
+            # an MCP server's tools, each with what it is for: their names alone did not show that a game
+            # editor's server had its docs, play input and walking (2026-11-09), and a count showed nothing
+            lines.append(head + " " + "; ".join(tools + (["load:"] if group["load"] else [])))
+            lines += [f"  - {entry}" for entry in group["load"]]
+            lines += ["  " + line for guide in group["guides"] for line in guide.splitlines()]
+            continue
+        if group["load"]:
             tools.append("load: " + ", ".join(group["load"]))
         lines.append(head + " " + "; ".join(tools))
         lines += ["  " + line for guide in group["guides"] for line in guide.splitlines()]
@@ -288,7 +297,7 @@ def project(events: List[dict], compaction: Optional[dict]) -> List[dict]:
         elif kind == "tool":
             if event["call_id"] not in pending:
                 continue
-            content = CLEARED.format(name=event["name"]) if event["id"] in cleared else event["content"]
+            content = _cleared(event) if event["id"] in cleared else event["content"]
             messages.append({"role": "tool", "tool_call_id": event["call_id"], "content": content})
             pending.remove(event["call_id"])
             if not pending:
@@ -339,7 +348,15 @@ def clearable(events: List[dict], window: int, tokens: int) -> List[int]:
         return []
     cleared = {i for e in clearings for i in e["ids"]}
     results = [e for e in events if e["type"] == "tool" and e["id"] not in cleared][:-KEPT_RESULTS or None]
-    return [e["id"] for e in results]
+    return [e["id"] for e in results if len(_text(e.get("content"))) > SHORT_RESULT]
+
+
+def _text(content) -> str:
+    return content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+
+
+def _cleared(event: dict) -> str:
+    return CLEARED.format(chars=len(_text(event.get("content"))))
 
 
 def _size(event: dict) -> int:

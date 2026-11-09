@@ -54,6 +54,24 @@ def test_only_a_few_screenshots_go_and_the_past_changes_every_fourth():
     assert sent[-1][0]["content"] == f"turn 0\n{transport.OMITTED_IMAGE}"
 
 
+def test_the_newest_steps_images_are_all_readable():
+    # frames of a motion, or a before and after, come in one step and are compared: none is a thumbnail
+    older = [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url((800, 500))}}]}
+             for _ in range(5)]
+    frames = [{"type": "image_url", "image_url": {"url": data_url((800, 500))}} for _ in range(6)]
+    messages = older + [{"role": "user", "content": [{"type": "text", "text": "[Images]"}, *frames]}]
+    sent = images(transport.prepare_messages(messages, 10 ** 9))
+    assert [image_side(url)[0] for url in sent][-6:] == [768] * 6
+    assert all(image_side(url)[0] == 256 for url in sent[:-6])
+    over = len(json.dumps(transport.prepare_messages(messages, 10 ** 9), separators=(",", ":")).encode()) - 1
+    assert len(images(transport.prepare_messages(messages, over))) == 6  # over budget: shrunk, never dropped
+    many = [{"role": "user", "content": [{"type": "text", "text": "[Images]"}] + frames * 2}]  # no caps: all 12
+    assert [image_side(url)[0] for url in images(transport.prepare_messages(many, 10 ** 9))] == [768] * 12
+    small = len(json.dumps(transport.prepare_messages(many, 10 ** 9), separators=(",", ":")).encode()) // 10
+    sides = [image_side(url)[0] for url in images(transport.prepare_messages(many, small))]
+    assert len(sides) == 12 and 256 in sides  # past the proxy's budget they go small, not away
+
+
 def test_over_budget_drops_the_older_half_then_shrinks_the_newest():
     messages = [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url((900, 600))}}]}
                 for _ in range(4)]

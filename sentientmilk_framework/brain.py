@@ -124,9 +124,8 @@ def validate_items(items: Any) -> List[dict]:
         elif item["type"] == "skill":
             name, arguments = item.get("name"), item.get("arguments", "")
             if not isinstance(name, str) or not skills.NAME.fullmatch(name.strip().lstrip("/")) or \
-                    not isinstance(arguments, str) or len(arguments) > skills.ARGUMENT_CHARS:
-                raise ValueError("a skill item needs the skill's name and may have arguments (text, at most "
-                                 f"{skills.ARGUMENT_CHARS} characters)")
+                    not isinstance(arguments, str):
+                raise ValueError("a skill item needs the skill's name and may have arguments (text)")
             result.append({"type": "skill", "name": name.strip().lstrip("/"), "arguments": arguments.strip()})
         else:
             if not isinstance(item.get("name"), str) or not item["name"].strip():
@@ -135,10 +134,6 @@ def validate_items(items: Any) -> List[dict]:
                 raise ValueError("event text must be a string and data an object")
             result.append({"type": "event", "name": item["name"], "text": item.get("text", ""),
                            **({"data": item["data"]} if item.get("data") else {})})
-    if sum(item["type"] == "mention" and not item.get("attached") for item in result) > mentions.MAX_MENTIONS:
-        raise ValueError(f"a message can carry at most {mentions.MAX_MENTIONS} mentions")
-    if sum(bool(item.get("attached")) for item in result) > mentions.MAX_ATTACHMENTS:
-        raise ValueError(f"a message can carry at most {mentions.MAX_ATTACHMENTS} attachments")
     return result
 
 

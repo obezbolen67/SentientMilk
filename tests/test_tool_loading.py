@@ -98,11 +98,31 @@ def test_many_mcp_tools_are_listed_by_toolkit_and_found_by_search(brain, monkeyp
     turn(brain, "big", "use t7")
     assert not any(name.startswith("mcp__") for name in sent_names(brain.provider.sent[0]))
     listed = system(brain.provider.sent[0]).split("## YOUR TOOLS", 1)[1]
-    assert "- mcp:big [from an MCP server the user added] (A big server.): load: 80 tools (find them with " \
-        "tools_search)" in listed
-    assert "mcp__big__t7" not in listed
+    # every tool of a server is listed with what it is for, however many: a count hid what it could do
+    assert "- mcp:big [from an MCP server the user added] (A big server.): load:\n" in listed
+    assert "  - mcp__big__t79(x?): Tool number 79 of the big server.\n" in listed
     assert tool_results(brain.provider.sent[1])["s"].splitlines()[0].startswith("mcp__big__t7 ")
     assert calls == [(7, 3)] and tool_results(brain.provider.sent[2])["c"] == "t7 got 3"
+
+
+def test_an_mcp_servers_tools_are_listed_with_what_each_is_for(brain, monkeypatch):
+    # names alone hid that a game editor's server had its docs, play input and walking (2026-11-09)
+    tools = [Tool(name="mcp__studio__list_skills", toolkit="mcp:studio", policy="auto", func=lambda ctx: "",
+                  description="Lists every available skill with its source. Call this before starting a task.",
+                  parameters={"type": "object", "properties": {"studio_id": {"type": "string"}},
+                              "required": ["studio_id"]}),
+             Tool(name="mcp__studio__character_navigation", toolkit="mcp:studio", policy="auto", func=lambda ctx: "",
+                  description="Navigate the character to the given position, or instance.\nMore text.",
+                  parameters={"type": "object", "properties": {"x": {"type": "number"}}})]
+    monkeypatch.setattr(brain.brain.mcp, "toolkits", lambda: {"mcp:studio": Toolkit("mcp:studio", "Studio.", tools)})
+    monkeypatch.setattr(brain.brain.mcp, "servers", lambda: ["studio"])
+    brain.client.declare_app("game", toolkits=["mcp:*"])
+    brain.provider.replies += ["ok"]
+    turn(brain, "game", "hi")
+    listed = system(brain.provider.sent[0]).split("## YOUR TOOLS", 1)[1]
+    assert "  - mcp__studio__list_skills(studio_id): Lists every available skill with its source.\n" in listed
+    assert "  - mcp__studio__character_navigation(x?): Navigate the character to the given position, or " \
+           "instance.\n" in listed
 
 
 def test_an_app_marks_the_actions_it_wants_sent(brain):

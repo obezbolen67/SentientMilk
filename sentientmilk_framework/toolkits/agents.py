@@ -16,7 +16,8 @@ SUPER = ("Super agents: {label}, a stronger model (Claude, not a copy of you), t
          "with super_agent=true. Code is theirs: when a request needs code written, changed, fixed or reviewed "
          "(even a small script), start one instead of writing it yourself. The same for problems that need deep, "
          "careful thinking: a hard bug, a design, a tricky analysis or proof. Put the whole job in the task: what "
-         "to make, where, and how to check it. It works in your folders with its own tools, the user approves its "
+         "to make, where, and how to check it. It works in your folders with its own tools and your MCP servers' "
+         "tools (code in an app the user connected is its too, and it can check it there), the user approves its "
          "changes, and it reports like any agent. The user turned them on in SentientMilk (Provider > Super model).")
 
 
@@ -58,7 +59,7 @@ def agent_message(ctx: ToolContext, agent: str, message: str):
 @tool(readonly=True, only_in=WORKERS, args={
     "agents": {"type": "array", "items": {"type": "string"},
                "description": "Names to wait for (default: all your agents that work)."},
-    "timeout": "Seconds to wait at most (default 600, at most 1800)."})
+    "timeout": "Seconds to wait (default 600)."})
 def agents_wait(ctx: ToolContext, agents: list = None, timeout: int = 600):
     """Wait for your agents to finish and get their reports: those you name, or all that work. It ends
     early when one asks you something or the user sends you a message. A report, question or progress

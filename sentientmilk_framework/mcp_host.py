@@ -8,11 +8,13 @@ Servers are listed in ``<home>/mcp.json``:
 The ``mcp`` package (``pip install sentientmilk-framework[mcp]``) is async only and a Client
 cannot leave the task that opened it, so one thread runs an event loop with one long-lived
 task per server; brain threads hand calls to it and wait. Elicitation (a server asking the
-user something mid-call) becomes a question to the app. The SDK does not implement the
-Tasks extension yet: long MCP calls belong in background tasks.
+user something mid-call) becomes a question to the app. A call has no time limit: one still
+running after shell.WAIT seconds (or when the user sends a message) goes on as a job, as a command
+does, which she reads, the user sees and either of them stops; its result comes as a note.
 """
 
 import asyncio
+import base64
 import concurrent.futures
 import json
 import logging
@@ -20,17 +22,18 @@ import os
 import re
 import tempfile
 import threading
+import time
 from functools import partial
 from typing import Dict, Optional
 
-from .toolkits import Tool, ToolContext, ToolError, Toolkit, ToolResult, cap
+from .loop import TERMINAL
+from .toolkits import MESSAGE_FROM_USER, STOPPED_BY_USER, Tool, ToolContext, ToolError, Toolkit, ToolResult, cap
+from .toolkits.shell import WAIT
 
 logger = logging.getLogger(__name__)
 
 CONFIG_FILE = "mcp.json"
 RECONNECT_TRIES = 5  # waits 1, 2, 4, 8, 16 s, as Claude Code does
-CALL_TIMEOUT = 600
-QUESTION_TIMEOUT = 600
 _UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 _VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -85,6 +88,18 @@ class _Server:
         self.queue: Optional[asyncio.Queue] = None
         self.task: Optional[asyncio.Task] = None
         self.current: Optional[ToolContext] = None
+        self.running: Optional[tuple] = None  # (tool, started) of the call it works on
+
+
+class _Call:
+    """An MCP call that went on as a job: shell.stop cancels it, which frees its server for the next call."""
+
+    def __init__(self, loop, future: concurrent.futures.Future):
+        self.loop, self.future = loop, future
+
+    def cancel(self) -> None:
+        future = self.future
+        self.loop.call_soon_threadsafe(lambda: future.task.cancel() if hasattr(future, "task") else future.cancel())
 
 
 class McpHost:
@@ -236,10 +251,18 @@ class McpHost:
                         item = await server.queue.get()
                         if item is None:
                             server.state = "closed"
+                            _drain(server, "The MCP server was closed before this call ran.")
                             return
                         operation, future = item
+                        if future.done():  # cancelled while it waited its turn
+                            continue
+                        future.task = asyncio.ensure_future(operation(client))
                         try:
-                            future.set_result(await operation(client))
+                            future.set_result(await future.task)
+                        except asyncio.CancelledError:
+                            future.cancel()
+                            if asyncio.current_task().cancelling():
+                                raise
                         except Exception as exc:
                             future.set_exception(exc)
             except Exception as exc:
@@ -248,22 +271,37 @@ class McpHost:
             if attempt < RECONNECT_TRIES:
                 await asyncio.sleep(2 ** attempt)
                 server.state = "connecting"
+        _drain(server, f"The MCP server could not be reached: {server.error}")
 
     async def _elicit(self, server: _Server, context, params):
         from mcp import types
 
         ctx = server.current
-        if ctx is None or ctx.run["kind"] == "subagent":
+        if ctx is None or ctx.run["kind"] == "subagent" or self.brain.store.run(ctx.run["id"])["status"] in TERMINAL:
             return types.ElicitResult(action="decline")
         future = self.brain.runs.ask_question(ctx, server.name, getattr(params, "message", ""),
                                               getattr(params, "requested_schema", None) or getattr(params, "requestedSchema", None))
-        try:
-            answer = await asyncio.wait_for(asyncio.wrap_future(future), QUESTION_TIMEOUT)
-        except asyncio.TimeoutError:
-            return types.ElicitResult(action="cancel")
+        answer = await asyncio.wrap_future(future)
         return types.ElicitResult(action=answer.get("action", "decline"), content=answer.get("content"))
 
     # ============== Tools ==============
+
+    def for_claude(self, kits) -> Dict[str, dict]:
+        """The connected servers among ``kits`` (``mcp:<name>``) as Claude Code's --mcp-config takes them: a super
+        agent has the lead's MCP tools, under the same names (mcp__<server>__<tool>), so the rules and the apps
+        read its calls as hers. A server the lead does not have (failed, untrusted, turned off) is left out."""
+        servers = {}
+        for name, server in list(self._servers.items()):
+            if server.state != "connected" or f"mcp:{name}" not in kits:
+                continue
+            spec = server.spec
+            if "command" in spec:  # shortcut: a server's cwd is not passed on (Claude Code has none); add when one needs it
+                servers[name] = {"type": "stdio", "command": spec["command"], "args": spec.get("args", []),
+                                 "env": {key: _expand(value) for key, value in spec.get("env", {}).items()}}
+            else:
+                servers[name] = {"type": "http", "url": spec["url"],
+                                 "headers": {key: _expand(value) for key, value in spec.get("headers", {}).items()}}
+        return servers
 
     def toolkits(self) -> Dict[str, Toolkit]:
         kits = {}
@@ -283,39 +321,109 @@ class McpHost:
             kits[f"mcp:{name}"] = Toolkit(f"mcp:{name}", f"Tools of the MCP server {name}.", tools)
         return kits
 
-    def _call(self, server_name: str, name: str, ctx: ToolContext, **arguments):
-        from mcp import types
+    def _wait(self, future: concurrent.futures.Future, ctx: ToolContext):
+        """The call's result, or None when it goes on as a job: after WAIT s, or when the user sends a message.
+        The user's stop ends it, and frees the server for the next call."""
+        deadline = time.monotonic() + WAIT
+        while True:
+            try:
+                return future.result(timeout=0.2)
+            except concurrent.futures.TimeoutError:
+                if ctx.attention.stopped.is_set():
+                    _Call(self._loop, future).cancel()
+                    raise ToolError(STOPPED_BY_USER)
+                if ctx.attention.woken.is_set() or time.monotonic() >= deadline:
+                    return None
+            except concurrent.futures.CancelledError:
+                raise ToolError(STOPPED_BY_USER)
 
+    def _as_job(self, ctx: ToolContext, server: _Server, label: str, arguments: dict,
+                future: concurrent.futures.Future) -> str:
+        """A call still running goes on as a job; when it ends, its result is the job's output and her note."""
+        why = MESSAGE_FROM_USER if ctx.attention.woken.is_set() else f"Still running after {WAIT} s."
+        if not hasattr(future, "task") and server.running:  # one call at a time: say what holds it up
+            why += (f" It has not started: the server is still busy with {server.running[0]} (for "
+                    f"{int(time.time() - server.running[1])} s), and it takes one call at a time.")
+        log = ctx.run_dir() / f"job-{time.time_ns()}.log"
+        log.touch()
+        command = f"{label} {json.dumps(arguments, ensure_ascii=False)}"
+        job = ctx.store.add_job(ctx.run["id"], ctx.app, ctx.session, command, "", str(log))
+        self.brain.jobs[job] = _Call(self._loop, future)
+
+        def finish():
+            from .toolkits.shell import job_ended
+
+            try:
+                text, images, failed = _content(future.result())
+                text = text or "(no output)"
+            except concurrent.futures.CancelledError:
+                text, images, failed = STOPPED_BY_USER, [], True
+            except Exception as exc:
+                text, images, failed = f"{type(exc).__name__}: {exc}", [], True
+            for number, url in enumerate(images, 1):
+                head, data = url.split(",", 1)
+                picture = log.with_name(f"{log.stem}-{number}.{head.split('/')[1].split(';')[0]}")
+                picture.write_bytes(base64.b64decode(data))
+                text += f"\n[Picture {number}: {picture}; files_read shows it]"
+            log.write_text(text, encoding="utf-8")
+            job_ended(self.brain, job, 1 if failed else 0)
+
+        threading.Thread(target=finish, name=f"job-{job}", daemon=True).start()
+        read = (f" shell_output(job={job}) shows its result once it is done, shell_stop(job={job}) stops it."
+                if "shell" in (ctx.profile.get("toolkits") or []) else "")
+        if ctx.called_back:
+            return (f"[{why} It goes on as background job {job}, and you are called back when it ends (a new "
+                    f"turn, with its result). End your turn now and tell the user it runs, unless you have other "
+                    f"work meanwhile: do not wait for it.{read}]")
+        return f"[{why} It goes on as background job {job}; you get a note with its result when it ends.{read}]"
+
+    def _call(self, server_name: str, name: str, ctx: ToolContext, **arguments):
         server = self._servers.get(server_name)
         if not server or server.state != "connected" or not self._loop:
             raise ToolError(f"The MCP server {server_name} is not connected right now.")
 
+        label = tool_name(server_name, name)
+
         async def operation(client):
-            server.current = ctx
+            server.current, server.running = ctx, (label, time.time())
             try:
                 return await client.call_tool(name, arguments)
             finally:
-                server.current = None
+                server.current = server.running = None
 
         future: concurrent.futures.Future = concurrent.futures.Future()
         self._loop.call_soon_threadsafe(server.queue.put_nowait, (operation, future))
-        try:
-            result = future.result(timeout=CALL_TIMEOUT)
-        except concurrent.futures.TimeoutError:
-            raise ToolError(f"{name} took longer than {CALL_TIMEOUT} s; run long MCP work as a background task.")
-        texts, images = [], []
-        for block in result.content or []:
-            if isinstance(block, types.TextContent):
-                texts.append(block.text)
-            elif isinstance(block, types.ImageContent):
-                mime = getattr(block, "mime_type", None) or getattr(block, "mimeType", "image/png")
-                images.append(f"data:{mime};base64,{block.data}")
-            else:
-                texts.append(f"[{getattr(block, 'type', 'other')} content]")
-        structured = getattr(result, "structured_content", None)
-        if structured is not None and not texts:
-            texts.append(json.dumps(structured, ensure_ascii=False))
-        text = "\n".join(texts)
-        if getattr(result, "is_error", False):
+        result = self._wait(future, ctx)
+        if result is None:
+            return self._as_job(ctx, server, label, arguments, future)
+        text, images, failed = _content(result)
+        if failed:
             raise ToolError(text or f"{name} failed")
         return ToolResult(cap(ctx, text or "(no output)", "mcp"), images)
+
+
+def _content(result) -> tuple:
+    """(text, images as data URLs, failed) of a call's result."""
+    from mcp import types
+
+    texts, images = [], []
+    for block in result.content or []:
+        if isinstance(block, types.TextContent):
+            texts.append(block.text)
+        elif isinstance(block, types.ImageContent):
+            mime = getattr(block, "mime_type", None) or getattr(block, "mimeType", "image/png")
+            images.append(f"data:{mime};base64,{block.data}")
+        else:
+            texts.append(f"[{getattr(block, 'type', 'other')} content]")
+    structured = getattr(result, "structured_content", None)
+    if structured is not None and not texts:
+        texts.append(json.dumps(structured, ensure_ascii=False))
+    return "\n".join(texts), images, bool(getattr(result, "is_error", False))
+
+
+def _drain(server: _Server, reason: str) -> None:
+    """Calls still waiting for a server that is gone fail, rather than wait for ever."""
+    while server.queue and not server.queue.empty():
+        item = server.queue.get_nowait()
+        if item and not item[1].done():
+            item[1].set_exception(ToolError(reason))

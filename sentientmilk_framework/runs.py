@@ -14,6 +14,7 @@ import secrets
 import threading
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from . import titles, transport
@@ -23,8 +24,19 @@ from .toolkits import Attention
 
 logger = logging.getLogger(__name__)
 
-MAX_ACTION_IMAGES = 4
-SUBAGENT_REPORT = 8_000  # characters, about 2,000 tokens
+REPORT_CHARS = 8_000  # about 2,000 tokens; a longer report is shown in part, the whole of it in a file
+
+
+def whole_report(home, run_id: int, text: str) -> str:
+    """A report as it is, or when long its start and the file with all of it."""
+    if len(text) <= REPORT_CHARS:
+        return text
+    path = Path(home) / "runs" / str(run_id) / "report.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return text[:REPORT_CHARS] + f"\n[Report cut. The whole report is in {path}.]"
+
+
 TASK_PROMPT = """## BACKGROUND TASK
 You work on this task on your own: nobody watches live and nobody can answer questions until you finish.
 Goal:
@@ -179,8 +191,7 @@ class Runs:
         if run["status"] != "completed":
             message = (run["error"] or {}).get("message", run["status"])
             return f"The helper did not finish ({message})."
-        report = run["result"]["reply"]
-        return report if len(report) <= SUBAGENT_REPORT else report[:SUBAGENT_REPORT] + "\n[report cut]"
+        return whole_report(self.brain.home, run_id, run["result"]["reply"])
 
     def review(self, task: dict, report: str) -> str:
         """A separate, skeptical helper checks a task before it counts as done."""
@@ -236,8 +247,8 @@ class Runs:
         else:
             if status not in ("ok", "error"):
                 raise ValueError("status must be ok or error")
-            if not isinstance(images or [], list) or len(images or []) > MAX_ACTION_IMAGES:
-                raise ValueError(f"images must be a list of at most {MAX_ACTION_IMAGES} data URLs")
+            if not isinstance(images or [], list):
+                raise ValueError("images must be a list of data URLs")
             # stored at the size they are sent, like the images of a turn's input
             images = [transport.encode_image(transport.validate_image(url), transport.IMAGE) for url in images or []]
             self.store.add_event(run["app"], run["session"], run_id, "action_result",
@@ -339,6 +350,10 @@ class Runs:
     def finished(self, run: dict) -> None:
         with self._attention_lock:
             self._attention.pop(run["id"], None)
+        for key in [key for key in list(self._questions) if key[0] == run["id"]]:  # nobody is left to answer
+            future = self._questions.pop(key, None)
+            if future and not future.done():
+                future.set_result({"action": "cancel", "content": None})
         if run["kind"] == "task" and not run["options"].get("quiet"):  # quiet: a return stopped it
             options, result = run["options"], run["result"] or {}
             parent = options.get("parent_session")
@@ -346,7 +361,8 @@ class Runs:
             if parent:
                 self.brain.note(run["app"], parent,
                                 f"Background task {run['id']} {run['status']}: {options['goal'][:300]}\n"
-                                + (f"Report: {result.get('reply', '')[:3000]}" if run["status"] == "completed"
+                                + (f"Report: {whole_report(self.brain.home, run['id'], result.get('reply', ''))}"
+                                   if run["status"] == "completed"
                                    else f"Problem: {message}"))
             self.brain.notify(run["app"], parent, f"task.{run['status']}",
                               {"task": run["id"], "goal": options["goal"], "reply": result.get("reply", ""),

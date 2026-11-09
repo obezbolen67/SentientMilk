@@ -64,7 +64,7 @@ progress. Every Anthropic number below was measured on Claude models. On
 | The agent is a stateless step function over an append-only event log. The default condenser keeps the first events and summarizes the rest, for "up to 2x" lower cost. | OpenHands SDK | Section 5. Compaction is stored as its own event; the raw log stays. |
 | Persist at every step. Assume at-least-once: anything after the last record may run again. Pause by persisting and returning, not by blocking a thread. Record model and config in the run's input. | LangGraph, Temporal | Section 5.3. Approvals pause the run and free the thread. |
 | MCP 2026-07-28 has a stateless core (no `initialize`, no sessions), `server/discover`, MRTR for elicitation, and deprecated sampling and roots. Tasks are an extension: `working`, `input_required`, `completed`, `failed`, `cancelled`. | MCP blog, Tasks overview | MCP host of section 8. Our run states use the same names. |
-| Python SDK `mcp` 2.3.0 (2026-10-02) is async only. It falls back to `initialize` for older servers and handles MRTR itself. It does *not* implement the Tasks extension yet. | MCP Python SDK docs, PyPI | A dedicated MCP thread with an event loop. Long MCP calls run as background tasks. |
+| Python SDK `mcp` 2.3.0 (2026-10-02) is async only. It falls back to `initialize` for older servers and handles MRTR itself. It does *not* implement the Tasks extension yet. | MCP Python SDK docs, PyPI | A dedicated MCP thread with an event loop. A long MCP call goes on as a job (section 8.3). |
 | Claude Code defers MCP tool definitions: only names cost context until a tool is used. Big MCP output is saved to a file. Picking tools gets worse past 30-50; keep the 3-5 most used loaded and search for the rest (Opus 4: 49% to 74%). | Claude Code docs; Anthropic, advanced tool use | Only core tools are sent; the others are listed and loaded on demand (section 7.4). |
 | Claude Code's scheduled tasks fire only between turns, with no catch-up. Recurring ones expire after 7 days. Its cloud routines run with the laptop off. | Claude Code docs | Durable schedules in the brain, with one catch-up run on start (section 9.6). |
 | DeepSeek caches prefixes automatically. Usage reports `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`. On flash, a hit costs $0.003 to $0.006 per million tokens and a miss $0.15 to $0.3. With tools, `reasoning_content` "must be fully passed back" or the API returns 400. Context is 1M tokens. | DeepSeek API docs | Assistant messages are stored whole, reasoning included. Context window is configured per model. |
@@ -244,20 +244,16 @@ holds the tools.
     returns when they finish, one asks something, the timeout runs out, or the user writes.
     It hands over all the mail that came.
   - `agents_status(agent)` shows what each agent does now. Naming one shows its todo list,
-    progress note and last 15 steps.
+    progress note and its steps.
   - `agent_stop(agent)` stops an agent and deletes it, with its session.
-- **The agent's own tools**: `ask_lead(question)` waits for the lead's message (at most 30
-  minutes, then it goes on by its best judgment and says what it assumed). `task_progress`
-  notes also reach the lead as updates.
+- **The agent's own tools**: `ask_lead(question)` waits for the lead's message, however long
+  that takes (a stop ends it). `task_progress` notes also reach the lead as updates.
 - **App actions**: an agent's action reaches the app as `agent.input_required`, with the
   action in the run's `waiting` list. The app runs it and answers as for a live turn. An app
   that declares actions must answer its agents' requests too, or they wait.
-- **Limits**:
-  - At most 5 working at once per lead session.
-  - Names are unique among open agents.
-  - No step limit, as a turn's.
-  - An agent idle for 24 h is deleted the next time the lead starts one, or when the brain
-    starts. Forgetting one costs nothing.
+- **No caps** (the user, 2026-11-09): any number work at once, with no step limit, as a
+  turn's. Names are unique among open agents. An agent stays until it is stopped; only
+  stopped ones and ones that never ran are swept.
 - **Mail**: what agents send the lead goes through one table, `agent_mail`. Each piece is
   claimed in one transaction, so it reaches the lead's session exactly once.
 
@@ -369,8 +365,8 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 
 | Toolkit | Tools | Notes |
 |---|---|---|
-| `files` | `files_read(path, offset, limit)`, `files_search(pattern, path, glob)`, `files_find(glob)`, `files_edit(path, old, new, all)`, `files_write(path, content)` | Read gives numbered lines in windows: 500 lines by default, long lines cut, with a footer "lines 1-500 of 1,834". Images come back as images. Search uses ripgrep if it is installed, otherwise Python, and returns `path:line: text` for all matches up to a cap. Edit is an exact, unique string replace. It fails if the file was not read in this session or changed on disk since. Paths are confined to the app's roots; what the user attached in the session (`mentions.attachment`) can be read wherever it is. |
-| `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits up to 600 s for a job to end when the model needs the result. |
+| `files` | `files_read(path, offset, limit)`, `files_search(pattern, path, glob)`, `files_find(glob)`, `files_edit(path, old, new, all)`, `files_write(path, content)` | Read gives numbered lines in windows: 500 lines by default, whole lines, with a footer "lines 1-500 of 1,834". Images come back as images. Search uses ripgrep if it is installed, otherwise Python, and returns `path:line: text` for every match; only the user's stop ends a search. A result over 30,000 characters goes to a file with both ends shown. Edit is an exact, unique string replace. It fails if the file was not read in this session or changed on disk since. Paths are confined to the app's roots; what the user attached in the session (`mentions.attachment`) can be read wherever it is. |
+| `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits as long as asked for a job to end when the model needs the result, and says when a job has written nothing for 10 s or more, so the model can tell a slow job from a stuck one. MCP calls go the same way (section 8.3). |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` | Scoped to the session's app (section 10). |
@@ -739,7 +735,9 @@ Secret values are only ever shown as set or not set, like other brain secrets.
   `anyio` event loop.
 - Each server lives in one long-running async task holding its `async with Client(...)`
   block. A Client cannot be reused once that block ends.
-- Brain threads send calls through a queue and wait on a `concurrent.futures.Future`.
+- Brain threads send calls through a queue and wait on a `concurrent.futures.Future`. A
+  server takes one call at a time; calls waiting for a server that closes or cannot be
+  reached fail with the reason rather than wait for ever.
 - Version handling uses the SDK's default `auto` mode: a `server/discover` probe, falling
   back to `initialize` for older servers.
 - Tool lists are cached and refreshed on the server's change notification, or on
@@ -758,6 +756,13 @@ Secret values are only ever shown as set or not set, like other brain secrets.
   takes that as a hint only and keeps the policy as the user set it.
 - **Output**: text content goes to the model; `structuredContent` goes in as compact JSON.
   The 30,000-character cap and the save-to-file rule apply. Images come back as images.
+- **No time limit**: a call still running after 30 s, or when the user sends a message, is
+  not cut: it goes on as a job, like a command (section 7), listed with the app's jobs.
+  Its result says so, and when the call never started, which call holds the server and
+  for how long. Its end leaves a note with the result (pictures saved as files) and calls
+  the app back. `shell_stop` or the app's stop cancels it and frees the server; the
+  user's stop of the run cancels a call it still waits for. A server's question that
+  nobody is left to answer (its run ended) is cancelled.
 - **Elicitation** (MRTR): the SDK's `elicitation_callback` turns it into a question to
   the app: a turn pauses, a task becomes `input_required`. Sampling and roots are
   deprecated in the spec, so they are not offered.
@@ -778,7 +783,7 @@ Secret values are only ever shown as set or not set, like other brain secrets.
 |---|---|---|---|
 | turn | an app sending input | until it replies | its own SSE stream |
 | task | an app (`POST /v1/tasks`), a schedule, or a detached turn | until done; survives restarts | notifications plus a note in the parent session |
-| agent | the model (`agent_start`) | until stopped or idle for a day; its runs survive restarts | its mail, exactly once: `agents_wait`, a note, `agent.finished` or `agent.asked` (section 5.5) |
+| agent | the model (`agent_start`) | until stopped; its runs survive restarts | its mail, exactly once: `agents_wait`, a note, `agent.finished` or `agent.asked` (section 5.5) |
 | job | `shell_run(background=true)`, or a command still running after 30 s | until the process exits; *not* across a brain restart (marked lost) | `shell_output`; a note and a `job.finished` notification when it ends (an app with `callbacks` starts a turn then, so its turns wait at most 10 s) |
 | schedule | the model (with approval), an app, or the user | until deleted | creates tasks or wake notifications |
 
@@ -891,11 +896,10 @@ the CLI brain knows what MilkChan's brain talked about this morning.
   - when a task ends.
 
   Each note is 1 to 3 sentences, at most 400 characters, with time, app and session.
-- **Capacity**: at most 24,000 characters in total (about 6,000 tokens). Adding a note
-  deletes the oldest notes until it fits. The timestamp decides the order.
+- **Kept**: every note (no caps, the user 2026-11-09). The timestamp decides the order.
 - **Reading**: the newest notes from *other* sessions, up to about 1,500 tokens, go in the
   system block as `[2026-11-05 09:12, milkchan] ...`. They are snapshotted like memory.
-  `journal_search(query)` searches every note still kept.
+  `journal_search(query)` searches every note.
 - **Per-app switches**: `journal: {read: true, write: true}` in the app profile. A private
   app can turn writing off.
 - **User control**: `GET /v1/journal` and `DELETE /v1/journal/<id>`. The CLI gets

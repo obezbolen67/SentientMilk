@@ -72,6 +72,10 @@ def test_app_actions_run_in_the_app(brain):
     assert brain.client.turn("bot", "main", "wave!", on_action=wave)["reply"] == "I waved."
     assert asked == ["wave"] and tool_results(brain.provider.sent[1])["w1"] == "waved 2x"
     assert brain.provider.sent[0]["tools"][0]["function"]["name"] == "wave"
+    brain.provider.replies += [tool_call("wave", {"times": 100_000}, "w2"), "Long."]
+    brain.client.turn("bot", "main", "wave a lot", on_action=lambda event: "x" * 100_000 + " end")
+    shown = tool_results(brain.provider.sent[-1])["w2"]  # a long action result goes to a file, as a tool's does
+    assert len(shown) < 40_000 and shown.endswith(" end") and "is saved in" in shown
 
 
 def test_an_action_can_answer_with_a_picture_the_model_then_sees(brain):
@@ -248,8 +252,23 @@ def test_old_tool_results_are_cleared_in_batches_with_a_way_back(brain):
     told = [e for e in streamed if e["type"] == "cleared"]  # apps can show it (MilkChan draws it)
     assert len(told) == len(clearings) and told[0]["results"] == len(clearings[0]["ids"])
     results = tool_results(brain.provider.sent[-1])
-    assert results["r0"] == context.CLEARED.format(name="files_read")
+    assert results["r0"].startswith("[Result cleared to save space (") and "file 0" not in results["r0"]
     assert "file 13" in results["r13"]
+
+
+def test_short_results_are_never_cleared(brain):
+    # what a call did or measured is the record of the work: it stays, only long results are cleared
+    brain.client.update_config(context_window=8000)
+    for index in range(10):
+        (brain.work / f"big{index}.txt").write_text("\n".join(["y" * 99] * 20), encoding="utf-8")
+    (brain.work / "small.txt").write_text("hands at 399,605", encoding="utf-8")
+    brain.provider.replies += [tool_call("files_read", {"path": "small.txt"}, "s")] + \
+        [tool_call("files_read", {"path": f"big{i}.txt"}, f"b{i}") for i in range(10)] + ["ok"]
+    turn(brain, "cli", "read them all")
+    assert brain.store.events("cli", "main", types=("clearing",))
+    results = tool_results(brain.provider.sent[-1])
+    assert "hands at 399,605" in results["s"] and "cleared" not in results["s"]
+    assert "cleared to save space" in results["b0"]
 
 
 def test_a_long_session_is_compacted_into_a_summary(brain):

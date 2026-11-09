@@ -15,7 +15,6 @@ from typing import List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-MAX_PER_APP = 50
 MIN_EVERY = 60
 _EVERY = re.compile(r"every\s+(\d+)\s*(m|min|mins|minutes?|h|hours?|d|days?)$", re.IGNORECASE)
 _FIELDS = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))  # weekday 7 is Sunday too
@@ -121,8 +120,6 @@ class Scheduler:
             raise ValueError("catch_up must be once or skip")
         if not text or not text.strip():
             raise ValueError("text is empty")
-        if len(self.store.schedules(app)) >= MAX_PER_APP:
-            raise ValueError(f"This app already has {MAX_PER_APP} schedules; delete some first")
         now = time.time()
         kind, spec = parse_when(when, now)
         upcoming = next_fire(kind, spec, now, now)

@@ -6,16 +6,12 @@ import os
 import re
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import List, Optional
 
-from . import ToolContext, ToolError, Toolkit, ToolResult, cap, tool
+from . import STOPPED_BY_USER, ToolContext, ToolError, Toolkit, ToolResult, cap, tool
 
-READ_LINES = 500
-LINE_CUT = 2000
-SEARCH_LIMIT = 200
-FIND_LIMIT = 300
+READ_LINES = 500  # a window; offset pages on, and a long result goes to a file (cap)
 SKIPPED_DIRS = {".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
                 ".pytest_cache", ".ruff_cache", ".tox"}
 IMAGES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
@@ -145,7 +141,7 @@ def _snippet(text: str, index: int, length: int) -> str:
     lines = text.splitlines()
     first = text.count("\n", 0, index) + 1
     last = first + text.count("\n", index, index + length)
-    return "\n".join(f"{n:>6}\t{lines[n - 1][:LINE_CUT]}"
+    return "\n".join(f"{n:>6}\t{lines[n - 1]}"
                      for n in range(max(1, first - 3), min(len(lines), last + 3) + 1))
 
 
@@ -158,9 +154,8 @@ def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_L
     target = resolve(ctx, path)
     if target.is_dir():
         entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-        listed = [entry.name + ("/" if entry.is_dir() else "") for entry in entries[:FIND_LIMIT]]
-        more = f"\n[{len(entries) - FIND_LIMIT} more entries]" if len(entries) > FIND_LIMIT else ""
-        return f"{target}:\n" + "\n".join(listed) + more
+        listed = [entry.name + ("/" if entry.is_dir() else "") for entry in entries]
+        return cap(ctx, f"{target}:\n" + "\n".join(listed))
     if not target.exists():
         raise ToolError(f"{target} does not exist. Find files with files_find.")
     if target.suffix.lower() in IMAGES:
@@ -176,8 +171,7 @@ def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_L
     lines = _read_text(target).splitlines()
     start = max(1, int(offset or 1))
     end = min(len(lines), start + max(1, int(limit or READ_LINES)) - 1)
-    shown = [f"{n:>6}\t{line[:LINE_CUT]}{' [line cut]' if len(line) > LINE_CUT else ''}"
-             for n, line in zip(range(start, end + 1), lines[start - 1:end])]
+    shown = [f"{n:>6}\t{line}" for n, line in zip(range(start, end + 1), lines[start - 1:end])]
     _remember_read(ctx, target)
     if not lines:
         return f"{target} is empty."
@@ -186,7 +180,6 @@ def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_L
     return cap(ctx, "\n".join(shown) + footer)
 
 
-SEARCH_SECONDS = 30  # without ripgrep a search walks in Python; a whole home folder would take many minutes
 
 
 def _walk(ctx: ToolContext, base: Path):
@@ -200,38 +193,30 @@ def _walk(ctx: ToolContext, base: Path):
     "pattern": "Regular expression (Python/ripgrep syntax).", "path": "Folder or file to search (default: working folder).",
     "glob": "Only files matching this glob, e.g. '*.py'.", "ignore_case": "Match case-insensitively."})
 def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = "", ignore_case: bool = False):
-    """Search file contents for a regular expression. Returns every match as path:line: text (up to 200),
-    so you can go straight to files_read with an offset. Skips .git, virtualenvs and caches."""
+    """Search file contents for a regular expression. Returns every match as path:line: text, so you can
+    go straight to files_read with an offset. Skips .git, virtualenvs and caches."""
     base = resolve(ctx, path)
     try:
         regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
     except re.error as exc:
         raise ToolError(f"Bad regular expression: {exc}. Escape special characters, e.g. 'foo\\(' for 'foo('.")
     matches: List[str] = []
-    total, searched, stopped = 0, 0, False
     rg = shutil.which("rg")
     if rg:
         command = [rg, "--line-number", "--no-heading", "--color", "never", "--max-columns", "300"]
         command += (["-i"] if ignore_case else []) + (["--glob", glob] if glob else []) + ["-e", pattern, str(base)]
-        output = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                timeout=60).stdout.splitlines()
+        output = _until_stopped(ctx, command).splitlines()
         home = os.path.normcase(str(Path(ctx.brain.home).resolve()))  # ripgrep skips hidden folders, not others
         output = [line for line in output if not os.path.normcase(line).startswith(home)]
-        total = len(output)
-        matches = [_relative(ctx, line) for line in output[:SEARCH_LIMIT]]
+        matches = [_relative(ctx, line) for line in output]
     else:
         files = [base] if base.is_file() else _walk(ctx, base)
-        deadline = time.monotonic() + SEARCH_SECONDS
         for file in files:
-            if time.monotonic() > deadline:
-                stopped = True
-                break
+            if ctx.attention.stopped.is_set():
+                raise ToolError(STOPPED_BY_USER)
             if glob and not file.match(glob):
                 continue
-            searched += 1
             try:
-                if file.stat().st_size > 2_000_000:
-                    continue
                 with open(file, "rb") as source:
                     if b"\0" in source.read(8192):
                         continue
@@ -240,16 +225,24 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
                 continue
             for number, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
-                    total += 1
-                    if len(matches) < SEARCH_LIMIT:
-                        matches.append(f"{_relative(ctx, str(file))}:{number}: {line.strip()[:300]}")
-    partial = (f"\n[Stopped after {SEARCH_SECONDS} s and {searched} files; narrow the path or glob to search "
-               "the rest.]") if stopped else ""
+                    matches.append(f"{_relative(ctx, str(file))}:{number}: {line.strip()[:300]}")
     if not matches:
-        return f"No matches for {pattern!r} in {base}." + partial
-    more = f"\n[Showing {SEARCH_LIMIT} of {total} matches; narrow the pattern, path or glob.]" \
-        if total > SEARCH_LIMIT else ""
-    return cap(ctx, "\n".join(matches) + more + partial)
+        return f"No matches for {pattern!r} in {base}."
+    return cap(ctx, "\n".join(matches), "search")
+
+
+def _until_stopped(ctx: ToolContext, command: list) -> str:
+    """A search's output, however long it takes; the user's stop ends it."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                               encoding="utf-8", errors="replace")
+    while True:
+        try:
+            return process.communicate(timeout=0.2)[0]
+        except subprocess.TimeoutExpired:
+            if ctx.attention.stopped.is_set():
+                process.kill()
+                process.communicate()
+                raise ToolError(STOPPED_BY_USER)
 
 
 def _relative(ctx: ToolContext, text: str) -> str:
@@ -260,15 +253,14 @@ def _relative(ctx: ToolContext, text: str) -> str:
 @tool(readonly=True, rule_arg="path", args={
     "pattern": "Glob such as '**/*.py' or 'src/*.json'.", "path": "Folder to search from (default: working folder)."})
 def files_find(ctx: ToolContext, pattern: str, path: str = "."):
-    """Find files by name with a glob pattern. Newest first, up to 300."""
+    """Find files by name with a glob pattern. Newest first."""
     base = resolve(ctx, path)
     found = [p for p in base.glob(pattern) if p.is_file() and not SKIPPED_DIRS.intersection(p.relative_to(base).parts)
              and not _hidden(ctx, p)]
     found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     if not found:
         return f"No files match {pattern!r} under {base}."
-    more = f"\n[{len(found) - FIND_LIMIT} more; use a narrower pattern.]" if len(found) > FIND_LIMIT else ""
-    return "\n".join(_relative(ctx, str(p)) for p in found[:FIND_LIMIT]) + more
+    return cap(ctx, "\n".join(_relative(ctx, str(p)) for p in found), "find")
 
 
 @tool(rule_arg="path", args={

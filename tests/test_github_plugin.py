@@ -152,7 +152,8 @@ def test_search_lines(monkeypatch, tmp_path):
         {"repository_url": f"{API}/repos/octo/milk", "number": 3, "state": "open", "title": "Crash", "comments": 2,
          "user": {"login": "ann"}, "updated_at": "2026-11-06T00:00:00Z", "pull_request": {}}]})})
     shown = github.github_search.func(Context(tmp_path), "repo:octo/milk crash", kind="issues")
-    assert shown == "41 found, the first 1:\nocto/milk#3 [PR, open] Crash — @ann, 2 comments, updated 2026-11-06"
+    assert shown == ("41 found, page 1:\nocto/milk#3 [PR, open] Crash — @ann, 2 comments, updated 2026-11-06\n"
+                     "[More with page=2.]")
 
 
 def test_changes_send_what_they_say(monkeypatch, tmp_path):

@@ -30,12 +30,12 @@ def test_she_lists_her_chats_newest_first(brain, talk):
     assert listed[1].startswith('chat-2 "Holidays" · 1 turn') and listed[2].startswith('chat-1 "Groceries" · 2 turns')
     assert 'chat-1 "Groceries"' in kit.sessions_list.func(talk, "groc") and "Holidays" not in kit.sessions_list.func(
         talk, "groc")
-    brain.store.add_note("talk", "chat-1", "You planned the shopping.", 24_000)
+    brain.store.add_note("talk", "chat-1", "You planned the shopping.")
     assert "You planned the shopping." in kit.sessions_list.func(talk, "groc")
 
 
 def test_she_reads_a_summary_or_the_plain_turns_page_by_page(brain, talk, monkeypatch):
-    brain.store.add_note("talk", "chat-1", "You planned the shopping.", 24_000)
+    brain.store.add_note("talk", "chat-1", "You planned the shopping.")
     summary = kit.sessions_read.func(talk, "Groceries")
     assert summary.startswith('[Mentioned session "Groceries" (chat-1)') and "Journal notes:" in summary
     turns = kit.sessions_read.func(talk, "chat-1", part="turns")

@@ -9,7 +9,6 @@ from . import ToolContext, ToolError, Toolkit, tool
 
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 PAGE_CHARS = 20_000
-MAX_DOWNLOAD = 5 * 1024 * 1024
 USER_AGENT = "Mozilla/5.0 (compatible; SentientMilk/0.4; +local assistant)"
 _SKIPPED = {"script", "style", "noscript", "svg", "template", "head"}
 _BLOCKS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "header",
@@ -96,13 +95,14 @@ def web_fetch(ctx: ToolContext, url: str, offset: int = 0):
         raise ToolError("url must start with http:// or https://")
     try:
         response = requests.get(url, timeout=(10, 30), stream=True, headers={"User-Agent": USER_AGENT})
-        body = response.raw.read(MAX_DOWNLOAD + 1, decode_content=True)
+        kind = response.headers.get("Content-Type", "").lower()
+        textual = not kind or kind.startswith("text/") or any(word in kind for word in ("html", "json", "xml"))
+        body = response.raw.read(decode_content=True) if response.status_code < 400 and textual else b""
         response.close()
     except requests.RequestException as exc:
         raise ToolError(f"Could not fetch {url}: {exc}")
     if response.status_code >= 400:
         raise ToolError(f"{url} answered {response.status_code}.")
-    kind = response.headers.get("Content-Type", "").lower()
     encoding = response.encoding or "utf-8"
     if "html" in kind or (not kind and body.lstrip()[:1] == b"<"):
         title, text = page_text(body.decode(encoding, errors="replace"))
@@ -110,8 +110,6 @@ def web_fetch(ctx: ToolContext, url: str, offset: int = 0):
         title, text = "", body.decode(encoding, errors="replace")
     else:
         raise ToolError(f"{url} is {kind or 'binary'}, not a page that can be read as text.")
-    if len(body) > MAX_DOWNLOAD:
-        text += "\n[The page is over 5 MB; the rest was not downloaded.]"
     start = max(0, int(offset or 0))
     part = text[start:start + PAGE_CHARS]
     header = f"{title}\n{response.url}\n\n" if title else f"{response.url}\n\n"

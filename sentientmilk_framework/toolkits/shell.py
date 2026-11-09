@@ -15,7 +15,8 @@ from . import MESSAGE_FROM_USER, STOPPED_BY_USER, ToolContext, ToolError, Toolki
 from .files import cwd as working_folder
 from .files import resolve
 
-WAIT, MAX_WAIT = 30, 600  # seconds shell_run waits before a command becomes a job; the longest shell_output wait
+WAIT = 30  # seconds a command (or an MCP call) has before it goes on as a job: it is not stopped
+QUIET = 10  # seconds without new output after which shell_output says so: slow or stuck is hers to judge
 WORKING = ("queued", "working", "input_required")  # a run in these reads a note at its next step
 OUTPUT_LINES = 200
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -165,6 +166,11 @@ def _keep_as_job(ctx: ToolContext, command: str, folder: Path, log: Path, proces
 def _watch(brain, job: int, process: subprocess.Popen, output) -> None:
     code = process.wait()
     output.close()
+    job_ended(brain, job, code)
+
+
+def job_ended(brain, job: int, code: int) -> None:
+    """A job is over (a command, or an MCP call that went on in the background): her note, and a callback."""
     record = brain.store.job(job)
     stopped = record["status"] == "stopping"
     brain.store.update_job(job, status="stopped" if stopped else "finished", exit_code=code, ended=time.time())
@@ -213,11 +219,11 @@ def _job(ctx: ToolContext, job: int) -> dict:
 
 
 @tool(core=True, readonly=True, args={"job": "Job id from shell_run.", "since": "Skip this many lines (to read only new ones).",
-                            "wait": f"Seconds to wait for the job to end first (max {MAX_WAIT}); 0 reads at once."})
+                            "wait": "Seconds to wait for the job to end first; 0 reads at once."})
 def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
     """Output of a background job so far, and whether it is still running."""
     record = _job(ctx, job)
-    deadline = time.time() + ctx.wait_limit(max(0, min(int(wait or 0), MAX_WAIT)))
+    deadline = time.time() + ctx.wait_limit(max(0, int(wait or 0)))
     woke = ""
     while record["status"] in ("running", "stopping") and time.time() < deadline:
         if ctx.pause(0.5):
@@ -229,6 +235,9 @@ def shell_output(ctx: ToolContext, job: int, since: int = 0, wait: int = 0):
     shown = lines[start:start + OUTPUT_LINES]
     status = record["status"] + (f", exit code {record['exit_code']}" if record["exit_code"] is not None else "")
     footer = f"[lines {start + 1}-{start + len(shown)} of {len(lines)}; job {job} is {status}]"
+    quiet = _quiet(record)
+    if quiet >= QUIET:
+        footer += f" No new output for {_seconds(quiet)}."
     if woke:
         footer += f" Stopped waiting: {woke}"
     elif ctx.called_back and record["status"] == "running" and wait:
@@ -245,6 +254,20 @@ def shell_stop(ctx: ToolContext, job: int):
     return stop(ctx.brain, _job(ctx, job))
 
 
+def _quiet(record: dict) -> float:
+    """Seconds a running job has written nothing."""
+    if record["status"] != "running":
+        return 0.0
+    try:
+        return time.time() - Path(record["log"]).stat().st_mtime
+    except OSError:
+        return time.time() - record["started"]
+
+
+def _seconds(seconds: float) -> str:
+    return f"{int(seconds)} s" if seconds < 120 else f"{int(seconds // 60)} min"
+
+
 def stop(brain, record: dict, quiet: bool = False) -> str:
     """Stop a running job and everything it started (her tool, and the app's stop button). ``quiet``: its end
     leaves no note and tells nobody (a return to before it started)."""
@@ -254,7 +277,7 @@ def stop(brain, record: dict, quiet: bool = False) -> str:
     if quiet:
         brain.quiet_jobs.add(record["id"])
     brain.store.update_job(record["id"], status="stopping")
-    kill_tree(process)
+    process.cancel() if hasattr(process, "cancel") else kill_tree(process)  # an MCP call, or a process
     return f"Stopped job {record['id']}."
 
 

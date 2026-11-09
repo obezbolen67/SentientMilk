@@ -107,10 +107,10 @@ class ToolContext:
     emit: Callable[[dict], None] = lambda event: None
     attention: Attention = field(default_factory=Attention)
 
-    def pause(self, seconds: float) -> bool:
-        """Wait up to ``seconds``; True as soon as the user stops the run or sends a message: end the wait
-        then, with what there is, and say why (``interruption()``)."""
-        return self.attention.woken.wait(max(0.0, float(seconds)))
+    def pause(self, seconds: Optional[float]) -> bool:
+        """Wait up to ``seconds`` (None: until woken); True as soon as the user stops the run or sends a message:
+        end the wait then, with what there is, and say why (``interruption()``)."""
+        return self.attention.woken.wait(None if seconds is None else max(0.0, float(seconds)))
 
     @property
     def called_back(self) -> bool:

@@ -318,7 +318,7 @@ class BrainClient:
     def agents(self, app: str, session: str, all: bool = False) -> List[dict]:
         """The agents a session started, the newest first: ``id``, ``name``, ``access``, ``task``, ``status``
         (working, waiting for the user, done, failed, stopped), ``step``, ``seconds``, ``activity`` (what it does
-        now), ``report``; only open ones unless ``all`` (stopped ones, and ones idle for a day, are closed)."""
+        now), ``report``; only open ones unless ``all`` (stopped ones are closed)."""
         params = {"app": app, "session": session, **({"all": "1"} if all else {})}
         return self._call("GET", "/agents", params=params)["agents"]
 

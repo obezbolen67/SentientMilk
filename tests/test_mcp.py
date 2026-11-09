@@ -19,6 +19,14 @@ def add(a: int, b: int) -> str:
 
 
 @app.tool()
+async def slow(seconds: float) -> str:
+    """Answer after a while."""
+    import asyncio
+    await asyncio.sleep(seconds)
+    return "woke"
+
+
+@app.tool()
 def fail() -> str:
     """Always fails."""
     raise RuntimeError("broken on purpose")
@@ -67,3 +75,37 @@ def test_mcp_servers_are_toolkits_the_model_can_use(brain, tmp_path):
     tools = [t["function"]["name"] for t in brain.provider.sent[0]["tools"]]
     assert "mcp__test__add" not in tools  # listed, and called by name
     assert "mcp__test__add" in brain.provider.sent[0]["messages"][0]["content"].split("## YOUR TOOLS")[1]
+
+
+def test_a_long_mcp_call_goes_on_as_a_job_and_a_stop_frees_the_server(brain, tmp_path, monkeypatch):
+    """No time limit on a call: one still running after WAIT s goes on as a job, as a command does; her
+    note brings its result, and stopping it lets the server take the next call."""
+    pytest.importorskip("mcp")
+    from sentientmilk_framework import mcp_host
+
+    monkeypatch.setattr(mcp_host, "WAIT", 1)
+    script = tmp_path / "server.py"
+    script.write_text(SERVER, encoding="utf-8")
+    brain.client.set_mcp({"test": {"command": sys.executable, "args": [str(script)]}})
+    wait_for(lambda: brain.client.mcp()["status"]["test"]["state"] == "connected", 60)
+    brain.client.update_app("cli", rules={"allow": ["mcp__test__*"]})
+    brain.client.declare_app("cli", name="CLI", toolkits=["shell", "mcp:*"])
+    brain.provider.replies += [tool_call("mcp__test__slow", {"seconds": 3}, "s1"), "It runs."]
+    turn(brain, "cli", "be slow")
+    said = next(m["content"] for m in brain.provider.sent[-1]["messages"] if m.get("tool_call_id") == "s1")
+    assert "Still running after 1 s" in said and "background job" in said
+    job = brain.store.jobs("cli", 0)[0]
+    wait_for(lambda: brain.store.job(job["id"])["status"] == "finished", 30)
+    assert open(job["log"], encoding="utf-8").read() == "woke"
+    wait_for(lambda: any("woke" in e["text"] for e in brain.store.events("cli", "main", types=("note",))), 30)
+
+    brain.provider.replies += [tool_call("mcp__test__slow", {"seconds": 600}, "s2"), "Stuck."]
+    turn(brain, "cli", "hang")
+    stuck = brain.store.jobs("cli", 0)[0]
+    assert stuck["status"] == "running" and stuck["id"] != job["id"]
+    brain.provider.replies += [tool_call("shell_stop", {"job": stuck["id"]}, "x1"),
+                               tool_call("mcp__test__add", {"a": 1, "b": 1}, "a1"), "2."]
+    turn(brain, "cli", "stop it and add")
+    results = {m["tool_call_id"]: m["content"] for m in brain.provider.sent[-1]["messages"] if m["role"] == "tool"}
+    assert results["x1"] == f"Stopped job {stuck['id']}." and results["a1"] == "2"
+    wait_for(lambda: brain.store.job(stuck["id"])["status"] == "stopped", 30)

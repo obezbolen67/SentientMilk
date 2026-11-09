@@ -2,12 +2,10 @@
 there: list them, read one's summary or its plain turns, search them, rename or delete one."""
 
 from .. import mentions
-from . import ToolContext, ToolError, Toolkit, tool
+from . import ToolContext, ToolError, Toolkit, cap, tool
 
-LISTED = 30
-PAGE = 40  # turns a page
-TURN_CHARS = 1_000
-SEARCH_LIMIT, SNIPPET = 50, 160
+PAGE = 40  # turns a page; offset reads on
+SNIPPET = 160  # of a match, around it; sessions_read shows the turn
 
 
 def _find(ctx: ToolContext, session: str) -> dict:
@@ -34,10 +32,8 @@ def sessions_list(ctx: ToolContext, query: str = ""):
                 + f" · {mentions.plural(said, 'turn')} · last active {mentions.stamp(found['last_active'])}")
         known = mentions.summary(ctx.brain, ctx.app, found["id"])
         rows.append(line + (f" — {mentions.short(known, 120)}" if known else ""))
-        if len(rows) == LISTED:
-            rows.append(f"[the newest {LISTED}; give a query to find older ones]")
-            break
-    return "\n".join(rows) or (f"No conversation matches {query!r}." if needle else "You have no conversations yet.")
+    return cap(ctx, "\n".join(rows), "sessions") or \
+        (f"No conversation matches {query!r}." if needle else "You have no conversations yet.")
 
 
 @tool(readonly=True, rule_arg="session", args={
@@ -64,12 +60,12 @@ def sessions_read(ctx: ToolContext, session: str, part: str = "summary", offset:
     for number, entries in enumerate(page, start + 1):
         for index, entry in enumerate(entries):
             lead = f"{number}. " if index == 0 else " " * len(f"{number}. ")
-            lines.append(f"{lead}{mentions.speaker(entry)}: {mentions.short(entry['text'], TURN_CHARS)}")
+            lines.append(f"{lead}{mentions.speaker(entry)}: {entry['text']}")
     if not grouped:
         return f"{_name(found)} has no turns."
     if start + len(page) < len(grouped):
         lines.append(f"[turns {start + 1}-{start + len(page)} of {len(grouped)}; more with offset={start + len(page)}]")
-    return "\n".join(lines) or f"{_name(found)} has {len(grouped)} turns; offset={start} is past them."
+    return cap(ctx, "\n".join(lines), "turns") or f"{_name(found)} has {len(grouped)} turns; offset={start} is past them."
 
 
 @tool(readonly=True, args={"query": "Words to find, e.g. 'oat milk' (any case)."})
@@ -95,8 +91,7 @@ def sessions_search(ctx: ToolContext, query: str):
                 found.append(f"{_name(chat)} #{number} {mentions.speaker(entry)}: {text}")
     if not found:
         return f"No turn of your other conversations has {query!r}."
-    more = f"\n[the first {SEARCH_LIMIT} of {len(found)}; use more words]" if len(found) > SEARCH_LIMIT else ""
-    return "\n".join(found[:SEARCH_LIMIT]) + more
+    return cap(ctx, "\n".join(found), "search")
 
 
 @tool(policy="auto", rule_arg="session", args={"session": "Its id or exact title.", "title": "The new title."})

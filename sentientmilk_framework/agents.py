@@ -25,6 +25,7 @@ from typing import List, Optional
 
 from .exceptions import BrainError
 from .loop import ACTIVE
+from .runs import whole_report
 from .toolkits import STOPPED_BY_USER, ToolError
 from .toolkits.todo import render as render_todo
 
@@ -45,12 +46,10 @@ the lead's. Nobody watches you live.
 - End with a compact report, findings first (at most about 2,000 tokens): the exact paths, names, URLs,
   line numbers and results that are needed. Put long output (data, drafts, code) in files and name them."""
 MESSAGE = "[A message from the lead]\n{text}"
-MAX_WORKING = 5  # at once per lead session; Anthropic's lead agent starts 3-5
-OPEN_HOURS = 24  # an idle agent is deleted after this (the next start or brain start), and its name is free
-REPORT_CHARS = 8_000  # about 2,000 tokens; the whole report goes to a file
-WAIT_DEFAULT, WAIT_MAX = 600, 1800
-ASK_WAIT = 1800  # seconds an agent waits for the lead's answer before it goes on by itself
-SHOWN_STEPS, TASK_CHARS, RESULT_CHARS = 15, 150, 160
+# No caps (the user, 2026-11-09): any number of agents work at once, an agent stays until stopped, waits as
+# long as asked and waits for the lead's answer until it comes.
+WAIT_DEFAULT = 600
+TASK_CHARS, RESULT_CHARS = 150, 160
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}")
 # working, asking (waits for the lead), waiting (for the user's approval), done, failed, stopped
 STATUS = {"queued": "working", "working": "working", "input_required": "waiting", "completed": "done",
@@ -79,14 +78,14 @@ class Agents:
 
     def summary(self, app: str, session: str, record: Optional[dict] = None, only_open: bool = False) -> Optional[dict]:
         """What an agent is and does now; None for a session that is not an agent's (or, with ``only_open``,
-        for one closed: stopped, or idle for a day)."""
+        for one closed: stopped)."""
         record = record if record is not None else self.record(app, session)
         runs = self.store.runs(app=app, session=session, limit=1)
         if not record or not runs:
             return None
         latest = runs[0]
         working = latest["status"] in ACTIVE
-        is_open = not record.get("stopped") and (working or time.time() - latest["updated"] < OPEN_HOURS * 3600)
+        is_open = not record.get("stopped")  # an agent stays until it is stopped, idle or not
         if only_open and not is_open:
             return None
         status, activity = self._state(latest) if working else (STATUS.get(latest["status"], latest["status"]), "")
@@ -117,8 +116,7 @@ class Agents:
         found = next((a for a in mine if a["name"] == text or str(a["id"]) == text), None)
         if found is None:
             names = ", ".join(a["name"] for a in mine) or "none"
-            raise ToolError(f"You have no agent {ref!r} (stopped agents and ones idle for {OPEN_HOURS} h are "
-                            f"gone). Your agents: {names}.")
+            raise ToolError(f"You have no agent {ref!r} (stopped agents are gone). Your agents: {names}.")
         return found
 
     def details(self, app: str, agent: dict) -> dict:
@@ -179,9 +177,9 @@ class Agents:
             lines.append("Todo:\n" + render_todo(found["todo"]))
         if found["progress"]:
             lines.append("Latest progress note: " + short(found["progress"], 1000))
-        steps = found["steps"][-SHOWN_STEPS:]
+        steps = found["steps"]  # all of them: a long list goes to a file with both ends shown (RESULT_CAP)
         if steps:
-            lines.append(f"Steps (the last {len(steps)} of {len(found['steps'])}):")
+            lines.append(f"Steps ({len(steps)}):")
             lines += [f"- {s['name']} {short(json.dumps(s['arguments'], ensure_ascii=False), 120)} -> {s['status']}: "
                       f"{s['result']}" for s in steps]
         if agent["report"]:
@@ -222,10 +220,6 @@ class Agents:
         if name and any(a["name"] == name for a in mine):
             raise ToolError(f"You have an agent called {name} already: send it a message with agent_message, "
                             "or pick another name.")
-        working = [a for a in mine if a["working"]]
-        if len(working) >= MAX_WORKING:
-            raise ToolError(f"{len(working)} agents are working already (at most {MAX_WORKING} at once): wait "
-                            "for one with agents_wait, or stop one.")
 
     def _options(self, record: dict, agent_id: int, text: str) -> dict:
         return {"input": [{"type": "text", "text": text}], "agent": agent_id, "parent_session": record["parent"],
@@ -270,11 +264,9 @@ class Agents:
         self._updated(app, parent, agent, name, "asking", run["id"])
         if not self.brain.session_busy(app, parent):
             self.hand_over(app, parent)
-        if ctx.pause(ASK_WAIT):
-            stop = ctx.interruption()
-            return stop if stop == STOPPED_BY_USER else "The lead answered: its message comes next."
-        return (f"No answer came in {duration(ASK_WAIT)}: go on with your best judgment, and say in your report "
-                "what you assumed.")
+        ctx.pause(None)  # until the lead answers or the user stops it: it never goes on by guessing
+        stop = ctx.interruption()
+        return stop if stop == STOPPED_BY_USER else "The lead answered: its message comes next."
 
     def update(self, run: dict, note: str) -> None:
         """An agent's progress note, for the lead's next step; only its latest one waits."""
@@ -308,13 +300,12 @@ class Agents:
         self.store.delete_mail(app, agent=agent_id)
 
     def sweep(self, app: Optional[str] = None, parent: Optional[str] = None) -> None:
-        """Delete agents idle for a day (and stopped ones left behind): their names are free again."""
-        cutoff = time.time() - OPEN_HOURS * 3600
+        """Delete stopped agents left behind (and ones that never ran): their names are free again."""
         for app_, session, settings in self.store.agent_sessions(app, parent):
             latest = self.store.runs(app=app_, session=session, limit=1)
             if latest and latest[0]["status"] in ACTIVE:
                 continue
-            if not latest or latest[0]["updated"] < cutoff or (settings.get("agent") or {}).get("stopped"):
+            if not latest or (settings.get("agent") or {}).get("stopped"):
                 self._delete(app_, session, int(session.split("-", 1)[1]))
 
     def wait(self, ctx, refs=None, timeout=WAIT_DEFAULT) -> str:
@@ -324,7 +315,7 @@ class Agents:
         refs = refs if isinstance(refs, list) else ([refs] if refs else [])
         targets = [self.find(app, parent, ref) for ref in refs] or [a for a in self.open(app, parent) if a["working"]]
         sessions = {a["session"]: a["name"] for a in targets}
-        deadline = time.time() + ctx.wait_limit(max(1, min(int(timeout or WAIT_DEFAULT), WAIT_MAX)))
+        deadline = time.time() + ctx.wait_limit(max(1, int(timeout or WAIT_DEFAULT)))
         interrupted = ""
 
         def working() -> List[str]:
@@ -368,12 +359,7 @@ class Agents:
         if run["status"] != "completed":
             return f"{who} failed: {(run['error'] or {}).get('message', 'unknown error')}"
         text = (run["result"] or {}).get("reply", "").strip() or "(It finished without a report.)"
-        if len(text) > REPORT_CHARS:
-            path = Path(self.brain.home) / "runs" / str(run["id"]) / "report.md"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-            text = text[:REPORT_CHARS] + f"\n[Report cut. The whole report is in {path}.]"
-        return f"{who} finished:\n{text}"
+        return f"{who} finished:\n{whole_report(self.brain.home, run['id'], text)}"
 
     def take_mail(self, run: dict) -> None:
         """Before a model call of a run: what its session's agents sent meanwhile, as a note."""

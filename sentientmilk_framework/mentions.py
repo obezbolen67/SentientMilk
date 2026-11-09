@@ -19,8 +19,6 @@ from .toolkits import ToolError
 from .toolkits.files import IMAGES, closed
 
 KINDS = ("session", "agent", "plugin", "file")
-MAX_MENTIONS = 8  # in one message
-MAX_ATTACHMENTS = 20  # in one message, besides its mentions
 PICTURE_BYTES = 20 * 1024 * 1024  # an attached picture bigger than this goes as its path only
 CARD_CHARS, CARDS_CHARS = 1_500, 10_000  # one card; all the cards of a message
 PER_KIND, ONE_KIND = 5, 30  # matches of each kind, or of the one kind asked for
@@ -88,7 +86,7 @@ def find_session(brain, app: str, ref: str) -> dict:
 
 def summary(brain, app: str, session: str) -> str:
     """The newest of its journal note and its compaction summary; '' while it has neither."""
-    note = next((n for n in brain.store.notes() if n["app"] == app and n["session"] == session), None)
+    note = next(iter(brain.store.notes(limit=1, app=app, session=session)), None)
     compaction = brain.store.last_compaction(app, session)
     picks = ([(note["at"], note["note"])] if note else []) + ([(compaction["at"], compaction["summary"])]
                                                              if compaction and compaction.get("summary") else [])
@@ -96,7 +94,7 @@ def summary(brain, app: str, session: str) -> str:
 
 
 def journal_notes(brain, app: str, session: str) -> List[dict]:
-    return [n for n in brain.store.notes() if n["app"] == app and n["session"] == session]
+    return brain.store.notes(app=app, session=session)
 
 
 def turns(brain, app: str, session: str) -> List[List[dict]]:
@@ -298,9 +296,9 @@ def resolve(brain, app: str, session: str, items: List[dict]) -> List[dict]:
             text = f"[{verb} {item['kind']} {item['ref']}: it no longer exists]"
         except (ValueError, OSError) as exc:
             text = f"[{verb} {item['kind']} {item['ref']}: {exc}]"
-        if len(text) > room:  # an attachment keeps its first line: its path
-            text = text.split("\n", 1)[0] if item.get("attached") else \
-                f"[Mentioned {item['kind']} {item['ref']}: left out, the message's mentions are too long]"
+        if len(text) > room:  # past the room each card keeps its first line, what it names; the tools show the rest
+            text = text.split("\n", 1)[0] + ("" if item.get("attached") else
+                                             "\n[The rest of this card is left out for room: your tools show it.]")
         room -= len(text)
         result.append({**item, "card": text})
         if picture:

@@ -90,13 +90,15 @@ def test_big_results_are_saved_and_both_ends_kept(brain, ctx):
     assert "start" in files.files_read.func(ctx, saved, limit=1)  # saved outputs stay readable
 
 
-def test_a_search_without_ripgrep_stops_in_time_and_says_so(brain, ctx, monkeypatch):
+def test_a_search_finds_every_match_and_only_the_users_stop_ends_it(brain, ctx, monkeypatch):
+    """No caps: every match comes back (a long result goes to a file), however long the search takes."""
     for index in range(3):
-        (brain.work / f"note{index}.txt").write_text("needle here\n", encoding="utf-8")
+        (brain.work / f"note{index}.txt").write_text("needle here\n" * 150, encoding="utf-8")
     monkeypatch.setattr(files.shutil, "which", lambda name: None)
-    assert files.files_search.func(ctx, "needle").count("needle here") == 3
-    monkeypatch.setattr(files, "SEARCH_SECONDS", -1)  # out of time at once
-    assert "Stopped after -1 s and 0 files" in files.files_search.func(ctx, "needle")
+    assert files.files_search.func(ctx, "needle").count("needle here") == 450
+    ctx.attention.stop()
+    with pytest.raises(ToolError, match="stopped"):
+        files.files_search.func(ctx, "needle")
 
 
 @pytest.mark.skipif(shell.shell_name("") != "powershell", reason="Windows PowerShell's own quirk")
@@ -223,6 +225,11 @@ def test_an_app_lists_its_jobs_and_stops_one(brain, ctx):
     assert [j["id"] for j in brain.client.jobs("cli", since=recent)] == [job]  # not the old one, not another app's
     assert (listed["session"], listed["status"]) == ("main", "running")
     assert "echo first" in listed["command"] and "log" not in listed
+    shell.QUIET, quiet = 0, shell.QUIET  # a job that writes nothing says so: slow or stuck is hers to judge
+    try:
+        assert "No new output for " in shell.shell_output.func(ctx, job)
+    finally:
+        shell.QUIET = quiet
     assert brain.client.stop_job(job)["message"] == f"Stopped job {job}."
     wait_for(lambda: brain.store.job(job)["status"] == "stopped", 30)
     assert brain.client.jobs("cli", since=recent)[0]["status"] == "stopped"  # it ended just now: still listed
@@ -236,7 +243,7 @@ def test_web_pages_become_text_and_search_needs_a_key(brain, ctx, monkeypatch):
             b"<body><h1>Title</h1><p>First &amp; second</p></body></html>")
 
     def get(url, **kwargs):
-        raw = SimpleNamespace(read=lambda n, decode_content=True: html)
+        raw = SimpleNamespace(read=lambda n=None, decode_content=True: html)
         return SimpleNamespace(raw=raw, status_code=200, headers={"Content-Type": "text/html"}, encoding="utf-8",
                                url=url, close=lambda: None)
 

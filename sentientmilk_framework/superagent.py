@@ -24,6 +24,7 @@ import os
 import queue
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from collections import deque
@@ -57,7 +58,9 @@ approves your changes when you are asked.
 - Find out what you can by yourself. If a decision is not yours, take the safest choice and say what you
   assumed.
 - The user's computer is {name}'s: never look at the screen or use the mouse and keyboard (no screenshots,
-  no input scripts). When a part needs that, say in your report what {name} should do there.
+  no input scripts). When a part needs that, say in your report what {name} should do there. Your MCP
+  tools (mcp__...) are {name}'s connected apps and yours to use, their own captures and input included:
+  they work inside that app, not on the user's screen.
 - Verify what you did (run it, test it) before you report.
 - End with a compact report for the lead, findings first: what you did, the exact paths, names and results,
   what you verified and what you did not. Put long output in files and name them."""
@@ -171,6 +174,7 @@ class SuperRun:
         self.process: Optional[subprocess.Popen] = None
         self.write_lock = threading.Lock()
         self.reply = ""
+        self.mcp_file: Optional[str] = None  # the lead's MCP servers for --mcp-config; removed when it ends
 
     # ============== The process ==============
 
@@ -187,6 +191,14 @@ class SuperRun:
         for root in roots:
             if root != folder:
                 args += ["--add-dir", root]
+        # the lead's MCP servers too: code that lives in an app the user connected (a game editor) is Claude's
+        # as well, and Claude can check it there (2026-11-09: it had none, so the lead wrote it by trial and error)
+        servers = self.brain.mcp.for_claude(profile.get("toolkits") or [])
+        if servers:
+            fd, self.mcp_file = tempfile.mkstemp(prefix="super-mcp-", suffix=".json", dir=self.brain.home)
+            with os.fdopen(fd, "w", encoding="utf-8") as config:  # a file, not argv: env and headers may hold keys
+                json.dump({"mcpServers": servers}, config)
+            args += ["--mcp-config", self.mcp_file]
         resumed = self._state().get("claude_session")
         if resumed:
             args += ["--resume", resumed]
@@ -207,6 +219,11 @@ class SuperRun:
                 self.events.put(json.loads(line))
             except ValueError:
                 self.errors.append(line.rstrip())
+        if self.mcp_file:  # it read the file when it started
+            try:
+                os.remove(self.mcp_file)
+            except OSError:
+                pass
         self.events.put(None)  # the end of its output
 
     def send(self, message: dict) -> None:

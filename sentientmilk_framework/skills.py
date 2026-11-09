@@ -27,8 +27,6 @@ from typing import Dict, List, Optional, Tuple
 
 NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_CHARS, DESCRIPTION_CHARS = 64, 1024
-LISTING_CHARS = 8_000  # descriptions past this are left out of her prompt; the names stay
-ARGUMENT_CHARS = 10_000
 BUILT_IN = Path(__file__).parent / "assets" / "skills"
 TRUE, FALSE = {"true", "yes", "on", "1"}, {"false", "no", "off", "0"}
 PLACEHOLDER = re.compile(r"\\\$|\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS\b|\$(\d+)|\$\{(?:CLAUDE_)?SKILL_DIR\}")
@@ -229,15 +227,9 @@ class Skills:
         return [skill.public() for skill in self.all()]
 
     def prompt(self) -> str:
-        """Her prompt's SKILLS section: the skills she may load, each with its description while they fit."""
-        lines, room = [], LISTING_CHARS
-        for skill in self.all():
-            if skill.error or not skill.model:
-                continue
-            line = f"- {skill.name}: {skill.description}"
-            room -= len(line)
-            lines.append(line if room >= 0 else f"- {skill.name}")  # shortcut: names only past the budget
-        return PROMPT.format(folder=self.folder) + "\n".join(lines)
+        """Her prompt's SKILLS section: every skill she may load, with its description."""
+        return PROMPT.format(folder=self.folder) + "\n".join(
+            f"- {skill.name}: {skill.description}" for skill in self.all() if not skill.error and skill.model)
 
     def expand(self, items: List[dict]) -> List[dict]:
         """Turn input with each skill the user started (``skill`` items) as the text the model reads."""
