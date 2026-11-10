@@ -84,6 +84,7 @@ class Runs:
         self.loop = Loop(brain)
         self._session_locks: Dict[Tuple[str, str], threading.Lock] = {}
         self._locks_guard = threading.Lock()
+        self._scheduled_followers = set()  # one live action consumer per occurrence, within this single brain
         self._tasks: queue.Queue = queue.Queue()
         self._workers: List[threading.Thread] = []
         self._questions: Dict[Tuple[int, str], concurrent.futures.Future] = {}
@@ -149,6 +150,52 @@ class Runs:
         listener = self.brain.bus.subscribe(("run", run_id)) if subscribe else None
         self.spawn(run_id)
         return run_id, listener
+
+    def claim_scheduled_stream(self, occurrence: int) -> None:
+        with self._locks_guard:
+            if occurrence in self._scheduled_followers:
+                raise BrainError('busy', 'This scheduled occurrence already has an app connection', http_status=409)
+            self._scheduled_followers.add(occurrence)
+
+    def release_scheduled_stream(self, app: str, occurrence: int) -> None:
+        with self._locks_guard:
+            self._scheduled_followers.discard(occurrence)
+        found = self.store.occurrence(app, occurrence)
+        if found and found['status'] == 'started' and not self.brain.stopping.is_set():
+            self.brain.notify(app, found['session'], 'schedule.ready', {'occurrence': occurrence,
+                              'schedule': found['schedule'], 'session': found['session']})
+
+    def scheduled_pending(self, app: str) -> list:
+        with self._locks_guard:
+            busy = set(self._scheduled_followers)
+        return [item for item in self.store.occurrences(app, pending=True) if item['id'] not in busy
+                and (item['status'] == 'started' or not self.brain.session_busy(app, item['session']))]
+
+    def start_scheduled_turn(self, app: str, session: str, occurrence: int, context: dict,
+                             max_steps: Optional[int] = None):
+        found = self.store.occurrence(app, occurrence)
+        if found is None or found['session'] != session:
+            raise BrainError('not_found', 'No scheduled occurrence belongs to this app and session', http_status=404)
+        try:
+            run_id, created = self.store.start_scheduled_run(app, session, occurrence, context, max_steps)
+        except ValueError as exc:
+            raise BrainError('schedule_unavailable', str(exc), http_status=409) from exc
+        listener = self.brain.bus.subscribe(('run', run_id))
+        try:
+            run = self.store.run(run_id)
+            if created or run['status'] == 'queued':
+                self.spawn(run_id)
+            elif run['status'] == 'input_required':
+                actions = {a['name']: a for a in self.brain.profile(app, session)['actions']}
+                for waiting in self.waiting(run_id):
+                    if waiting['kind'] == 'action' and not actions.get(waiting['name'], {}).get('readonly'):
+                        self.answer(run_id, waiting['call_id'], result='The app connection ended before this action '
+                            'returned a result. It may or may not have happened. Inspect its effect before repeating it.',
+                            status='error')
+        except Exception:
+            self.brain.bus.unsubscribe(('run', run_id), listener)
+            raise
+        return run_id, listener, not created
 
     def start_task(self, app: str, parent_session: Optional[str], goal: str, *, toolkits: Optional[list] = None,
                    verify: bool = False, allow: Optional[list] = None, context: str = "compact",
@@ -374,12 +421,20 @@ class Runs:
                                "error": run["error"]})
         if run["kind"] == "turn" and run["status"] == "completed":
             titles.request(self.brain, run["app"], run["session"])
+        if run['options'].get('occurrence'):
+            self.brain.notify(run['app'], run['session'], 'schedule.updated', {
+                'schedule': run['options']['schedule'], 'occurrence': run['options']['occurrence'],
+                'status': run['status']})
+        for pending in self.scheduled_pending(run['app']):
+            if pending['session'] == run['session'] and pending['status'] == 'pending':
+                self.brain.notify(run['app'], run['session'], 'schedule.ready', {'occurrence': pending['id'],
+                                  'schedule': pending['schedule'], 'session': run['session']})
         self.brain.agents.run_ended(run)
 
     def recover(self) -> None:
         waiting_reviewers = self.store.runs(kind="subagent", statuses=("input_required",), limit=1000)
         for run in self.store.runs(statuses=("working", "queued"), limit=1000) + waiting_reviewers:
-            if run["kind"] in ("task", "agent"):
+            if run["kind"] in ("task", "agent") or run['options'].get('occurrence'):
                 logger.info("Resuming %s %s after a restart", run["kind"], run["id"])
                 self.brain.note(run["app"], run["session"], "The brain restarted while you worked; continue.")
                 self.spawn(run["id"])

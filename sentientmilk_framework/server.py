@@ -275,6 +275,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, brain.update_app_settings(app, body))
         elif rest == ["sessions"] and method == "GET":
             self._send(200, {"sessions": brain.store.sessions(app)})
+        elif rest == ['scheduled'] and method == 'GET':
+            found = brain.runs.scheduled_pending(app) if query.get('pending', '1') == '1' else brain.store.occurrences(app)
+            self._send(200, {'occurrences': found})
         elif rest == ["memory"] and method == "GET":
             self._send(200, {"memory": brain.store.memories(app)})
         elif rest == ["jobs"] and method == "GET":
@@ -341,10 +344,13 @@ class _Handler(BaseHTTPRequestHandler):
         return True
 
     def _turn(self, app: str, session: str, body: dict) -> None:
-        unknown = set(body) - {"input", "context", "reply", "max_steps"}
+        unknown = set(body) - {"input", "context", "reply", "max_steps", 'occurrence'}
         if unknown:
             raise ValueError(f"Unknown turn fields: {sorted(unknown)}")
-        items = validate_items(body.get("input"))
+        occurrence = body.get('occurrence')
+        if occurrence is not None and (type(occurrence) is not int or occurrence < 1):
+            raise ValueError('occurrence must be a positive whole number')
+        items = validate_items(body.get("input")) if occurrence is None else []
         context = body.get("context") or {}
         if not isinstance(context, dict) or not all(isinstance(v, str) for v in context.values()):
             raise ValueError("context must map names to strings")
@@ -354,10 +360,58 @@ class _Handler(BaseHTTPRequestHandler):
         steps = body.get("max_steps")
         if steps is not None and (not isinstance(steps, int) or isinstance(steps, bool) or steps < 1):
             raise ValueError("max_steps must be a whole number from 1")
-        run_id, listener = self.server.brain.runs.start_turn(app, session, items, context, reply, max_steps=steps)
+        runs = self.server.brain.runs
+        if occurrence is not None:
+            # The durable owner/session check precedes claiming a live action consumer.
+            found = self.server.brain.store.occurrence(app, occurrence)
+            if found is None or found['session'] != session:
+                raise BrainError('not_found', 'No scheduled occurrence belongs to this app and session', http_status=404)
+            runs.claim_scheduled_stream(occurrence)
+            try:
+                run_id, listener, replay = runs.start_scheduled_turn(app, session, occurrence, context, steps)
+                self._stream_turn(run_id, listener, replay)
+            finally:
+                runs.release_scheduled_stream(app, occurrence)
+            return
+        run_id, listener = runs.start_turn(app, session, items, context, reply, max_steps=steps)
+        self._stream_turn(run_id, listener)
+
+    def _stream_turn(self, run_id: int, listener, replay: bool = False) -> None:
+        brain = self.server.brain
+        replayed = set()
         self._stream_start()
         if self._stream({"type": "run.started", "run": run_id}):
-            self._follow(("run", run_id), listener, until=lambda e: e["type"] in ("done", "error"))
+            if replay:
+                run = brain.store.run(run_id)
+                logged_events = brain.store.run_events(run_id)
+                for logged in logged_events:
+                    if logged['type'] == 'tool':
+                        common = {'run': run_id, 'call_id': logged['call_id'], 'name': logged['name'],
+                                  'arguments': logged.get('arguments') or {}}
+                        self._stream({'type': 'tool.start', **common})
+                        self._stream({'type': 'tool.end', **common, 'status': logged['status'],
+                                      'result': (logged.get('content') or '')[:2000]})
+                        replayed.update((kind, logged['call_id']) for kind in ('tool.start', 'tool.end'))
+                if run['status'] in TERMINAL:
+                    if run['error']:
+                        self._stream({'type': 'error', 'run': run_id, 'status': run['status'], 'error': run['error']})
+                    else:
+                        self._stream({'type': 'done', 'run': run_id, 'status': run['status'],
+                                      **(run['result'] or {}), 'usage': run['usage']})
+                    brain.bus.unsubscribe(('run', run_id), listener)
+                    self._stream_end()
+                    return
+                for logged in logged_events:
+                    if logged['type'] in ('action_result', 'tool'):
+                        replayed.add(('action.requested', logged['call_id']))
+                    if logged['type'] in ('approval', 'tool'):
+                        replayed.add(('approval.requested', logged['call_id']))
+                for waiting in brain.runs.waiting(run_id):
+                    self._stream({'type': waiting['kind'] + '.requested', 'run': run_id,
+                                  **{key: value for key, value in waiting.items() if key != 'kind'}})
+                    replayed.add((waiting['kind'] + '.requested', waiting['call_id']))
+            self._follow(("run", run_id), listener, until=lambda e: e["type"] in ("done", "error"),
+                         skip=lambda event: (event['type'], event.get('call_id')) in replayed)
         else:
             self.server.brain.bus.unsubscribe(("run", run_id), listener)
 
@@ -478,19 +532,18 @@ class _Handler(BaseHTTPRequestHandler):
         if not rest and method == "GET":
             self._send(200, {"schedules": brain.store.schedules(query.get("app"))})
         elif not rest and method == "POST":
-            unknown = set(body) - {"app", "session", "when", "text", "mode", "catch_up"}
+            unknown = set(body) - {"app", "session", "when", "text", "mode", "catch_up", 'timezone', 'title'}
             if unknown:
                 raise ValueError(f"Unknown schedule fields: {sorted(unknown)}")
             schedule = brain.scheduler.create(validate_name(body.get("app", ""), "app"),
                                               validate_name(body.get("session", "main"), "session"),
-                                              str(body.get("when", "")), str(body.get("text", "")),
+                                              body.get("when", ""), body.get("text", ""),
                                               body.get("mode", "wake"), created_by="app",
-                                              catch_up=body.get("catch_up", "once"))
+                                              catch_up=body.get("catch_up", "once"),
+                                              timezone=body.get('timezone'), title=body.get('title', ''))
             self._send(200, schedule)
         elif len(rest) == 1 and method == "PATCH":
-            if set(body) != {"enabled"} or not isinstance(body["enabled"], bool):
-                raise ValueError("Only enabled (true/false) can be changed")
-            self._send(200, brain.scheduler.set_enabled(_number(rest[0], "schedule id"), body["enabled"]))
+            self._send(200, brain.scheduler.update(_number(rest[0], "schedule id"), **body))
         elif len(rest) == 1 and method == "DELETE":
             found = brain.scheduler.delete(_number(rest[0], "schedule id"))
             self._send(200 if found else 404, {"status": "ok" if found else "not found"})

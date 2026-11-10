@@ -173,8 +173,11 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   `tools_load`; the rest are listed with their parameters and loaded into the conversation when needed, so
   the tool list (and the prompt cache) stays the same. An action declared with
   `"core": true` is always sent.
-- **Schedules** (`at 2026-11-06T09:00`, `every 30m`, or 5-field cron) either wake the app
-  (a `schedule.fired` notification) or start a task.
+- **Schedules** (ISO time, `every 30m`, or 5-field cron) belong to an app and run through its normal
+  workflow in a dedicated, persistent conversation. Named timezones follow daylight saving; offline
+  deliveries wait and coalesce. The model clarifies missing clock times and can update, pause or delete
+  schedules. Legacy wake/task modes remain available. See [the scheduling contract](docs/scheduling.md)
+  for the app adapter and recovery protocol.
 - Failures raise `BrainError` with `type` (`config_missing`, `rate_limit`,
   `auth_error`, `timeout`, `network`, `payload_too_large`, `brain_unreachable`, ...),
   `message` and `details`. A client from `connect()` starts the brain again when it vanished.
@@ -190,7 +193,7 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
 | `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` |
 | `journal` | `journal_search` |
 | `agents` | `agent_start`, `agent_message`, `agents_wait`, `agents_status`, `agent_stop` |
-| `schedule` | `schedule_create`, `schedule_list`, `schedule_delete` |
+| `schedule` | `schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete` |
 | `mcp:<server>` | the server's tools, as `mcp__<server>__<tool>` |
 | `plugins` | `plugin_list`, `plugin_install`, `plugin_reload`: the model writes its own plugins (installing always asks) |
 | `skills` | `skill_use` (sent with every request, like Claude's Skill tool), `skill_list`, `skill_delete`: her skills (see Skills) |
@@ -315,6 +318,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET /runs/{id}`, `GET /runs/{id}/events` | a run and what it waits for (`waiting`); its log, then live |
 | `POST /runs/{id}/answer`, `/cancel`, `/steer`, `/detach` | answer an approval, question or action (`result`, `images`); cancel at once (waits inside tools end, calls still running are left behind with a stopped result, a command in the foreground is ended, helpers stop too); steer: `input` for a turn that works, which reaches the model at its next step (waits end early, approvals it waits for are refused; 409 `ended` once the turn is over, and one that comes as it finishes is returned in `done` as `unread`); let a turn go on in the background |
 | `GET`/`POST /schedules`, `PATCH`/`DELETE /schedules/{id}` | schedules |
+| `GET /apps/{app}/scheduled?pending=1` | durable scheduled deliveries for the app |
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
 | `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
 | `GET /skills`, `DELETE /skills/{name}` | skills (`name`, `description`, `argument_hint`, `model_invocable`, `user_invocable`, `builtin`, `path`, `error`); removing one of the user's |

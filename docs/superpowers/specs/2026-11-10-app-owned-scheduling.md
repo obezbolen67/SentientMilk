@@ -1,0 +1,18 @@
+# App-owned scheduling
+
+The user requested implementation end-to-end, without subagents. Extend the current scheduler and normal turn workflow; keep the existing event log, permissions, approvals and app action bridge.
+
+## Contract
+
+- A schedule belongs to its creating app. The model gets no app-id argument: tool context supplies ownership. Its instructions must stand alone, without relying on the original conversation. The tool guide asks for a missing exact time rather than inventing one; "every morning" specifies daily frequency but not a clock time.
+- Each app-owned schedule creates one persistent `schedule-<id>` session. Subsequent occurrences reuse it. Original source-session settings are copied at creation, while current app persona/tools/rules continue to apply normally. Reports stay out of the user's original chat; the app can show its normal unread badge.
+- Store a named timezone with the schedule. Calendar rules follow local wall time and daylight-saving changes. Repeated-hour calendar slots run once (first occurrence); nonexistent clock times are skipped. Explicit nonexistent one-off times are rejected. Intervals remain fixed durations. Use stdlib zoneinfo plus tzlocal for reliable local-zone discovery and Windows tzdata.
+- A due app occurrence and advancement of its schedule are committed together with a durable notification. The occurrence snapshots its instructions, owner, target session and intended time. Due records have stable IDs and a unique schedule/time key. No overlapping runs: pending occurrences coalesce to the latest due time; a running occurrence causes the next slot to be recorded as skipped. Downtime catch-up is once or skip, never an unbounded replay.
+- App startup/reconnect recovers pending occurrences regardless of its notification cursor. The app passes the occurrence ID through its usual turn request. The backend atomically creates or reuses one normal run for that ID; an in-process stream ownership guard permits only one action consumer. A broken stream can be resumed. A mutating app action whose result was lost is reported as uncertain and must be inspected before repeating. Backend tool crash recovery keeps its existing safeguards.
+- The app handles model calls, streaming, approval prompts, app actions, file delivery and notifications through its existing workflow. SentientMilk does not launch arbitrary app commands. When an app is unavailable its work waits; normal reconnect dispatch resumes it.
+- Schedule creation/list/update/pause/resume/delete expose the normalized rule, timezone, destination session and occurrence status. Updates cancel obsolete pending occurrences. Pause/delete prevent future/pending execution while an already-running turn may finish. Deleting the dedicated session disables its schedule; deleting a recurrence preserves report history. Existing wake/task schedules keep their legacy semantics.
+- Failures remain visible in the scheduled session and occurrence history. Persisted state is authoritative; notifications are wakeups, not the sole delivery record.
+
+## Validation and release
+
+Test recurrence and DST, migration, transactional deduplication, coalescing/overlap, app/session isolation, disconnected consumers, action uncertainty, lifecycle controls and reports through MilkChan's actual worker/conversation path. Use temporary homes and fake providers for deterministic behavior, then a small isolated live-provider smoke check. Run complete suites/lint, commit/push both repos, update the pin and production packages as in the previous release. Do not use subagents or change the user's real schedules during tests.

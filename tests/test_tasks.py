@@ -158,7 +158,7 @@ def test_cron_finds_the_next_matching_minute():
 
 
 def test_wake_schedules_tell_the_app_and_missed_ones_fire_once(brain):
-    schedule = brain.client.create_schedule("milk", "every 1m", "stretch")
+    schedule = brain.client.create_schedule("milk", "every 1m", "stretch", mode='wake')
     brain.store.update_schedule(schedule["id"], next_at=time.time() - 1)
     brain.brain.scheduler._wake.set()
     fired = wait_for(lambda: [n for n in brain.store.notifications("milk") if n["type"] == "schedule.fired"])
@@ -175,7 +175,9 @@ def test_creating_a_schedule_from_chat_needs_approval(brain):
     asked = []
     brain.client.turn("cli", "main", "remind me to drink water", on_approval=lambda e: asked.append(e) or "allow")
     assert asked[0]["name"] == "schedule_create"
-    assert brain.client.schedules("cli")[0]["payload"] == {"mode": "wake", "text": "drink water"}
+    schedule = brain.client.schedules('cli')[0]
+    assert schedule['payload']['mode'] == 'app' and schedule['payload']['text'] == 'drink water'
+    assert schedule['execution_session'].startswith('schedule-')
 
 
 def test_task_schedules_start_background_tasks(brain):

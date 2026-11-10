@@ -1,5 +1,9 @@
 # SentientMilk v2: architecture
 
+Current scheduling (0.6.0, 2026-11-10): [app-owned scheduling](scheduling.md) supersedes the original
+wake/task-only design below. Apps now execute durable occurrences through normal turns in dedicated
+conversations, with named zones and restart/reconnect recovery.
+
 Status: built (version 0.4.0, 2026-11-06). Written 2026-11-05 as the design; section 17 lists
 where the build differs from it and what the evals measured.
 

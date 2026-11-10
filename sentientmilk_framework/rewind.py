@@ -114,7 +114,7 @@ def _work(store, app: str, session: str, target: dict) -> dict:
         options = run["options"]
         if run["session"] != session and (
                 (run["kind"] == "agent" and options.get("parent_session") == session) or
-                (run["kind"] == "task" and options.get("schedule") in fired) or run["parent"] in runs):
+                (run["kind"] in ('task', 'turn') and options.get("schedule") in fired) or run["parent"] in runs):
             runs[run["id"]] = run
     agents = [(int(name.split("-", 1)[1]), settings["agent"]) for name, settings in store.child_sessions(app, session)
               if settings["agent"].get("created", 0) >= since and not settings["agent"].get("stopped")]
@@ -127,7 +127,9 @@ def _files(brain, app: str, session: str, target: dict, work: dict) -> Tuple[Lis
     """(each file that changed since and what it goes back to, every version kept since). A file's first
     version since the message is how it was then: ``content`` None means it did not exist."""
     store, versions, first, gone = brain.store, [], {}, {}
-    for version in store.versions(app, session):
+    related = {session} | {run['session'] for run in work['runs'].values() if run['options'].get('occurrence')}
+    candidates = sorted((version for chat in related for version in store.versions(app, chat)), key=lambda v: v['id'])
+    for version in candidates:
         if version["session"] == session:
             ours = version["since"] >= target["id"]
         else:  # an agent's run may be gone with its agent: it still counts when it started since

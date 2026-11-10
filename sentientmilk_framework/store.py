@@ -42,11 +42,22 @@ CREATE TABLE IF NOT EXISTS schedules (
     spec TEXT NOT NULL, payload TEXT NOT NULL, next_at REAL, last_at REAL,
     catch_up TEXT NOT NULL, created_by TEXT NOT NULL, enabled INTEGER NOT NULL, created REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schedule_ids (id INTEGER PRIMARY KEY AUTOINCREMENT);
+INSERT OR IGNORE INTO schedule_ids(id) SELECT id FROM schedules;
 CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY, at REAL NOT NULL, app TEXT NOT NULL, session TEXT,
     type TEXT NOT NULL, data TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS notifications_by_app ON notifications(app, id);
+CREATE TABLE IF NOT EXISTS schedule_occurrences (
+    id INTEGER PRIMARY KEY, schedule INTEGER NOT NULL, app TEXT NOT NULL, session TEXT NOT NULL,
+    scheduled_at REAL NOT NULL, queued_at REAL NOT NULL, payload TEXT NOT NULL, late INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending', run INTEGER, finished_at REAL,
+    UNIQUE(schedule, scheduled_at)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS occurrence_active ON schedule_occurrences(schedule)
+    WHERE status IN ('pending', 'started');
+CREATE INDEX IF NOT EXISTS occurrences_by_app ON schedule_occurrences(app, status, id);
 CREATE TABLE IF NOT EXISTS memory (
     app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
     updated REAL NOT NULL, PRIMARY KEY (app, category, key)
@@ -207,6 +218,11 @@ class Store:
     def delete_session(self, app: str, session: str) -> None:
         """An agent's versions stay with the chat they were made for: a return there still restores them."""
         with self._db() as db:
+            db.execute("UPDATE schedules SET enabled = 0, next_at = NULL WHERE app = ? "
+                       "AND json_extract(payload, '$.mode') = 'app' AND json_extract(payload, '$.session') = ?",
+                       (app, session))
+            db.execute("UPDATE schedule_occurrences SET status = 'cancelled', finished_at = ? "
+                       "WHERE app = ? AND session = ? AND status = 'pending'", (time.time(), app, session))
             db.execute("DELETE FROM events WHERE app = ? AND session = ?", (app, session))
             db.execute("DELETE FROM runs WHERE app = ? AND session = ?", (app, session))
             db.execute("DELETE FROM sessions WHERE app = ? AND id = ?", (app, session))
@@ -443,6 +459,9 @@ class Store:
         with self._db() as db:
             db.execute(f"UPDATE runs SET {', '.join(f'{key} = ?' for key in columns)} WHERE id = ?",
                        (*columns.values(), run))
+            if fields.get('status') in ('completed', 'failed', 'cancelled'):
+                db.execute('UPDATE schedule_occurrences SET status = ?, finished_at = ? WHERE run = ?',
+                           (fields['status'], time.time(), run))
 
     # ============== Jobs ==============
 
@@ -481,8 +500,22 @@ class Store:
     def add_schedule(self, **fields: Any) -> int:
         fields = {**fields, "payload": dump(fields["payload"]), "created": time.time()}
         with self._db() as db:
-            return db.execute(f"INSERT INTO schedules({', '.join(fields)}) VALUES ({','.join('?' * len(fields))})",
-                              tuple(fields.values())).lastrowid
+            # Deleted recurrences retain conversations and audit records, so their ids cannot be recycled.
+            fields['id'] = db.execute('INSERT INTO schedule_ids DEFAULT VALUES').lastrowid
+            schedule_id = db.execute(f"INSERT INTO schedules({', '.join(fields)}) VALUES ({','.join('?' * len(fields))})",
+                                     tuple(fields.values())).lastrowid
+            payload = json.loads(fields['payload'])
+            if payload['mode'] == 'app':
+                payload['session'] = f'schedule-{schedule_id}'
+                source = db.execute('SELECT settings FROM sessions WHERE app = ? AND id = ?',
+                                    (fields['app'], fields['session'])).fetchone()
+                settings = {k: v for k, v in json.loads(source[0] if source else '{}').items()
+                            if k in ('instructions', 'cwd', 'roots', 'rules', 'disabled_toolkits')}
+                settings.update(title=payload['title'], schedule=schedule_id)
+                db.execute('UPDATE schedules SET payload = ? WHERE id = ?', (dump(payload), schedule_id))
+                db.execute('INSERT INTO sessions(app, id, settings, created) VALUES (?, ?, ?, ?)',
+                           (fields['app'], payload['session'], dump(settings), time.time()))
+            return schedule_id
 
     def schedules(self, app: Optional[str] = None, enabled_only: bool = False) -> List[dict]:
         query, params = f"SELECT {', '.join(self._SCHEDULE_KEYS)} FROM schedules WHERE 1=1", []
@@ -498,32 +531,132 @@ class Store:
             schedule = dict(zip(self._SCHEDULE_KEYS, row))
             schedule["payload"] = json.loads(schedule["payload"])
             schedule["enabled"] = bool(schedule["enabled"])
+            if schedule['payload']['mode'] == 'app':
+                schedule['execution_session'] = schedule['payload']['session']
+                schedule['timezone'] = schedule['payload']['timezone']
             result.append(schedule)
         return result
 
     def schedule(self, schedule: int) -> Optional[dict]:
         return next((s for s in self.schedules() if s["id"] == schedule), None)
 
-    def update_schedule(self, schedule: int, **fields: Any) -> None:
+    def update_schedule(self, schedule: int, *, cancel_pending: bool = False, **fields: Any) -> None:
         if "payload" in fields:
             fields["payload"] = dump(fields["payload"])
         with self._db() as db:
             db.execute(f"UPDATE schedules SET {', '.join(f'{key} = ?' for key in fields)} WHERE id = ?",
                        (*fields.values(), schedule))
+            if cancel_pending:
+                db.execute("UPDATE schedule_occurrences SET status = 'cancelled', finished_at = ? "
+                           "WHERE schedule = ? AND status = 'pending'", (time.time(), schedule))
 
     def delete_schedule(self, schedule: int) -> bool:
         with self._db() as db:
+            db.execute("UPDATE schedule_occurrences SET status = 'cancelled', finished_at = ? "
+                       "WHERE schedule = ? AND status = 'pending'", (time.time(), schedule))
             return db.execute("DELETE FROM schedules WHERE id = ?", (schedule,)).rowcount > 0
+
+    _OCCURRENCE_KEYS = ('id', 'schedule', 'app', 'session', 'scheduled_at', 'queued_at', 'payload',
+                        'late', 'status', 'run', 'finished_at')
+
+    @classmethod
+    def _occurrence(cls, row) -> Optional[dict]:
+        if row is None:
+            return None
+        found = dict(zip(cls._OCCURRENCE_KEYS, row))
+        found['payload'] = json.loads(found['payload'])
+        found['late'] = bool(found['late'])
+        return found
+
+    def occurrences(self, app: str, pending: bool = False, limit: int = 100) -> List[dict]:
+        clause = " AND status IN ('pending', 'started')" if pending else ''
+        with self._db() as db:
+            return [self._occurrence(row) for row in db.execute(
+                f"SELECT {', '.join(self._OCCURRENCE_KEYS)} FROM schedule_occurrences WHERE app = ?{clause} " +
+                ('ORDER BY id DESC' if pending else 'ORDER BY id DESC LIMIT ?'),
+                (app,) if pending else (app, limit))]
+
+    def occurrence(self, app: str, occurrence: int) -> Optional[dict]:
+        with self._db() as db:
+            return self._occurrence(db.execute(f"SELECT {', '.join(self._OCCURRENCE_KEYS)} FROM "
+                                              'schedule_occurrences WHERE app = ? AND id = ?',
+                                              (app, occurrence)).fetchone())
+
+    def start_scheduled_run(self, app: str, session: str, occurrence: int, context: dict,
+                            max_steps: Optional[int]) -> tuple:
+        with self._db() as db:
+            found = self._occurrence(db.execute(f"SELECT {', '.join(self._OCCURRENCE_KEYS)} FROM "
+                'schedule_occurrences WHERE app = ? AND session = ? AND id = ?', (app, session, occurrence)).fetchone())
+            if found is None:
+                raise ValueError('No scheduled occurrence belongs to this app and session')
+            if found['run'] is not None:
+                if not db.execute('SELECT 1 FROM runs WHERE id = ?', (found['run'],)).fetchone():
+                    raise ValueError('The original scheduled run was removed')
+                return found['run'], False
+            if found['status'] != 'pending':
+                raise ValueError('This scheduled occurrence is no longer pending')
+            if db.execute("SELECT 1 FROM runs WHERE app = ? AND session = ? AND status IN "
+                          "('queued', 'working', 'input_required') LIMIT 1", (app, session)).fetchone():
+                raise ValueError('The scheduled conversation is busy; this occurrence remains queued')
+            payload = found['payload']
+            options = {'input': [{'type': 'event', 'name': 'scheduled',
+                'text': f"Scheduled instructions: {payload['title']}. Complete them and report the result here.",
+                'data': {'schedule': found['schedule'], 'occurrence': occurrence,
+                         'scheduled_at': found['scheduled_at'], 'timezone': payload['timezone'], 'late': found['late']}},
+                {'type': 'text', 'text': payload['text']}], 'context': context, 'reply': 'required',
+                'occurrence': occurrence, 'schedule': found['schedule']}
+            if max_steps is not None:
+                options['max_steps'] = max_steps
+            now = time.time()
+            run = db.execute("INSERT INTO runs(app, session, kind, status, options, created, updated) "
+                             "VALUES (?, ?, 'turn', 'queued', ?, ?, ?)",
+                             (app, session, dump(options), now, now)).lastrowid
+            db.execute("UPDATE schedule_occurrences SET status = 'started', run = ? WHERE id = ?", (run, occurrence))
+            return run, True
+
+    def queue_schedule(self, schedule: int, expected: float, now: float, next_at: Optional[float],
+                       late: bool = False, skip: bool = False) -> Optional[dict]:
+        """The due claim, occurrence, wakeup and next time commit together; retries cannot lose or duplicate work."""
+        with self._db() as db:
+            row = db.execute('SELECT app, payload, next_at, enabled FROM schedules WHERE id = ?',
+                             (schedule,)).fetchone()
+            if row is None or not row[3] or row[2] != expected:
+                return None
+            app, payload = row[0], json.loads(row[1])
+            active = db.execute("SELECT id, status, payload FROM schedule_occurrences WHERE schedule = ? "
+                                "AND status IN ('pending', 'started')", (schedule,)).fetchone()
+            state = 'skipped' if skip or (active and active[1] == 'started') else 'pending'
+            if active and active[1] == 'pending' and not skip:
+                occurrence = active[0]
+                payload['coalesced'] = json.loads(active[2]).get('coalesced', 0) + 1
+                db.execute('UPDATE schedule_occurrences SET scheduled_at = ?, payload = ?, late = 1 WHERE id = ?',
+                           (expected, dump(payload), occurrence))
+            else:
+                if state == 'skipped':
+                    payload['reason'] = 'missed while stopped' if skip else 'previous occurrence still running'
+                occurrence = db.execute('INSERT INTO schedule_occurrences(schedule, app, session, scheduled_at, '
+                    'queued_at, payload, late, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (schedule, app, payload['session'], expected, now, dump(payload), int(late), state)).lastrowid
+            db.execute('UPDATE schedules SET last_at = ?, next_at = ?, enabled = ? WHERE id = ?',
+                       (now, next_at, int(next_at is not None), schedule))
+            if state == 'pending':
+                return self._notify(db, app, payload['session'], 'schedule.ready', {'occurrence': occurrence,
+                                    'schedule': schedule, 'session': payload['session']})
+            return None
 
     # ============== Notifications ==============
 
     def notify(self, app: str, session: Optional[str], type: str, data: dict) -> dict:
-        at = time.time()
         with self._db() as db:
-            nid = db.execute("INSERT INTO notifications(at, app, session, type, data) VALUES (?, ?, ?, ?, ?)",
-                             (at, app, session, type, dump(data))).lastrowid
-            db.execute("DELETE FROM notifications WHERE at < ? OR (app = ? AND id <= ?)",
-                       (at - NOTIFICATION_DAYS * 86400, app, nid - NOTIFICATIONS_PER_APP))
+            return self._notify(db, app, session, type, data)
+
+    @staticmethod
+    def _notify(db, app: str, session: Optional[str], type: str, data: dict) -> dict:
+        at = time.time()
+        nid = db.execute("INSERT INTO notifications(at, app, session, type, data) VALUES (?, ?, ?, ?, ?)",
+                         (at, app, session, type, dump(data))).lastrowid
+        db.execute("DELETE FROM notifications WHERE at < ? OR (app = ? AND id <= ?)",
+                   (at - NOTIFICATION_DAYS * 86400, app, nid - NOTIFICATIONS_PER_APP))
         return {"id": nid, "at": at, "app": app, "session": session, "type": type, "data": data}
 
     def notifications(self, app: str, after: int = 0) -> List[dict]:

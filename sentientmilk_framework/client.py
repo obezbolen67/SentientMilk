@@ -229,7 +229,7 @@ class BrainClient:
              items: Optional[List[dict]] = None, context: Optional[Dict[str, str]] = None, reply: str = "required",
              max_steps: Optional[int] = None, on_event: Optional[Callable[[dict], None]] = None,
              on_approval: Optional[Callable[[dict], Any]] = None,
-             on_action: Optional[Callable[[dict], Any]] = None) -> dict:
+             on_action: Optional[Callable[[dict], Any]] = None, occurrence: Optional[int] = None) -> dict:
         """One turn. Events reach ``on_event`` as they happen. ``on_approval(event)`` answers approval
         requests with "allow", "always", "deny" or ("deny", reason); without it they are denied.
         ``on_action(event)`` runs a declared action (``event["name"]``, ``event["arguments"]``) and
@@ -241,6 +241,8 @@ class BrainClient:
         if image:
             inputs.append({"type": "image", "url": image})
         payload = {"input": inputs, "context": context or {}, "reply": reply}
+        if occurrence is not None:
+            payload['occurrence'] = occurrence
         if max_steps:
             payload["max_steps"] = max_steps
         tools: List[dict] = []
@@ -343,10 +345,18 @@ class BrainClient:
     def schedules(self, app: Optional[str] = None) -> List[dict]:
         return self._call("GET", "/schedules", params={"app": app} if app else None)["schedules"]
 
-    def create_schedule(self, app: str, when: str, text: str, mode: str = "wake", session: str = "main",
-                        catch_up: str = "once") -> dict:
+    def create_schedule(self, app: str, when: str, text: str, mode: str = "app", session: str = "main",
+                        catch_up: str = "once", timezone: Optional[str] = None, title: str = '') -> dict:
         return self._call("POST", "/schedules", {"app": app, "session": session, "when": when, "text": text,
-                                                 "mode": mode, "catch_up": catch_up})
+                          "mode": mode, "catch_up": catch_up, 'timezone': timezone, 'title': title})
+
+    def scheduled_occurrences(self, app: str, pending: bool = True) -> List[dict]:
+        """App-owned deliveries: pending/recoverable by default, or the latest occurrence history."""
+        return self._call('GET', f'/apps/{app}/scheduled', params={'pending': '1' if pending else '0'})['occurrences']
+
+    def update_schedule(self, schedule: int, **changes: Any) -> dict:
+        """Change when, text, title, timezone, catch_up or enabled; obsolete queued work is cancelled."""
+        return self._call('PATCH', f'/schedules/{schedule}', changes)
 
     def enable_schedule(self, schedule: int, enabled: bool) -> dict:
         return self._call("PATCH", f"/schedules/{schedule}", {"enabled": enabled})

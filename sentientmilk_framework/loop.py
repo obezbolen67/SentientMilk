@@ -806,6 +806,8 @@ class Loop:
     def _end(self, run: dict, status: str, emit, reply: str = "", signals: Optional[dict] = None,
              silent: bool = False, error: Optional[BrainError] = None, extra: Optional[dict] = None) -> None:
         store = self.brain.store
+        if error and run['options'].get('occurrence'):
+            reply = 'This scheduled task could not finish: ' + error.message
         result = {"reply": reply, "signals": signals or {}, "silent": silent, **(extra or {})}
         with self.brain.runs.steer_lock:  # a message that came too late goes back to the app, unread
             unread = store.run(run["id"])["options"].get("steer") or []

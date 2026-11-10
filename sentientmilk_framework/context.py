@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+from tzlocal import get_localzone
+
 from . import signals as signal_format
 from .toolkits.todo import render as render_todo
 
@@ -201,7 +203,8 @@ def snapshot(store, profile: dict) -> dict:
 def input_content(items: List[dict], context: Dict[str, str], *, reminders: List[str]) -> tuple:
     """(content for the model, text for the transcript). Time and context lead, reminders close it."""
     stamp = time.strftime("%Y-%m-%d %H:%M (%A)")
-    head = "[Context: " + " | ".join([f"time: {stamp}"] + [f"{k}: {v}" for k, v in context.items()]) + "]"
+    head = "[Context: " + " | ".join([f"time: {stamp}", f'local timezone: {get_localzone().key}']
+                                    + [f"{k}: {v}" for k, v in context.items()]) + "]"
     texts, images, display, cards = [head], [], [], []
     for item in items:
         if item["type"] == "mention":

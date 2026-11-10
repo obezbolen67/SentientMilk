@@ -31,8 +31,8 @@ def test_requests_carry_the_core_tools_and_list_the_rest(brain):
                                       'history_read', 'history_search', 'context_compact'}
     assert all(other["tools"] == first["tools"] for other in others)  # one tool list: the cache keeps hitting
     listed = system(first).split("## YOUR TOOLS", 1)[1]
-    assert "- schedule [part of you] (Reminders and recurring tasks.): load: schedule_create(when, text, mode?), " \
-        "schedule_list(), schedule_delete(id)" in listed
+    assert 'schedule_create(when, text, mode?, timezone?, title?)' in listed
+    assert 'schedule_update(id, when?, text?, timezone?, title?, enabled?)' in listed
     assert "files_edit(path, old, new, all?)" in listed  # called right before it is loaded
     # one map of all it can do: the tools sent by name, the others to load with their parameters
     assert "- files (Read, search and change files in the folders opened to you.): files_read, files_search; " \
