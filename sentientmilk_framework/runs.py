@@ -185,7 +185,7 @@ class Runs:
             run = self.store.run(run_id)
             if created or run['status'] == 'queued':
                 self.spawn(run_id)
-            elif run['status'] == 'input_required':
+            elif run['status'] in ('working', 'input_required'):
                 actions = {a['name']: a for a in self.brain.profile(app, session)['actions']}
                 for waiting in self.waiting(run_id):
                     if waiting['kind'] == 'action' and not actions.get(waiting['name'], {}).get('readonly'):

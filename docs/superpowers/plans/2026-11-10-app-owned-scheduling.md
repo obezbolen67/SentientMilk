@@ -28,3 +28,8 @@ Ruff checks passed. Phone client 22 tests, lint and typecheck passed. Self-revie
 outbox failure, stream ownership/replay races, ID reuse, legacy migration, session deletion and rewind.
 Versions: SentientMilk 0.6.0 and MilkChan 1.1.0. Release/install evidence is recorded in the release
 response after production verification, since those steps follow these committed sources.
+
+Final reconnect review reproduced an action emitted just before the run entered input_required.
+The uncertain-mutation check now also covers working runs. The regression first failed by executing
+the action a second time; all four read-only/mutating and working/paused combinations pass after
+the correction. Production packages are rebuilt from this correction before installation.

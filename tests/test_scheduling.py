@@ -202,7 +202,8 @@ def test_only_one_live_app_connection_may_consume_an_occurrence(brain):
 
 
 @pytest.mark.parametrize('readonly', [False, True])
-def test_reconnect_restores_readonly_actions_and_does_not_blindly_repeat_mutations(brain, readonly, monkeypatch):
+@pytest.mark.parametrize('transitioning', [False, True])
+def test_reconnect_restores_readonly_actions_and_does_not_blindly_repeat_mutations(brain, readonly, transitioning, monkeypatch):
     brain.client.declare_app('milk', name='Milk', toolkits=['memory'], actions=[{
         'name': 'screen_action', 'readonly': readonly, 'policy': 'auto'}])
     _, item = queued_schedule(brain)
@@ -213,6 +214,16 @@ def test_reconnect_restores_readonly_actions_and_does_not_blindly_repeat_mutatio
     brain.store.add_event('milk', item['session'], run, 'action_request', {
         'name': 'screen_action', 'arguments': {}, 'call_id': 'action-1'})
     brain.store.update_run(run, status='input_required')
+    if transitioning:
+        original_run = brain.store.run
+        observed = []
+        def before_pause(run_id):
+            found = original_run(run_id)
+            if run_id == run and not observed:
+                observed.append(True)
+                return {**found, 'status': 'working'}  # the emitted action request precedes pausing the run
+            return found
+        monkeypatch.setattr(brain.store, 'run', before_pause)
     original = brain.brain.runs.waiting
     queued = []
     def racing_request(run_id):
