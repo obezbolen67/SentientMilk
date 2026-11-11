@@ -4,5 +4,5 @@ from .client import BrainClient, connect, default_home
 from .config import DEFAULT_BASE_URL, DEFAULT_MODEL
 from .exceptions import BrainError
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 __all__ = ["DEFAULT_BASE_URL", "DEFAULT_MODEL", "BrainClient", "BrainError", "connect", "default_home"]

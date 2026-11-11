@@ -286,6 +286,12 @@ def test_a_session_tells_how_full_its_context_is(brain):
     assert brain.client.session("milk", "main")["context"]["used"] == 0  # a new conversation holds nothing yet
 
 
+def test_reading_a_session_never_used_does_not_make_it(brain):
+    info = brain.client.session("milk", "chat-new")
+    assert info["context"]["used"] == 0 and info["todo"] == [] and info["created"] is None
+    assert "chat-new" not in [session["id"] for session in brain.client.sessions("milk")]
+
+
 def test_the_discovery_file_goes_and_comes_while_an_app_reads_it(tmp_path):
     """Windows refuses to delete or replace a file another process has open at that instant."""
     home = tmp_path / "home"

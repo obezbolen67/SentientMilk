@@ -58,6 +58,16 @@ def test_allow_always_saves_a_rule_for_the_app(brain):
     assert asked == [] and "one" in tool_results(brain.provider.sent[3])["s2"]
 
 
+def test_a_relative_path_meets_the_rules_where_the_file_tools_put_it(brain):
+    """No working folder set: the file tools start in the first open folder, and so do the rules' paths."""
+    brain.client.update_session("cli", "loose", roots=[str(brain.work)])
+    brain.client.update_app("cli", rules={"deny": [f"files_write({brain.work.as_posix()}/private/*)"]})
+    brain.provider.replies += [tool_call("files_write", {"path": "private/key.txt", "content": "x"}, "w1"), "no"]
+    brain.client.turn("cli", "loose", "write it", on_approval=lambda event: "allow")
+    assert not (brain.work / "private" / "key.txt").exists()
+    assert "not allowed here" in tool_results(brain.provider.sent[1])["w1"]
+
+
 def test_app_actions_run_in_the_app(brain):
     brain.client.declare_app("bot", name="Bot", toolkits=[], actions=[
         {"name": "wave", "description": "Wave at the user.", "core": True, "parameters": {

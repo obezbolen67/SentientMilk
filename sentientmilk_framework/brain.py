@@ -277,7 +277,8 @@ class Brain:
             "signals": {} if overrides.get("signals") is False else signal_format.validate(declaration.get("signals", {})),
             "actions": declaration.get("actions", []),
             "toolkits": toolkits, "rules": rules, "roots": list(dict.fromkeys(roots)),
-            "cwd": overrides.get("cwd") or session_settings.get("cwd"), "journal": journal,
+            # the first open folder when none was set: the file tools and the rules' paths start in the same place
+            "cwd": overrides.get("cwd") or session_settings.get("cwd") or next(iter(roots), None), "journal": journal,
             "model": settings.get("model") or values["model"], "light_model": values["light_model"],
             "context_window": values["context_window"], "callbacks": bool(declaration.get("callbacks")),
             "super": self.superagents.label() if self.superagents.ready() else "",  # its agents can be Claude
@@ -398,7 +399,10 @@ class Brain:
                 self.note(app, session, text)
 
     def session_info(self, app: str, session: str) -> dict:
-        record = self.store.session(validate_name(app, "app id"), validate_name(session, "session id"))
+        """What a session holds. One never used reads as empty and is not made: an app showing a new chat's
+        context meter left an empty session behind for each new chat the user opened."""
+        record = self.store.find_session(validate_name(app, "app id"), validate_name(session, "session id")) or \
+            {"settings": {}, "state": {}, "created": None}
         state = record["state"]
         return {"app": app, "id": session, "settings": record["settings"], "todo": state.get("todo", []),
                 "session_memory": session_memory(state),

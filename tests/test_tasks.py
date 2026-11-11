@@ -6,8 +6,8 @@ import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework import context, scheduler
-from sentientmilk_framework.toolkits import schedule as schedule_kit
 from sentientmilk_framework.testing import tool_call
+from sentientmilk_framework.toolkits import schedule as schedule_kit
 
 
 def test_a_task_works_in_its_own_session_and_reports_back(brain):
