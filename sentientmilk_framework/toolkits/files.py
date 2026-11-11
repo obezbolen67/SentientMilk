@@ -162,7 +162,8 @@ def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_L
         from .. import transport
 
         data = base64.b64encode(target.read_bytes()).decode("ascii")
-        url = transport.encode_image(f"data:{IMAGES[target.suffix.lower()]};base64,{data}", transport.IMAGE)
+        url = transport.encode_image(f"data:{IMAGES[target.suffix.lower()]};base64,{data}",
+                                     ctx.brain.config.values()["image_pixels"])
         _remember_read(ctx, target)
         return ToolResult(f"{target} is an image; it is attached below.", [url])
     with open(target, "rb") as source:

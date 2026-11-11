@@ -561,8 +561,10 @@ project-level skill folders, and `!command` expansion.
   differs from the previous one at the previous user message, and the provider re-reads
   that whole turn, tool results included, without the cache. Storing the tail fixes that.
   The transcript still hides it.
-- Images: only the newest few are sent, at least 3 and fewer than 7: the newest at 768 px, the
-  others as 256 px thumbnails, and older ones become the note "[Earlier screenshot omitted.]",
+- Images: only the newest few are sent, at least 3 and fewer than 7: the newest step's as the
+  model sees them (`image_pixels`, 1.6 MP by default: 1600×1000 of a 2560×1600 screen; 768 px
+  until 0.9, where the default model read none of a screen's small text, see transport.py), the
+  others as 256×160 thumbnails, and older ones become the note "[Earlier screenshot omitted.]",
   four at a time. The provider reads every image of a request again, cached or not: on
   2026-11-07 MilkChan's RimWorld turn carried 42 thumbnails and each call took 47-83 s; the
   same request took 47 s to its first token with them, 14 s without them, while a tiny request

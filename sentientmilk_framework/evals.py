@@ -25,7 +25,7 @@ from .config import BrainConfig
 
 TASKS_DIR = Path(__file__).parent / "eval_tasks"
 COPIED_SETTINGS = ("api_key", "base_url", "model", "light_model", "web_search_key", "thinking_mode",
-                   "thinking_tokens", "context_window", "vision", "request_budget")
+                   "thinking_tokens", "context_window", "vision", "image_pixels", "request_budget")
 DEFAULT_TOOLKITS = ["files", "shell", "web", "todo", "agents", "schedule"]  # and memory, as every app
 
 

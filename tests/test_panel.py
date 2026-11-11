@@ -44,6 +44,8 @@ def test_the_panel_shows_the_brain_and_saves_the_provider(brain):
         await press(pilot, panel, "p-save")
         assert brain.brain.config.values()["model"] != "another-model"  # nothing saved with a bad field
         panel.query_one("#p-budget", Input).value = "512"
+        assert panel.query_one("#p-pixels", Input).value == "1600"  # thousand pixels: what the model sees
+        panel.query_one("#p-pixels", Input).value = "0"
         assert panel.query_one("#p-super-model", Select).value == "claude-opus-5-5"  # the default: Opus 5.5, high
         panel.query_one("#p-super-model", Select).value = "claude-sonnet-5-5"
         panel.query_one("#p-super-effort", Select).value = "max"
@@ -54,6 +56,7 @@ def test_the_panel_shows_the_brain_and_saves_the_provider(brain):
     values = brain.brain.config.values()
     assert (values["model"], values["api_key"], values["request_budget"]) == ("another-model", "sk-replaced", 512 * 1024)
     assert (values["super_model"], values["super_effort"]) == ("claude-sonnet-5-5", "max")
+    assert values["image_pixels"] == 0  # pictures go as the apps send them
 
 
 def test_apps_get_their_persona_and_toolkits_and_memory_is_forgotten_in_its_tab(brain):

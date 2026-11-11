@@ -353,7 +353,8 @@ class _Handler(BaseHTTPRequestHandler):
         occurrence = body.get('occurrence')
         if occurrence is not None and (type(occurrence) is not int or occurrence < 1):
             raise ValueError('occurrence must be a positive whole number')
-        items = validate_items(body.get("input")) if occurrence is None else []
+        pixels = self.server.brain.config.values()["image_pixels"]
+        items = validate_items(body.get("input"), pixels) if occurrence is None else []
         context = body.get("context") or {}
         if not isinstance(context, dict) or not all(isinstance(v, str) for v in context.values()):
             raise ValueError("context must map names to strings")
@@ -519,7 +520,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"status": "ok"})
         elif rest == ["steer"] and method == "POST":
             try:
-                brain.runs.steer(run_id, validate_items(body.get("input")))
+                brain.runs.steer(run_id, validate_items(body.get("input"), brain.config.values()["image_pixels"]))
             except BrainError as exc:
                 return self._fail(409, exc.type, exc.message) or True
             self._send(200, {"status": "ok"})

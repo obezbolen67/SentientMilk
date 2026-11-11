@@ -81,15 +81,18 @@ def test_app_actions_run_in_the_app(brain):
 def test_an_action_can_answer_with_a_picture_the_model_then_sees(brain):
     brain.client.declare_app("eye", name="Eye", toolkits=["tasks"], actions=[
         {"name": "screenshot", "description": "See the screen.", "readonly": True}])
-    picture = Image.effect_noise((1600, 900), 60).convert("RGB")
+    picture = Image.effect_noise((2560, 1600), 60).convert("RGB")
     output = io.BytesIO()
     picture.save(output, "PNG")
     shot = "data:image/png;base64," + base64.b64encode(output.getvalue()).decode()
     brain.provider.replies += [tool_call("screenshot", {}, "s1"), "I see noise.",
                                tool_call("screenshot", {}, "s2"), "I could not look."]
 
+    asked = []
     assert brain.client.turn("eye", "main", "what's on my screen?",
-                             on_action=lambda event: ("The screen now.", [shot]))["reply"] == "I see noise."
+                             on_action=lambda event: asked.append(event) or ("The screen now.", [shot]))["reply"] == \
+        "I see noise."
+    assert asked[0]["image_pixels"] == 1_600_000  # what the model sees: an app fits its pictures to it
     first, second = brain.provider.sent[0], brain.provider.sent[1]
     assert not any(b.get("type") == "image_url" for m in first["messages"] if isinstance(m["content"], list)
                    for b in m["content"])  # nothing is sent before the model asks
@@ -98,7 +101,7 @@ def test_an_action_can_answer_with_a_picture_the_model_then_sees(brain):
     assert after["role"] == "user" and after["content"][1]["type"] == "image_url"
     sent = after["content"][1]["image_url"]["url"]
     with Image.open(io.BytesIO(base64.b64decode(sent.split(",", 1)[1]))) as seen:
-        assert max(seen.size) <= 768  # stored small, like the images of a turn's input
+        assert seen.size == (1600, 1000)  # stored as the model sees it, like the images of a turn's input
 
     def broken(event):
         raise RuntimeError("the screen is locked")

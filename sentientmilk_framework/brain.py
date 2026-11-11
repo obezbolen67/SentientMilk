@@ -96,9 +96,10 @@ def validate_declaration(data: Any) -> dict:
     return data
 
 
-def validate_items(items: Any) -> List[dict]:
-    """Turn input: text, image (data URL), event, mention and skill items; images are stored at the size they
-    are sent, mentions become their cards and skills (the user's /name) their instructions when the turn starts."""
+def validate_items(items: Any, image_pixels: int = transport.IMAGE_PIXELS) -> List[dict]:
+    """Turn input: text, image (data URL), event, mention and skill items; images are stored at most
+    ``image_pixels`` big (what the model sees), mentions become their cards and skills (the user's /name) their
+    instructions when the turn starts."""
     if not isinstance(items, list) or not items:
         raise ValueError("input must be a non-empty list of items")
     result = []
@@ -111,7 +112,7 @@ def validate_items(items: Any) -> List[dict]:
             result.append({"type": "text", "text": item["text"]})
         elif item["type"] == "image":
             url = transport.validate_image(item.get("url") or item.get("data"))
-            result.append({"type": "image", "url": transport.encode_image(url, transport.IMAGE)})
+            result.append({"type": "image", "url": transport.encode_image(url, image_pixels)})
         elif item["type"] == "mention":
             if item.get("kind") not in mentions.KINDS:
                 raise ValueError(f"mention kind must be one of: {', '.join(mentions.KINDS)}")

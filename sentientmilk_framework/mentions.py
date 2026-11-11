@@ -332,7 +332,7 @@ def attachment(brain, app: str, session: str, ref: str, pictures: int = 0) -> tu
     except ValueError:
         return f"{head}: only its path, as it does not read as a picture]", None
     return f"{head}: picture {pictures + 1} with this message]", {
-        "type": "image", "url": transport.encode_image(url, transport.IMAGE)}
+        "type": "image", "url": transport.encode_image(url, brain.config.values()["image_pixels"])}
 
 
 def _open_to(brain, app: str, session: str, path: Path) -> None:

@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .thinking import thinking_request_options
-from .transport import DEFAULT_BUDGET
+from .transport import DEFAULT_BUDGET, IMAGE_PIXELS
 
 # The provider and model used when the user does not choose their own.
 DEFAULT_BASE_URL = "https://api.refuseless.com/v1"
@@ -29,6 +29,7 @@ DEFAULTS = {
     "thinking_mode": "default",
     "thinking_tokens": 4096,
     "vision": True,  # the model accepts images
+    "image_pixels": IMAGE_PIXELS,  # the most of a picture the model sees: pictures go fitted to it (0: as sent)
     "request_budget": DEFAULT_BUDGET,
     "stream": True,
     "web_search_key": "",
@@ -45,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 SECRETS = ("api_key", "web_search_key")
 MIN_BUDGET, MAX_BUDGET = 128 * 1024, 16 * 1024 * 1024
+MIN_PIXELS = 65_536  # 256 x 256
+OLD_BUDGET = 800 * 1024  # the default before 0.9: saved with the rest, it is not a choice of the user's
 SHELLS = ("", "powershell", "pwsh", "bash", "sh", "cmd")
 RULE_KINDS = ("allow", "ask", "deny")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")  # Claude Code's --effort
@@ -81,6 +84,8 @@ def validate_setting(key, value):
             raise ValueError("base_url must be an http(s) URL")
     elif key == "request_budget" and not MIN_BUDGET <= value <= MAX_BUDGET:
         raise ValueError(f"request_budget must be between {MIN_BUDGET} and {MAX_BUDGET} bytes")
+    elif key == "image_pixels" and 0 < value < MIN_PIXELS:
+        raise ValueError(f"image_pixels must be 0 (pictures go as they are) or at least {MIN_PIXELS}")
     elif key == "context_window" and not 4096 <= value <= 10_000_000:
         raise ValueError("context_window must be between 4096 and 10000000 tokens")
     elif key == "task_workers" and not 1 <= value <= 16:
@@ -109,6 +114,8 @@ class BrainConfig:
             stored = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(stored, dict):
                 raise ValueError("top level is not an object")
+            if stored.get("request_budget") == OLD_BUDGET:
+                del stored["request_budget"]
             self._values.update({key: validate_setting(key, stored[key]) for key in DEFAULTS if key in stored})
         except (OSError, ValueError) as exc:
             # Keep the unreadable file so a later save cannot destroy its contents.

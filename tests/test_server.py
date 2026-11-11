@@ -41,12 +41,23 @@ def test_settings_hide_secrets_and_reject_bad_values_whole(brain):
     assert "sk-test-secret" not in json.dumps(public)
     for bad in ({"base_url": "ftp://x"}, {"vision": "yes"}, {"colour": "red"}, {"shell": "fish"},
                 {"thinking_mode": "tokens", "thinking_tokens": 0}, {"request_budget": 10},
-                {"rules": {"allow": [""]}}, {"context_window": 10}):
+                {"rules": {"allow": [""]}}, {"context_window": 10}, {"image_pixels": 5}):
         with pytest.raises(BrainError) as caught:
             brain.client.update_config(model="changed", **bad)
         assert caught.value.type == "bad_request"
     assert brain.client.config()["model"] == ""
     assert json.loads((brain.home / "config.json").read_text())["api_key"] == "sk-test-secret"
+
+
+def test_the_old_default_request_budget_gives_way_to_the_new_one(tmp_path):
+    from sentientmilk_framework.config import BrainConfig
+    from sentientmilk_framework.transport import DEFAULT_BUDGET
+
+    (tmp_path / "config.json").write_text(json.dumps({"request_budget": 800 * 1024, "image_pixels": 0}))
+    values = BrainConfig(tmp_path / "config.json").values()
+    assert values["request_budget"] == DEFAULT_BUDGET == 8 * 1024 * 1024 and values["image_pixels"] == 0
+    (tmp_path / "config.json").write_text(json.dumps({"request_budget": 512 * 1024}))
+    assert BrainConfig(tmp_path / "config.json").values()["request_budget"] == 512 * 1024  # a choice stays
 
 
 def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
@@ -116,11 +127,11 @@ def test_optional_replies_may_stay_silent(brain):
 
 def test_screenshots_are_sent_stored_small_and_switchable(brain):
     brain.provider.replies += ['{"expression": "arms_down/smile"}\nI see red', '{"expression": "arms_down/smile"}\nok']
-    turn(brain, "milk", "look", image=png((1600, 900)))
+    turn(brain, "milk", "look", image=png((2560, 1600)))
     blocks = brain.provider.sent[0]["messages"][-1]["content"]
     image = next(b for b in blocks if b["type"] == "image_url")["image_url"]["url"]
     with Image.open(io.BytesIO(base64.b64decode(image.split(",", 1)[1]))) as picture:
-        assert max(picture.size) == 768
+        assert picture.size == (1600, 1000)  # what the default model sees, no more
     brain.client.update_config(vision=False)
     turn(brain, "milk", "and now?")
     assert "image_url" not in json.dumps(brain.provider.sent[1]["messages"])

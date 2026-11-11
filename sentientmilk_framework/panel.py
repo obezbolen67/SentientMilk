@@ -418,6 +418,8 @@ class Panel(App):
                     yield Input(type="integer", id="p-context")
                     yield Label("Send images")
                     yield Switch(id="p-vision")
+                    yield Label("Picture size the model sees (thousand pixels; 0: as sent)")
+                    yield Input(type="integer", id="p-pixels")
                     yield Label("Stream replies")
                     yield Switch(id="p-stream")
                     yield Label("Request size limit (KiB)")
@@ -754,6 +756,7 @@ class Panel(App):
         self.main.query_one("#p-thinking-tokens", Input).value = str(settings["thinking_tokens"])
         self.main.query_one("#p-context", Input).value = str(settings["context_window"])
         self.main.query_one("#p-vision", Switch).value = settings["vision"]
+        self.main.query_one("#p-pixels", Input).value = str(settings["image_pixels"] // 1000)
         self.main.query_one("#p-stream", Switch).value = settings["stream"]
         self.main.query_one("#p-budget", Input).value = str(settings["request_budget"] // 1024)
         model = self.main.query_one("#p-super-model", Select)
@@ -775,6 +778,7 @@ class Panel(App):
                 "thinking_tokens": number(self.main.query_one("#p-thinking-tokens", Input), "Thinking tokens"),
                 "context_window": number(self.main.query_one("#p-context", Input), "Context window"),
                 "vision": self.main.query_one("#p-vision", Switch).value,
+                "image_pixels": number(self.main.query_one("#p-pixels", Input), "Picture size") * 1000,
                 "stream": self.main.query_one("#p-stream", Switch).value,
                 "request_budget": number(self.main.query_one("#p-budget", Input), "Request size limit") * 1024,
                 "super_model": self.main.query_one("#p-super-model", Select).value,

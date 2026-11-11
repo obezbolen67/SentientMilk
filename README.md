@@ -49,7 +49,8 @@ none runs and shows it live:
 
 - **Overview**: state, address, uptime, the provider, token use per app, tasks, schedules.
 - **Provider**: service URL, model (with a model list from the service), keys (write-only),
-  thinking, context window, images, streaming, request budget, shell.
+  thinking, context window, images and the picture size the model sees, streaming, request budget,
+  shell.
 - **Apps**: each connected app's persona, model, toolkits and conversations.
 - **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: what the brain remembers for
   every app (with the app that saved each entry), where single entries can be forgotten, and the
@@ -152,7 +153,9 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
 - **Actions** are tools the app runs itself, offered in turns only (the app is there to
   run them). The model calls one, the turn emits `action.requested`, and `on_action(event)`
   returns the result, or `(text, [image data URLs])`: the images reach the model right
-  after the result, stored small like input images. MilkChan's `screenshot` is one: the
+  after the result, stored as the model sees them, like input images. The event carries
+  `image_pixels`: an app that makes its pictures no bigger has them sent as they are, so points
+  in them stay exact. MilkChan's `screenshot` is one: the
   model looks at the screen only when a message needs it. An action declared with
   `"policy": "ask"` passes the same rules and approvals as a tool before the app runs it
   (MilkChan's `computer_act`).
@@ -338,7 +341,8 @@ key is only ever sent to the stored `base_url`.
 `api_key`, `base_url`, `model`, `light_model` (summaries, journal notes, helpers; empty:
 the same as `model`), `context_window` (128000), `thinking_mode` (`default`, `none`,
 `minimal`, `low`, `medium`, `high`, `xhigh` or `tokens`), `thinking_tokens`, `vision`,
-`request_budget` (bytes per request, 800 KiB), `stream`, `web_search_key`, `shell`,
+`image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
+sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, `web_search_key`, `shell`,
 `task_workers` (2), `rules`, `disabled_toolkits`.
 
 ## Development

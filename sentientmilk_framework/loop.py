@@ -503,7 +503,9 @@ class Loop:
     def _ask(self, run: dict, kind: str, call: dict, name: str, arguments: dict, emit, always_ask: bool = False) -> None:
         """``always_ask``: the user must answer, even in an app that allows everything on its own."""
         request = {"call_id": call["id"], "name": name, "arguments": arguments,
-                   **({"always_ask": True} if always_ask else {})}
+                   **({"always_ask": True} if always_ask else {}),
+                   # an app's pictures fitted to what the model sees reach it as they are: their points stay exact
+                   **({"image_pixels": self.brain.config.values()["image_pixels"]} if kind == "action" else {})}
         self.brain.store.add_event(run["app"], run["session"], run["id"], f"{kind}_request", request)
         emit({"type": f"{kind}.requested", **request})
 
@@ -602,7 +604,8 @@ class Loop:
             messages = self._messages(run, profile, system, toolset.schemas())
             try:
                 sent = transport.prepare_messages([{"role": "system", "content": system()}] + messages,
-                                                  settings["request_budget"], support_images=settings["vision"])
+                                                  settings["request_budget"], support_images=settings["vision"],
+                                                  image_pixels=settings["image_pixels"])
             except transport.RequestPayloadTooLarge:
                 if compacted:
                     raise

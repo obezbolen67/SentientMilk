@@ -292,8 +292,10 @@ class Runs:
                 raise ValueError("status must be ok or error")
             if not isinstance(images or [], list):
                 raise ValueError("images must be a list of data URLs")
-            # stored at the size they are sent, like the images of a turn's input
-            images = [transport.encode_image(transport.validate_image(url), transport.IMAGE) for url in images or []]
+            # stored as the model sees them, like the images of a turn's input: an app that fits them to
+            # image_pixels (the action request says it) has them kept as it sent them, so its points stay exact
+            pixels = self.brain.config.values()["image_pixels"]
+            images = [transport.encode_image(transport.validate_image(url), pixels) for url in images or []]
             self.store.add_event(run["app"], run["session"], run_id, "action_result",
                                  {"call_id": call_id, "result": result, "status": status, "images": images})
         if len(waiting) == 1 and run["status"] == "input_required":  # the last answer of a paused run

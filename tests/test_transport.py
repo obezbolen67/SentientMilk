@@ -50,7 +50,7 @@ def test_only_a_few_screenshots_go_and_the_past_changes_every_fourth():
     sent = [transport.prepare_messages(messages[:n], 10 ** 9) for n in range(1, len(messages) + 1)]
     assert [len(images(request)) for request in sent] == [1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 3, 4]
     assert [n for n in range(1, len(sent)) if sent[n][:n - 1] != sent[n - 1][:n - 1]] == [6, 10]
-    assert [image_side(url)[0] for url in images(sent[-1])] == [256] * 3 + [768]
+    assert [image_side(url)[0] for url in images(sent[-1])] == [256] * 3 + [800]
     assert sent[-1][0]["content"] == f"turn 0\n{transport.OMITTED_IMAGE}"
 
 
@@ -61,15 +61,15 @@ def test_the_newest_steps_images_are_all_readable():
     frames = [{"type": "image_url", "image_url": {"url": data_url((800, 500))}} for _ in range(6)]
     messages = older + [{"role": "user", "content": [{"type": "text", "text": "[Images]"}, *frames]}]
     sent = images(transport.prepare_messages(messages, 10 ** 9))
-    assert [image_side(url)[0] for url in sent][-6:] == [768] * 6
+    assert [image_side(url)[0] for url in sent][-6:] == [800] * 6
     assert all(image_side(url)[0] == 256 for url in sent[:-6])
     over = len(json.dumps(transport.prepare_messages(messages, 10 ** 9), separators=(",", ":")).encode()) - 1
     assert len(images(transport.prepare_messages(messages, over))) == 6  # over budget: shrunk, never dropped
     many = [{"role": "user", "content": [{"type": "text", "text": "[Images]"}] + frames * 2}]  # no caps: all 12
-    assert [image_side(url)[0] for url in images(transport.prepare_messages(many, 10 ** 9))] == [768] * 12
+    assert [image_side(url)[0] for url in images(transport.prepare_messages(many, 10 ** 9))] == [800] * 12
     small = len(json.dumps(transport.prepare_messages(many, 10 ** 9), separators=(",", ":")).encode()) // 10
     sides = [image_side(url)[0] for url in images(transport.prepare_messages(many, small))]
-    assert len(sides) == 12 and 256 in sides  # past the proxy's budget they go small, not away
+    assert len(sides) == 12 and max(sides) < 800  # past the budget they go smaller, not away
 
 
 def test_over_budget_drops_the_older_half_then_shrinks_the_newest():
@@ -79,15 +79,31 @@ def test_over_budget_drops_the_older_half_then_shrinks_the_newest():
     size = len(json.dumps(full, separators=(",", ":")).encode())
     fewer = transport.prepare_messages(messages, size - 1)
     assert len(images(fewer)) == 3
-    assert image_side(images(fewer)[-1])[0] == 768
+    assert image_side(images(fewer)[-1])[0] == 900
 
     newest_only = transport.prepare_messages(messages[-1:], 10 ** 9)
     size = len(json.dumps(newest_only, separators=(",", ":")).encode())
-    shrunk = transport.prepare_messages(messages[-1:], size - 1)
-    assert image_side(images(shrunk)[0])[0] == 512
+    plainer = transport.prepare_messages(messages[-1:], size - 1)
+    assert image_side(images(plainer)[0])[0] == 900  # first plainer, at its size: an app's points in it stay
+    shrunk = transport.prepare_messages(messages[-1:], len(json.dumps(plainer, separators=(",", ":"))) - 1)
+    assert image_side(images(shrunk)[0])[0] == 450  # then a quarter of the pixels
 
     with pytest.raises(transport.RequestPayloadTooLarge):
         transport.prepare_messages(messages, 100)
+
+
+def test_pictures_go_as_big_as_the_model_sees_and_no_bigger():
+    screen = data_url((2560, 1600))
+    sent = images(transport.prepare_messages([{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": screen}}]}], 10 ** 9))
+    with Image.open(io.BytesIO(base64.b64decode(sent[0].split(",", 1)[1]))) as picture:
+        assert picture.size == (1600, 1000) and picture.format == "JPEG"
+    as_sent = images(transport.prepare_messages([{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": screen}}]}], 10 ** 9, image_pixels=0))
+    assert image_side(as_sent[0])[0] == 2560  # 0: as the app sent it
+    fitting = transport.encode_image(screen, 0)
+    assert transport.encode_image(fitting, 4_096_000) == fitting  # a JPEG that fits is kept byte for byte
+    assert transport.fitted(800, 500, 1_600_000) == (800, 500)  # never grown
 
 
 @pytest.mark.parametrize("base_url,mode,tokens,expected", [
