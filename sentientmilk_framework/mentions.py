@@ -65,7 +65,7 @@ def chats(brain, app: str) -> List[dict]:
     """The app's conversations that have something in them, newest first: not its agents' or tasks' sessions."""
     agents = {session for _, session, _ in brain.store.agent_sessions(app)}
     found = [s for s in brain.store.sessions(app) if s["last_active"] and s["id"] not in agents
-             and not s["id"].startswith(("task-", "agent-"))]
+             and not s["id"].startswith(("task-", "agent-", "summary-"))]
     return sorted(found, key=lambda s: s["last_active"], reverse=True)
 
 

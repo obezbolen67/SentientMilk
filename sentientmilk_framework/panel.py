@@ -405,7 +405,7 @@ class Panel(App):
                         yield Input(placeholder=f"{DEFAULT_MODEL}  (default)", id="p-model")
                         yield FlatButton("Test & list models", id="p-models")
                     yield Label("Model for helpers")
-                    yield Input(placeholder="the same model (summaries, journal notes, helpers)", id="p-light")
+                    yield Input(placeholder="the same model (compaction, titles, journal notes, reviewers)", id="p-light")
                 yield OptionList(id="models")
             with Vertical(classes="card", id="thinking-card"):
                 with Grid(classes="form"):
@@ -497,6 +497,10 @@ class Panel(App):
                      "notes about conversations in every app, the 20 newest kept.", classes="hint")
         with VerticalScroll():
             with Vertical(classes="card", id="memory-card"):
+                with Horizontal(classes="toggle"):
+                    yield Switch(id="summaries")
+                    yield Static("Go over each conversation as it ends and keep what matters (her own model, "
+                                 "with memory_save)", classes="toggle-label")
                 yield DataTable(id="memory", cursor_type="row", zebra_stripes=True)
                 with Horizontal(classes="buttons"):
                     yield FlatButton("Forget", id="memory-forget", variant="error")
@@ -938,6 +942,11 @@ class Panel(App):
 
     def load_memory(self) -> None:
         """Memory (From: the app that saved an entry), then the journal."""
+        settings = self.call(lambda c: c.config(), quiet=True)
+        if settings is not None:
+            switch = self.main.query_one("#summaries", Switch)
+            with switch.prevent(Switch.Changed):
+                switch.value = settings["session_summaries"]
         memory = self.call(lambda c: c.memory_entries(), quiet=True)
         if memory is not None:
             fill(self.main.query_one("#memory", DataTable),
@@ -1197,6 +1206,12 @@ class Panel(App):
     def tab_shown(self) -> None:
         self.refresh_live()
         self.tail_log()
+
+    @on(Switch.Changed, "#summaries")
+    def summaries_changed(self, event: Switch.Changed) -> None:
+        self.call(lambda c: c.update_config(session_summaries=event.value),
+                  done="She goes over each conversation as it ends." if event.value
+                  else "She no longer goes over conversations as they end.")
 
     @on(Switch.Changed, "#autostart")
     def autostart_changed(self, event: Switch.Changed) -> None:

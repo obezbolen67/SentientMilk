@@ -29,6 +29,7 @@ from .runs import Bus, Runs
 from .scheduler import Scheduler
 from .skills import Skills
 from .store import Store
+from .summaries import Summaries
 from .superagent import SuperAgents
 from .toolkits import builtin
 from .toolkits.memory import session_memory
@@ -156,6 +157,7 @@ class Brain:
         self.superagents = SuperAgents(self)
         self.scheduler = Scheduler(self)
         self.journal = Journal(self)
+        self.summaries = Summaries(self)
         self._started = False
         self.stopping = threading.Event()  # set by close(): background work ends quietly
 
@@ -169,12 +171,14 @@ class Brain:
         self.runs.start()
         self.scheduler.start()
         self.journal.start()
+        self.summaries.start()
         self.mcp.start()
 
     def close(self) -> None:
         self.stopping.set()
         self.scheduler.stop()
         self.journal.stop()
+        self.summaries.stop()
         self.runs.stop()
         self.superagents.close()
         self.mcp.stop()

@@ -366,6 +366,14 @@ class Store:
         with self._db() as db:
             return [_event(row) for row in db.execute(query + " ORDER BY id", params)]
 
+    def events_since(self, app: str, session: str, event: int, at: float) -> List[dict]:
+        """The session's events after ``event``, and any after time ``at``: SQLite gives an id out again once
+        the newest events were deleted (a return to an earlier message), and those come later in time."""
+        with self._db() as db:
+            return [_event(row) for row in db.execute(
+                f"SELECT {_EVENT_COLUMNS} FROM events WHERE app = ? AND session = ? AND (id > ? OR at > ?) "
+                "ORDER BY id", (app, session, event, at))]
+
     def event(self, event: int) -> Optional[dict]:
         with self._db() as db:
             row = db.execute(f"SELECT {_EVENT_COLUMNS} FROM events WHERE id = ?", (event,)).fetchone()

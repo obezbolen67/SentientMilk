@@ -7,7 +7,7 @@ model never has to list it: what another chat or app changes later reaches a ses
 - session: this session only, kept in its state like the todo list: instructions to follow here and what
   to keep in mind while the work goes on. It outlasts compaction, a return to a message puts it back as it
   was then, and it ends with the session. The agents and tasks working for the session follow it; only the
-  session's own turns change it.
+  session's own turns change it, and her going over it as it ends (summaries.py).
 
 What happened is the journal's (written by the brain); the plan for the work at hand is the todo list's.
 """
@@ -36,11 +36,16 @@ def _scope(ctx: ToolContext, scope: str, category: str) -> bool:
     """True for the session's memory; checks what each scope needs."""
     if scope not in ("everywhere", "session"):
         raise ToolError("scope is everywhere (a lasting fact) or session (this session only).")
-    if scope == "session" and ctx.run["kind"] != "turn":
+    if scope == "session" and ctx.run["kind"] not in ("turn", "summary"):
         raise ToolError("Only the session's own turns change its memory: say in your report what it should keep.")
     if scope == "everywhere":
         _need(category=category)
     return scope == "session"
+
+
+def _chat(ctx: ToolContext) -> str:
+    """The session whose memory scope session means: this one, or the conversation she goes over."""
+    return ctx.profile.get("base_session") or ctx.session
 
 
 def session_memory(state: dict) -> dict:
@@ -86,8 +91,8 @@ def memory_save(ctx: ToolContext, key: str, value: str, category: str = "", scop
         def change(state):
             state["session_memory"] = {**session_memory(state), key: value.strip()}
             return state
-        ctx.store.update_session(ctx.app, ctx.session, "state", change)
-        ctx.brain.chat_memory_changed(ctx.app, ctx.session)
+        ctx.store.update_session(ctx.app, _chat(ctx), "state", change)
+        ctx.brain.chat_memory_changed(ctx.app, _chat(ctx))
         return f"Remembered for this session: {key}: {value.strip()}"
     ctx.store.remember(ctx.app, category, key, value)
     seen(ctx, category, key, value)
@@ -109,9 +114,9 @@ def memory_forget(ctx: ToolContext, key: str, category: str = "", scope: str = "
             found.append(kept.pop(key, None) is not None)
             state["session_memory"] = kept
             return state
-        ctx.store.update_session(ctx.app, ctx.session, "state", change)
+        ctx.store.update_session(ctx.app, _chat(ctx), "state", change)
         if found[0]:
-            ctx.brain.chat_memory_changed(ctx.app, ctx.session)
+            ctx.brain.chat_memory_changed(ctx.app, _chat(ctx))
         return f"Forgot {key} for this session." if found[0] else f"This session's memory has no {key}."
     found = ctx.store.forget(category, key)
     seen(ctx, category, key)

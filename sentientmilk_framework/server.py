@@ -278,6 +278,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, brain.app_info(app))
         elif rest == ["settings"] and method == "PATCH":
             self._send(200, brain.update_app_settings(app, body))
+        elif rest == ["summaries"] and method == "POST":
+            self._send(200, brain.summaries.sweep(app))
         elif rest == ["sessions"] and method == "GET":
             self._send(200, {"sessions": brain.store.sessions(app)})
         elif rest == ['scheduled'] and method == 'GET':
@@ -322,6 +324,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200 if found else 404, {"status": "ok" if found else "not found"})
         elif rest == ["compact"] and method == "POST":
             self._send(200, brain.runs.compact(app, session))
+        elif rest == ["summary"] and method == "POST":
+            self._send(200, brain.summaries.ask(app, session))
         elif rest == ["history"] and method == "GET":
             self._send(200, {"history": brain.history(app, session, tools=query.get("tools") in ("1", "true"))})
         elif rest == ["history"] and method == "DELETE":

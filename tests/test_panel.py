@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from conftest import wait_for
-from textual.widgets import Button, DataTable, Input, OptionList, Select, SelectionList, TextArea
+from textual.widgets import Button, DataTable, Input, OptionList, Select, SelectionList, Switch, TextArea
 
 from sentientmilk_framework.panel import Panel
 
@@ -73,6 +73,9 @@ def test_apps_get_their_persona_and_toolkits_and_memory_is_forgotten_in_its_tab(
         await press(pilot, panel, "app-save")
         panel.action_tab("journal")  # memory is every app's: it has its own tab, with the journal
         await until(pilot, lambda: panel.query_one("#memory", DataTable).row_count == 1)
+        assert panel.query_one("#summaries", Switch).value  # she goes over conversations as they end
+        panel.query_one("#summaries", Switch).value = False
+        await until(pilot, lambda: not brain.client.config()["session_summaries"])
         await press(pilot, panel, "memory-forget")
         await press(pilot, panel, "yes")
     run(brain, scenario)

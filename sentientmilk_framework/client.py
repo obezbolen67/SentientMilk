@@ -203,6 +203,17 @@ class BrainClient:
         """The card the brain reads for a mention: what a picker shows as its preview."""
         return self._call("GET", f"/apps/{app}/mentions/{kind}", params={"ref": ref, "session": session})["card"]
 
+    def summarize_session(self, app: str, session: str) -> dict:
+        """The session ended: she goes over what is new in it in the background, and keeps what matters in her
+        memory (memory_save). ``queued``: there was enough new for that; ``messages``: the user's since the
+        last time. Nothing shows in the session."""
+        return self._call("POST", f"/apps/{app}/sessions/{session}/summary", {})
+
+    def summarize_sessions(self, app: str) -> dict:
+        """At an app's start: she goes over each of its conversations with enough new in it (``queued``: their
+        ids), one at a time, after the turns going on."""
+        return self._call("POST", f"/apps/{app}/summaries", {})
+
     def compact_session(self, app: str, session: str) -> dict:
         """Sum up the whole session now: ``compacted`` (False when there was nothing to sum up), and the
         context in tokens ``before`` and ``after``. It takes a model call."""

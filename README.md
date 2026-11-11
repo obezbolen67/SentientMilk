@@ -125,6 +125,15 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
   every app and always whole in context, no app has to ask for it; each session also has its own
   **session memory** (instructions and facts for that conversation only, kept through compaction),
   and the **journal** holds short, dated notes about what happened in sessions across all apps.
+- When a conversation ends, the app says so and the model **goes over it** as itself: its own
+  model, persona and memory, in a run of its own (kind `summary`, a `summary-<run>` session no
+  conversation list shows) with `memory_save` alone. It keeps what it settled on, facts about the
+  user, decisions and where projects stand, and leaves out what memory already holds, moods and
+  one-off things. Nothing shows in the conversation, whose next turn takes the memory afresh. The
+  session's state keeps how far it went (`summarized`: the newest event's id and time); with fewer
+  than 4 of the user's messages since, it waits for more. One at a time, after the turns going on.
+  At an app's start it asks for all of its conversations: some ended with a crash. The panel's
+  Memory tab switches it off (`session_summaries`).
 - The persona is who the model is in that app, not a role it plays: the prompt opens with it
   under **WHO YOU ARE**, says a description written as "she" or by name means "you", and asks
   for thinking in the first person, as that self. Nothing else in the prompt calls the model an
@@ -315,6 +324,8 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
 | `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app: `entries`, each with the app that saved it |
 | `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); one never used reads as empty and is not made by the GET; deleting it and its history, refused (409 `busy`) while a turn of it goes on |
+| `POST /apps/{app}/sessions/{id}/summary` | the session ended: the model goes over what is new in it in the background and keeps what matters with `memory_save`; `queued` (enough new for that) and `messages` (the user's since the last time) |
+| `POST /apps/{app}/summaries` | at an app's start: the same for each of its conversations with enough new in it; `queued`: their ids |
 | `POST /apps/{app}/sessions/{id}/compact` | sum up the whole session now (a model call): `compacted`, and the context in tokens `before` and `after` |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); each entry's `id` is its event's; history an app kept before |
 | `GET`/`POST /apps/{app}/sessions/{id}/rewind` (`?to=` / `{"to"}`: a user message's `id`) | go back to just before that message (GET: what it would do). Undone: what came after it, files changed since with `files_write`/`files_edit` (also by agents started since), the todo list and the session's own memory, work started since (jobs, agents' runs, runs of new schedules: stopped quietly), new agents and schedules (deleted). Answers `text` and `mentions` (the message), `messages`, `files` ({path, change}), `todo` and `session_memory` (whether each goes back), `agents`, `stopped`, `schedules`, `kept` (calls whose effects stay: {name, count}) and, after a POST, `problems`; refused (409 `busy`) while a run of the session goes on |
@@ -338,12 +349,13 @@ key is only ever sent to the stored `base_url`.
 
 ## Settings
 
-`api_key`, `base_url`, `model`, `light_model` (summaries, journal notes, helpers; empty:
+`api_key`, `base_url`, `model`, `light_model` (compaction summaries, titles, journal notes, reviewers; empty:
 the same as `model`), `context_window` (128000), `thinking_mode` (`default`, `none`,
 `minimal`, `low`, `medium`, `high`, `xhigh` or `tokens`), `thinking_tokens`, `vision`,
 `image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
 sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, `web_search_key`, `shell`,
-`task_workers` (2), `rules`, `disabled_toolkits`.
+`task_workers` (2), `rules`, `disabled_toolkits`, `session_summaries` (true: the model goes over
+each conversation as it ends).
 
 ## Development
 

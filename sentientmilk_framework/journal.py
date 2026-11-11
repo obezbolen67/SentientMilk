@@ -57,8 +57,8 @@ class Journal:
     def _check_quiet(self) -> None:
         try:
             for app, session, last in self.brain.store.quiet_sessions(time.time() - QUIET_SECONDS):
-                if session.startswith("agent-") or session.startswith("task-"):
-                    continue  # helpers never; tasks when they end
+                if session.startswith(("agent-", "task-", "summary-")):
+                    continue  # helpers and her going over a conversation never; tasks when they end
                 found = self.brain.store.find_session(app, session)  # events can outlive a deleted session
                 if found and last > found["state"].get("journaled_upto", 0):
                     self.request(app, session)

@@ -24,7 +24,7 @@ DEFAULTS = {
     "api_key": "",
     "base_url": "",  # empty: DEFAULT_BASE_URL
     "model": "",  # empty: DEFAULT_MODEL
-    "light_model": "",  # summaries, journal notes, subagents; empty: same as model
+    "light_model": "",  # compaction summaries, titles, journal notes, reviewers; empty: same as model
     "context_window": 128000,  # tokens; clearing and compaction thresholds are fractions of it
     "thinking_mode": "default",
     "thinking_tokens": 4096,
@@ -37,6 +37,7 @@ DEFAULTS = {
     "task_workers": 2,
     "rules": {"allow": [], "ask": [], "deny": []},
     "disabled_toolkits": [],
+    "session_summaries": True,  # she goes over each conversation as it ends and keeps what matters (summaries.py)
     # Super agents (superagent.py): Claude, through the user's own Claude Code, for code and hard thinking.
     "super_model": "claude-opus-5-5",  # empty: no super agents
     "super_effort": "high",
