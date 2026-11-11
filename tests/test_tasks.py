@@ -204,7 +204,7 @@ def test_the_brain_runs_the_schedules_of_an_app_that_does_not_call_back(brain):
     assert [o["status"] for o in brain.client.scheduled_occurrences("milk")] == ["pending"]  # MilkChan's to run
 
 
-def test_the_journal_keeps_short_notes_from_every_app_and_drops_the_oldest(brain):
+def test_the_journal_keeps_the_20_newest_notes_from_every_app(brain):
     brain.provider.replies += ['{"expression": "arms_down/smile"}\nHi!', "Done."]
     turn(brain, "milk", "I adopted a cat named Miso.")
     brain.brain.journal.write("milk", "main")
@@ -214,10 +214,10 @@ def test_the_journal_keeps_short_notes_from_every_app_and_drops_the_oldest(brain
     turn(brain, "cli", "hello")
     system = brain.provider.sent[-1]["messages"][0]["content"]
     assert "RECENT NOTES FROM YOUR OTHER SESSIONS" in system and "milk] Talked with the user." in system
-    for index in range(100):  # no caps: every note stays, the oldest too
+    for index in range(100):  # past 20 the oldest go, the first note too
         brain.store.add_note("cli", "main", f"{index:04d} " + "z" * 295)
     notes = brain.store.notes()
-    assert len(notes) == 101 and notes[-1]["note"] == "Talked with the user."
+    assert len(notes) == 20 and notes[0]["note"].startswith("0099") and notes[-1]["note"].startswith("0080")
 
 
 def test_an_app_can_keep_its_sessions_out_of_the_journal(brain):

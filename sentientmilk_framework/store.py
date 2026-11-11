@@ -80,6 +80,7 @@ CREATE INDEX IF NOT EXISTS file_versions_by_chat ON file_versions(app, chat);
 """
 NOTIFICATION_DAYS = 7
 NOTIFICATIONS_PER_APP = 1000
+JOURNAL_NOTES = 20  # the user (2026-11-11): the newest 20 stay, older ones are deleted
 PREVIEW_CHARS = 120  # of a session's first message, shown until it has a title
 
 
@@ -756,8 +757,11 @@ class Store:
 
     def add_note(self, app: str, session: str, note: str) -> int:
         with self._db() as db:
-            return db.execute("INSERT INTO journal(at, app, session, note) VALUES (?, ?, ?, ?)",
-                              (time.time(), app, session, note)).lastrowid
+            note_id = db.execute("INSERT INTO journal(at, app, session, note) VALUES (?, ?, ?, ?)",
+                                 (time.time(), app, session, note)).lastrowid
+            db.execute("DELETE FROM journal WHERE id NOT IN "
+                       "(SELECT id FROM journal ORDER BY at DESC, id DESC LIMIT ?)", (JOURNAL_NOTES,))
+            return note_id
 
     def notes(self, query: str = "", limit: int = -1, app: Optional[str] = None,
               session: Optional[str] = None) -> List[dict]:

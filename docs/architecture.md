@@ -896,7 +896,7 @@ Now there are three kinds, by how long they last and where they hold:
 | Who writes | the model (`memory_save`, unasked, as soon as it learns a fact); the user forgets entries | the model, in the session's turns (`memory_save` with `scope: session`); the user takes entries out | the brain's summarizer, off the request path |
 | Where it holds | every app, every session (one user, one brain); each entry names the app that saved it | its session; the agents and tasks working for it follow it read-only | read by every app, searchable (`journal_search`) |
 | In context | always, whole, in every system block: no app asks for it, no size cut | always, whole, in its session's system block, after memory (where they differ, it wins there) | the newest notes of other sessions, about 1,500 tokens; the rest by search |
-| Ends | when forgotten | with the session; a return to a message (5.6) puts it back as it was then | never (no caps) |
+| Ends | when forgotten | with the session; a return to a message (5.6) puts it back as it was then | when 20 newer notes are written |
 
 ### 10.1 Memory
 
@@ -960,10 +960,11 @@ morning.
   - when a task ends.
 
   Each note is 1 to 3 sentences, at most 400 characters, with time, app and session.
-- **Kept**: every note (no caps, the user 2026-11-09). The timestamp decides the order.
+- **Kept**: the 20 newest notes (`store.JOURNAL_NOTES`, the user 2026-11-11); writing the 21st deletes
+  the oldest. The timestamp decides the order.
 - **Reading**: the newest notes from *other* sessions, up to about 1,500 tokens, go in the
   system block as `[2026-11-05 09:12, milkchan] ...`. They are snapshotted like memory.
-  `journal_search(query)` searches every note.
+  `journal_search(query)` searches the kept notes.
 - **Per-app switches**: `journal: {read: true, write: true}` in the app profile. A private
   app can turn writing off.
 - **User control**: `GET /v1/journal` and `DELETE /v1/journal/<id>`. The CLI gets

@@ -12,7 +12,7 @@ def line(note: dict) -> str:
 @tool(readonly=True, args={"query": "Words to look for (default: the newest notes)."})
 def journal_search(ctx: ToolContext, query: str = ""):
     """Search your journal: short notes about what happened in your sessions across all apps (other chats,
-    finished tasks), newest first. Every note is kept."""
+    finished tasks), newest first. The 20 newest are kept."""
     notes = ctx.store.notes(query.strip())
     if not notes:
         return "No journal notes match." if query else "The journal is empty."

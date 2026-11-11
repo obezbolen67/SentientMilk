@@ -1,7 +1,8 @@
 """The journal: short, timestamped notes about sessions in every app, written off the request path.
 
 A note is written when a session has been quiet for a while, at compaction and when a
-task ends. Every note is kept (no caps): the newest go in her prompt, journal_search finds the rest.
+task ends. The newest 20 are kept (store.JOURNAL_NOTES), older ones deleted: the newest go in her
+prompt, journal_search finds the rest.
 """
 
 import logging

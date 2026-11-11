@@ -492,7 +492,7 @@ class Panel(App):
     def compose_journal(self) -> ComposeResult:
         yield Static("What the brain remembers, shared by every app and always in its context (From: the app "
                      "that saved it; each conversation's own memory is in its app), then the journal: short dated "
-                     "notes about conversations in every app, all of them kept.", classes="hint")
+                     "notes about conversations in every app, the 20 newest kept.", classes="hint")
         with VerticalScroll():
             with Vertical(classes="card", id="memory-card"):
                 yield DataTable(id="memory", cursor_type="row", zebra_stripes=True)
