@@ -7,6 +7,6 @@
   ],
   "sessions": ["main", "main", "later"],
   "check": {"memory_has": ["Ferrite"], "memory_lacks": ["font"], "reply_contains": ["Ferrite"]},
-  "toolkits": ["memory", "todo", "journal"],
+  "toolkits": ["todo", "journal"],
   "holdout": true
 }

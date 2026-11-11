@@ -56,7 +56,7 @@ def test_the_panel_shows_the_brain_and_saves_the_provider(brain):
     assert (values["super_model"], values["super_effort"]) == ("claude-sonnet-5-5", "max")
 
 
-def test_apps_get_their_persona_toolkits_and_memory_managed_here(brain):
+def test_apps_get_their_persona_and_toolkits_and_memory_is_forgotten_in_its_tab(brain):
     brain.store.remember("milk", "user facts", "favourite colour", "green")
 
     async def scenario(panel, pilot):
@@ -68,6 +68,7 @@ def test_apps_get_their_persona_toolkits_and_memory_managed_here(brain):
         await press(pilot, panel, "persona-save")
         panel.query_one("#app-toolkits", SelectionList).deselect("web")
         await press(pilot, panel, "app-save")
+        panel.action_tab("journal")  # memory is every app's: it has its own tab, with the journal
         await until(pilot, lambda: panel.query_one("#memory", DataTable).row_count == 1)
         await press(pilot, panel, "memory-forget")
         await press(pilot, panel, "yes")

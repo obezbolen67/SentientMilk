@@ -19,6 +19,7 @@ from . import context, mentions, permissions, skills, transport
 from . import signals as signal_format
 from .agents import Agents
 from .config import BrainConfig, validate_rules, validate_setting
+from .exceptions import BrainError
 from .journal import Journal
 from .loop import ACTIVE, Toolset, build_toolset
 from .mcp_host import McpHost
@@ -314,11 +315,36 @@ class Brain:
         self.store.update_session(profile["app"], profile["session"], "state", change)
         return taken
 
+    def memory_news(self, profile: dict) -> str:
+        """What another chat or app saved or forgot in memory since this session last knew it: a turn hears it
+        in a note before its input, so the system block (and the cached prefix) stay as they are. Empty when
+        nothing changed; what the session saved itself it knows already (toolkits.memory.seen)."""
+        taken = self.session_snapshot(profile)
+        if "seen" not in taken:  # taken before memory news existed: take it again, whole
+            self.refresh_snapshot(profile)
+            return ""
+        entries = self.store.memory_entries()
+        lines = context.memory_changes(taken["seen"], entries, profile["app"])
+        if not lines:
+            return ""
+
+        def change(state):
+            if state.get("snapshot"):
+                state["snapshot"]["seen"] = [[e["category"], e["key"], e["value"]] for e in entries]
+            return state
+        self.store.update_session(profile["app"], profile["session"], "state", change)
+        return ("Your memory changed since YOUR MEMORY above was written (another chat or app saved or forgot "
+                "something). Now:\n" + "\n".join(lines))
+
     def forget_memory(self, category: str, key: str) -> bool:
-        """The user forgets an entry: gone from every system block at its next request, not at compaction."""
+        """The user forgets an entry: gone from every system block at its next request, not at compaction.
+        A super agent at work has its prompt already: it is told."""
         found = self.store.forget(category, key)
         if found:
             self.store.drop_snapshots()
+            for run in self.store.runs(kind="agent", statuses=ACTIVE, limit=1000):
+                if run["options"].get("super"):
+                    self._steer_quietly(run, f"The user made you forget {category}/{key}: it no longer holds.")
         return found
 
     def forget_session_memory(self, app: str, session: str, key: str) -> bool:
@@ -333,14 +359,48 @@ class Brain:
         self.store.update_session(validate_name(app, "app id"), validate_name(session, "session id"), "state",
                                   change, create=False)
         if found and found[0]:
-            self.store.drop_snapshots()
+            self.chat_memory_changed(app, session, by_user=True)
         return bool(found and found[0])
+
+    def _workers(self, app: str, chat: str) -> List[tuple]:
+        """(session, its run that still works or None) of what works for ``chat``: its agents, its tasks' agents
+        and its tasks."""
+        sessions = [session for _, session, settings in self.store.agent_sessions(app)
+                    if chat in (settings["agent"].get("parent"), settings["agent"].get("base"))]
+        active = self.store.runs(app, statuses=ACTIVE, limit=1000)
+        sessions += [run["session"] for run in active if run["kind"] == "task"
+                     and (run["options"].get("profile") or {}).get("from_session") == chat]
+        working = {run["session"]: run for run in active}
+        return [(session, working.get(session)) for session in dict.fromkeys(sessions)]
+
+    def _steer_quietly(self, run: dict, text: str) -> None:
+        try:  # its approvals still wait for the user: this is no answer to them
+            self.runs.steer(run["id"], [{"type": "text", "text": f"[{text}]"}], refuse_approvals=False)
+        except BrainError:
+            pass  # it ended just now; its next run starts with the memory as it is
+
+    def chat_memory_changed(self, app: str, chat: str, *, by_user: bool = False) -> None:
+        """A chat's memory changed: what works for it learns how it is now, as it learns the chat's rules
+        (context.snapshot). The model's own change: a note at their next step. The user's: their system
+        blocks and the chat's are taken again, so what was taken out leaves them. A super agent at work is
+        told either way (its prompt is fixed)."""
+        kept = session_memory((self.store.find_session(app, chat) or {}).get("state") or {})
+        text = ("The memory of the session you work for changed" + (" (the user changed it)" if by_user else "")
+                + (". Now:\n" + "\n".join(f"- {k}: {v}" for k, v in kept.items()) if kept else "; it is empty now."))
+        workers = self._workers(app, chat)
+        if by_user:
+            self.store.drop_snapshots(app, [chat] + [session for session, _ in workers])
+        for session, run in workers:
+            if run and run["options"].get("super"):
+                self._steer_quietly(run, text)
+            elif not by_user:
+                self.note(app, session, text)
 
     def session_info(self, app: str, session: str) -> dict:
         record = self.store.session(validate_name(app, "app id"), validate_name(session, "session id"))
         state = record["state"]
         return {"app": app, "id": session, "settings": record["settings"], "todo": state.get("todo", []),
-                "memory": session_memory(state),
+                "session_memory": session_memory(state),
                 "created": record["created"],
                 "context": {"used": state.get("context_tokens", 0), "window": self.config.values()["context_window"],
                             "clear_at": context.CLEAR_AT, "compact_at": context.COMPACT_AT,

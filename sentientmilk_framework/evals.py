@@ -150,7 +150,7 @@ def run_one(spec: dict, settings: dict, *, compact_between_turns: bool = False) 
                     client.compact_session("eval", session)
             extra["schedules"] = len(client.schedules("eval"))
             extra["memory"] = json.dumps(server.brain.store.memories(), ensure_ascii=False)
-            extra["session_memory"] = {session: json.dumps(server.brain.session_info("eval", session)["memory"],
+            extra["session_memory"] = {session: json.dumps(server.brain.session_info("eval", session)["session_memory"],
                                                            ensure_ascii=False)
                                        for session in set(spec.get("sessions", ["main"]))}
         passed, why = (False, error) if error else check(spec, work, replies, extra)

@@ -275,6 +275,10 @@ class Loop:
             toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
             if run["kind"] == "turn":
                 self._tool_news(run, profile, toolset)
+            if run["kind"] in ("turn", "agent"):  # an agent's session lives on between its runs, like a chat
+                news = brain.memory_news(profile)
+                if news:
+                    brain.note(run["app"], run["session"], news)
             self._log_input(run, profile, emit)
             while True:
                 run = store.run(run_id)

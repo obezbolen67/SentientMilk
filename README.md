@@ -50,9 +50,10 @@ none runs and shows it live:
 - **Overview**: state, address, uptime, the provider, token use per app, tasks, schedules.
 - **Provider**: service URL, model (with a model list from the service), keys (write-only),
   thinking, context window, images, streaming, request budget, shell.
-- **Apps**: each connected app's persona, model, toolkits and conversations; memory (every
-  app's, with the app that saved each entry), where single entries can be forgotten.
-- **Work**: tasks (cancel) and schedules (pause, delete). **Journal**: search and delete notes.
+- **Apps**: each connected app's persona, model, toolkits and conversations.
+- **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: what the brain remembers for
+  every app (with the app that saved each entry), where single entries can be forgotten, and the
+  journal, to search and delete notes.
 - **Tools**: toolkits on or off for every app, approval rules, MCP servers.
 - **Plugins**: install (a folder or a git URL), turn on or off, settings (secrets
   write-only), remove.
@@ -193,7 +194,7 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
 | `shell` | `shell_run` (PowerShell on Windows; `shell` setting), `shell_output`, `shell_stop` for background jobs; a command still running after 30 s goes on as one |
 | `web` | `web_search` (Brave, needs `web_search_key`), `web_fetch` |
 | `todo` | `todo_write` |
-| `memory` (every app) | `memory_save`, `memory_list`, `memory_forget`; this session's: `session_memory_save`, `session_memory_forget` |
+| `memory` (every app) | `memory_save`, `memory_forget`, each with `scope` everywhere (lasting) or session (this session only) |
 | `journal` | `journal_search` |
 | `agents` | `agent_start`, `agent_message`, `agents_wait`, `agents_status`, `agent_stop` |
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete` |
@@ -309,11 +310,11 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | --- | --- |
 | `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
-| `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app (`entries` names the app that saved each) |
+| `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app: `entries`, each with the app that saved it |
 | `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); deleting it and its history, refused (409 `busy`) while a turn of it goes on |
 | `POST /apps/{app}/sessions/{id}/compact` | sum up the whole session now (a model call): `compacted`, and the context in tokens `before` and `after` |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); each entry's `id` is its event's; history an app kept before |
-| `GET`/`POST /apps/{app}/sessions/{id}/rewind` (`?to=` / `{"to"}`: a user message's `id`) | go back to just before that message (GET: what it would do). Undone: what came after it, files changed since with `files_write`/`files_edit` (also by agents started since), the todo list, work started since (jobs, agents' runs, tasks of new reminders: stopped quietly), new agents and reminders (deleted). Answers `text` and `mentions` (the message), `messages`, `files` ({path, change}), `todo`, `agents`, `stopped`, `reminders`, `kept` (calls whose effects stay: {name, count}) and, after a POST, `problems`; refused (409 `busy`) while a run of the session goes on |
+| `GET`/`POST /apps/{app}/sessions/{id}/rewind` (`?to=` / `{"to"}`: a user message's `id`) | go back to just before that message (GET: what it would do). Undone: what came after it, files changed since with `files_write`/`files_edit` (also by agents started since), the todo list and the session's own memory, work started since (jobs, agents' runs, runs of new schedules: stopped quietly), new agents and schedules (deleted). Answers `text` and `mentions` (the message), `messages`, `files` ({path, change}), `todo` and `session_memory` (whether each goes back), `agents`, `stopped`, `schedules`, `kept` (calls whose effects stay: {name, count}) and, after a POST, `problems`; refused (409 `busy`) while a run of the session goes on |
 | `POST /apps/{app}/sessions/{id}/turns` | `input` (text, image, event, mention and skill items: `{"type": "skill", "name", "arguments"}` starts a skill as the user's `/name` does), `context`, `reply`: a stream ending in `done` or `error` |
 | `GET /apps/{app}/mentions?q=&kind=&session=`, `GET /apps/{app}/mentions/{kind}?ref=&session=` | what an `@` picker offers (`kind`, `ref`, `label`, `note`, `time`; a path lists that folder), and the card the brain reads for one |
 | `GET /events?app=&after=` | notifications from a cursor (`-1`: from now), then live |

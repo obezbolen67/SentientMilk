@@ -3,7 +3,7 @@
 Current scheduling (0.7.0, 2026-11-11): one kind of schedule, once or repeating, each run a normal turn
 in the schedule's own conversation ([scheduling](scheduling.md), section 9.6). Reminders are schedules.
 
-Current memory (0.8.0, 2026-11-11): memory is shared by every app and always whole in context; each
+Current memory (0.8.1, 2026-11-11): memory is shared by every app and always whole in context; each
 session has its own session memory besides (section 10).
 
 Status: built (version 0.4.0, 2026-11-06). Written 2026-11-05 as the design; section 17 lists
@@ -377,7 +377,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits as long as asked for a job to end when the model needs the result, and says when a job has written nothing for 10 s or more, so the model can tell a slow job from a stuck one. MCP calls go the same way (section 8.3). |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
-| `memory` | `memory_save`, `memory_list`, `memory_forget`; in turns, `session_memory_save(key, value)`, `session_memory_forget(key)` | Every app has it (section 10). |
+| `memory` | `memory_save(key, value, category, scope)`, `memory_forget(key, category, scope)`; scope `everywhere` or, in turns, `session` | Every app has it (section 10). |
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
 | `agents` | `agent_start(name, task)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)`; for agents, `ask_lead(question)` | Section 5.5. |
 | (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
@@ -688,7 +688,7 @@ into the conversation when needed:
 
 - Requests carry the core tools and, when there are others, `tools_search` and `tools_load`.
   This list is the same on every step of a profile.
-  - Core tools are flagged by their toolkit (`Tool.core`): `memory_save`, `session_memory_save`, `todo_write`,
+  - Core tools are flagged by their toolkit (`Tool.core`): `memory_save`, `todo_write`,
     `files_read`, `files_search`, `shell_run`, `shell_output`, `web_search`, `web_fetch`, and
     `task_progress` for workers.
   - An app marks the actions it wants sent with `"core": true`.
@@ -884,7 +884,7 @@ task's size, and the app can force either.
 Rework of 0.8.0 (2026-11-11). Before it, memory was per app and went into the system block only for an
 app that enabled the `memory` toolkit, and only while it fit 8,000 characters: past that, the model saw
 the category names and had to call `memory_list`, which it rarely did. The user's memory had grown to 35
-entries (about 16,000 characters), so in practice the model saw almost none of it, and a "for this chat"
+entries (about 13,000 characters), so in practice the model saw almost none of it, and a "for this chat"
 instruction had nowhere to go but lasting memory (where it leaked into every chat) or the conversation
 (where compaction may blur it).
 
@@ -893,7 +893,7 @@ Now there are three kinds, by how long they last and where they hold:
 | | Memory | Session memory | Journal |
 |---|---|---|---|
 | What | lasting facts: who the user is, the people and pets in their life, what they like and how they want things done, what they work on | this session's instructions and what its work must keep in mind ("answer in English here", "don't push until I say", the staging server's address, a decision) | what happened in each session, 1 to 3 sentences a note |
-| Who writes | the model (`memory_save`, unasked, as soon as it learns a fact); the user forgets entries | the model, in the session's turns (`session_memory_save`); the user takes entries out | the brain's summarizer, off the request path |
+| Who writes | the model (`memory_save`, unasked, as soon as it learns a fact); the user forgets entries | the model, in the session's turns (`memory_save` with `scope: session`); the user takes entries out | the brain's summarizer, off the request path |
 | Where it holds | every app, every session (one user, one brain); each entry names the app that saved it | its session; the agents and tasks working for it follow it read-only | read by every app, searchable (`journal_search`) |
 | In context | always, whole, in every system block: no app asks for it, no size cut | always, whole, in its session's system block, after memory (where they differ, it wins there) | the newest notes of other sessions, about 1,500 tokens; the rest by search |
 | Ends | when forgotten | with the session; a return to a message (5.6) puts it back as it was then | never (no caps) |
@@ -906,27 +906,35 @@ Now there are three kinds, by how long they last and where they hold:
 - 0.8.0 merged the per-app tables once at start (`store._share_memory`): where two apps had the same
   category and key, the newest stayed; every session's snapshot is taken again.
 - Every app has the `memory` toolkit, listed or not (`Brain.profile`); a user who switches its tools off
-  still has memory in context. `memory_save` is a core tool; `memory_list` shows memory as it is now
-  (with what other sessions saved since this one's snapshot); `memory_forget` takes a wrong fact out.
+  still has memory in context. Two tools for both scopes: `memory_save` (core) and `memory_forget`. There
+  is no tool to read memory: it is all in context, and what changes later comes as a note (10.3). (0.8.0
+  had five tools; `memory_list` and the separate session tools went the same day, one core tool fewer.)
 - Memory holds lasting facts only. As measured on 2026-11-07, the old wording ("about the user, their
   preferences, plans or events") saved a setting changed once, "not a bug, don't fix it", in 3 of 3 runs,
   and passed the two `memory-what-lasts` tasks 1 time in 6; `memory_save`'s description and its guide
-  took them to 9 of 9. Its description now also sends what holds only in a session to session memory.
+  took them to 9 of 9. Its description now also sends what holds only in a session to session memory:
+  the `session-memory` eval (a chat-only rule and a rule for everywhere in one message) passed 5 of 5
+  with the two tools of 0.8.1, and the three memory evals above still pass (2026-11-11).
 - No cap: memory is whole however long it grows. Its cost is tokens in the system block, cached with the
   prefix; the light model's compaction does not touch it.
 
 ### 10.2 Session memory
 
 - Kept in the session's state, `session_memory: {key: value}`, beside the todo list; `GET
-  /v1/apps/<app>/sessions/<id>` returns it as `memory`. `session_memory_save(key, value)` (core) and
-  `session_memory_forget(key)` exist only in turns: an agent or task has the session memory of the chat
-  it works for (`profile.base_session`) in its system block, under "The memory of the session you work
-  for", and cannot change it. A super agent (Claude Code) gets it in its appended prompt.
+  /v1/apps/<app>/sessions/<id>` returns it as `session_memory`. `scope: session` works only in turns: an
+  agent or task has the session memory of the chat it works for (`profile.base_session`) in its system
+  block, under "The memory of the session you work for", and cannot change it. A super agent (Claude
+  Code) gets it, and the user's memory, in its appended prompt.
+- What works for the chat hears a change at once (`Brain.chat_memory_changed`): its agents, its tasks
+  and their agents get a note at their next step when the model changes it; when the user does, their
+  snapshots and the chat's are taken again, so what was taken out leaves every system block. A super
+  agent at work, whose prompt is fixed, is steered with the memory as it is now. Clearing a
+  conversation clears its memory with its state.
 - It is what Claude Code lacks: there a rule said only in the conversation can be lost at compaction,
   which re-injects CLAUDE.md from disk but nothing scoped to the session. Here a session's own rules
   come back whole after every compaction, without making them every chat's.
-- Rewind (5.6) rebuilds it from the session's `session_memory_save` and `session_memory_forget` calls
-  before the message, so its calls are undone, not kept.
+- Rewind (5.6) rebuilds it from the session's `memory_save` and `memory_forget` calls with `scope:
+  session` before the message, so those calls are undone, not kept.
 
 ### 10.3 Snapshots
 
@@ -934,7 +942,12 @@ Memory, session memory and the journal are a snapshot in the session's state, pu
 taken at the session's first request, again at compaction, and dropped (taken again at the next request)
 after the user forgets a memory or a session memory entry (`Store.drop_snapshots`) or returns to a
 message. A save of the model's own changes nothing there until then, so the cached prefix holds; the
-model sees what it saved in the call's result, which is short and so is never cleared (7.2).
+model sees what it saved in the call's result, which is short and so is never cleared (7.2). What
+another chat or app saved or forgot since a session's snapshot reaches its next turn as a note before
+the input (`Brain.memory_news`, like the tool changes of 7.3; an agent's next run too, since its
+session lives on between runs), so a chat left open yesterday knows
+today's facts without its system block changing; the snapshot's `seen` list is what the session
+already knows, its own saves included.
 
 ### 10.4 The journal
 
@@ -954,7 +967,8 @@ morning.
 - **Per-app switches**: `journal: {read: true, write: true}` in the app profile. A private
   app can turn writing off.
 - **User control**: `GET /v1/journal` and `DELETE /v1/journal/<id>`. The CLI gets
-  `sentientmilk journal`.
+  `sentientmilk journal`. The panel's Memory tab shows memory (with the app that saved each entry, to
+  forget) and the journal (to search and delete).
 
 ### 10.5 How other harnesses do it
 
@@ -1032,7 +1046,7 @@ bearer token.
 | `GET/PUT /v1/mcp`, `POST /v1/mcp/<name>/reconnect` | MCP configuration |
 | `GET/POST /v1/plugins`, `PATCH/DELETE /v1/plugins/<name>` | plugins (section 6.5): list, install (`source`), turn on or off, set and trust (`enabled`, `settings`, `trusted`), remove |
 | `POST /v1/plugins/<name>/reload` | copy a plugin in again from its source and import it |
-| `GET /v1/memory`, `DELETE /v1/memory/<category>/<key>` | memory, shared by every app (`entries` says which app saved each) |
+| `GET /v1/memory`, `DELETE /v1/memory/<category>/<key>` | memory, shared by every app: `entries`, each with the app that saved it |
 | `DELETE /v1/apps/<app>/sessions/<id>/memory/<key>` | take one thing out of a session's memory |
 | `GET /v1/journal`, `DELETE /v1/journal/<id>` | view and prune the journal |
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
@@ -1141,8 +1155,9 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
 - A signals line after other text (junk the model wrote first) is still found, as a line holding only an
   object of the app's signals, and taken out of the reply.
 - MilkChan's proactive messages stay in MilkChan: an idle turn sends an `idle` event with
-  `reply: optional`, and the brain may answer `[silent]`. Reminders and finished tasks reach
-  MilkChan as notifications; it turns each into a turn so the character says it.
+  `reply: optional`, and the brain may answer `[silent]`. Finished tasks and jobs reach MilkChan as
+  notifications; it turns each into a turn so the character says it. A due schedule reaches it as
+  `schedule.ready`, and MilkChan runs it as a turn in the schedule's own conversation (9.6).
 
 ## Sources
 

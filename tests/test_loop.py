@@ -113,21 +113,21 @@ def test_an_action_can_answer_with_a_picture_the_model_then_sees(brain):
 
 def test_an_answer_that_comes_while_other_tools_still_run_is_kept(brain, monkeypatch):
     """The app answers an action at once; the brain is still running a slow tool of the same step."""
-    from sentientmilk_framework.toolkits import memory as memory_kit
+    from sentientmilk_framework.toolkits import journal as journal_kit
 
-    real = memory_kit.memory_list.func
+    real = journal_kit.journal_search.func
 
-    def slow(ctx, category=""):
+    def slow(ctx, query=""):
         time.sleep(1)
-        return real(ctx, category)
+        return real(ctx, query)
 
-    monkeypatch.setattr(memory_kit.memory_list, "func", slow)
-    brain.client.declare_app("eye", name="Eye", toolkits=["memory"], actions=[
+    monkeypatch.setattr(journal_kit.journal_search, "func", slow)
+    brain.client.declare_app("eye", name="Eye", toolkits=["journal"], actions=[
         {"name": "screenshot", "description": "See the screen.", "readonly": True}])
-    brain.provider.replies += [tool_calls(("memory_list", {}), ("screenshot", {})), "Seen and listed."]
+    brain.provider.replies += [tool_calls(("journal_search", {}), ("screenshot", {})), "Seen and listed."]
     assert brain.client.turn("eye", "main", "look", on_action=lambda event: "a chart")["reply"] == "Seen and listed."
     results = tool_results(brain.provider.sent[1])
-    assert results["call_1_screenshot"] == "a chart" and "memory_list" not in results["call_1_screenshot"]
+    assert results["call_1_screenshot"] == "a chart" and "journal" not in results["call_1_screenshot"]
 
 
 def test_an_action_that_asks_waits_for_the_users_approval_first(brain):
@@ -384,7 +384,7 @@ def test_usage_and_cache_hits_are_counted(brain):
 def test_context_reports_each_calls_occupancy_before_tools_and_turn_end(brain):
     def first(_payload):
         brain.provider.usage = {"prompt_tokens": 12_345, "completion_tokens": 67}
-        return tool_call("memory_list", {}, "context-call")
+        return tool_call("journal_search", {}, "context-call")
 
     def second(_payload):
         brain.provider.usage = {"prompt_tokens": 23_456, "completion_tokens": 89}

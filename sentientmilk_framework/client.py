@@ -154,8 +154,11 @@ class BrainClient:
 
     def memory(self) -> Dict[str, Dict[str, Any]]:
         """What the brain remembers for every app, {category: {key: value}}; ``memory_entries`` says which app
-        saved each. A session's own memory is ``session(app, id)["memory"]``."""
-        return self._call("GET", "/memory")["memory"]
+        saved each. A session's own memory is ``session(app, id)["session_memory"]``."""
+        result: Dict[str, Dict[str, Any]] = {}
+        for entry in self.memory_entries():
+            result.setdefault(entry["category"], {})[entry["key"]] = entry["value"]
+        return result
 
     def memory_entries(self) -> List[dict]:
         """Every memory entry: category, key, value, app (the one that saved it) and updated."""
@@ -169,7 +172,7 @@ class BrainClient:
         return self._call("GET", f"/apps/{app}/sessions")["sessions"]
 
     def session(self, app: str, session: str) -> dict:
-        """settings, todo, memory (the session's own, {key: value}), created and context use."""
+        """settings, todo, session_memory (the session's own, {key: value}), created and context use."""
         return self._call("GET", f"/apps/{app}/sessions/{session}")
 
     def update_session(self, app: str, session: str, **settings: Any) -> dict:
@@ -211,7 +214,8 @@ class BrainClient:
 
     def rewind_preview(self, app: str, session: str, event: int) -> dict:
         """What returning to a message the user sent (its history entry's ``id``) would undo: ``messages``,
-        ``files`` ({path, change: restore or delete}), ``todo`` (changes or not), ``agents`` (deleted),
+        ``files`` ({path, change: restore or delete}), ``todo`` and ``session_memory`` (each: goes back or
+        not), ``agents`` (deleted),
         ``stopped`` (jobs, agents' runs and tasks: {kind, id, name}), ``schedules`` (removed), and ``kept``
         ({name, count}: calls whose effects stay). ``text`` and ``mentions`` are the message's."""
         return self._call("GET", f"/apps/{app}/sessions/{session}/rewind", params={"to": event})

@@ -76,13 +76,13 @@ def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
 def test_history_can_include_tool_calls(brain):
     from sentientmilk_framework.testing import tool_call
 
-    brain.client.declare_app("milk", name="Milk", toolkits=["memory"])
-    brain.provider.replies += [tool_call("memory_list", {}, "m1"), "Nothing yet."]
+    brain.client.declare_app("milk", name="Milk", toolkits=["journal"])
+    brain.provider.replies += [tool_call("journal_search", {}, "m1"), "Nothing yet."]
     turn(brain, "milk", "What do you remember?")
     shown = brain.client.history("milk", "main", tools=True)
     assert [entry["role"] for entry in shown] == ["user", "tool", "assistant"]
     tool = shown[1]
-    assert tool["name"] == "memory_list" and tool["call_id"] == "m1" and tool["arguments"] == {}
+    assert tool["name"] == "journal_search" and tool["call_id"] == "m1" and tool["arguments"] == {}
     assert tool["status"] == "ok" and tool["text"] and tool["seconds"] >= 0
     assert [entry["role"] for entry in brain.client.history("milk", "main")] == ["user", "assistant"]
 

@@ -179,6 +179,15 @@ def _value(value) -> str:
     return text.strip().replace("\n", "\n  ")
 
 
+def memory_changes(seen: List[list], entries: List[dict], app: str) -> List[str]:
+    """What changed in memory since ``seen`` ([category, key, value]): one line a change, [app] as in YOUR MEMORY."""
+    before = {(c, k): v for c, k, v in seen}
+    now = {(e["category"], e["key"]): e for e in entries}
+    lines = [f"- {c}/{k}: {_value(e['value'])}" + (f" [{e['app']}]" if e["app"] != app else "")
+             for (c, k), e in now.items() if (c, k) not in before or before[(c, k)] != e["value"]]
+    return lines + [f"- forgotten: {c}/{k}" for (c, k) in before if (c, k) not in now]
+
+
 def render_memory(entries: List[dict], app: str) -> str:
     """Memory, whole, by category; [app] marks an entry another app saved."""
     lines, category = [], None
@@ -194,19 +203,22 @@ def render_memory(entries: List[dict], app: str) -> str:
 def snapshot(store, profile: dict) -> dict:
     """Memory, the session's memory and the journal as of now: refreshed only at session start, at compaction
     and when the user changes memory (Store.drop_snapshots); what the model saves meanwhile it sees in the
-    result of its call. Memory is whole, in every app and run: no app has to ask for it."""
+    result of its call, and what other sessions change reaches it as a note (Brain.memory_news). Memory is
+    whole, in every app and run: no app has to ask for it."""
     from .toolkits.journal import line
     from .toolkits.memory import session_memory
 
-    result = {"at": time.time(), "memory": "", "session_memory": "", "journal": ""}
     entries = store.memory_entries()
+    # seen: the memory this session knows, so a later turn hears only what changed since (Brain.memory_news)
+    result = {"at": time.time(), "memory": "", "session_memory": "", "journal": "",
+              "seen": [[e["category"], e["key"], e["value"]] for e in entries]}
     if entries:
         result["memory"] = ("Lasting facts you keep for every app and chat (memory_save); [app] marks one another "
                             "app saved.\n" + render_memory(entries, profile["app"]))
     chat = profile.get("base_session") or profile["session"]
     found = session_memory((store.find_session(profile["app"], chat) or {}).get("state") or {})
     if found:
-        whose = ("This session only (session_memory_save): follow it here; where it differs from YOUR MEMORY, it "
+        whose = ("This session only (memory_save with scope session): follow it here; where it differs from YOUR MEMORY, it "
                  "wins here." if chat == profile["session"] else
                  "The memory of the session you work for: follow it in your work too.")
         result["session_memory"] = whose + "\n" + "\n".join(f"- {k}: {_value(v)}" for k, v in found.items())

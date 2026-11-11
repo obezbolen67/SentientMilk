@@ -26,8 +26,7 @@ def test_requests_carry_the_core_tools_and_list_the_rest(brain):
     turn(brain, "cli", "find text files")
     turn(brain, "cli", "and now?")
     first, *others = brain.provider.sent
-    assert set(sent_names(first)) == {"memory_save", "session_memory_save", "todo_write", "files_read", "files_search",
-                                      "shell_run",
+    assert set(sent_names(first)) == {"memory_save", "todo_write", "files_read", "files_search", "shell_run",
                                       "shell_output", "web_search", "web_fetch", "tools_search", "tools_load",
                                       'history_read', 'history_search', 'context_compact'}
     assert all(other["tools"] == first["tools"] for other in others)  # one tool list: the cache keeps hitting

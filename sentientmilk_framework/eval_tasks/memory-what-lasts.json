@@ -7,5 +7,5 @@
   ],
   "sessions": ["main", "main", "later"],
   "check": {"memory_has": ["Dana", "nurse"], "memory_lacks": ["dark mode"], "reply_contains": ["nurse"]},
-  "toolkits": ["memory", "todo", "journal"]
+  "toolkits": ["todo", "journal"]
 }

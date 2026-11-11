@@ -22,6 +22,7 @@ from typing import Dict, List, Tuple
 from .exceptions import BrainError
 from .loop import ACTIVE
 from .toolkits import ToolError
+from .toolkits.memory import is_session_call
 from .toolkits.shell import stop as stop_job
 from .toolkits.todo import clean as clean_todo
 
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 STOP_WAIT = 10  # seconds the work being stopped has to end before its files are restored
 # Calls whose effects a return takes back, or that only touch the work it stops.
 UNDONE = {"files_write", "files_edit", "skill_delete", "todo_write", "schedule_create", "agent_start", "agent_message",
-          "task_progress", "session_memory_save", "session_memory_forget"}
+          "task_progress"}
 BUSY = "She is still working in this chat: stop her first, or wait."
 
 
@@ -64,6 +65,7 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
                 summary["problems"].append(f"{change['path']}: {exc.strerror or exc}")
         todo = _todo(brain.store, app, session, target)
         remembered = _session_memory(brain.store, app, session, target)
+        memory_changed = remembered != (brain.store.session(app, session)["state"].get("session_memory") or {})
         last = brain.store.last_event(app, session, target["id"], "assistant")
         usage = (last or {}).get('usage') or {}
         inputs, outputs = usage.get('prompt_tokens'), usage.get('completion_tokens')
@@ -86,6 +88,8 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
                            list(work["runs"]), change_state)
         for schedule in work["schedules"]:
             brain.scheduler.delete(schedule["id"])
+        if memory_changed:  # agents and tasks from before the message go on: they hear the chat's memory now
+            brain.chat_memory_changed(app, session)
     logger.info("Returned %s/%s to before event %s", app, session, target["id"])
     return summary
 
@@ -172,9 +176,11 @@ def _todo(store, app: str, session: str, target: dict) -> list:
 def _session_memory(store, app: str, session: str, target: dict) -> dict:
     """The chat's memory as the message found it: its saves and forgets before it, in order."""
     kept = {}
-    for call in store.calls(app, session, target["id"], ("session_memory_save", "session_memory_forget")):
+    for call in store.calls(app, session, target["id"], ("memory_save", "memory_forget")):
+        if not is_session_call(call):
+            continue  # lasting memory is every app's: a return keeps it
         key = str(call["arguments"].get("key", "")).strip()
-        if call["name"] == "session_memory_save":
+        if call["name"] == "memory_save":
             kept[key] = str(call["arguments"].get("value", "")).strip()
         else:
             kept.pop(key, None)
@@ -198,7 +204,7 @@ def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
         "skills": target.get("skills") or [],
         "messages": sum(1 for e in later if e["type"] == "input" and e.get("display") is not None),
         "todo": _todo(store, app, session, target) != found["state"].get("todo", []),
-        "memory": _session_memory(store, app, session, target) != (found["state"].get("session_memory") or {}),
+        "session_memory": _session_memory(store, app, session, target) != (found["state"].get("session_memory") or {}),
         "agents": [{"id": agent_id, "name": record["name"]} for agent_id, record in work["agents"]],
         "stopped": stopped,
         "schedules": [{"id": s["id"], "title": s["payload"]["title"], "text": s["payload"]["text"]}
@@ -217,7 +223,8 @@ def _kept(brain, app: str, session: str, later: List[dict], work: dict) -> List[
     counts: Dict[str, int] = {}
     for event in events:
         tool_ = tools.get(event["name"])
-        if event["status"] == "ok" and event["name"] not in UNDONE and not (tool_ and tool_.readonly):
+        if event["status"] == "ok" and event["name"] not in UNDONE and not (tool_ and tool_.readonly) \
+                and not is_session_call(event):
             counts[event["name"]] = counts.get(event["name"], 0) + 1
     return [{"name": name, "count": count} for name, count in counts.items()]
 

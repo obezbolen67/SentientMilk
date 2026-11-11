@@ -352,7 +352,7 @@ class Panel(App):
                 yield from self.compose_apps()
             with TabPane("Work", id="work"):
                 yield from self.compose_work()
-            with TabPane("Journal", id="journal"):
+            with TabPane("Memory", id="journal"):
                 yield from self.compose_journal()
             with TabPane("Tools", id="tools"):
                 yield from self.compose_tools()
@@ -473,10 +473,6 @@ class Panel(App):
                     yield DataTable(id="sessions", cursor_type="row", zebra_stripes=True)
                     with Horizontal(classes="buttons"):
                         yield FlatButton("Clear this conversation", id="session-clear", variant="error")
-                with Vertical(classes="card", id="memory-card"):
-                    yield DataTable(id="memory", cursor_type="row", zebra_stripes=True)
-                    with Horizontal(classes="buttons"):
-                        yield FlatButton("Forget", id="memory-forget", variant="error")
 
     def compose_work(self) -> ComposeResult:
         yield Static("Background tasks and agents run on their own and report back to the app or chat that "
@@ -494,13 +490,19 @@ class Panel(App):
                     yield FlatButton("Delete", id="schedule-delete", variant="error")
 
     def compose_journal(self) -> ComposeResult:
-        yield Static("Short dated notes the brain keeps about conversations in every app. When the journal "
-                     "is full, the oldest go first.", classes="hint")
-        yield Input(placeholder="Search notes…", id="journal-search")
-        with Vertical(classes="card", id="journal-card"):
-            yield DataTable(id="notes", cursor_type="row", zebra_stripes=True)
-            with Horizontal(classes="buttons"):
-                yield FlatButton("Delete note", id="note-delete", variant="error")
+        yield Static("What the brain remembers, shared by every app and always in its context (From: the app "
+                     "that saved it; each conversation's own memory is in its app), then the journal: short dated "
+                     "notes about conversations in every app, all of them kept.", classes="hint")
+        with VerticalScroll():
+            with Vertical(classes="card", id="memory-card"):
+                yield DataTable(id="memory", cursor_type="row", zebra_stripes=True)
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Forget", id="memory-forget", variant="error")
+            yield Input(placeholder="Search notes…", id="journal-search")
+            with Vertical(classes="card", id="journal-card"):
+                yield DataTable(id="notes", cursor_type="row", zebra_stripes=True)
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Delete note", id="note-delete", variant="error")
 
     def compose_tools(self) -> ComposeResult:
         yield Static("What the brain may do on this computer. A toolkit switched off here is off for every app.",
@@ -568,7 +570,7 @@ class Panel(App):
                             ("thinking-card", "Thinking and requests"), ("super-card", "Super model"),
                             ("apps-pane", "Apps"),
                             ("persona-card", "Persona"), ("app-settings-card", "Settings"),
-                            ("sessions-card", "Conversations"), ("memory-card", "Memory, shared by every app"),
+                            ("sessions-card", "Conversations"), ("memory-card", "Memory, every app's"),
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
                             ("runtime-card", "Runtime and permissions"), ("mcp-card", "MCP servers"),
@@ -658,7 +660,7 @@ class Panel(App):
             return
         self.show_state()
         live = {"overview": self.load_overview, "apps": self.load_app_tables, "work": self.load_work,
-                "journal": self.load_notes, "tools": self.load_mcp, "plugins": self.load_plugins}
+                "journal": self.load_memory, "tools": self.load_mcp, "plugins": self.load_plugins}
         live.get(self.main.query_one(TabbedContent).active, lambda: None)()
 
     # ============== Overview ==============
@@ -858,7 +860,7 @@ class Panel(App):
         self.main.query_one("#app-journal-read", Switch).value = journal["read"]
         self.main.query_one("#app-journal-write", Switch).value = journal["write"]
         declared = []
-        for kit in declaration.get("toolkits", []):
+        for kit in ["memory"] + declaration.get("toolkits", []):  # every app has memory, listed or not
             declared += [k for k in kits["toolkits"] if k.startswith("mcp:")] if kit == "mcp:*" else [kit]
         off_everywhere = set(self.settings.get("disabled_toolkits", []))
         off_here = set(settings.get("disabled_toolkits", []))
@@ -872,14 +874,10 @@ class Panel(App):
         if not app:
             return
         sessions = self.call(lambda c: c.sessions(app), quiet=True)
-        memory = self.call(lambda c: c.memory_entries(), quiet=True)
-        if sessions is None or memory is None:
+        if sessions is None:
             return
         fill(self.main.query_one("#sessions", DataTable),
              [(s["id"], (s["id"], when(s["created"]), ago(s["last_active"]))) for s in sessions])
-        fill(self.main.query_one("#memory", DataTable),  # shared by every app: From says which one saved it
-             [(f"{e['category']}\n{e['key']}", (e["category"], e["key"], cut(e["value"], 90), e["app"]))
-              for e in memory])
 
     def save_app(self) -> None:
         app = self.app_id
@@ -933,6 +931,15 @@ class Panel(App):
                    else escape(cut(result.get("reply", ""), 600)) or f"[{MUTED}]still working…[/]")
         self.main.query_one("#task-detail", Static).update(
             f"[b]#{task['id']}[/] {escape(task['options'].get('goal', ''))}\n{outcome}")
+
+    def load_memory(self) -> None:
+        """Memory (From: the app that saved an entry), then the journal."""
+        memory = self.call(lambda c: c.memory_entries(), quiet=True)
+        if memory is not None:
+            fill(self.main.query_one("#memory", DataTable),
+                 [(f"{e['category']}\n{e['key']}", (e["category"], e["key"], cut(e["value"], 90), e["app"]))
+                  for e in memory])
+        self.load_notes()
 
     def load_notes(self) -> None:
         query = self.main.query_one("#journal-search", Input).value.strip()
@@ -1269,18 +1276,18 @@ class Panel(App):
     def clear_session(self) -> None:
         app, session = self.app_id, selected_key(self.main.query_one("#sessions", DataTable))
         if app and session:
-            self.push_screen(Confirm(f"Clear the conversation {session} of {app}? Its history is deleted; "
-                                     "memory and the journal stay.", "Clear"),
+            self.push_screen(Confirm(f"Clear the conversation {session} of {app}? Its history and its own "
+                                     "memory are deleted; memory of every app and the journal stay.", "Clear"),
                              lambda yes: yes and self.call(lambda c: c.clear_history(app, session),
                                                            done="Conversation cleared."))
 
     def forget_memory(self) -> None:
-        app, key = self.app_id, selected_key(self.main.query_one("#memory", DataTable))
-        if app and key:
+        key = selected_key(self.main.query_one("#memory", DataTable))
+        if key:
             category, _, name = key.partition("\n")
             self.push_screen(Confirm(f"Forget {category} / {name}? Every app forgets it.", "Forget"),
                              lambda yes: yes and self.call(lambda c: c.forget(category, name),
-                                                           done="Forgotten.") and self.load_app_tables())
+                                                           done="Forgotten.") and self.load_memory())
 
     def toggle_schedule(self) -> None:
         key = selected_key(self.main.query_one("#schedules", DataTable))

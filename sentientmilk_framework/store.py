@@ -10,7 +10,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS apps (
@@ -722,11 +722,6 @@ class Store:
             db.execute(f"{verb} INTO memory(app, category, key, value, updated) VALUES (?, ?, ?, ?, ?)",
                        (app, category, key, dump(value), time.time()))
 
-    def recall(self, category: str, key: str) -> Optional[Any]:
-        with self._db() as db:
-            row = db.execute("SELECT value FROM memory WHERE category = ? AND key = ?", (category, key)).fetchone()
-        return json.loads(row[0]) if row else None
-
     def forget(self, category: str, key: str) -> bool:
         with self._db() as db:
             return db.execute("DELETE FROM memory WHERE category = ? AND key = ?", (category, key)).rowcount > 0
@@ -744,12 +739,18 @@ class Store:
             result.setdefault(entry["category"], {})[entry["key"]] = entry["value"]
         return result
 
-    def drop_snapshots(self) -> None:
-        """Every session takes a new snapshot of memory at its next request: after the user changed memory,
-        what they removed must not linger in a system block until the next compaction."""
+    def drop_snapshots(self, app: Optional[str] = None, sessions: Iterable[str] = ()) -> None:
+        """Sessions take a new snapshot of memory at their next request (a running one at its next step):
+        after the user changed memory, what they removed must not linger in a system block until the next
+        compaction. Every session, or with ``app``, those ``sessions`` of it."""
+        query, params = ("UPDATE sessions SET state = json_remove(state, '$.snapshot') "
+                         "WHERE json_extract(state, '$.snapshot') IS NOT NULL"), []
+        if app is not None:
+            sessions = list(sessions)
+            query += f" AND app = ? AND id IN ({', '.join('?' for _ in sessions)})"
+            params = [app, *sessions]
         with self._db() as db:
-            db.execute("UPDATE sessions SET state = json_remove(state, '$.snapshot') "
-                       "WHERE json_extract(state, '$.snapshot') IS NOT NULL")
+            db.execute(query, params)
 
     # ============== Journal (shared by every app) ==============
 

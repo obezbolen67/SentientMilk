@@ -7,5 +7,5 @@
   "turns": ["Hi! How are you today?", "I failed my exam today...", "What do you see on my screen?",
             "You are so annoying sometimes!", "Show me a Python function that reverses a string.", "Thanks, bye!"],
   "check": {"signals_ok": 6},
-  "toolkits": ["memory"]
+  "toolkits": []
 }
