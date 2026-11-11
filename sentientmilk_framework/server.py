@@ -245,6 +245,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"status": "ok"})
         elif route == ["journal"] and method == "GET":
             self._send(200, {"notes": brain.store.notes(query.get("q", ""), _number(query.get("limit", 200), "limit"))})
+        elif route == ["memory"] and method == "GET":
+            self._send(200, {"memory": brain.store.memories(), "entries": brain.store.memory_entries()})
+        elif head == "memory" and len(rest) == 2 and method == "DELETE":
+            found = brain.forget_memory(rest[0], rest[1])
+            self._send(200 if found else 404, {"status": "ok" if found else "not found"})
         elif head == "journal" and len(rest) == 1 and method == "DELETE":
             self._send(200 if brain.store.delete_note(_number(rest[0], "note id")) else 404, {"status": "ok"})
         elif head == "jobs" and len(rest) == 1 and method == "GET":
@@ -278,8 +283,8 @@ class _Handler(BaseHTTPRequestHandler):
         elif rest == ['scheduled'] and method == 'GET':
             found = brain.runs.scheduled_pending(app) if query.get('pending', '1') == '1' else brain.store.occurrences(app)
             self._send(200, {'occurrences': found})
-        elif rest == ["memory"] and method == "GET":
-            self._send(200, {"memory": brain.store.memories(app)})
+        elif rest == ["memory"] and method == "GET":  # before 0.8 memory was per app; it is shared now
+            self._send(200, {"memory": brain.store.memories()})
         elif rest == ["jobs"] and method == "GET":
             from .toolkits.shell import last_line
 
@@ -297,8 +302,8 @@ class _Handler(BaseHTTPRequestHandler):
         elif len(rest) == 2 and rest[0] == "mentions" and method == "GET":
             session = validate_name(query.get("session", "main"), "session id")
             self._send(200, {"card": mentions.card(brain, app, session, rest[1], query.get("ref", ""))})
-        elif len(rest) == 3 and rest[0] == "memory" and method == "DELETE":
-            found = brain.store.forget(app, rest[1], rest[2])
+        elif len(rest) == 3 and rest[0] == "memory" and method == "DELETE":  # as /memory/<category>/<key>
+            found = brain.forget_memory(rest[1], rest[2])
             self._send(200 if found else 404, {"status": "ok" if found else "not found"})
         elif len(rest) >= 2 and rest[0] == "sessions":
             return self._session_route(method, app, validate_name(rest[1], "session id"), rest[2:], body, query)
@@ -317,6 +322,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._fail(409, "busy", "A turn of this session is still going on; stop it first") or True
             brain.delete_session(app, session)
             self._send(200, {"status": "ok"})
+        elif len(rest) == 2 and rest[0] == "memory" and method == "DELETE":
+            found = brain.forget_session_memory(app, session, rest[1])
+            self._send(200 if found else 404, {"status": "ok" if found else "not found"})
         elif rest == ["compact"] and method == "POST":
             self._send(200, brain.runs.compact(app, session))
         elif rest == ["history"] and method == "GET":

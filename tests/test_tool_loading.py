@@ -26,7 +26,8 @@ def test_requests_carry_the_core_tools_and_list_the_rest(brain):
     turn(brain, "cli", "find text files")
     turn(brain, "cli", "and now?")
     first, *others = brain.provider.sent
-    assert set(sent_names(first)) == {"memory_save", "todo_write", "files_read", "files_search", "shell_run",
+    assert set(sent_names(first)) == {"memory_save", "session_memory_save", "todo_write", "files_read", "files_search",
+                                      "shell_run",
                                       "shell_output", "web_search", "web_fetch", "tools_search", "tools_load",
                                       'history_read', 'history_search', 'context_compact'}
     assert all(other["tools"] == first["tools"] for other in others)  # one tool list: the cache keeps hitting
@@ -142,7 +143,8 @@ def test_an_app_marks_the_actions_it_wants_sent(brain):
 
 def test_with_nothing_to_load_there_are_no_meta_tools(brain):
     brain.client.declare_app("small", toolkits=["web"])
-    brain.client.update_app("small", disabled_toolkits=["github"])  # plugins come to every app unless switched off
+    # plugins and memory come to every app; the user may switch their tools off
+    brain.client.update_app("small", disabled_toolkits=["github", "memory"])
     brain.provider.replies += ["hi"]
     turn(brain, "small", "hello")
     assert set(sent_names(brain.provider.sent[0])) == {'history_read', 'history_search', 'context_compact',
@@ -158,7 +160,8 @@ def test_rules_come_only_with_the_tools_they_name(brain):
     turn(brain, "small", "hello")
     full, small = system(brain.provider.sent[0]), system(brain.provider.sent[1])
     assert "memory_save right away" in full and "todo_write" in full and "give the parts to agents" in full
-    assert "memory_save" not in small and "todo_write" not in small and "agent_start" not in small
+    assert "memory_save right away" in small  # every app has memory
+    assert "todo_write" not in small and "agent_start" not in small
 
 
 def test_calls_run_in_the_order_the_model_wrote_them(brain):
@@ -193,10 +196,10 @@ def test_one_map_of_all_it_can_do_marks_the_parts_of_it(brain):
     flat = " ".join(listed.split())
     assert "never by looking for it on the screen or in files" in flat and "is the whole truth about it" in flat
     assert "whatever they say they made, installed or set up for you is here" in flat
-    assert "- memory [part of you] (What you remember about the user" in listed
+    assert "- memory [part of you] (What you remember: lasting facts shared by every app" in listed
     assert "- agents [part of you]" in listed and "- web (Search the web" in listed  # the world is not a part
     # a tool's guide comes under its toolkit, with the tool
-    assert listed.index("save it with memory_save right away") > listed.index("- memory [part of you]")
+    assert listed.index("save each fact with memory_save right away") > listed.index("- memory [part of you]")
 
 
 def test_the_first_turn_after_its_tools_changed_hears_what_changed(brain, tmp_path, monkeypatch):

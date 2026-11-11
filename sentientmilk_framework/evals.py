@@ -2,7 +2,7 @@
 
 Each task gets a throw-away brain home and work folder and runs through the real HTTP API.
 Kinds: "task" (a background task; check its files, a command or its report) and "chat" (turns in a
-session; check replies, signals, schedules, what the app remembered). Tasks marked "holdout" catch rules that only fit the rest.
+session; check replies, signals, schedules, what was remembered and each session's own memory). Tasks marked "holdout" catch rules that only fit the rest.
 
     sentientmilk eval                 every task
     sentientmilk eval fix-failing-test --report results.json
@@ -26,7 +26,7 @@ from .config import BrainConfig
 TASKS_DIR = Path(__file__).parent / "eval_tasks"
 COPIED_SETTINGS = ("api_key", "base_url", "model", "light_model", "web_search_key", "thinking_mode",
                    "thinking_tokens", "context_window", "vision", "request_budget")
-DEFAULT_TOOLKITS = ["files", "shell", "web", "todo", "memory", "agents", "schedule"]
+DEFAULT_TOOLKITS = ["files", "shell", "web", "todo", "agents", "schedule"]  # and memory, as every app
 
 
 def load(names: Optional[List[str]] = None) -> List[dict]:
@@ -88,6 +88,11 @@ def check(spec: dict, folder: Path, replies: List[str], extra: dict) -> tuple:
     for text in rule.get("memory_lacks", []):
         if text.lower() in memory:
             return False, f"a memory mentions {text!r}, which is not worth keeping: {memory[:300]}"
+    kept = extra.get("session_memory", {})  # each session's own memory, as JSON
+    for session, texts in rule.get("session_memory_has", {}).items():
+        for text in texts:
+            if text.lower() not in kept.get(session, "").lower():
+                return False, f"the memory of {session} does not mention {text!r}: {kept.get(session, '')[:300]}"
     for text in rule.get("reply_contains", []):
         if text.lower() not in (replies[-1] if replies else "").lower():
             return False, f"the last reply does not mention {text!r}"
@@ -144,7 +149,10 @@ def run_one(spec: dict, settings: dict, *, compact_between_turns: bool = False) 
                 if compact_between_turns and index < len(spec["turns"]) - 1:
                     client.compact_session("eval", session)
             extra["schedules"] = len(client.schedules("eval"))
-            extra["memory"] = json.dumps(server.brain.store.memories("eval"), ensure_ascii=False)
+            extra["memory"] = json.dumps(server.brain.store.memories(), ensure_ascii=False)
+            extra["session_memory"] = {session: json.dumps(server.brain.session_info("eval", session)["memory"],
+                                                           ensure_ascii=False)
+                                       for session in set(spec.get("sessions", ["main"]))}
         passed, why = (False, error) if error else check(spec, work, replies, extra)
     except Exception as exc:
         passed, why, runs = False, f"{type(exc).__name__}: {exc}", []

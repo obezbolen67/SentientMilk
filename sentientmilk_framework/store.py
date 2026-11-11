@@ -60,7 +60,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS occurrence_active ON schedule_occurrences(sche
 CREATE INDEX IF NOT EXISTS occurrences_by_app ON schedule_occurrences(app, status, id);
 CREATE TABLE IF NOT EXISTS memory (
     app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
-    updated REAL NOT NULL, PRIMARY KEY (app, category, key)
+    updated REAL NOT NULL, PRIMARY KEY (category, key)
 );
 CREATE TABLE IF NOT EXISTS journal (
     id INTEGER PRIMARY KEY, at REAL NOT NULL, app TEXT NOT NULL, session TEXT NOT NULL, note TEXT NOT NULL
@@ -143,6 +143,20 @@ def _adopt_old_schedules(db) -> None:
             'timezone': old.get('timezone') or calendar_zone().key})
 
 
+def _share_memory(db) -> None:
+    """Memory was per app before 0.8; now every app shares it, and ``app`` says which one saved an entry.
+    Where two apps kept the same category and key, the newest stays."""
+    if "app" not in [row[1] for row in db.execute("PRAGMA table_info(memory)") if row[5]]:
+        return
+    db.execute("ALTER TABLE memory RENAME TO memory_per_app")
+    db.execute("CREATE TABLE memory (app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL, "
+               "value TEXT NOT NULL, updated REAL NOT NULL, PRIMARY KEY (category, key))")
+    db.execute("INSERT OR REPLACE INTO memory SELECT app, category, key, value, updated FROM memory_per_app "
+               "ORDER BY updated")
+    db.execute("DROP TABLE memory_per_app")
+    db.execute("UPDATE sessions SET state = json_remove(state, '$.snapshot')")  # their memory, per app
+
+
 class Store:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -153,6 +167,7 @@ class Store:
             db.executescript(_SCHEMA)
             with db:
                 _adopt_old_schedules(db)
+                _share_memory(db)
         finally:
             db.close()
 
@@ -366,6 +381,15 @@ class Store:
         with self._db() as db:
             row = db.execute(query + " ORDER BY id DESC LIMIT 1", params).fetchone()
         return _event(row) if row else None
+
+    def calls(self, app: str, session: str, before: int, names: tuple) -> List[dict]:
+        """The session's calls of these tools that went well before event ``before``, the oldest first."""
+        marks = ", ".join("?" for _ in names)
+        with self._db() as db:
+            return [_event(row) for row in db.execute(
+                f"SELECT {_EVENT_COLUMNS} FROM events WHERE app = ? AND session = ? AND id < ? AND type = 'tool' "
+                f"AND json_extract(data, '$.name') IN ({marks}) AND json_extract(data, '$.status') = 'ok' ORDER BY id",
+                (app, session, before, *names))]
 
     def run_events(self, run: int, after: int = 0) -> List[dict]:
         with self._db() as db:
@@ -689,33 +713,43 @@ class Store:
         with self._db() as db:
             return db.execute("SELECT COALESCE(MAX(id), 0) FROM notifications WHERE app = ?", (app,)).fetchone()[0]
 
-    # ============== Memory (per app) ==============
+    # ============== Memory (shared by every app) ==============
 
     def remember(self, app: str, category: str, key: str, value: Any, *, replace: bool = True) -> None:
+        """Keep a lasting fact for every app; ``app`` is the one that saved it."""
         verb = "INSERT OR REPLACE" if replace else "INSERT OR IGNORE"
         with self._db() as db:
             db.execute(f"{verb} INTO memory(app, category, key, value, updated) VALUES (?, ?, ?, ?, ?)",
                        (app, category, key, dump(value), time.time()))
 
-    def recall(self, app: str, category: str, key: str) -> Optional[Any]:
+    def recall(self, category: str, key: str) -> Optional[Any]:
         with self._db() as db:
-            row = db.execute("SELECT value FROM memory WHERE app = ? AND category = ? AND key = ?",
-                             (app, category, key)).fetchone()
+            row = db.execute("SELECT value FROM memory WHERE category = ? AND key = ?", (category, key)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def forget(self, app: str, category: str, key: str) -> bool:
+    def forget(self, category: str, key: str) -> bool:
         with self._db() as db:
-            return db.execute("DELETE FROM memory WHERE app = ? AND category = ? AND key = ?",
-                              (app, category, key)).rowcount > 0
+            return db.execute("DELETE FROM memory WHERE category = ? AND key = ?", (category, key)).rowcount > 0
 
-    def memories(self, app: str) -> Dict[str, Dict[str, Any]]:
+    def memory_entries(self) -> List[dict]:
+        """Every entry: ``category``, ``key``, ``value``, ``app`` (the one that saved it) and ``updated``."""
         with self._db() as db:
-            rows = db.execute("SELECT category, key, value FROM memory WHERE app = ? ORDER BY category, key",
-                              (app,)).fetchall()
+            rows = db.execute("SELECT category, key, value, app, updated FROM memory ORDER BY category, key").fetchall()
+        return [{"category": c, "key": k, "value": json.loads(v), "app": a, "updated": u} for c, k, v, a, u in rows]
+
+    def memories(self) -> Dict[str, Dict[str, Any]]:
+        """Every entry as {category: {key: value}}."""
         result: Dict[str, Dict[str, Any]] = {}
-        for category, key, value in rows:
-            result.setdefault(category, {})[key] = json.loads(value)
+        for entry in self.memory_entries():
+            result.setdefault(entry["category"], {})[entry["key"]] = entry["value"]
         return result
+
+    def drop_snapshots(self) -> None:
+        """Every session takes a new snapshot of memory at its next request: after the user changed memory,
+        what they removed must not linger in a system block until the next compaction."""
+        with self._db() as db:
+            db.execute("UPDATE sessions SET state = json_remove(state, '$.snapshot') "
+                       "WHERE json_extract(state, '$.snapshot') IS NOT NULL")
 
     # ============== Journal (shared by every app) ==============
 

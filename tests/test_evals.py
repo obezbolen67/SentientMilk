@@ -27,6 +27,9 @@ def test_a_task_checks_what_was_remembered_and_what_was_left_out(tmp_path):
     trivia = '{"user": {"job": "nurse"}, "events": {"phone": "Turned on Dark Mode tonight"}}'
     assert evals.check(spec, tmp_path, ["hi"], {"memory": trivia})[0] is False
     assert evals.check(spec, tmp_path, ["hi"], {"memory": "{}"})[0] is False
+    here = {"check": {"session_memory_has": {"main": ["push"]}}}
+    assert evals.check(here, tmp_path, ["hi"], {"session_memory": {"main": '{"no_push": "Never git push."}'}})[0]
+    assert evals.check(here, tmp_path, ["hi"], {"session_memory": {"later": '{"no_push": "x push"}'}})[0] is False
 
 
 def test_context_pair_runs_identical_coding_work_and_checks_files_after_two_compactions(tmp_path, monkeypatch):

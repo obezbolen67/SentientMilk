@@ -187,7 +187,7 @@ class SuperRun:
             "--restricted", "--tools", TOOLS, "--strict-mcp-config",
             "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
             "--model", values["super_model"], "--effort", values["super_effort"],
-            "--append-system-prompt", PROMPT.format(name=profile["name"])]
+            "--append-system-prompt", PROMPT.format(name=profile["name"]) + self._chat_memory()]
         for root in roots:
             if root != folder:
                 args += ["--add-dir", root]
@@ -243,6 +243,18 @@ class SuperRun:
             kill_tree(self.process)
 
     # ============== One run ==============
+
+    def _chat_memory(self) -> str:
+        """The memory of the chat it works for ("don't push until I say"): its rules hold for the work too."""
+        from .toolkits.memory import session_memory
+
+        profile = self.profile
+        chat = profile.get("base_session") or profile["session"]
+        kept = session_memory((self.brain.store.find_session(profile["app"], chat) or {}).get("state") or {})
+        if not kept:
+            return ""
+        return ("\n\n## THE CHAT'S MEMORY\nWhat the chat you work for keeps to: follow it in your work too.\n"
+                + "\n".join(f"- {key}: {value}" for key, value in kept.items()))
 
     def execute(self) -> None:
         run, store, runs = self.run, self.store, self.brain.runs

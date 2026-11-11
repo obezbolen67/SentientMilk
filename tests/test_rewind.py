@@ -64,7 +64,7 @@ def test_a_return_takes_back_the_chat_her_files_and_her_todo_list(brain):
     assert (preview["text"], preview["messages"], preview["todo"]) == ("change them", 2, True)
     assert sorted((Path(f["path"]).name, f["change"]) for f in preview["files"]) == [
         ("new.txt", "delete"), ("notes.txt", "restore")]
-    assert preview["kept"] == [{"name": "memory_save", "count": 1}]  # memories are the app's
+    assert preview["kept"] == [{"name": "memory_save", "count": 1}]  # lasting memory is every app's
     assert notes.read_text(encoding="utf-8") == "again\n"  # a dry run changes nothing
 
     done = brain.client.rewind("cli", "main", target["id"])
@@ -73,7 +73,7 @@ def test_a_return_takes_back_the_chat_her_files_and_her_todo_list(brain):
     assert not (brain.work / "sub" / "new.txt").exists()
     assert [e["text"] for e in brain.client.history("cli", "main")] == ["read my notes", "Read it."]
     assert brain.client.session("cli", "main")["todo"] == [{"text": "plan", "status": "pending"}]
-    assert brain.store.memories("cli")["user"]["k"] == "v"
+    assert brain.store.memories()["user"]["k"] == "v"
     assert not brain.store.versions("cli", "main")  # put back: nothing left to restore
 
     brain.provider.replies += ["Fresh."]

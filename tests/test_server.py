@@ -155,7 +155,7 @@ def test_app_settings_override_the_declared_persona(brain):
         brain.client.declare_app("bad", signals={"expression": {"options": []}})
 
 
-def test_imported_history_fills_only_an_empty_session_and_memory_is_per_app(brain):
+def test_imported_history_fills_only_an_empty_session_and_memory_is_shared(brain):
     messages = [{"role": "user", "content": "I am Tester"},
                 {"role": "assistant", "content": '{"expression": "arms_down/smile"}\nHi Tester!'}]
     brain.client.import_history("milk", "main", messages, {"user": {"name": "Tester"}})
@@ -163,8 +163,8 @@ def test_imported_history_fills_only_an_empty_session_and_memory_is_per_app(brai
     with pytest.raises(BrainError) as caught:
         brain.client.import_history("milk", "main", messages, {})
     assert caught.value.type == "bad_request"
-    assert brain.store.memories("milk") == {"user": {"name": "Tester"}}
-    assert brain.store.memories("cli") == {}
+    assert brain.client.memory() == {"user": {"name": "Tester"}}  # every app's
+    assert brain.client.memory_entries()[0]["app"] == "milk"
     brain.client.import_history("milk", "old", messages, {}, transcript=[{"role": "user", "text": "I am Tester"}])
     assert brain.client.history("milk", "old") == [  # what the app showed is no place to return to: no id
         {"role": "user", "text": "I am Tester", "time": pytest.approx(0, abs=1e10)}]

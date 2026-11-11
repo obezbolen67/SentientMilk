@@ -568,7 +568,7 @@ class Panel(App):
                             ("thinking-card", "Thinking and requests"), ("super-card", "Super model"),
                             ("apps-pane", "Apps"),
                             ("persona-card", "Persona"), ("app-settings-card", "Settings"),
-                            ("sessions-card", "Conversations"), ("memory-card", "Memory"),
+                            ("sessions-card", "Conversations"), ("memory-card", "Memory, shared by every app"),
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
                             ("runtime-card", "Runtime and permissions"), ("mcp-card", "MCP servers"),
@@ -577,7 +577,7 @@ class Panel(App):
         columns = {
             "usage": ("App", "Runs", "Model calls", "Prompt tokens", "Cached", "Cache hits", "Reply tokens"),
             "sessions": ("Conversation", "Started", "Last active"),
-            "memory": ("Category", "Key", "Value"),
+            "memory": ("Category", "Key", "Value", "From"),
             "tasks": ("#", "App", "Status", "Goal", "Started", "Tokens"),
             "schedules": ("#", "App", "When", "Next", "Name", "Instructions", "State"),
             "notes": ("When", "App", "Note"),
@@ -872,14 +872,14 @@ class Panel(App):
         if not app:
             return
         sessions = self.call(lambda c: c.sessions(app), quiet=True)
-        memory = self.call(lambda c: c.memory(app), quiet=True)
+        memory = self.call(lambda c: c.memory_entries(), quiet=True)
         if sessions is None or memory is None:
             return
         fill(self.main.query_one("#sessions", DataTable),
              [(s["id"], (s["id"], when(s["created"]), ago(s["last_active"]))) for s in sessions])
-        fill(self.main.query_one("#memory", DataTable),
-             [(f"{category}\n{key}", (category, key, cut(value, 90)))
-              for category, values in memory.items() for key, value in values.items()])
+        fill(self.main.query_one("#memory", DataTable),  # shared by every app: From says which one saved it
+             [(f"{e['category']}\n{e['key']}", (e["category"], e["key"], cut(e["value"], 90), e["app"]))
+              for e in memory])
 
     def save_app(self) -> None:
         app = self.app_id
@@ -1278,8 +1278,8 @@ class Panel(App):
         app, key = self.app_id, selected_key(self.main.query_one("#memory", DataTable))
         if app and key:
             category, _, name = key.partition("\n")
-            self.push_screen(Confirm(f"Forget {category} / {name}?", "Forget"),
-                             lambda yes: yes and self.call(lambda c: c.forget(app, category, name),
+            self.push_screen(Confirm(f"Forget {category} / {name}? Every app forgets it.", "Forget"),
+                             lambda yes: yes and self.call(lambda c: c.forget(category, name),
                                                            done="Forgotten.") and self.load_app_tables())
 
     def toggle_schedule(self) -> None:

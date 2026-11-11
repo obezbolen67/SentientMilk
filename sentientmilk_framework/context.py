@@ -27,7 +27,7 @@ SHORT_RESULT = 1000
 INTERRUPTED = "[No result: the call was interrupted.]"
 KEPT_RESULTS = 5  # tool results never cleared
 CLEAR_AT, CLEAR_STEP, COMPACT_AT, KEEP_RECENT = 0.5, 0.1, 0.75, 0.1  # fractions of the context window
-JOURNAL_CHARS, MEMORY_CHARS = 6_000, 8_000
+JOURNAL_CHARS = 6_000
 
 IDENTITY = """## WHO YOU ARE
 {called}The description below is you. Read it as "you", even where it says "she" or "he" or uses
@@ -159,7 +159,9 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
     if snapshot.get("memory"):
-        parts.append("## WHAT YOU REMEMBER IN THIS APP\n" + snapshot["memory"])
+        parts.append("## YOUR MEMORY\n" + snapshot["memory"])
+    if snapshot.get("session_memory"):
+        parts.append("## THIS SESSION'S MEMORY\n" + snapshot["session_memory"])
     if snapshot.get("journal"):
         parts.append("## RECENT NOTES FROM YOUR OTHER SESSIONS (oldest first)\n" + snapshot["journal"])
     section = tools_section(toolmap)
@@ -172,18 +174,42 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
     return "\n\n".join(parts)
 
 
-def snapshot(store, profile: dict) -> dict:
-    """App memory and journal as of now: refreshed only at session start and at compaction."""
-    from .toolkits.journal import line
+def _value(value) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return text.strip().replace("\n", "\n  ")
 
-    result = {"at": time.time(), "memory": "", "journal": ""}
-    if "memory" in profile["toolkits"]:
-        memories = store.memories(profile["app"])
-        if memories:
-            text = json.dumps(memories, ensure_ascii=False, indent=1)
-            result["memory"] = text if len(text) <= MEMORY_CHARS else (
-                "Categories: " + ", ".join(f"{name} ({len(items)} items)" for name, items in memories.items())
-                + "\nRead them with memory_list.")
+
+def render_memory(entries: List[dict], app: str) -> str:
+    """Memory, whole, by category; [app] marks an entry another app saved."""
+    lines, category = [], None
+    for entry in entries:
+        if entry["category"] != category:
+            category = entry["category"]
+            lines.append(f"{category}:")
+        origin = f" [{entry['app']}]" if entry["app"] != app else ""
+        lines.append(f"- {entry['key']}: {_value(entry['value'])}{origin}")
+    return "\n".join(lines)
+
+
+def snapshot(store, profile: dict) -> dict:
+    """Memory, the session's memory and the journal as of now: refreshed only at session start, at compaction
+    and when the user changes memory (Store.drop_snapshots); what the model saves meanwhile it sees in the
+    result of its call. Memory is whole, in every app and run: no app has to ask for it."""
+    from .toolkits.journal import line
+    from .toolkits.memory import session_memory
+
+    result = {"at": time.time(), "memory": "", "session_memory": "", "journal": ""}
+    entries = store.memory_entries()
+    if entries:
+        result["memory"] = ("Lasting facts you keep for every app and chat (memory_save); [app] marks one another "
+                            "app saved.\n" + render_memory(entries, profile["app"]))
+    chat = profile.get("base_session") or profile["session"]
+    found = session_memory((store.find_session(profile["app"], chat) or {}).get("state") or {})
+    if found:
+        whose = ("This session only (session_memory_save): follow it here; where it differs from YOUR MEMORY, it "
+                 "wins here." if chat == profile["session"] else
+                 "The memory of the session you work for: follow it in your work too.")
+        result["session_memory"] = whose + "\n" + "\n".join(f"- {k}: {_value(v)}" for k, v in found.items())
     if profile["journal"]["read"]:
         lines, size = [], 0
         for note in store.notes(limit=200):

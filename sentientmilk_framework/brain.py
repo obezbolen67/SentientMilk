@@ -30,6 +30,7 @@ from .skills import Skills
 from .store import Store
 from .superagent import SuperAgents
 from .toolkits import builtin
+from .toolkits.memory import session_memory
 from .toolkits.shell import shell_name
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 NAME = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 DEFAULT_PERSONA = "You are a helpful, capable assistant."
-DEFAULT_TOOLKITS = ["memory", "todo", "journal", "web", "skills"]
+DEFAULT_TOOLKITS = ["todo", "journal", "web", "skills"]  # and memory, which every app has
 DECLARATION = {"name": str, "environment": str, "persona": str, "signals": dict, "actions": list,
                "toolkits": list, "rules": dict, "roots": list, "journal": dict,
                "callbacks": bool}  # the app starts a turn when a job or agent of its turn ends: those never wait
@@ -252,7 +253,7 @@ class Brain:
             set(session_settings.get("disabled_toolkits", []))
         journal = {"read": True, "write": True, **declaration.get("journal", {}), **settings.get("journal", {})}
         known = self.toolkit_names()
-        wanted = []
+        wanted = ["memory"]  # every app remembers; the user may still switch its tools off
         for name in declaration.get("toolkits", DEFAULT_TOOLKITS):
             wanted += [k for k in known if k.startswith("mcp:")] if name == "mcp:*" else [name]
         wanted += self.plugins.offered()  # installed for every app; an app or session may switch one off
@@ -267,7 +268,7 @@ class Brain:
         roots = [str(Path(r).expanduser().resolve()) for r in
                  declaration.get("roots", []) + settings.get("roots", []) + session_settings.get("roots", [])]
         return {
-            "app": app, "session": session, "name": declaration.get("name") or app,
+            "app": app, "session": session, "base_session": base_session, "name": declaration.get("name") or app,
             "environment": declaration.get("environment", ""),
             "persona": settings.get("persona") or declaration.get("persona") or DEFAULT_PERSONA,
             "instructions": instructions,
@@ -313,10 +314,33 @@ class Brain:
         self.store.update_session(profile["app"], profile["session"], "state", change)
         return taken
 
+    def forget_memory(self, category: str, key: str) -> bool:
+        """The user forgets an entry: gone from every system block at its next request, not at compaction."""
+        found = self.store.forget(category, key)
+        if found:
+            self.store.drop_snapshots()
+        return found
+
+    def forget_session_memory(self, app: str, session: str, key: str) -> bool:
+        """The user takes one thing out of a session's memory (and so out of its agents' and tasks')."""
+        found = []
+
+        def change(state):
+            kept = session_memory(state)
+            found.append(kept.pop(key, None) is not None)
+            state["session_memory"] = kept
+            return state
+        self.store.update_session(validate_name(app, "app id"), validate_name(session, "session id"), "state",
+                                  change, create=False)
+        if found and found[0]:
+            self.store.drop_snapshots()
+        return bool(found and found[0])
+
     def session_info(self, app: str, session: str) -> dict:
         record = self.store.session(validate_name(app, "app id"), validate_name(session, "session id"))
         state = record["state"]
         return {"app": app, "id": session, "settings": record["settings"], "todo": state.get("todo", []),
+                "memory": session_memory(state),
                 "created": record["created"],
                 "context": {"used": state.get("context_tokens", 0), "window": self.config.values()["context_window"],
                             "clear_at": context.CLEAR_AT, "compact_at": context.COMPACT_AT,

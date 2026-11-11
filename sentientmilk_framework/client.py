@@ -1,7 +1,7 @@
 """Talk to the SentientMilk brain from an app.
 
     client = connect()                                  # the running brain, started if needed
-    client.declare_app("jarvis", name="Jarvis", environment="...", toolkits=["memory", "web"])
+    client.declare_app("jarvis", name="Jarvis", environment="...", toolkits=["web"])  # memory: every app
     result = client.turn("jarvis", "main", text="Hello!", on_event=print)
     result["reply"], result["signals"], result["tools"]
 
@@ -152,8 +152,14 @@ class BrainClient:
     def app(self, app: str) -> dict:
         return self._call("GET", f"/apps/{app}")
 
-    def memory(self, app: str) -> Dict[str, Dict[str, Any]]:
-        return self._call("GET", f"/apps/{app}/memory")["memory"]
+    def memory(self) -> Dict[str, Dict[str, Any]]:
+        """What the brain remembers for every app, {category: {key: value}}; ``memory_entries`` says which app
+        saved each. A session's own memory is ``session(app, id)["memory"]``."""
+        return self._call("GET", "/memory")["memory"]
+
+    def memory_entries(self) -> List[dict]:
+        """Every memory entry: category, key, value, app (the one that saved it) and updated."""
+        return self._call("GET", "/memory")["entries"]
 
     def update_app(self, app: str, **settings: Any) -> dict:
         """The user's settings for an app: persona ("" resets), model, rules, disabled_toolkits, roots, journal."""
@@ -163,6 +169,7 @@ class BrainClient:
         return self._call("GET", f"/apps/{app}/sessions")["sessions"]
 
     def session(self, app: str, session: str) -> dict:
+        """settings, todo, memory (the session's own, {key: value}), created and context use."""
         return self._call("GET", f"/apps/{app}/sessions/{session}")
 
     def update_session(self, app: str, session: str, **settings: Any) -> dict:
@@ -417,8 +424,13 @@ class BrainClient:
     def delete_note(self, note: int) -> None:
         self._call("DELETE", f"/journal/{note}")
 
-    def forget(self, app: str, category: str, key: str) -> None:
-        self._call("DELETE", f"/apps/{app}/memory/{quote(category, safe='')}/{quote(key, safe='')}")
+    def forget(self, category: str, key: str) -> None:
+        """Forget a memory entry in every app; sessions see it gone at their next request."""
+        self._call("DELETE", f"/memory/{quote(category, safe='')}/{quote(key, safe='')}")
+
+    def forget_session_memory(self, app: str, session: str, key: str) -> None:
+        """Take one thing out of a session's memory."""
+        self._call("DELETE", f"/apps/{app}/sessions/{session}/memory/{quote(key, safe='')}")
 
     def shutdown(self) -> None:
         """Stop the brain; the next connect() starts it again."""

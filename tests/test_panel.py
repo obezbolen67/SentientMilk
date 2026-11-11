@@ -75,7 +75,7 @@ def test_apps_get_their_persona_toolkits_and_memory_managed_here(brain):
     milk = brain.client.app("milk")
     assert milk["persona"] == "You are a calm milk carton." and milk["persona_custom"]
     assert "web" not in milk["toolkits"] and "memory" in milk["toolkits"]
-    assert brain.store.memories("milk") == {}
+    assert brain.store.memories() == {}
 
 
 def test_schedules_are_paused_and_deleted_after_asking(brain):

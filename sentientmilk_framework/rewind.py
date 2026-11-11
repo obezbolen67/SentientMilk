@@ -5,12 +5,12 @@ Undone with it:
 - files changed with files_write and files_edit since, also by the agents she started since and the tasks
   her new schedules ran (each file goes back to the version kept before its first change, see
   Store.keep_version; a file made since is deleted);
-- her todo list for the chat;
+- her todo list and the chat's memory (session memory) as they were;
 - work she started since that still runs: jobs, her agents' runs and those tasks are stopped, the agents she
   started since are deleted, and the schedules she made since are removed.
 
 Not undone, and ``kept`` names those calls: what commands and app actions did, what went out to the web or
-other services, memories (the app's, not the chat's) and the journal. ``preview`` is the dry run of
+other services, lasting memory (every app's, not the chat's) and the journal. ``preview`` is the dry run of
 ``rewind``; both refuse while a run of the chat goes on.
 """
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 STOP_WAIT = 10  # seconds the work being stopped has to end before its files are restored
 # Calls whose effects a return takes back, or that only touch the work it stops.
 UNDONE = {"files_write", "files_edit", "skill_delete", "todo_write", "schedule_create", "agent_start", "agent_message",
-          "task_progress"}
+          "task_progress", "session_memory_save", "session_memory_forget"}
 BUSY = "She is still working in this chat: stop her first, or wait."
 
 
@@ -63,6 +63,7 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
                 failed.add(change["key"])
                 summary["problems"].append(f"{change['path']}: {exc.strerror or exc}")
         todo = _todo(brain.store, app, session, target)
+        remembered = _session_memory(brain.store, app, session, target)
         last = brain.store.last_event(app, session, target["id"], "assistant")
         usage = (last or {}).get('usage') or {}
         inputs, outputs = usage.get('prompt_tokens'), usage.get('completion_tokens')
@@ -72,6 +73,8 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
 
         def change_state(state: dict) -> dict:
             state["todo"] = todo
+            state["session_memory"] = remembered
+            state.pop("snapshot", None)  # the system block shows the chat's memory as it is now
             state["context_tokens"] = tokens
             state['context_source'] = 'provider' if measured else 'estimate'
             state['context_input'] = inputs if measured else None
@@ -166,6 +169,18 @@ def _todo(store, app: str, session: str, target: dict) -> list:
     return clean_todo((last or {}).get("arguments", {}).get("items") or [])
 
 
+def _session_memory(store, app: str, session: str, target: dict) -> dict:
+    """The chat's memory as the message found it: its saves and forgets before it, in order."""
+    kept = {}
+    for call in store.calls(app, session, target["id"], ("session_memory_save", "session_memory_forget")):
+        key = str(call["arguments"].get("key", "")).strip()
+        if call["name"] == "session_memory_save":
+            kept[key] = str(call["arguments"].get("value", "")).strip()
+        else:
+            kept.pop(key, None)
+    return kept
+
+
 def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
     store = brain.store
     later = store.events(app, session, after=target["id"] - 1, types=("input", "tool"))
@@ -183,6 +198,7 @@ def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
         "skills": target.get("skills") or [],
         "messages": sum(1 for e in later if e["type"] == "input" and e.get("display") is not None),
         "todo": _todo(store, app, session, target) != found["state"].get("todo", []),
+        "memory": _session_memory(store, app, session, target) != (found["state"].get("session_memory") or {}),
         "agents": [{"id": agent_id, "name": record["name"]} for agent_id, record in work["agents"]],
         "stopped": stopped,
         "schedules": [{"id": s["id"], "title": s["payload"]["title"], "text": s["payload"]["text"]}

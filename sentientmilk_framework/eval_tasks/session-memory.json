@@ -1,0 +1,11 @@
+{
+  "kind": "chat",
+  "turns": [
+    "hey, I'm Maks. Two things before we start. In this chat, never tell me to run git push: I push myself when I'm ready. And everywhere, always answer me in short bullet points. So, quick one: what does git stash do?",
+    "What do you know about me?"
+  ],
+  "sessions": ["main", "later"],
+  "check": {"session_memory_has": {"main": ["push"]}, "memory_has": ["Maks", "bullet"], "memory_lacks": ["push"],
+            "reply_contains": ["Maks"]},
+  "toolkits": ["todo", "journal"]
+}

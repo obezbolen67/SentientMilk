@@ -132,7 +132,7 @@ def test_occurrence_uses_normal_turn_tools_and_a_duplicate_delivery_reuses_its_r
     assert [tool['name'] for tool in again['tools']] == ['memory_save']
     assert len(brain.provider.sent) == 2
     assert brain.store.run(first['run'])['kind'] == 'turn'
-    assert brain.store.memories('milk')['report']['news'] == 'done'
+    assert brain.store.memories()['report']['news'] == 'done'
     assert not brain.client.scheduled_occurrences('milk')
     assert any(event['type'] == 'context' for event in events)
     history = brain.client.history('milk', occurrence['session'])
@@ -275,13 +275,13 @@ def test_reconnect_restores_approval_and_executes_only_after_the_app_allows_it(b
     brain.store.update_run(run, status='input_required')
     approvals = []
     def approve(event):
-        assert 'check' not in brain.store.memories('milk')
+        assert 'check' not in brain.store.memories()
         approvals.append(event['call_id'])
         return 'allow'
     brain.provider.replies.append('Approved and saved.')
     result = brain.client.turn('milk', item['session'], occurrence=item['id'], on_approval=approve)
     assert result['run'] == run and result['status'] == 'completed'
-    assert approvals == ['ask-1'] and brain.store.memories('milk')['check']['approved'] == 'yes'
+    assert approvals == ['ask-1'] and brain.store.memories()['check']['approved'] == 'yes'
 
 
 def test_skip_catchup_records_a_skipped_slot_without_executing_it(brain):
@@ -372,7 +372,7 @@ def test_recovery_resumes_the_same_occurrence_without_repeating_a_started_write(
     brain.provider.replies.append('Inspected the interrupted operation.')
     brain.brain.runs.recover()
     wait_for(lambda: brain.store.run(run)['status'] == 'completed')
-    assert 'check' not in brain.store.memories('milk')
+    assert 'check' not in brain.store.memories()
     assert brain.store.occurrence('milk', item['id'])['run'] == run
     assert brain.store.occurrence('milk', item['id'])['status'] == 'completed'
     result = next(e for e in brain.store.run_events(run) if e['type'] == 'tool')

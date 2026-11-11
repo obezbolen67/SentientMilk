@@ -50,8 +50,8 @@ none runs and shows it live:
 - **Overview**: state, address, uptime, the provider, token use per app, tasks, schedules.
 - **Provider**: service URL, model (with a model list from the service), keys (write-only),
   thinking, context window, images, streaming, request budget, shell.
-- **Apps**: each connected app's persona, model, toolkits and conversations; its memory,
-  where single entries can be forgotten.
+- **Apps**: each connected app's persona, model, toolkits and conversations; memory (every
+  app's, with the app that saved each entry), where single entries can be forgotten.
 - **Work**: tasks (cancel) and schedules (pause, delete). **Journal**: search and delete notes.
 - **Tools**: toolkits on or off for every app, approval rules, MCP servers.
 - **Plugins**: install (a folder or a git URL), turn on or off, settings (secrets
@@ -106,7 +106,7 @@ client.declare_app("jarvis",
     environment="You run the user's smart home. Replies are spoken aloud.",
     persona="You are Jarvis, dry and precise.",  # the default; the user may change it
     signals={"mood": {"options": ["calm", "pleased", "concerned"]}},  # optional
-    toolkits=["memory", "web", "schedule", "tasks"],
+    toolkits=["web", "schedule", "tasks"],  # every app has memory
     rules={"allow": ["schedule_create"]})
 result = client.turn("jarvis", "main", "Lights off, please.", context={"user": "Tony"},
                      on_event=print)  # text.delta, tool.start/end, retry, compacting, cleared, ... as they happen
@@ -119,8 +119,10 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
   toolkits, permission rules and allowed folders (`roots`), and with `callbacks: true` that
   it starts a turn when a job or agent of a turn ends: its turns then wait at most 10 s for
   them and are told to end instead (MilkChan does). A **session** is one
-  conversation in an app. Memory belongs to the app; the **journal** holds short, dated
-  notes about sessions across all apps, oldest deleted first when it is full.
+  conversation in an app. **Memory** (lasting facts about the user and their world) is shared by
+  every app and always whole in context, no app has to ask for it; each session also has its own
+  **session memory** (instructions and facts for that conversation only, kept through compaction),
+  and the **journal** holds short, dated notes about what happened in sessions across all apps.
 - The persona is who the model is in that app, not a role it plays: the prompt opens with it
   under **WHO YOU ARE**, says a description written as "she" or by name means "you", and asks
   for thinking in the first person, as that self. Nothing else in the prompt calls the model an
@@ -191,7 +193,7 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
 | `shell` | `shell_run` (PowerShell on Windows; `shell` setting), `shell_output`, `shell_stop` for background jobs; a command still running after 30 s goes on as one |
 | `web` | `web_search` (Brave, needs `web_search_key`), `web_fetch` |
 | `todo` | `todo_write` |
-| `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` |
+| `memory` (every app) | `memory_save`, `memory_list`, `memory_forget`; this session's: `session_memory_save`, `session_memory_forget` |
 | `journal` | `journal_search` |
 | `agents` | `agent_start`, `agent_message`, `agents_wait`, `agents_status`, `agent_stop` |
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete` |
@@ -307,7 +309,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | --- | --- |
 | `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
-| `GET /apps/{app}/sessions`, `GET /apps/{app}/memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`) and memory of an app |
+| `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app (`entries` names the app that saved each) |
 | `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); deleting it and its history, refused (409 `busy`) while a turn of it goes on |
 | `POST /apps/{app}/sessions/{id}/compact` | sum up the whole session now (a model call): `compacted`, and the context in tokens `before` and `after` |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); each entry's `id` is its event's; history an app kept before |
@@ -323,7 +325,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
 | `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
 | `GET /skills`, `DELETE /skills/{name}` | skills (`name`, `description`, `argument_hint`, `model_invocable`, `user_invocable`, `builtin`, `path`, `error`); removing one of the user's |
-| `GET /apps`, `DELETE /apps/{app}/memory/{category}/{key}`, `POST /shutdown` | apps, forgetting a memory, stopping the brain |
+| `GET /apps`, `DELETE /memory/{category}/{key}`, `DELETE /apps/{app}/sessions/{id}/memory/{key}`, `POST /shutdown` | apps, forgetting a memory or one thing of a session's memory, stopping the brain |
 | `GET /journal?q=`, `DELETE /journal/{id}`, `GET /jobs/{id}` | the journal; background shell jobs |
 | `GET /apps/{app}/jobs?since=`, `POST /jobs/{id}/stop` | an app's running jobs and those that ended after `since`, each with its newest output line (`last`); stopping one and everything it started |
 

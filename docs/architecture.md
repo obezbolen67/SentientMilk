@@ -3,6 +3,9 @@
 Current scheduling (0.7.0, 2026-11-11): one kind of schedule, once or repeating, each run a normal turn
 in the schedule's own conversation ([scheduling](scheduling.md), section 9.6). Reminders are schedules.
 
+Current memory (0.8.0, 2026-11-11): memory is shared by every app and always whole in context; each
+session has its own session memory besides (section 10).
+
 Status: built (version 0.4.0, 2026-11-06). Written 2026-11-05 as the design; section 17 lists
 where the build differs from it and what the evals measured.
 
@@ -39,8 +42,9 @@ progress. Every Anthropic number below was measured on Claude models. On
    tasks, keeps shell jobs, and fires schedules. It never talks to the user on its own. It
    emits events, and each app decides what to do with them. Proactive messages stay
    MilkChan's feature.
-7. **Memory is per app.** Above it, the brain keeps a *journal*: short, timestamped notes
-   about sessions across all apps. When the journal is full, the oldest notes are deleted.
+7. **Memory is shared and always in context** (since 0.8; it was per app). Each session also has its
+   own session memory, and the brain keeps a *journal*: short, timestamped notes about what happened
+   in sessions across all apps (section 10).
 8. **Evals from day one.** A small set of realistic tasks runs before and after every
    change to prompts, tools or context rules.
 
@@ -49,7 +53,7 @@ progress. Every Anthropic number below was measured on Claude models. On
 | Finding | Source | What SentientMilk does |
 |---|---|---|
 | Context is an "attention budget". Aim for "the smallest possible set of high-signal tokens". Recall degrades as context grows. | Anthropic, context engineering | Output caps, clearing, compaction (section 7), agents (section 5.5), tools loaded on demand (section 7.4). |
-| Load data *just in time* through tools; keep only paths, queries and links up front. Claude Code loads its memory file up front and finds the rest with glob and grep. | Anthropic, context engineering | Search and read tools; no vector database. App memory and journal are the only things loaded up front. |
+| Load data *just in time* through tools; keep only paths, queries and links up front. Claude Code loads its memory file up front and finds the rest with glob and grep. | Anthropic, context engineering | Search and read tools; no vector database. Memory, the session's memory and the journal are the only things loaded up front. |
 | Tool-result clearing is the lightest compaction. After compaction, Claude Code keeps the summary plus the five most recently read files. | Anthropic, context engineering | Clear old tool results first. Re-read up to 5 recent files after compaction. |
 | KV-cache hit rate is "the single most important metric". About 100 input tokens per output token. Cached input is 10x cheaper on Claude. Keep the prefix stable, append only, and serialize deterministically. | Manus | Request layout of section 7.1. Cache hits are logged on every call. |
 | Don't add or remove tools in the middle of a task. | Manus | The tool list sent is fixed per profile; tools to load come into the conversation instead (section 7.4). |
@@ -143,7 +147,7 @@ Tables in `brain.sqlite3`:
 | `jobs` | id, run, command, pid, status, exit code, log path |
 | `schedules` | id, app, session, kind, spec, payload, next fire time, last fire time, catch-up, created by, enabled |
 | `notifications` | id, time, app, session, type, data |
-| `memory` | app, category, key, value, updated. Today's table plus an `app` column. |
+| `memory` | category, key, value, app (the one that saved it), updated. Shared by every app since 0.8. |
 | `journal` | id, time, app, session, note |
 
 Files under home:
@@ -341,7 +345,8 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
   since. Agents started since are deleted, schedules made since removed. The todo list goes
   back to the last one written before the message; files read since count as unread.
 - **Kept**: calls that change something and are not undone are named (`kept`): commands, app actions
-  (the screen), the web and other services, memories (the app's) and the journal.
+  (the screen), the web and other services, lasting memory (every app's) and the journal. Session
+  memory goes back to how it was (section 10.2).
 - Agents and tasks that started before the message go on, and their changes stay.
 
 ## 6. Environment interface: toolkits
@@ -372,7 +377,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits as long as asked for a job to end when the model needs the result, and says when a job has written nothing for 10 s or more, so the model can tell a slow job from a stuck one. MCP calls go the same way (section 8.3). |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
-| `memory` | `memory_save`, `memory_get`, `memory_list`, `memory_forget` | Scoped to the session's app (section 10). |
+| `memory` | `memory_save`, `memory_list`, `memory_forget`; in turns, `session_memory_save(key, value)`, `session_memory_forget(key)` | Every app has it (section 10). |
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
 | `agents` | `agent_start(name, task)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)`; for agents, `ask_lead(question)` | Section 5.5. |
 | (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
@@ -384,7 +389,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `github` (plugin) | `github_search`, `github_repo`, `github_files`, `github_issues`, `github_issue`, `github_diff`, `github_runs`, `github_run`, `github_get`; asking first: `github_issue_create`, `github_comment`, `github_issue_update`, `github_pr_create`, `github_pr_review`, `github_pr_merge`, `github_api` | Section 6.5. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
-MilkChan enables `memory`, `web`, `todo`, `journal`, `schedule`, `files`, `shell`,
+Every app has `memory`. MilkChan enables `web`, `todo`, `journal`, `schedule`, `files`, `shell`,
 `agents`, `plugins`, `sessions` and `skills`. The CLI chat enables most of them plus MCP,
 rooted in the folder it was started in.
 
@@ -539,7 +544,7 @@ project-level skill folders, and `!command` expansion.
 + system ------------------------------------------+  stable for the session;
 | who you are (persona), environment, rules,       |  rebuilt only at compaction
 | app instructions                                 |  (the skills listing: when a
-| app memory snapshot, journal snapshot            |  skill changes)
+| memory, session memory and journal snapshot      |  skill changes)
 | more tools, skills listing, signal format        |
 + tools -------------------------------------------+  fixed for a run
 + history -----------------------------------------+  append-only between
@@ -612,7 +617,7 @@ size.
    - open problems
    - next steps
 
-   The new context is the rebuilt system block (fresh memory and journal snapshots), then
+   The new context is the rebuilt system block (fresh memory, session memory and journal), then
    the summary, then the recent events. The brain re-reads up to five recently read files
    and repeats the current todo list. The raw events stay in the log.
 4. **Reset with handoff** (tasks only, when `context: reset`). The brain starts a fresh
@@ -683,7 +688,7 @@ into the conversation when needed:
 
 - Requests carry the core tools and, when there are others, `tools_search` and `tools_load`.
   This list is the same on every step of a profile.
-  - Core tools are flagged by their toolkit (`Tool.core`): `memory_save`, `todo_write`,
+  - Core tools are flagged by their toolkit (`Tool.core`): `memory_save`, `session_memory_save`, `todo_write`,
     `files_read`, `files_search`, `shell_run`, `shell_output`, `web_search`, `web_fetch`, and
     `task_progress` for workers.
   - An app marks the actions it wants sent with `"core": true`.
@@ -874,28 +879,67 @@ task's size, and the app can force either.
   expire, unlike Claude Code's session cron, because this brain is the user's own
   long-lived service.
 
-## 10. Memory and journal
+## 10. Memory, session memory and the journal
 
-### 10.1 Per-app memory
+Rework of 0.8.0 (2026-11-11). Before it, memory was per app and went into the system block only for an
+app that enabled the `memory` toolkit, and only while it fit 8,000 characters: past that, the model saw
+the category names and had to call `memory_list`, which it rarely did. The user's memory had grown to 35
+entries (about 16,000 characters), so in practice the model saw almost none of it, and a "for this chat"
+instruction had nowhere to go but lasting memory (where it leaked into every chat) or the conversation
+(where compaction may blur it).
 
-- Today's `memory` table gains an `app` column. The memory tools only see the session's
-  app. Existing rows move to app `milkchan`, the only app so far.
-- If an app's memory is small (under about 2,000 tokens), a snapshot goes in the system
-  block. Otherwise only its categories go there, and the tools fetch the rest. The
-  snapshot is refreshed at session start and at compaction (section 7.1). A new fact is
-  still visible at once, because the tool result that saved it sits in context.
-- Memory holds lasting facts only: who the user is, what they like, what they work on. The
-  model saves them unasked, as soon as it learns them. One-time events and changes stay
-  out, because the journal (10.2) records what happened. As measured on 2026-11-07, the
-  old wording ("about the user, their preferences, plans or events") saved a setting
-  changed once, "not a bug, don't fix it", in 3 of 3 runs, and passed the two
-  `memory-what-lasts` tasks 1 time in 6. `memory_save`'s description and a working rule
-  took them to 9 of 9; `memory-across-sessions` passed 3 of 3 and the other 7 tasks 7 of 7.
+Now there are three kinds, by how long they last and where they hold:
 
-### 10.2 The journal
+| | Memory | Session memory | Journal |
+|---|---|---|---|
+| What | lasting facts: who the user is, the people and pets in their life, what they like and how they want things done, what they work on | this session's instructions and what its work must keep in mind ("answer in English here", "don't push until I say", the staging server's address, a decision) | what happened in each session, 1 to 3 sentences a note |
+| Who writes | the model (`memory_save`, unasked, as soon as it learns a fact); the user forgets entries | the model, in the session's turns (`session_memory_save`); the user takes entries out | the brain's summarizer, off the request path |
+| Where it holds | every app, every session (one user, one brain); each entry names the app that saved it | its session; the agents and tasks working for it follow it read-only | read by every app, searchable (`journal_search`) |
+| In context | always, whole, in every system block: no app asks for it, no size cut | always, whole, in its session's system block, after memory (where they differ, it wins there) | the newest notes of other sessions, about 1,500 tokens; the rest by search |
+| Ends | when forgotten | with the session; a return to a message (5.6) puts it back as it was then | never (no caps) |
 
-The brain's only shared memory: condensed notes about what happened in each session, so
-the CLI brain knows what MilkChan's brain talked about this morning.
+### 10.1 Memory
+
+- `memory(app, category, key, value, updated)`, keyed by category and key: one fact per name for every
+  app, and `app` is the one that saved it. The system block lists it by category, `- key: value`, with
+  `[app]` after an entry another app saved, so the CLI knows a fact came from MilkChan.
+- 0.8.0 merged the per-app tables once at start (`store._share_memory`): where two apps had the same
+  category and key, the newest stayed; every session's snapshot is taken again.
+- Every app has the `memory` toolkit, listed or not (`Brain.profile`); a user who switches its tools off
+  still has memory in context. `memory_save` is a core tool; `memory_list` shows memory as it is now
+  (with what other sessions saved since this one's snapshot); `memory_forget` takes a wrong fact out.
+- Memory holds lasting facts only. As measured on 2026-11-07, the old wording ("about the user, their
+  preferences, plans or events") saved a setting changed once, "not a bug, don't fix it", in 3 of 3 runs,
+  and passed the two `memory-what-lasts` tasks 1 time in 6; `memory_save`'s description and its guide
+  took them to 9 of 9. Its description now also sends what holds only in a session to session memory.
+- No cap: memory is whole however long it grows. Its cost is tokens in the system block, cached with the
+  prefix; the light model's compaction does not touch it.
+
+### 10.2 Session memory
+
+- Kept in the session's state, `session_memory: {key: value}`, beside the todo list; `GET
+  /v1/apps/<app>/sessions/<id>` returns it as `memory`. `session_memory_save(key, value)` (core) and
+  `session_memory_forget(key)` exist only in turns: an agent or task has the session memory of the chat
+  it works for (`profile.base_session`) in its system block, under "The memory of the session you work
+  for", and cannot change it. A super agent (Claude Code) gets it in its appended prompt.
+- It is what Claude Code lacks: there a rule said only in the conversation can be lost at compaction,
+  which re-injects CLAUDE.md from disk but nothing scoped to the session. Here a session's own rules
+  come back whole after every compaction, without making them every chat's.
+- Rewind (5.6) rebuilds it from the session's `session_memory_save` and `session_memory_forget` calls
+  before the message, so its calls are undone, not kept.
+
+### 10.3 Snapshots
+
+Memory, session memory and the journal are a snapshot in the session's state, put in the system block:
+taken at the session's first request, again at compaction, and dropped (taken again at the next request)
+after the user forgets a memory or a session memory entry (`Store.drop_snapshots`) or returns to a
+message. A save of the model's own changes nothing there until then, so the cached prefix holds; the
+model sees what it saved in the call's result, which is short and so is never cleared (7.2).
+
+### 10.4 The journal
+
+The brain's record of what happened, so the CLI brain knows what MilkChan's brain talked about this
+morning.
 
 - **Writing**: the summarizer queue (light model, off the request path) writes a note:
   - when a session has been quiet for 20 minutes and has new events since its last note;
@@ -911,6 +955,18 @@ the CLI brain knows what MilkChan's brain talked about this morning.
   app can turn writing off.
 - **User control**: `GET /v1/journal` and `DELETE /v1/journal/<id>`. The CLI gets
   `sentientmilk journal`.
+
+### 10.5 How other harnesses do it
+
+| | Claude Code | Codex | SentientMilk |
+|---|---|---|---|
+| Lasting instructions the user writes | CLAUDE.md: managed, user (`~/.claude/CLAUDE.md`, every project), project and local files, loaded at start and re-read after compaction | AGENTS.md: global (`~/.codex/AGENTS.md`), repository and folder files, merged, the closer one winning | the app's persona and environment, the user's rules and session instructions (settings) |
+| What the model learns and keeps | auto memory: `MEMORY.md`, an index whose first 200 lines (or 25 KB) load at session start, with topic files read on demand | memories (opt-in): past sessions summarized in the background into `~/.codex/memories`, read by the next session; the docs say rules that must always apply belong in AGENTS.md | memory, whole in every system block, shared by every app |
+| What happened before | the transcript of earlier sessions (resume) | the memories above | the journal, written by the brain, read by every app |
+| One session's own rules | only the conversation and its compaction summary | only the conversation | session memory, whole after every compaction |
+
+Sources: [Claude Code memory](https://code.claude.com/docs/en/memory),
+[Codex memories](https://developers.openai.com/codex/memories), and the AGENTS.md guide of the Codex docs.
 
 ## 11. Models and providers
 
@@ -976,6 +1032,8 @@ bearer token.
 | `GET/PUT /v1/mcp`, `POST /v1/mcp/<name>/reconnect` | MCP configuration |
 | `GET/POST /v1/plugins`, `PATCH/DELETE /v1/plugins/<name>` | plugins (section 6.5): list, install (`source`), turn on or off, set and trust (`enabled`, `settings`, `trusted`), remove |
 | `POST /v1/plugins/<name>/reload` | copy a plugin in again from its source and import it |
+| `GET /v1/memory`, `DELETE /v1/memory/<category>/<key>` | memory, shared by every app (`entries` says which app saved each) |
+| `DELETE /v1/apps/<app>/sessions/<id>/memory/<key>` | take one thing out of a session's memory |
 | `GET /v1/journal`, `DELETE /v1/journal/<id>` | view and prune the journal |
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
 | `GET/POST /v1/apps/<app>/sessions/<id>/rewind` | preview or go back to before a user message (section 5.6) |

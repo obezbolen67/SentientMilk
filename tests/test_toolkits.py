@@ -254,13 +254,15 @@ def test_web_pages_become_text_and_search_needs_a_key(brain, ctx, monkeypatch):
         web.web_search.func(ctx, "news")
 
 
-def test_todo_and_memory_belong_to_their_session_and_app(brain, ctx):
+def test_todo_belongs_to_its_session_and_memory_to_every_app(brain, ctx):
     shown = todo.todo_write.func(ctx, [{"text": "plan", "status": "done"}, {"text": "build", "status": "doing"}])
     assert shown == "1. [x] plan\n2. [>] build"
     assert brain.store.session("cli", "main")["state"]["todo"][1] == {"text": "build", "status": "doing"}
     memory_kit.memory_save.func(ctx, "user", "name", "Tester")
-    assert memory_kit.memory_get.func(ctx, "user", "name") == "Tester"
-    assert brain.store.memories("milk") == {}
+    assert brain.store.recall("user", "name") == "Tester" and brain.store.memory_entries()[0]["app"] == "cli"
+    assert '"name": "Tester"' in memory_kit.memory_list.func(ctx)
+    assert memory_kit.memory_forget.func(ctx, "user", "name") == "Forgot user/name."
+    assert brain.store.memories() == {}
 
 
 def test_permission_rules_deny_then_ask_then_allow():
