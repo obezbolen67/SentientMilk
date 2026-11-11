@@ -6,6 +6,7 @@ import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework import context, scheduler
+from sentientmilk_framework.toolkits import schedule as schedule_kit
 from sentientmilk_framework.testing import tool_call
 
 
@@ -135,12 +136,19 @@ def test_a_reset_starts_fresh_from_the_progress_notes(brain, tmp_path):
     assert "Built the parser." in text and "2. [ ] cli" in text
 
 
-@pytest.mark.parametrize("when, kind", [("every 30m", "every"), ("2099-01-01T09:00", "at"), ("0 9 * * 1-5", "cron")])
-def test_when_is_read_as_a_time_an_interval_or_cron(when, kind):
+@pytest.mark.parametrize("when, kind", [("every 30m", "every"), ("2099-01-01T09:00", "at"), ("0 9 * * 1-5", "cron"),
+                                        ("in 20m", "at"), ("in 2 hours", "at")])
+def test_when_is_read_as_once_or_repeating(when, kind):
     assert scheduler.parse_when(when, time.time())[0] == kind
 
 
-@pytest.mark.parametrize("bad", ["every 10s", "2000-01-01T09:00", "61 * * * *", "tomorrow-ish"])
+def test_in_is_once_that_long_from_now_in_the_zone():
+    now = datetime(2026, 11, 9, 23, 50).timestamp()
+    kind, spec = scheduler.parse_when("in 20m", now, "Europe/Warsaw")
+    assert kind == "at" and datetime.fromisoformat(spec).timestamp() == now + 1200
+
+
+@pytest.mark.parametrize("bad", ["every 10s", "2000-01-01T09:00", "61 * * * *", "tomorrow-ish", "in 0m"])
 def test_bad_times_are_explained(bad):
     with pytest.raises(ValueError):
         scheduler.parse_when(bad, time.time())
@@ -157,17 +165,19 @@ def test_cron_finds_the_next_matching_minute():
     assert scheduler.next_fire("every", "3600", friday, created) == created + 3600  # no drift
 
 
-def test_wake_schedules_tell_the_app_and_missed_ones_fire_once(brain):
-    schedule = brain.client.create_schedule("milk", "every 1m", "stretch", mode='wake')
-    brain.store.update_schedule(schedule["id"], next_at=time.time() - 1)
-    brain.brain.scheduler._wake.set()
-    fired = wait_for(lambda: [n for n in brain.store.notifications("milk") if n["type"] == "schedule.fired"])
-    assert fired[0]["data"]["text"] == "stretch" and not fired[0]["data"]["late"]
-    brain.brain.scheduler.stop()
-    brain.store.update_schedule(schedule["id"], next_at=time.time() - 3600)
-    brain.brain.scheduler.start()
-    late = [n for n in brain.store.notifications("milk") if n["type"] == "schedule.fired"][-1]
-    assert late["data"]["late"] and brain.store.schedule(schedule["id"])["next_at"] > time.time()
+def test_a_one_off_runs_once_and_then_reads_as_done(brain):
+    schedule = brain.client.create_schedule("cli", "in 1m", "Tell the user to stretch.")
+    assert schedule["kind"] == "at" and schedule["enabled"]
+    brain.provider.replies.append("Time to stretch!")
+    due = time.time() - 1  # its time came
+    brain.store.update_schedule(schedule["id"], next_at=due, spec=datetime.fromtimestamp(due).astimezone().isoformat())
+    brain.brain.scheduler.wake()
+    run = wait_for(lambda: next((r for r in brain.store.runs(app="cli") if r["session"] == schedule["execution_session"]
+                                 and r["status"] == "completed"), None))
+    assert run["result"]["reply"] == "Time to stretch!"
+    done = brain.store.schedule(schedule["id"])
+    assert not done["enabled"] and done["next_at"] is None
+    assert "done, it ran at" in schedule_kit.describe(done)
 
 
 def test_creating_a_schedule_from_chat_needs_approval(brain):
@@ -176,16 +186,22 @@ def test_creating_a_schedule_from_chat_needs_approval(brain):
     brain.client.turn("cli", "main", "remind me to drink water", on_approval=lambda e: asked.append(e) or "allow")
     assert asked[0]["name"] == "schedule_create"
     schedule = brain.client.schedules('cli')[0]
-    assert schedule['payload']['mode'] == 'app' and schedule['payload']['text'] == 'drink water'
-    assert schedule['execution_session'].startswith('schedule-')
+    assert schedule['payload']['text'] == 'drink water' and schedule['execution_session'].startswith('schedule-')
+    assert "every 2h, next" in schedule_kit.describe(schedule)
 
 
-def test_task_schedules_start_background_tasks(brain):
+def test_the_brain_runs_the_schedules_of_an_app_that_does_not_call_back(brain):
+    """The CLI never claims its due work; MilkChan (callbacks) does, so the brain leaves its work to it."""
+    cli = brain.client.create_schedule("cli", "every 1d", "Summarize the news.")
+    milk = brain.client.create_schedule("milk", "every 1d", "Summarize the news.")
     brain.provider.replies.append("Summary written.")
-    schedule = brain.client.create_schedule("cli", "every 1d", "Summarize the news.", mode="task")
-    brain.brain.scheduler._fire(brain.store.schedule(schedule["id"]))
-    task = wait_for(lambda: next((r for r in brain.store.runs(kind="task") if r["status"] == "completed"), None))
-    assert task["options"]["goal"] == "Summarize the news."
+    for schedule in (cli, milk):
+        brain.store.update_schedule(schedule["id"], next_at=time.time() - 1)
+    brain.brain.scheduler.wake()
+    run = wait_for(lambda: next((r for r in brain.store.runs(app="cli") if r["session"] == cli["execution_session"]
+                                 and r["status"] == "completed"), None))
+    assert run["result"]["reply"] == "Summary written."
+    assert [o["status"] for o in brain.client.scheduled_occurrences("milk")] == ["pending"]  # MilkChan's to run
 
 
 def test_the_journal_keeps_short_notes_from_every_app_and_drops_the_oldest(brain):

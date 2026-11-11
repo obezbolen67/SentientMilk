@@ -1,8 +1,15 @@
-# App-owned scheduling (0.6.0)
+# Scheduling (0.7.0)
 
-SentientMilk owns time and durable delivery. The owning app executes the instructions through its normal
-turn workflow, including its persona, tools, permissions, approvals, files and streaming UI. MilkChan
-1.1.0 implements this adapter. Other apps can use the same SDK without MilkChan dependencies.
+There is one kind of schedule: work for later, once or repeating. A reminder is a schedule whose
+instructions say what to tell the user. SentientMilk owns time and durable delivery. An app that calls
+back (`callbacks: true`, as MilkChan) executes the instructions through its normal turn workflow,
+including its persona, tools, permissions, approvals, files and streaming UI; for an app that does not
+(the CLI), the brain starts the same turn itself. The `wake` and `task` modes of 0.6 are gone: their
+schedules are adopted on start with their rules, and `POST /v1/schedules` refuses another `mode`.
+
+When: once, an ISO time (`2026-11-06T17:00`) or `in 20m` / `in 2h` / `in 1d`; repeating, `every 30m`
+/ `every 2h` or a 5-field cron expression for clock times. A one-off that ran is done; giving it a new
+time with PATCH `when` runs it again.
 
 ## Creating and managing a schedule
 
@@ -19,9 +26,7 @@ client.update_schedule(schedule["id"], enabled=False)  # pause future and pendin
 client.update_schedule(schedule["id"], when="0 10 * * 1-5", enabled=True)
 ```
 
-The SDK and model tool default to `mode="app"`. Raw POST `/v1/schedules` keeps the legacy default `wake`
-for older clients; send `mode: "app"` explicitly when using HTTP. Legacy `wake` notifications and `task`
-background execution retain their behavior. PATCH accepts `when`, `text`, `title`, `timezone`, `enabled`
+PATCH accepts `when`, `text`, `title`, `timezone`, `enabled`
 and `catch_up` (`once` or `skip`). Delete preserves reports. Updating timing or instructions invalidates
 obsolete pending work; a started occurrence may finish. Deleting its dedicated session disables the
 recurrence, while deleting the source chat leaves it intact.

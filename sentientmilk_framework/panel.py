@@ -480,7 +480,7 @@ class Panel(App):
 
     def compose_work(self) -> ComposeResult:
         yield Static("Background tasks and agents run on their own and report back to the app or chat that "
-                     "started them. Schedules wake an app or start a task.", classes="hint")
+                     "started them. Schedules run once or repeat, each in a conversation of its own.", classes="hint")
         with VerticalScroll():
             with Vertical(classes="card", id="tasks-card"):
                 yield DataTable(id="tasks", cursor_type="row", zebra_stripes=True)
@@ -579,7 +579,7 @@ class Panel(App):
             "sessions": ("Conversation", "Started", "Last active"),
             "memory": ("Category", "Key", "Value"),
             "tasks": ("#", "App", "Status", "Goal", "Started", "Tokens"),
-            "schedules": ("#", "App", "When", "Next", "Does", "Text", "State"),
+            "schedules": ("#", "App", "When", "Next", "Name", "Instructions", "State"),
             "notes": ("When", "App", "Note"),
             "mcp": ("Server", "State", "Tools", "Runs", "Problem"),
             "plugin-table": ("Plugin", "Version", "State", "Tools", "From"),
@@ -914,7 +914,7 @@ class Panel(App):
                             f"{(t['usage'] or {}).get('prompt_tokens', 0):,}"))
             for t in tasks])
         fill(self.main.query_one("#schedules", DataTable), [
-            (str(s["id"]), (s["id"], s["app"], f"{s['kind']} {s['spec']}", when(s["next_at"]), s["payload"]["mode"],
+            (str(s["id"]), (s["id"], s["app"], f"{s['kind']} {s['spec']}", when(s["next_at"]), cut(s["payload"]["title"], 30),
                             cut(s["payload"]["text"], 50),
                             f"[{OK}]on[/]" if s["enabled"] else f"[{MUTED}]paused[/]"))
             for s in schedules])

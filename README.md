@@ -111,7 +111,7 @@ client.declare_app("jarvis",
 result = client.turn("jarvis", "main", "Lights off, please.", context={"user": "Tony"},
                      on_event=print)  # text.delta, tool.start/end, retry, compacting, cleared, ... as they happen
 print(result["reply"], result["signals"], result["tools"])
-for notification in client.events("jarvis"):  # reminders, finished tasks; blocks
+for notification in client.events("jarvis"):  # finished tasks and jobs, due schedules; blocks
     print(notification["type"], notification["data"])
 ```
 
@@ -173,11 +173,12 @@ for notification in client.events("jarvis"):  # reminders, finished tasks; block
   `tools_load`; the rest are listed with their parameters and loaded into the conversation when needed, so
   the tool list (and the prompt cache) stays the same. An action declared with
   `"core": true` is always sent.
-- **Schedules** (ISO time, `every 30m`, or 5-field cron) belong to an app and run through its normal
-  workflow in a dedicated, persistent conversation. Named timezones follow daylight saving; offline
-  deliveries wait and coalesce. The model clarifies missing clock times and can update, pause or delete
-  schedules. Legacy wake/task modes remain available. See [the scheduling contract](docs/scheduling.md)
-  for the app adapter and recovery protocol.
+- **Schedules** are work for later, once (ISO time, `in 20m`) or repeating (`every 30m`, 5-field cron);
+  reminders are schedules too. Each belongs to an app and runs as a normal turn in its own persistent
+  conversation: an app that calls back runs it through its own workflow, otherwise the brain does.
+  Named timezones follow daylight saving; offline deliveries wait and coalesce. The model clarifies
+  missing clock times and can update, pause or delete schedules. See [the scheduling
+  contract](docs/scheduling.md) for the app adapter and recovery protocol.
 - Failures raise `BrainError` with `type` (`config_missing`, `rate_limit`,
   `auth_error`, `timeout`, `network`, `payload_too_large`, `brain_unreachable`, ...),
   `message` and `details`. A client from `connect()` starts the brain again when it vanished.
@@ -369,7 +370,7 @@ sentientmilk_framework/
   provider.py    the OpenAI-compatible provider, streaming and usage
   store.py       SQLite: the event log and everything else
   journal.py     notes about sessions across apps
-  scheduler.py   at, every and cron schedules
+  scheduler.py   schedules, once or repeating (at, in, every, cron)
   mcp_host.py    MCP servers as toolkits
   plugins/       plugin loading, settings and install; github/: the GitHub plugin
   toolkits/      built-in toolkits

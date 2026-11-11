@@ -116,7 +116,7 @@ def test_only_a_message_the_user_sent_is_a_place_to_return_to(brain):
         brain.client.rewind("milk", "main", said(brain)[0]["id"])  # another chat's message
 
 
-def test_work_she_started_since_stops_quietly_and_her_new_agents_and_reminders_go(brain):
+def test_work_she_started_since_stops_quietly_and_her_new_agents_and_schedules_go(brain):
     brain.client.update_app("cli", rules={"allow": ["files_write", "shell_run", "schedule_create"]})
     (brain.work / "keep.txt").write_text("mine", encoding="utf-8")
 
@@ -140,7 +140,7 @@ def test_work_she_started_since_stops_quietly_and_her_new_agents_and_reminders_g
 
     preview = brain.client.rewind_preview("cli", "main", target["id"])
     assert [a["name"] for a in preview["agents"]] == ["helper"]
-    assert [r["text"] for r in preview["reminders"]] == ["check the notes"]
+    assert [r["text"] for r in preview["schedules"]] == ["check the notes"]
     assert [(s["kind"], s["id"]) for s in preview["stopped"]] == [("job", job["id"])]
     assert [(Path(f["path"]).name, f["change"]) for f in preview["files"]] == [("agent.txt", "delete")]
 

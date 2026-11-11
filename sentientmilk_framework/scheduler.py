@@ -1,8 +1,11 @@
-"""Schedules: app-owned instructions, wake reminders and tasks, with named-zone calendar rules.
+"""Schedules: work for later, once or repeating, with named-zone calendar rules (docs/scheduling.md).
 
-A wake schedule only tells the app (a notification); a task schedule starts a background
-task. Missed fires while the brain was down run once at start (catch_up "once") or are
-skipped ("skip"). The next time is always computed from the rule, so schedules never drift.
+There is one kind (reminders are schedules whose instructions say what to tell the user): at its time a
+schedule queues an occurrence, and a normal turn runs its instructions in the schedule's own conversation.
+An app that calls back (MilkChan) runs its occurrences itself, through its own turn workflow; for any
+other app (the CLI) the brain starts them. Missed times while the brain was down run once at start
+(catch_up "once") or are skipped ("skip"). The next time is always computed from the rule, so schedules
+never drift.
 """
 
 import logging
@@ -16,10 +19,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tzlocal import get_localzone
 
+from .exceptions import BrainError
+
 logger = logging.getLogger(__name__)
 
 MIN_EVERY = 60
-_EVERY = re.compile(r"every\s+(\d+)\s*(m|min|mins|minutes?|h|hours?|d|days?)$", re.IGNORECASE)
+_EVERY = re.compile(r"(every|in)\s+(\d+)\s*(m|min|mins|minutes?|h|hours?|d|days?)$", re.IGNORECASE)
 _FIELDS = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))  # weekday 7 is Sunday too
 
 
@@ -93,8 +98,11 @@ def parse_when(when: str, now: float, timezone: Optional[str] = None) -> Tuple[s
     when = (when or "").strip()
     every = _EVERY.match(when)
     if every:
-        unit = every.group(2)[0].lower()
-        seconds = int(every.group(1)) * {"m": 60, "h": 3600, "d": 86400}[unit]
+        seconds = int(every.group(2)) * {"m": 60, "h": 3600, "d": 86400}[every.group(3)[0].lower()]
+        if every.group(1).lower() == "in":  # once, that long from now
+            if seconds < 1:
+                raise ValueError("'in' needs a time from now, such as 'in 20m'")
+            return "at", datetime.fromtimestamp(now + seconds, zone).isoformat(timespec="seconds")
         if seconds < MIN_EVERY:
             raise ValueError("Schedules repeat at most once a minute")
         return "every", str(seconds)
@@ -114,8 +122,8 @@ def parse_when(when: str, now: float, timezone: Optional[str] = None) -> Tuple[s
     try:
         parse_cron(when)
     except ValueError as exc:
-        raise ValueError(f"Cannot read when={when!r}: give an ISO time like 2026-11-06T17:00, 'every 30m', "
-                         f"or a cron expression. ({exc})")
+        raise ValueError(f"Cannot read when={when!r}: once, an ISO time like 2026-11-06T17:00 or 'in 20m'; "
+                         f"repeating, 'every 30m' or a cron expression. ({exc})")
     return "cron", when
 
 
@@ -143,36 +151,30 @@ class Scheduler:
         self._stop = threading.Event()
         self._thread = None
 
-    def create(self, app: str, session: str, when: str, text: str, mode: str = "wake", *,
-               created_by: str = "app", catch_up: str = "once", timezone: Optional[str] = None,
-               title: str = '') -> dict:
-        if mode not in ("app", "wake", "task"):
-            raise ValueError("mode must be app, wake or task")
+    def create(self, app: str, session: str, when: str, text: str, *, created_by: str = "app",
+               catch_up: str = "once", timezone: Optional[str] = None, title: str = '') -> dict:
+        """A schedule, once or repeating, with a conversation of its own that every run of it uses."""
         if catch_up not in ("once", "skip"):
             raise ValueError("catch_up must be once or skip")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("text is empty")
         if not isinstance(title, str):
             raise ValueError('title must be text')
-        if mode == 'app' and not self.store.app(app):
+        if not self.store.app(app):
             raise ValueError(f'The app {app!r} is not registered')
         now = time.time()
         kind, spec = parse_when(when, now, timezone)
         upcoming = next_fire(kind, spec, now, now, timezone)
         if upcoming is None:
             raise ValueError('The rule has no future occurrence')
-        payload = {'mode': mode, 'text': text.strip()}
-        if mode == 'app' or timezone:
-            payload['timezone'] = calendar_zone(timezone).key
-        if mode == 'app':
-            payload['title'] = (title.strip() or text.strip().splitlines()[0])[:80]
+        payload = {'text': text.strip(), 'timezone': calendar_zone(timezone).key,
+                   'title': (title.strip() or text.strip().splitlines()[0])[:80]}
         schedule_id = self.store.add_schedule(app=app, session=session, kind=kind, spec=spec,
                                               payload=payload, next_at=upcoming,
                                               catch_up=catch_up, created_by=created_by, enabled=1)
         schedule = self.store.schedule(schedule_id)
-        if mode == 'app':
-            self.brain.notify(app, schedule['execution_session'], 'session.titled',
-                              {'title': payload['title'], 'session': schedule['execution_session']})
+        self.brain.notify(app, schedule['execution_session'], 'session.titled',
+                          {'title': payload['title'], 'session': schedule['execution_session']})
         self._wake.set()
         return schedule
 
@@ -193,7 +195,7 @@ class Scheduler:
         if not schedule:
             raise ValueError(f"There is no schedule {schedule_id}")
         payload = dict(schedule['payload'])
-        enabled = changes.get('enabled', schedule['enabled'])
+        enabled = changes.get('enabled', True if 'when' in changes else schedule['enabled'])  # a new time runs
         if not isinstance(enabled, bool):
             raise ValueError('enabled must be true or false')
         catch_up = changes.get('catch_up', schedule['catch_up'])
@@ -218,13 +220,16 @@ class Scheduler:
         cancel = not enabled or bool(set(changes) & {'when', 'timezone', 'text'})
         self.store.update_schedule(schedule_id, kind=kind, spec=spec, payload=payload, enabled=int(enabled),
                                    next_at=upcoming, created=created, catch_up=catch_up, cancel_pending=cancel)
-        if payload['mode'] == 'app':
-            self.store.update_session(schedule['app'], payload['session'], 'settings',
-                                      lambda settings: {**settings, 'title': payload['title'], 'schedule': schedule_id},
-                                      create=enabled)
-            self.brain.notify(schedule['app'], payload['session'], 'schedule.updated', {'schedule': schedule_id})
+        self.store.update_session(schedule['app'], payload['session'], 'settings',
+                                  lambda settings: {**settings, 'title': payload['title'], 'schedule': schedule_id},
+                                  create=enabled)
+        self.brain.notify(schedule['app'], payload['session'], 'schedule.updated', {'schedule': schedule_id})
         self._wake.set()
         return self.store.schedule(schedule_id)
+
+    def wake(self) -> None:
+        """Look again now: a conversation became free, so work that waited for it may start."""
+        self._wake.set()
 
     def start(self) -> None:
         self._stop.clear()
@@ -262,37 +267,31 @@ class Scheduler:
             if schedule['next_at'] is None or schedule['next_at'] > now:
                 continue
             try:
-                skip = startup and schedule['catch_up'] == 'skip'
-                if schedule['payload']['mode'] == 'app':
-                    following = next_fire(schedule['kind'], schedule['spec'], now, schedule['created'],
-                                          schedule['payload'].get('timezone'))
-                    notification = self.store.queue_schedule(schedule['id'], schedule['next_at'], now, following,
-                                                              late=startup or now - schedule['next_at'] > 60,
-                                                              skip=skip)
-                    if notification:
-                        self.brain.bus.publish(('app', schedule['app']), notification)
-                else:
-                    if not skip:
-                        self._fire(schedule, late=startup)
-                    self._advance(schedule, now)
+                following = next_fire(schedule['kind'], schedule['spec'], now, schedule['created'],
+                                      schedule['timezone'])
+                notification = self.store.queue_schedule(schedule['id'], schedule['next_at'], now, following,
+                                                          late=startup or now - schedule['next_at'] > 60,
+                                                          skip=startup and schedule['catch_up'] == 'skip')
+                if notification:
+                    self.brain.bus.publish(('app', schedule['app']), notification)
             except Exception:
                 healthy = False
                 logger.exception('Schedule %s could not advance; it remains due for retry', schedule['id'])
+        self._run_unattended()
         return healthy
 
-    def _advance(self, schedule: dict, now: float) -> None:
-        upcoming = next_fire(schedule["kind"], schedule["spec"], now, schedule["created"],
-                              schedule['payload'].get('timezone'))
-        self.store.update_schedule(schedule["id"], last_at=now, next_at=upcoming, enabled=int(upcoming is not None))
-
-    def _fire(self, schedule: dict, late: bool = False) -> None:
-        """Legacy wake/task delivery; app occurrences use the transactional queue in tick()."""
-        payload = schedule["payload"]
-        data = {"schedule": schedule["id"], "mode": payload["mode"], "text": payload["text"], "late": late}
-        try:
-            if payload["mode"] == "task":
-                data["task"] = self.brain.runs.start_task(schedule["app"], schedule["session"], payload["text"],
-                                                           schedule=schedule["id"])
-            self.brain.notify(schedule["app"], schedule["session"], "schedule.fired", data)
-        except Exception:
-            logger.exception("Schedule %s could not fire", schedule["id"])
+    def _run_unattended(self) -> None:
+        """An app that does not call back (the CLI) never claims its occurrences: the brain starts them, each a
+        normal turn in its schedule's conversation. A busy conversation keeps its work for a later look."""
+        for app in self.store.apps():
+            found = self.store.app(app)
+            if not found or found['declaration'].get('callbacks'):
+                continue
+            for item in self.brain.runs.scheduled_pending(app):
+                if item['status'] != 'pending':
+                    continue  # a started one resumes with the brain (Runs.recover)
+                try:
+                    run, listener, _ = self.brain.runs.start_scheduled_turn(app, item['session'], item['id'], {})
+                    self.brain.bus.unsubscribe(('run', run), listener)
+                except BrainError as exc:
+                    logger.info('Scheduled work %s waits: %s', item['id'], exc.message)

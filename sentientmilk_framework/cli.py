@@ -100,10 +100,11 @@ def _notifications(client, app: str) -> None:
         try:
             for notification in client.events(app, after):
                 after = notification["id"]
-                if notification["type"] in ("task.completed", "task.failed", "task.input_required", "schedule.fired",
-                                            "job.finished"):
-                    data = notification["data"]
-                    detail = data.get("text") or data.get("goal") or data.get("command") or ""
+                if notification["type"] in ("task.completed", "task.failed", "task.input_required", "job.finished") \
+                        or notification["type"] == "schedule.updated" and notification["data"].get("status"):
+                    data = notification["data"]  # a schedule's run ended: its conversation has what it did
+                    detail = data.get("goal") or data.get("command") or \
+                        (f"{notification['session']} {data['status']}" if data.get("status") else "")
                     print(f"\n[{notification['type']}] {detail[:200]}", flush=True)
         except BrainError:
             time.sleep(5)
@@ -323,7 +324,7 @@ def main(argv=None) -> None:
             client.delete_schedule(args.id)
         for schedule in client.schedules():
             print(f"{schedule['id']:>4} {schedule['app']:<10} {schedule['kind']:<6} {schedule['spec']:<18} "
-                  f"{schedule['payload']['mode']:<5} {schedule['payload']['text'][:60]}")
+                  f"{schedule['payload']['title']}")
     elif args.command == "journal":
         if args.delete:
             client.delete_note(args.delete)

@@ -115,6 +115,34 @@ _EVENT_COLUMNS = "id, app, session, run, at, type, data"
 JOB_KEYS = ("id", "run", "app", "session", "command", "cwd", "pid", "status", "exit_code", "log", "started",
             "ended")
 
+def _own_conversation(db, app: str, source: str, schedule_id: int, payload: dict) -> None:
+    """A schedule's conversation, made with it: every run of it goes there, starting with the source chat's
+    workspace, instructions and permission settings."""
+    payload['session'] = f'schedule-{schedule_id}'
+    row = db.execute('SELECT settings FROM sessions WHERE app = ? AND id = ?', (app, source)).fetchone()
+    settings = {k: v for k, v in json.loads(row[0] if row else '{}').items()
+                if k in ('instructions', 'cwd', 'roots', 'rules', 'disabled_toolkits')}
+    settings.update(title=payload['title'], schedule=schedule_id)
+    db.execute('UPDATE schedules SET payload = ? WHERE id = ?', (dump(payload), schedule_id))
+    db.execute('INSERT OR IGNORE INTO sessions(app, id, settings, created) VALUES (?, ?, ?, ?)',
+               (app, payload['session'], dump(settings), time.time()))
+
+
+def _adopt_old_schedules(db) -> None:
+    """Reminders (wake) and task schedules from before 0.7 become schedules like any other, with their rule."""
+    from .scheduler import calendar_zone
+
+    for schedule_id, app, source, payload in db.execute(
+            'SELECT id, app, session, payload FROM schedules').fetchall():
+        old = json.loads(payload)
+        if 'session' in old:
+            continue
+        text = old.get('text') or ''
+        _own_conversation(db, app, source, schedule_id, {
+            'text': text, 'title': (text.strip().splitlines() or ['Schedule'])[0][:80],
+            'timezone': old.get('timezone') or calendar_zone().key})
+
+
 class Store:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -123,6 +151,8 @@ class Store:
         try:
             db.execute("PRAGMA journal_mode=WAL")  # readers never wait for a running turn
             db.executescript(_SCHEMA)
+            with db:
+                _adopt_old_schedules(db)
         finally:
             db.close()
 
@@ -219,7 +249,7 @@ class Store:
         """An agent's versions stay with the chat they were made for: a return there still restores them."""
         with self._db() as db:
             db.execute("UPDATE schedules SET enabled = 0, next_at = NULL WHERE app = ? "
-                       "AND json_extract(payload, '$.mode') = 'app' AND json_extract(payload, '$.session') = ?",
+                       "AND json_extract(payload, '$.session') = ?",
                        (app, session))
             db.execute("UPDATE schedule_occurrences SET status = 'cancelled', finished_at = ? "
                        "WHERE app = ? AND session = ? AND status = 'pending'", (time.time(), app, session))
@@ -504,17 +534,7 @@ class Store:
             fields['id'] = db.execute('INSERT INTO schedule_ids DEFAULT VALUES').lastrowid
             schedule_id = db.execute(f"INSERT INTO schedules({', '.join(fields)}) VALUES ({','.join('?' * len(fields))})",
                                      tuple(fields.values())).lastrowid
-            payload = json.loads(fields['payload'])
-            if payload['mode'] == 'app':
-                payload['session'] = f'schedule-{schedule_id}'
-                source = db.execute('SELECT settings FROM sessions WHERE app = ? AND id = ?',
-                                    (fields['app'], fields['session'])).fetchone()
-                settings = {k: v for k, v in json.loads(source[0] if source else '{}').items()
-                            if k in ('instructions', 'cwd', 'roots', 'rules', 'disabled_toolkits')}
-                settings.update(title=payload['title'], schedule=schedule_id)
-                db.execute('UPDATE schedules SET payload = ? WHERE id = ?', (dump(payload), schedule_id))
-                db.execute('INSERT INTO sessions(app, id, settings, created) VALUES (?, ?, ?, ?)',
-                           (fields['app'], payload['session'], dump(settings), time.time()))
+            _own_conversation(db, fields['app'], fields['session'], schedule_id, json.loads(fields['payload']))
             return schedule_id
 
     def schedules(self, app: Optional[str] = None, enabled_only: bool = False) -> List[dict]:
@@ -531,9 +551,8 @@ class Store:
             schedule = dict(zip(self._SCHEDULE_KEYS, row))
             schedule["payload"] = json.loads(schedule["payload"])
             schedule["enabled"] = bool(schedule["enabled"])
-            if schedule['payload']['mode'] == 'app':
-                schedule['execution_session'] = schedule['payload']['session']
-                schedule['timezone'] = schedule['payload']['timezone']
+            schedule['execution_session'] = schedule['payload']['session']
+            schedule['timezone'] = schedule['payload']['timezone']
             result.append(schedule)
         return result
 

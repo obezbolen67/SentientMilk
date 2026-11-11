@@ -205,7 +205,7 @@ class BrainClient:
     def rewind_preview(self, app: str, session: str, event: int) -> dict:
         """What returning to a message the user sent (its history entry's ``id``) would undo: ``messages``,
         ``files`` ({path, change: restore or delete}), ``todo`` (changes or not), ``agents`` (deleted),
-        ``stopped`` (jobs, agents' runs and tasks: {kind, id, name}), ``reminders`` (removed), and ``kept``
+        ``stopped`` (jobs, agents' runs and tasks: {kind, id, name}), ``schedules`` (removed), and ``kept``
         ({name, count}: calls whose effects stay). ``text`` and ``mentions`` are the message's."""
         return self._call("GET", f"/apps/{app}/sessions/{session}/rewind", params={"to": event})
 
@@ -345,10 +345,12 @@ class BrainClient:
     def schedules(self, app: Optional[str] = None) -> List[dict]:
         return self._call("GET", "/schedules", params={"app": app} if app else None)["schedules"]
 
-    def create_schedule(self, app: str, when: str, text: str, mode: str = "app", session: str = "main",
+    def create_schedule(self, app: str, when: str, text: str, session: str = "main",
                         catch_up: str = "once", timezone: Optional[str] = None, title: str = '') -> dict:
+        """Work for later, once ('2026-11-06T17:00', 'in 20m') or repeating ('every 2h', cron): each run is a
+        normal turn of ``app`` with ``text`` in the schedule's own conversation (``execution_session``)."""
         return self._call("POST", "/schedules", {"app": app, "session": session, "when": when, "text": text,
-                          "mode": mode, "catch_up": catch_up, 'timezone': timezone, 'title': title})
+                          "catch_up": catch_up, 'timezone': timezone, 'title': title})
 
     def scheduled_occurrences(self, app: str, pending: bool = True) -> List[dict]:
         """App-owned deliveries: pending/recoverable by default, or the latest occurrence history."""

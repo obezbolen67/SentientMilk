@@ -11,7 +11,7 @@ from sentientmilk_framework.testing import PROVIDER_URL, FakeProvider
 SIGNALS = {"expression": {"description": "how you look", "options": {"arms_down": ["neutral", "smile"],
                                                                      "one_arm": ["neutral"]}}}
 MILK = {"name": "Milk", "environment": "A desktop character.", "persona": "You are Milk.", "signals": SIGNALS,
-        "toolkits": ["memory", "todo", "journal", "web", "tasks", "schedule"]}
+        "toolkits": ["memory", "todo", "journal", "web", "tasks", "schedule"], "callbacks": True}  # as MilkChan
 
 
 def wait_for(check, timeout=10.0, step=0.02):

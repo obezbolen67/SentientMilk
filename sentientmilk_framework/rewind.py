@@ -3,11 +3,11 @@
 Undone with it:
 - everything logged since (replies, tool calls, notes, and compactions and clearings made since);
 - files changed with files_write and files_edit since, also by the agents she started since and the tasks
-  her new reminders fired (each file goes back to the version kept before its first change, see
+  her new schedules ran (each file goes back to the version kept before its first change, see
   Store.keep_version; a file made since is deleted);
 - her todo list for the chat;
 - work she started since that still runs: jobs, her agents' runs and those tasks are stopped, the agents she
-  started since are deleted, and the reminders she set since are removed.
+  started since are deleted, and the schedules she made since are removed.
 
 Not undone, and ``kept`` names those calls: what commands and app actions did, what went out to the web or
 other services, memories (the app's, not the chat's) and the journal. ``preview`` is the dry run of
@@ -81,8 +81,8 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
         # a file that could not be put back keeps its versions: a later return can still restore it
         brain.store.rewind(app, session, target["id"], [v["id"] for v in versions if v["key"] not in failed],
                            list(work["runs"]), change_state)
-        for reminder in work["reminders"]:
-            brain.scheduler.delete(reminder["id"])
+        for schedule in work["schedules"]:
+            brain.scheduler.delete(schedule["id"])
     logger.info("Returned %s/%s to before event %s", app, session, target["id"])
     return summary
 
@@ -103,12 +103,12 @@ def _plan(brain, app: str, session: str, event: int) -> Tuple[dict, dict]:
 
 
 def _work(store, app: str, session: str, target: dict) -> dict:
-    """What she started since the message from other sessions: runs of her agents, of tasks her new reminders
-    fired, and of what those started; her new agents, running jobs and new reminders."""
+    """What she started since the message from other sessions: runs of her agents, of her new schedules, and
+    of what those started; her new agents, running jobs and new schedules."""
     since = target["at"]
-    reminders = [s for s in store.schedules(app) if s["session"] == session and s["created_by"] == "model"
+    schedules = [s for s in store.schedules(app) if s["session"] == session and s["created_by"] == "model"
                  and s["created"] >= since]
-    fired = {s["id"] for s in reminders}
+    fired = {s["id"] for s in schedules}
     runs: Dict[int, dict] = {}
     for run in store.runs_since(app, since):  # the oldest first: a run's parent comes before it
         options = run["options"]
@@ -120,7 +120,7 @@ def _work(store, app: str, session: str, target: dict) -> dict:
               if settings["agent"].get("created", 0) >= since and not settings["agent"].get("stopped")]
     jobs = [job for job in store.jobs(app, time.time(), limit=1000) if job["status"] == "running" and
             (job["run"] in runs or (job["session"] == session and job["started"] >= since))]
-    return {"runs": runs, "agents": agents, "jobs": jobs, "reminders": reminders}
+    return {"runs": runs, "agents": agents, "jobs": jobs, "schedules": schedules}
 
 
 def _files(brain, app: str, session: str, target: dict, work: dict) -> Tuple[List[dict], List[dict]]:
@@ -185,7 +185,8 @@ def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
         "todo": _todo(store, app, session, target) != found["state"].get("todo", []),
         "agents": [{"id": agent_id, "name": record["name"]} for agent_id, record in work["agents"]],
         "stopped": stopped,
-        "reminders": [{"id": s["id"], "text": s["payload"]["text"]} for s in work["reminders"]],
+        "schedules": [{"id": s["id"], "title": s["payload"]["title"], "text": s["payload"]["text"]}
+                      for s in work["schedules"]],
         "kept": _kept(brain, app, session, later, work),
         "problems": [],
     }

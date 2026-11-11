@@ -1,8 +1,7 @@
 # SentientMilk v2: architecture
 
-Current scheduling (0.6.0, 2026-11-10): [app-owned scheduling](scheduling.md) supersedes the original
-wake/task-only design below. Apps now execute durable occurrences through normal turns in dedicated
-conversations, with named zones and restart/reconnect recovery.
+Current scheduling (0.7.0, 2026-11-11): one kind of schedule, once or repeating, each run a normal turn
+in the schedule's own conversation ([scheduling](scheduling.md), section 9.6). Reminders are schedules.
 
 Status: built (version 0.4.0, 2026-11-06). Written 2026-11-05 as the design; section 17 lists
 where the build differs from it and what the evals measured.
@@ -279,7 +278,7 @@ holds the tools.
   - After a restart, working agents resume like tasks.
   - Deleting a chat deletes its idle agents at once. Working ones stop and delete their own
     session when their run ends. `agent_stop` works the same way.
-  - A reminder an agent sets belongs to the lead's session, which outlives the agent.
+  - A schedule an agent makes belongs to the lead's session, which outlives the agent.
 - **The reviewer** of section 9.4 is the one helper its parent waits for (`Runs.subagent`, kind
   `subagent`), with a skeptical prompt. Like Claude Code's subagents it has its task's tools, folders and
   permissions: a call that needs approval is asked through the app (`task.input_required` with its
@@ -337,9 +336,9 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
   back to its first version since that message, or deletes it. An agent's or a task's versions belong to
   the chat they work for and outlive the agent's session, so a stopped agent's changes still go back.
   A file that cannot be written keeps its versions for a later return; the answer names it.
-- **Work started since**: runs of the chat's agents started since, of tasks fired by reminders set
-  since, and what those started, are cancelled quietly (no report, no note, no notification), as are
-  jobs started since. Agents started since are deleted, reminders set since removed. The todo list goes
+- **Work started since**: runs of the chat's agents started since, of schedules made since, and what
+  those started, are cancelled quietly (no report, no note, no notification), as are jobs started
+  since. Agents started since are deleted, schedules made since removed. The todo list goes
   back to the last one written before the message; files read since count as unread.
 - **Kept**: calls that change something and are not undone are named (`kept`): commands, app actions
   (the screen), the web and other services, memories (the app's) and the journal.
@@ -377,7 +376,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
 | `agents` | `agent_start(name, task)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)`; for agents, `ask_lead(question)` | Section 5.5. |
 | (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
-| `schedule` | `schedule_create(when, what)`, `schedule_list()`, `schedule_delete(id)` | Section 9.6. |
+| `schedule` | `schedule_create(when, text, timezone, title)`, `schedule_list()`, `schedule_update(id, ...)`, `schedule_delete(id)` | Section 9.6. |
 | `mcp:<server>` | the server's tools | Section 8. |
 | `plugins` | `plugin_list`, `plugin_install(folder)`, `plugin_reload(name)` | Section 6.5: a model makes its own tools; installing always asks. |
 | `skills` | `skill_use(name, arguments)`, `skill_list()`, `skill_delete(name)` | Section 6.6. `skill_use` is a core tool. |
@@ -853,20 +852,24 @@ task's size, and the app can force either.
 
 ### 9.6 Scheduler
 
-- **Kinds**: `at` (an ISO time), `cron` (5 fields: lists, ranges, steps), `every`
-  (minutes). Times are in the machine's local zone (`zoneinfo`). The cron parser is about
-  50 lines plus tests, so no new dependency is needed.
-- **Payloads**:
-  - `wake`: write a note into the session and raise `schedule.fired` with the text ("remind
-    me at 17:00 to stretch"). No model call; the app decides what to show.
-  - `task`: start a background task with a stored goal ("every morning, summarize my
-    unread GitHub notifications").
+- **One kind** (0.7): a schedule is work for later, once or repeating. At its time she runs with
+  its saved instructions, a normal turn in the schedule's own conversation (`schedule-<id>`).
+  A reminder is a schedule whose instructions say what to tell the user. The `wake` (notify
+  the app) and `task` (background task) modes of 0.6 are gone; their schedules are adopted on
+  start, with their rules (`Store._adopt_old_schedules`).
+- **When**: once, an ISO time or `in 20m` / `in 2h` / `in 1d`; repeating, `every N` (minutes,
+  hours, days: fixed durations) or 5-field cron for clock times. Named zones (`zoneinfo`)
+  follow daylight saving. A one-off that ran is done (no next time); a new time runs again.
+- **Who runs it**: an app that calls back (MilkChan) runs its due work through its own turn
+  workflow, so its persona, actions and approvals apply; for any other app (the CLI) the
+  brain starts the turn itself (`Scheduler._run_unattended`). A busy conversation keeps its
+  work until it is free.
 - **Firing**: one thread sleeps until the earliest fire time, or until a schedule changes.
-  It fires, then computes the next time from the stored rule, not from the last fire time,
-  so a schedule never drifts.
+  It queues the occurrence, then computes the next time from the stored rule, not from the
+  last fire time, so a schedule never drifts.
 - **Missed fires** while the brain was down: `catch_up: "once"` (default) fires once on
   start, marked late. `"skip"` jumps to the next time.
-- **Limits**: 50 schedules per app. Schedules the model creates need approval, and they
+- **Review**: schedules the model creates need approval (an app may allow them), and they
   show in `schedule_list` and the API so the user can review and delete them. They don't
   expire, unlike Claude Code's session cron, because this brain is the user's own
   long-lived service.

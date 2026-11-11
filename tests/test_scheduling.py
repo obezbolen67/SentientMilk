@@ -49,7 +49,7 @@ def test_an_unknown_timezone_is_explained():
 def app_schedule(brain):
     brain.brain.scheduler.stop()
     return brain.brain.scheduler.create('milk', 'main', '0 9 * * *', 'Find current news and report it.',
-                                         mode='app', timezone='Europe/Warsaw', title='Morning news')
+                                         timezone='Europe/Warsaw', title='Morning news')
 
 
 def test_app_schedule_creates_a_dedicated_session_and_preserves_its_owner(brain):
@@ -204,7 +204,7 @@ def test_only_one_live_app_connection_may_consume_an_occurrence(brain):
 @pytest.mark.parametrize('readonly', [False, True])
 @pytest.mark.parametrize('transitioning', [False, True])
 def test_reconnect_restores_readonly_actions_and_does_not_blindly_repeat_mutations(brain, readonly, transitioning, monkeypatch):
-    brain.client.declare_app('milk', name='Milk', toolkits=['memory'], actions=[{
+    brain.client.declare_app('milk', name='Milk', toolkits=['memory'], callbacks=True, actions=[{
         'name': 'screen_action', 'readonly': readonly, 'policy': 'auto'}])
     _, item = queued_schedule(brain)
     run, _ = brain.store.start_scheduled_run('milk', item['session'], item['id'], {}, None)
@@ -348,11 +348,16 @@ def test_existing_schedules_migrate_without_losing_rules_or_reusing_ids(tmp_path
                    ('legacy', 'main', 'every', '3600', json.dumps({'mode': 'wake', 'text': 'Keep this reminder'}),
                     2000000000, 'once', 'app', 1000000000))
     store = Store(path)
-    assert store.schedule(20)['payload'] == {'mode': 'wake', 'text': 'Keep this reminder'}
-    assert store.schedule(20)['spec'] == '3600'
+    adopted = store.schedule(20)  # a reminder of 0.6 is a schedule like any other, with its rule and time
+    assert adopted['payload']['text'] == 'Keep this reminder' and adopted['payload']['title'] == 'Keep this reminder'
+    assert adopted['execution_session'] == 'schedule-20' and adopted['timezone']
+    assert (adopted['kind'], adopted['spec'], adopted['next_at']) == ('every', '3600', 2000000000)
+    assert store.session('legacy', 'schedule-20')['settings']['schedule'] == 20
+    assert Store(path).schedule(20) == adopted  # adopted once
     store.delete_schedule(20)
     added = store.add_schedule(app='legacy', session='main', kind='every', spec='3600',
-        payload={'mode': 'wake', 'text': 'New reminder'}, next_at=2000000000, catch_up='once', created_by='app', enabled=1)
+        payload={'text': 'New one', 'title': 'New one', 'timezone': 'UTC'}, next_at=2000000000, catch_up='once',
+        created_by='app', enabled=1)
     assert added > 20
 
 
@@ -378,5 +383,5 @@ def test_recovery_resumes_the_same_occurrence_without_repeating_a_started_write(
 def test_invalid_calendar_values_fail_before_any_schedule_is_saved(brain, when, zone):
     brain.brain.scheduler.stop()
     with pytest.raises(ValueError):
-        brain.brain.scheduler.create('milk', 'main', when, 'Instructions', mode='app', timezone=zone)
+        brain.brain.scheduler.create('milk', 'main', when, 'Instructions', timezone=zone)
     assert brain.store.schedules('milk') == []

@@ -535,10 +535,11 @@ class _Handler(BaseHTTPRequestHandler):
             unknown = set(body) - {"app", "session", "when", "text", "mode", "catch_up", 'timezone', 'title'}
             if unknown:
                 raise ValueError(f"Unknown schedule fields: {sorted(unknown)}")
+            if body.get('mode', 'app') != 'app':  # 0.6 clients still say which; reminders are schedules now
+                raise ValueError('There is one kind of schedule now: leave mode out (reminders are schedules too)')
             schedule = brain.scheduler.create(validate_name(body.get("app", ""), "app"),
                                               validate_name(body.get("session", "main"), "session"),
-                                              body.get("when", ""), body.get("text", ""),
-                                              body.get("mode", "wake"), created_by="app",
+                                              body.get("when", ""), body.get("text", ""), created_by="app",
                                               catch_up=body.get("catch_up", "once"),
                                               timezone=body.get('timezone'), title=body.get('title', ''))
             self._send(200, schedule)

@@ -199,9 +199,7 @@ class Runs:
 
     def start_task(self, app: str, parent_session: Optional[str], goal: str, *, toolkits: Optional[list] = None,
                    verify: bool = False, allow: Optional[list] = None, context: str = "compact",
-                   max_steps: Optional[int] = None, parent: Optional[int] = None, cwd: Optional[str] = None,
-                   schedule: Optional[int] = None) -> int:
-        """``schedule``: the reminder that fired it (a return to before that reminder was set stops it)."""
+                   max_steps: Optional[int] = None, parent: Optional[int] = None, cwd: Optional[str] = None) -> int:
         if context not in ("compact", "reset"):
             raise ValueError("context must be compact or reset")
         options = {"goal": goal, "parent_session": parent_session, "verify": verify, "context_mode": context,
@@ -210,8 +208,6 @@ class Runs:
                                "allow": allow or [], "from_session": parent_session, "cwd": cwd}}
         if max_steps:
             options["max_steps"] = int(max_steps)
-        if schedule is not None:
-            options["schedule"] = schedule
         run_id = self.store.add_run(app, "pending", "task", options, parent=parent)
         self.store.update_run(run_id, session=f"task-{run_id}")
         self.brain.notify(app, parent_session, "task.updated", {"task": run_id, "status": "queued", "goal": goal})
@@ -429,6 +425,7 @@ class Runs:
             if pending['session'] == run['session'] and pending['status'] == 'pending':
                 self.brain.notify(run['app'], run['session'], 'schedule.ready', {'occurrence': pending['id'],
                                   'schedule': pending['schedule'], 'session': run['session']})
+                self.brain.scheduler.wake()  # the brain starts it itself for an app that does not call back
         self.brain.agents.run_ended(run)
 
     def recover(self) -> None:

@@ -6,7 +6,7 @@ comes from the type hints and its description from the docstring. Plugins (see
 
 What the model knows of its tools is the YOUR TOOLS section (context.tools_section): every toolkit of the run
 with its description and tools, and under it each tool's ``guide``, a rule that comes only with its tool. A
-toolkit marked ``part`` is a part of the model kept in the brain (its memory, agents, reminders...): it learns
+toolkit marked ``part`` is a part of the model kept in the brain (its memory, agents, schedules...): it learns
 to use those through their tools, never by looking for them on the computer.
 """
 
