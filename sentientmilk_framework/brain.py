@@ -18,6 +18,7 @@ import requests
 from . import context, mentions, permissions, skills, transport
 from . import signals as signal_format
 from .agents import Agents
+from .artifacts import Artifacts
 from .browser import Browser
 from .claude_provider import ClaudeCodeProvider
 from .claudecode import ClaudeCode
@@ -165,6 +166,7 @@ class Brain:
         self._started = False
         self.stopping = threading.Event()  # set by close(): background work ends quietly
         self.browser = Browser(self)
+        self.artifacts = Artifacts(self)  # panels in the user's chat: what only they type, orders they check
 
     def start(self) -> None:
         """Recover interrupted work and start the background threads."""

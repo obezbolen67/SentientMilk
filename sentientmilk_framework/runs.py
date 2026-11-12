@@ -475,6 +475,7 @@ class Runs:
                                       "error": error.as_dict() if error else None})
             store.update_run(run["id"], status=status, result=result, error=error.as_dict() if error else None)
         final = store.run(run["id"])
+        self.brain.artifacts.finished(run["id"])  # its panels close (values zeroed) while the app still listens
         if error:
             emit({"type": "error", "status": status, "error": error.as_dict()})
         else:
@@ -519,6 +520,7 @@ class Runs:
     def finished(self, run: dict) -> None:
         with self._attention_lock:
             self._attention.pop(run["id"], None)
+        self.brain.artifacts.finished(run["id"])
         for key in [key for key in list(self._questions) if key[0] == run["id"]]:  # nobody is left to answer
             future = self._questions.pop(key, None)
             if future and not future.done():

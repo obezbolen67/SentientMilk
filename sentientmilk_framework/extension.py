@@ -24,6 +24,8 @@ from typing import Optional
 from . import __version__
 
 logger = logging.getLogger(__name__)
+WIRE_LOG = logging.getLogger("sentientmilk_framework.wire")  # the browsers' sockets (browser.py too)
+WIRE_LOG.setLevel(logging.INFO)  # never their frames, at any level: what the user typed for her travels in them
 
 EXTENSION_ID = "nchdmjacdboinhpkleiaehgiiopnjeba"  # fixed by the key in its manifest
 FOLDER = Path(__file__).with_name("extension")
@@ -68,7 +70,7 @@ class Bridge:
 
         try:
             server = serve(self._serve, "127.0.0.1", self.wanted_port, max_size=None, ping_interval=20,
-                           ping_timeout=20)
+                           ping_timeout=20, logger=WIRE_LOG)
         except OSError as exc:
             if not self.error:
                 logger.warning("The extension's connection could not listen on port %s: %s", self.wanted_port, exc)

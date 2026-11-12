@@ -8,6 +8,8 @@
   // frames of another site run in processes of their own, read in worlds of their own: browser.py gives each
   // frame's iframe element here its key, and a view says where that frame's own view goes
   const marks = new WeakMap(), marked = new Map();
+  // fields filled with what the user typed for her (browser_secrets): what they hold never shows in a view
+  const secrets = new WeakMap();
   addEventListener('contextmenu', e => { if (!menus) e.preventDefault(); });  // her right clicks: the page's menu only
   let lastChange = performance.now();
   const observer = new MutationObserver(() => { lastChange = performance.now(); });
@@ -118,7 +120,7 @@
     (function each(node) {
       for (const child of children(node)) {
         if (out.length > limit * 2) return;
-        if (child === skip) continue;
+        if (child === skip || secrets.has(child)) continue;
         if (child.nodeType === 3) out += child.textContent;
         else if (child.nodeType === 1 && !SKIPPED.has(child.tagName.toLowerCase()) &&
                  child.getAttribute('aria-hidden') !== 'true' && shown(child)) {
@@ -179,7 +181,9 @@
     if (aria('invalid') === 'true') states.push('invalid');
     if (el === deepActive()) states.push('focused');
     if (r === 'file input' && !shown(el)) states.push('hidden');
-    if (tag === 'select') {
+    if (secrets.has(el)) {
+      value = `(filled with the user's ${secrets.get(el)})`;  // not what, nor how long
+    } else if (tag === 'select') {
       const options = [...el.options];
       value = el.selectedOptions[0] ? clean(el.selectedOptions[0].text) : '';
       const listed = full ? options : options.slice(0, 12);
@@ -344,7 +348,9 @@
       for (const child of children(node)) {
         if (child.nodeType === 3) {
           const text = child.textContent.replace(/\s+/g, ' ');
-          if (text.trim() || (line && line.parts.length)) add(text, depth);
+          if (options.texts && text.trim() && child.parentElement)  // each piece of text with its element's id
+            add(` ${text.trim()} ⟨e${idOf(child.parentElement)}⟩ `, depth);
+          else if (text.trim() || (line && line.parts.length)) add(text, depth);
         } else if (child.nodeType === 1) visit(child, depth);
       }
     }
@@ -399,6 +405,17 @@
     }
     return [x, y];
   }
+  function pathOf(el) {  // a way to the element in a page loaded again, where ids start anew
+    const parts = [];
+    for (let node = el; node && node.nodeType === 1 && node !== node.ownerDocument.documentElement;
+         node = node.parentElement) {
+      if (node.id && /^[A-Za-z][\w-]*$/.test(node.id)) { parts.unshift('#' + node.id); break; }
+      let index = 1, sibling = node;
+      while ((sibling = sibling.previousElementSibling)) if (sibling.tagName === node.tagName) index++;
+      parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${index})`);
+    }
+    return parts.join(' > ');
+  }
   function short(el) {
     let node = el;
     while (node && node.nodeType === 1 && !active(node) && !group(node, '') && node !== document.body) node = node.parentElement;
@@ -428,7 +445,7 @@
         root = get(options.part);
         if (!root) return {gone: true};
       }
-      const built = build(root || document.documentElement, {full: !!options.full});
+      const built = build(root || document.documentElement, {full: !!options.full, texts: !!options.texts});
       const lines = built.lines;
       const doc = document.documentElement;
       return {text: lines.map(item => '  '.repeat(item.depth) + item.text).join('\n'), labels: built.labels,
@@ -489,6 +506,72 @@
       return {label: hit && hit !== document.documentElement ? short(hit) : '', next};
     },
     element: id => get(id),
+    signature(id) {  // what a field is, to know it again just before what the user typed goes into it
+      const el = get(id);
+      if (!el) return null;
+      return {tag: el.tagName.toLowerCase(), type: (el.type || '').toLowerCase(), name: el.getAttribute('name') || '',
+              key: el.id || '', autocomplete: el.getAttribute('autocomplete') || '', origin: location.origin};
+    },
+    fillSecret(id, name, value) {  // into this field only: focused here, checked focused, then typed as text input
+      const el = get(id);
+      if (!el) return {error: 'the field is not on the page any more'};
+      const doc = el.ownerDocument;
+      el.focus({preventScroll: true});
+      if (doc.activeElement !== el && el.getRootNode().activeElement !== el)
+        return {error: 'the field did not take the focus (the page moved it)'};
+      if (el.isContentEditable) {
+        const range = doc.createRange();
+        range.selectNodeContents(el);
+        doc.getSelection().removeAllRanges();
+        doc.getSelection().addRange(range);
+      } else if (el.select) el.select();
+      const now = () => el.isContentEditable ? el.innerText : el.value;
+      let typed = false;
+      try { typed = doc.execCommand('insertText', false, value); } catch (e) { typed = false; }
+      if ((!typed || now() !== value) && !el.isContentEditable) {  // as the page's own code would set it
+        const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+        el.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText'}));
+      }
+      el.dispatchEvent(new Event('change', {bubbles: true}));
+      secrets.set(el, name);
+      el.style.setProperty('-webkit-text-security', 'disc', 'important');  // a picture of it shows dots
+      const plain = text => text.replace(/[\s-]/g, '');
+      return {ok: true, reshaped: now() !== value && plain(now()) !== plain(value)};
+    },
+    focused() {  // what a key press presses: the focused control, and for Enter in a field its form's submit button
+      const el = deepActive();
+      if (!el || el === document.body || el === document.documentElement) return null;
+      const out = {label: describe(el, false).role + ' ' + quote(nameOf(el))};
+      const form = el.form || el.closest?.('form');
+      const submit = form && form.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]');
+      if (submit) out.submit = 'button ' + quote(nameOf(submit));
+      return out;
+    },
+    parts(wanted) {  // [[id, path]]: what each part of an order says now, where it is in the page, how to find it again
+      const doc = document.documentElement;
+      return wanted.map(([id, path]) => {
+        let el = id ? get(id) : null;
+        if (!el && path) { try { el = document.querySelector(path); } catch (e) { el = null; } }
+        if (!el) return {gone: true};
+        const tag = el.tagName.toLowerCase();
+        const text = tag === 'select' ? clean(el.selectedOptions[0]?.text || '') :
+          (tag === 'input' || tag === 'textarea') ? (secrets.has(el) ? '' : clean(el.value)) : clean(el.innerText || el.textContent);
+        const r = el.getBoundingClientRect(), [ox, oy] = frameOffset(el);
+        return {text: cut(text, 400), id: idOf(el), path: pathOf(el),
+                rect: [Math.round(ox + r.left + scrollX), Math.round(oy + r.top + scrollY), Math.round(r.width),
+                       Math.round(r.height)], page: [doc.scrollWidth, doc.scrollHeight]};
+      });
+    },
+    flash(id) {  // the user looks where a number came from: it in view, outlined for a moment
+      const el = get(id);
+      if (!el) return false;
+      el.scrollIntoView({block: 'center', behavior: 'instant'});
+      const before = el.style.outline;
+      el.style.outline = '3px solid #ac3232';
+      setTimeout(() => { el.style.outline = before; }, 2500);
+      return true;
+    },
     focus(id) {
       const el = get(id);
       if (!el) return false;
@@ -555,7 +638,7 @@
           if (child.nodeType === 3) { line += child.textContent; continue; }
           if (child.nodeType !== 1) continue;
           const tag = child.tagName.toLowerCase();
-          if (SKIPPED.has(tag) || !shown(child)) continue;
+          if (SKIPPED.has(tag) || !shown(child) || secrets.has(child)) continue;
           if (tag === 'iframe') {
             const doc = safeDoc(child);
             if (doc?.body) { flush(); each(doc.body); flush(); }

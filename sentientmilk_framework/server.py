@@ -210,6 +210,16 @@ class _Handler(BaseHTTPRequestHandler):
             return self._agent_route(method, rest, query)
         elif head == "runs" and len(rest) >= 1:
             return self._run_route(method, _number(rest[0], "run id"), rest[1:], body)
+        elif route == ["artifacts"] and method == "GET":  # the panels open in a session (artifacts.py)
+            self._send(200, {"artifacts": brain.artifacts.shown(validate_name(query.get("app", ""), "app"),
+                                                                 validate_name(query.get("session", ""), "session"))})
+        elif head == "artifacts" and len(rest) == 1 and method == "POST":  # the user's answer: values never echo back
+            unknown = set(body) - {"action", "values", "fingerprint", "reason", "part"}
+            if unknown:
+                raise ValueError(f"Unknown fields: {', '.join(sorted(unknown))}")
+            self._send(200, brain.artifacts.answer(rest[0], str(body.get("action") or ""), body.get("values"),
+                                                   str(body.get("fingerprint") or ""), str(body.get("reason") or ""),
+                                                   str(body.get("part") or "")))
         elif head == "schedules":
             return self._schedule_route(method, rest, body, query)
         elif route == ["toolkits"] and method == "GET":

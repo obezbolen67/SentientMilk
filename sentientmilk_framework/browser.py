@@ -87,7 +87,21 @@ SHOWN = ("Your browser is on the user's screen at {urls}, and still yours. Tell 
 LEAD_ONLY = ("Only the lead can hand the browser to the user: say in your report what the user should do there "
              "(sign in at ...), or ask the lead with ask_lead.")
 GONE = "Your browser closed under the call (it opens again, with your tabs, at your next browser call)."
-MODIFIERS = {"alt": 1, "ctrl": 2, "control": 2, "meta": 4, "cmd": 4, "win": 4, "shift": 8}
+LEAD_ASKS = ("Only the lead puts a panel in front of the user: say in your report what the user should type or check "
+             "(and where), or ask the lead with ask_lead.")
+# What pays (or orders to pay): her browser never presses it; the user does (Mode B's panel ends at their yes)
+PAYS = re.compile(r"\b(pay( now| securely| with| \d)?|buy( it)? now|place( your)? order|complete (your )?(purchase|order|"
+                  r"payment)|confirm (and pay|payment|purchase|(the |your )?order)|submit (order|payment)|order and pay|"
+                  r"checkout and pay|kup teraz|kupuj[eę]|zap[lł]a[cć]|płac[eę]|zamawiam|z[lł][oó][zż] zam[oó]wienie|"
+                  r"potwierd[zź] (i zap[lł]a[cć]|zakup|zam[oó]wienie|p[lł]atno[sś][cć])|zahlungspflichtig|jetzt kaufen|"
+                  r"bezahlen|payer|acheter)\b", re.I)
+PAYING = ("{what} pays: paying is the user's own, never yours. Tell them the order is ready, and if they want to pay "
+          "in your browser put it in front of them (the step show).")
+HOLDS = ("not while this page holds what the user typed for you ({names}): a {what} could show it. Go on with "
+         "browser_view (text), or once the page moved on.")
+SECRET_NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
+SCRUBBED = 6  # letters and digits a typed value has at least to be searched for in replies (shorter ones match too much)
+MODIFIERS ={"alt": 1, "ctrl": 2, "control": 2, "meta": 4, "cmd": 4, "win": 4, "shift": 8}
 # key name -> (key, code, Windows virtual key, text)
 KEYS = {"enter": ("Enter", "Enter", 13, "\r"), "return": ("Enter", "Enter", 13, "\r"), "tab": ("Tab", "Tab", 9, ""),
         "escape": ("Escape", "Escape", 27, ""), "esc": ("Escape", "Escape", 27, ""),
@@ -148,6 +162,87 @@ def site_of(url: str) -> str:
         return urllib.parse.urlsplit(url).hostname or ""
     except ValueError:
         return ""
+
+
+def origin_of(url: str) -> str:
+    parts = urllib.parse.urlsplit(url or "")
+    return f"{parts.scheme}://{parts.netloc}".lower() if parts.scheme and parts.netloc else ""
+
+
+def pays(label: str) -> bool:
+    return bool(label) and bool(PAYS.search(label))
+
+
+def _plain(text: str):
+    """Letters and digits of ``text`` (lower case), with where each is in it: a typed value is found however a page
+    spaced it (4111 1111 ...)."""
+    kept = [(char.lower(), index) for index, char in enumerate(text) if char.isalnum()]
+    return "".join(char for char, _ in kept), [index for _, index in kept]
+
+
+ORDER_LINE = ("name", "size", "quantity", "price", "total")  # a line's parts, as the page shows them
+ORDER_ONE = ("total", "slot", "address", "shortfall")  # the order's own
+
+
+def _order_parts(order) -> List[tuple]:
+    """(where in the order, the id it is read from) for every part the order names, each checked to be an id: the
+    numbers come from the page, never from her."""
+    if not isinstance(order, dict):
+        raise ToolError("The order is lines, charges, total, slot and address: ids from the latest view.")
+    lines = order.get("lines")
+    if not isinstance(lines, list) or not lines:
+        raise ToolError("lines is empty: one per item of the order, each with at least name and total (their ids).")
+    wanted = []
+    for index, line in enumerate(lines):
+        if not isinstance(line, dict) or not line.get("name") or not line.get("total"):
+            raise ToolError(f"Line {index + 1} needs name and total: the ids the page shows them in.")
+        wanted += [(f"lines.{index}.{key}", line[key]) for key in ORDER_LINE if line.get(key)]
+    charges = order.get("charges") or []
+    if not isinstance(charges, list):
+        raise ToolError("charges is a list: [{\"label\": \"Delivery\", \"amount\": \"e50\"}].")
+    for index, charge in enumerate(charges):
+        if not isinstance(charge, dict) or not charge.get("amount") or not str(charge.get("label") or "").strip():
+            raise ToolError(f"Charge {index + 1} needs label (your word for it: Delivery) and amount (its id).")
+        wanted.append((f"charges.{index}.amount", charge["amount"]))
+    if not order.get("total"):
+        raise ToolError("total is the id of the order's total, as the page shows it.")
+    wanted += [(key, order[key]) for key in ORDER_ONE if order.get(key)]
+    for key, target in wanted:
+        if not re.fullmatch(r"e?\d+", str(target).strip(), re.I):
+            raise ToolError(f"{key.replace('.', ' ')}: {target!r} is not an id. Each part is an id from the latest "
+                            "view (e31): the page says it, not you.")
+    return [(key, str(target).strip()) for key, target in wanted]
+
+
+class Mark:
+    """A value the user typed, as replies are searched for it once it is typed (a page may show it again elsewhere:
+    a card's picture). Only a keyed hash is kept, never the value: windows of a reply as long as it are hashed alike."""
+
+    def __init__(self, value: str):
+        import hashlib
+        import hmac
+
+        self._hmac, self._sha = hmac, hashlib.sha256
+        self.key = os.urandom(16)
+        plain, _ = _plain(value)
+        self.length, self.digest = len(plain), self._hash(plain)
+
+    def _hash(self, text: str) -> bytes:
+        return self._hmac.new(self.key, text.encode("utf-8"), self._sha).digest()
+
+    def scrub(self, text: str, name: str) -> str:
+        plain, where = _plain(text)
+        spans = []
+        start = 0
+        while start + self.length <= len(plain):
+            if self._hash(plain[start:start + self.length]) == self.digest:
+                spans.append((where[start], where[start + self.length - 1] + 1))
+                start += self.length
+            else:
+                start += 1
+        for begin, end in reversed(spans):
+            text = text[:begin] + f"[the user's {name}]" + text[end:]
+        return text
 
 
 def _free_port() -> int:
@@ -222,7 +317,9 @@ class Wire:
             from websockets.sync.client import connect
 
             # entered as a context manager does (websockets 17 warns of a bare connect); closed by close()
-            socket = connect(url, max_size=None, open_timeout=10, ping_interval=None).__enter__()
+            from .extension import WIRE_LOG
+
+            socket = connect(url, max_size=None, open_timeout=10, ping_interval=None, logger=WIRE_LOG).__enter__()
         self.socket = socket
         self.on_event = on_event
         self.closed = threading.Event()
@@ -300,6 +397,8 @@ class Tab:
         self.closing = False  # closed by her (or the conversation went): not a page closing itself
         self.restore: Optional[str] = None  # the address it opens again at
         self.news: List[str] = []  # what happened that its next reply tells
+        # what the user typed for her here, as its replies are searched for it (a page after may echo it)
+        self.marks: Dict[str, Mark] = {}
         self._reset()
 
     def _reset(self) -> None:
@@ -326,6 +425,18 @@ class Tab:
         self._request_at: Dict[str, int] = {}
         self.console: Optional[list] = None  # console messages while they are read
         self.mime = ""  # what the page is (application/pdf for a PDF)
+        self.typed: tuple = (None, set())  # (document, names): what the user typed for her into the page
+
+    def holds(self) -> set:
+        """The names of what the user typed for her that the page in it now holds."""
+        document, names = self.typed
+        return names if document == self.document else set()
+
+    def scrub(self, text: str) -> str:
+        for name, mark in self.marks.items():
+            if text:
+                text = mark.scrub(text, name)
+        return text
 
     def held(self) -> bool:
         """A call to the page will not be answered now: a dialog holds it, or the page closed itself."""
@@ -1270,12 +1381,13 @@ class Browser:
             raise ToolError(f"{url} could not be opened ({error}).")
         return "" if self._settle(tab, 30) else "The page is still loading."
 
-    def _view(self, tab: Tab, find: str = "", part: str = "") -> dict:
+    def _view(self, tab: Tab, find: str = "", part: str = "", texts: bool = False) -> dict:
         """The page as text with ids, its frames of other sites in it (only the lines with ``find``; only the
-        part ``part``)."""
-        frame, full = self._world_of(tab, part) if part else None, bool(find or part)
+        part ``part``; ``texts``: every piece of text with an id too, to point at for browser_review)."""
+        frame, full = self._world_of(tab, part) if part else None, bool(find or part or texts)
         self._mark(tab, frame)
-        data = self._eval(tab, f"__milk.view({json.dumps({'full': full, 'part': _id(part)})})", frame=frame)
+        options = {"full": full, "part": _id(part), "texts": bool(texts)}
+        data = self._eval(tab, f"__milk.view({json.dumps(options)})", frame=frame)
         if data is None:
             return {"text": "", "labels": {}, "title": tab.title, "url": tab.url, "next": tab.next_id}
         if data.get("gone"):
@@ -1357,16 +1469,19 @@ class Browser:
             note = self._navigate(tab, url) if url else ""
             return self._whole(tab, self._view(tab), note)
 
-    def view(self, ctx, tab: str = "", find: str = "", part: str = "", picture: bool = False) -> ToolResult:
+    def view(self, ctx, tab: str = "", find: str = "", part: str = "", picture: bool = False,
+             texts: bool = False) -> ToolResult:
         with self.using(ctx, tab) as page:
-            data = self._view(page, find=find, part=part)
-            if find or part:
+            data = self._view(page, find=find, part=part, texts=texts)
+            if find or part or texts:
                 text = data["text"] or (f"Nothing on the page has {find!r}." if find else "(It shows nothing.)")
                 text = "\n".join(self._head(page) + [text])
             else:
                 text = self._whole(page, data)
+            text = page.scrub(text)
             if not picture:
                 return ToolResult(text)
+            self._not_holding(page, "picture")
             image, size = self._picture(page)
             return ToolResult(text + f"\nThe picture is the tab's window as it is now ({size} pixels): point at what "
                                      "has no id with \"x,y\" in its pixels as a step's target.", images=[image])
@@ -1395,10 +1510,17 @@ class Browser:
             if start + READ_CHARS < len(text):
                 part += (f"\n\n[Characters {start}-{start + READ_CHARS} of {len(text)}. Go on with "
                          f"offset={start + READ_CHARS}.]")
-            return "\n".join(self._head(page) + [part])
+            return page.scrub("\n".join(self._head(page) + [part]))
+
+    def _not_holding(self, tab: Tab, what: str) -> None:
+        """No picture, script or saved copy of a page that holds what the user typed for her: it could show it."""
+        held = tab.holds()
+        if held:
+            raise ToolError(HOLDS.format(names=", ".join(sorted(held)), what=what))
 
     def script(self, ctx, code: str, tab: str = "") -> str:
         with self.using(ctx, tab) as page:
+            self._not_holding(page, "script")
             document = page.document
             try:  # in the page's own world, so it reaches the page's variables
                 reply = page.wire.call("Runtime.evaluate", {"expression": code, "returnByValue": True,
@@ -1455,7 +1577,7 @@ class Browser:
             empty = (f"Nothing with {find!r}." if find else
                      "Nothing in the console since the page loaded." if kind == "console" else
                      "No requests since the page loaded.")
-            return "\n".join(self._head(page) + (lines or [empty]))
+            return page.scrub("\n".join(self._head(page) + (lines or [empty])))
 
     @staticmethod
     def _console_line(method: str, params: dict) -> str:
@@ -1486,6 +1608,9 @@ class Browser:
                 target = step.get("target")
                 said = f"{number}. {action}" + (f" {target}" if target else "") + \
                     (f" ({page.labels[_id(target)]})" if target and _id(target) in page.labels else "")
+                secret = step.get("secret") if action == "fill" else None
+                if secret is not None:  # what it typed is never said: only where, and whose name
+                    said = f"{number}. fill {target} (secret {str(secret).strip().lower()})"
                 rest = f"Steps {number + 1}-{len(steps)} did not run" if number < len(steps) else ""
                 try:
                     if action == "show":
@@ -1500,7 +1625,10 @@ class Browser:
                     if rest:
                         notes.append(rest + ".")
                     break
-                notes.append(f"{said}: {note or 'done'}")
+                if secret is not None:
+                    notes.append(said.replace(". fill ", ". filled ", 1) + (f"; {note}" if note else ""))
+                else:
+                    notes.append(f"{said}: {note or 'done'}")
                 coming = steps[number] if number < len(steps) and isinstance(steps[number], dict) else {}
                 if page.dialog and str(coming.get("action", "")).strip().lower() != "dialog":  # unless she answers it
                     if rest:
@@ -1519,9 +1647,9 @@ class Browser:
                     self._closed_itself(page)
                 return "\n".join(notes + [f"Tab {page.name} {words}."] + self._after_close(page))
             if page.dialog:
-                return "\n".join(self._head(page) + notes)
+                return page.scrub("\n".join(self._head(page) + notes))
             data = self._view(page)
-            return "\n".join(self._head(page) + notes + [self._changes(page, document, data)])
+            return page.scrub("\n".join(self._head(page) + notes + [self._changes(page, document, data)]))
 
     def _after_close(self, closed: Tab) -> List[str]:
         with self._lock:
@@ -1561,6 +1689,171 @@ class Browser:
             self._navigate(tab, url)
         self._quietly(tab.wire.call, "Target.activateTarget", {"targetId": tab.target})  # in front: theirs to use
         return SHOWN.format(urls=f"{tab.name} ({tab.url})")
+
+    # ============== What the user types for her, and the orders they check (artifacts.py) ==============
+
+    @staticmethod
+    def _not_paying(label: str, what: str = "") -> None:
+        if pays(label):
+            raise ToolError(PAYING.format(what=f"{what} {label}".strip() if what else label))
+
+    def _page_call(self, tab: Tab, frame: Optional[Frame], method: str, *args):
+        """__milk.<method>(*args) with the arguments as values, never written into the code sent (a value the user
+        typed is in no expression, so in no error either)."""
+        world = frame or tab
+        self._eval(tab, "0", frame=frame)  # the world is there (made again for a new document)
+        try:
+            handle = tab.wire.call("Runtime.evaluate", {"expression": "__milk", "contextId": world.context},
+                                   world.session, 10)["result"]["objectId"]
+            try:
+                reply = tab.wire.call("Runtime.callFunctionOn", {
+                    "objectId": handle, "functionDeclaration": f"function(...a) {{ return this.{method}(...a); }}",
+                    "arguments": [{"value": arg} for arg in args], "returnByValue": True}, world.session, 30,
+                    until=tab.held)
+            finally:
+                self._quietly(tab.wire.call, "Runtime.releaseObject", {"objectId": handle}, world.session, 5)
+        except (CdpError, KeyError, TypeError):
+            raise ToolError("the page changed under it")
+        if reply is None:
+            raise ToolError(self._dialog_line(tab))
+        if "exceptionDetails" in reply:  # never its words: they could quote what was passed
+            raise ToolError("the page refused it")
+        return reply["result"].get("value")
+
+    def ask_secrets(self, ctx, fields, tab: str = "") -> str:
+        """The user types what she must not see into a panel; each value is for one field of the page."""
+        if ctx.run["kind"] != "turn":
+            raise ToolError(LEAD_ASKS)
+        if not isinstance(fields, list) or not fields:
+            raise ToolError('fields is empty: e.g. [{"name": "card_number", "target": "e14", "purpose": "your card '
+                            'number, to pay for the order"}].')
+        asked, names = [], set()
+        with self.using(ctx, tab) as page:
+            for field in fields:
+                field = field if isinstance(field, dict) else {}
+                name = str(field.get("name") or "").strip().lower()
+                if not SECRET_NAME.fullmatch(name) or name in names:
+                    raise ToolError(f"{name or 'A field'} needs a name of its own: letters, digits and _ "
+                                    "(card_number, password).")
+                names.add(name)
+                target = str(field.get("target") or "").strip()
+                place = self._point(page, target)
+                if place.get("point") or not place.get("editable"):
+                    raise ToolError(f"{target} ({place['label']}) is not a field to type into: name the field.")
+                frame = place.get("frame")
+                signed = self._eval(page, f"__milk.signature({_id(target)})", frame=frame)
+                if not signed:
+                    raise ToolError(f"{target} is not on the page any more: view it again.")
+                where = origin_of(page.url)
+                asked.append({
+                    "name": name, "purpose": str(field.get("purpose") or "").strip()[:300],
+                    "target": f"e{_id(target)}", "label": place["label"], "site": site_of(page.url),
+                    "frame_site": site_of(signed["origin"]) if frame else "",
+                    "binding": {"owner": page.owner, "tab": page.name, "document": page.document,
+                                "target": _id(target), "frame": frame.session if frame else None, "origin": where,
+                                "signature": signed, "label": place["label"]}})
+            tab_name, url = page.name, page.url
+        return self.brain.artifacts.secrets(ctx, tab_name, url, asked)
+
+    def _fill_secret(self, ctx, tab: Tab, target, name) -> str:
+        """What the user typed for ``name``, into the field it was asked for, after checking it is still that field
+        on that page: once, then it is gone."""
+        name = str(name or "").strip().lower()
+        secret = self.brain.artifacts.take(ctx.app, ctx.session, name)
+        try:
+            bound = secret.binding
+            element = _id(target)
+            if not element or element != bound["target"]:
+                raise ToolError(f"not typed: {name} is for e{bound['target']} ({bound['label']}), not {target}")
+            if (tab.owner, tab.name) != (bound["owner"], bound["tab"]):
+                raise ToolError(f"not typed: {name} is for tab {bound['tab']}")
+            if tab.document != bound["document"] or origin_of(tab.url) != bound["origin"]:
+                raise ToolError("not typed: page changed (the tab is on another page now)")
+            frame = self._world_of(tab, target)
+            if (frame.session if frame else None) != bound["frame"]:
+                raise ToolError("not typed: page changed (the field is in another frame)")
+            try:
+                place = self._point(tab, target)
+            except ToolError:
+                raise ToolError("not typed: page changed (the field is not there now)")
+            if not place.get("editable"):
+                raise ToolError("not typed: page changed (it is not a field now)")
+            now = self._eval(tab, f"__milk.signature({element})", frame=frame)
+            if now != bound["signature"]:
+                raise ToolError("not typed: page changed (the field is another one now)")
+            value = secret.reveal()
+            typed = self._page_call(tab, frame, "fillSecret", element, name, value) or {}
+            if typed.get("error"):
+                raise ToolError(f"not typed: {typed['error']}")
+            if len(_plain(value)[0]) >= SCRUBBED:
+                tab.marks[name] = Mark(value)
+            del value
+        except ToolError as exc:
+            self.brain.artifacts.used(secret, str(exc))
+            raise
+        self.brain.artifacts.used(secret)  # gone: zeroed
+        tab.typed = (tab.document, tab.holds() | {name})
+        return "the page shows it in its own way" if typed.get("reshaped") else ""
+
+    def review(self, ctx, order: dict, tab: str = "") -> str:
+        """An order as the page says it, for the user to approve or reject before they pay (artifacts.py)."""
+        if ctx.run["kind"] != "turn":
+            raise ToolError(LEAD_ASKS)
+        wanted = _order_parts(order)
+        with self.using(ctx, tab) as page:
+            for _, target in wanted:
+                if self._world_of(page, target):
+                    raise ToolError(f"{target} is in a frame of another site: point at parts of the order's own page.")
+            read = self._read_parts(page, [(_id(target), "") for _, target in wanted])
+            missing = [target for (_, target), part in zip(wanted, read) if part.get("gone")]
+            if missing:
+                raise ToolError(f"{', '.join(missing)} not on the page (any more): view it again for its ids.")
+            picture = self._full_picture(page)
+            name, url, title, document = page.name, page.url, page.title, page.document
+            paths = [part["path"] for part in read]
+
+        def again() -> tuple:  # the same parts, read from the page as it is now: by id, or by path once it loaded anew
+            try:
+                with self.using(ctx, name) as live:
+                    self._settle(live, 5, after=False)
+                    same = live.document == document
+                    parts = self._read_parts(live, [(_id(target) if same else "", path)
+                                                    for (_, target), path in zip(wanted, paths)])
+                    return parts, self._full_picture(live), live.url
+            except ToolError as exc:
+                raise BrainError("artifact", f"Her tab with the order could not be read: {exc}")
+
+        def look(part: dict) -> None:  # where a number came from: her tab in front of the user, the part outlined
+            try:
+                with self.using(ctx, name) as live:
+                    self.show(ctx, live)
+                    live.news.append("The user looked at the order in your browser: it is on their screen now "
+                                     "(browser_open headless=true takes it back).")
+                    found = self._read_parts(live, [("", part.get("path") or "")])[0]  # ids start anew if it moved
+                    if not found.get("gone"):
+                        self._page_call(live, None, "flash", found["id"])
+            except ToolError as exc:
+                raise BrainError("artifact", f"Her tab with the order could not be shown: {exc}")
+
+        return self.brain.artifacts.review(ctx, name, url, title, order, wanted, read, picture, again, look)
+
+    def _read_parts(self, tab: Tab, wanted: list) -> List[dict]:
+        parts = self._eval(tab, f"__milk.parts({json.dumps(wanted)})")
+        if parts is None:
+            raise ToolError(self._dialog_line(tab))
+        tab.next_id = max(tab.next_id, *[part.get("id", 0) for part in parts], 0)
+        return parts
+
+    def _full_picture(self, tab: Tab) -> str:
+        """The whole page, as the user's panel shows it beside the numbers read from it (a page that holds what the
+        user typed shows dots there)."""
+        self._shown_window(tab)
+        size = tab.wire.call("Page.getLayoutMetrics", session=tab.session)["cssContentSize"]
+        width, height = max(1, round(size["width"])), max(1, min(round(size["height"]), 16000))
+        shot = tab.wire.call("Page.captureScreenshot", {
+            "format": "jpeg", "quality": 80, "captureBeyondViewport": True,
+            "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1}}, tab.session, timeout=60)
+        return transport.encode_image("data:image/jpeg;base64," + shot["data"], 2_000_000)
 
     # ============== Steps ==============
 
@@ -1686,11 +1979,17 @@ class Browser:
 
     def _step(self, ctx, tab: Tab, action: str, step: dict, last: bool = True) -> str:
         target, text = step.get("target"), step.get("text")
+        if step.get("secret") is not None and (action != "fill" or text is not None):
+            raise ToolError("secret goes with fill only, in place of text: {\"action\": \"fill\", \"target\": \"e14\", "
+                            "\"secret\": \"card_number\"}.")
         text = "" if text is None else str(text)
         document = tab.document
         note = ""
-        if action == "click":
+        if action == "fill" and step.get("secret") is not None:
+            note = self._fill_secret(ctx, tab, target, step["secret"])
+        elif action == "click":
             place = self._point(tab, target)
+            self._not_paying(place["label"])
             button = str(step.get("button") or "left").lower()
             self._click(tab, place, button if button in ("left", "right", "middle") else "left",
                         2 if step.get("double") else 1)
@@ -1699,7 +1998,16 @@ class Browser:
             note = self._fill(tab, _id(target), self._point(tab, target), text)
         elif action in ("type", "key"):
             if target:
-                self._click(tab, self._point(tab, target))
+                place = self._point(tab, target)
+                self._not_paying(place["label"])
+                self._click(tab, place)
+            presses = "\n" in text if action == "type" else \
+                any(chord.split("+")[-1].lower() in ("enter", "return", "space") for chord in text.split())
+            if presses:  # Enter or Space presses what has the focus, and Enter in a field sends its form
+                focused = self._eval(tab, "__milk.focused()") or {}
+                self._not_paying(focused.get("label", ""))
+                if "\n" in text or "enter" in text.lower() or "return" in text.lower():
+                    self._not_paying(focused.get("submit", ""), "Enter here sends a form: its")
             if action == "type":
                 self._type(tab, text)
             else:
@@ -1731,11 +2039,16 @@ class Browser:
             if not tab.dialog:
                 raise ToolError("No dialog is open.")
             accept = step.get("accept", True) not in (False, "false", "no", 0)
+            if accept:
+                message = tab.dialog.get("message", "")
+                if pays(message):
+                    raise ToolError(PAYING.format(what=f"The page's dialog \"{message[:200]}\""))
             tab.wire.call("Page.handleJavaScriptDialog", {"accept": accept, **({"promptText": text} if text else {})},
                            tab.session)
             tab.dialog = None
             note = "accepted" if accept else "dismissed"
         elif action == "save":
+            self._not_holding(tab, "saved copy")
             return self._keep(ctx, tab, text or str(target or ""))
         else:
             raise ToolError(f"There is no step {action!r}. Steps: {', '.join(STEPS)}.")

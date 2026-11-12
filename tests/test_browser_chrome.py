@@ -165,8 +165,8 @@ def test_a_tab_in_the_user_s_chrome_is_used_like_her_own(chrome, site):
     assert "deleted" in asked
     page = kit.browser_open.func(ctx, site + "/shop")  # a frame of another site, there too
     paid = kit.browser_act.func(ctx, [{"action": "fill", "target": ids(page, '"Card"'), "text": "4242"},
-                                      {"action": "click", "target": ids(page, '"Pay now"')}])
-    assert "paid with 4242" in paid
+                                      {"action": "click", "target": ids(page, '"Check card"')}])
+    assert "checked 4242" in paid
     assert len(kit.browser_view.func(ctx, picture=True).images) == 1
     saved = json.loads((chrome.brain.home / "browser" / "tabs.json").read_text(encoding="utf-8"))
     assert saved["cli/main"]["tabs"]["t1"]["user"] is True and saved["cli/main"]["tabs"]["t1"]["target"]

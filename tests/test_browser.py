@@ -62,7 +62,7 @@ setTimeout(() => s.textContent = JSON.stringify({webdriver: navigator.webdriver,
     "/shop": """<!doctype html><title>Shop</title><h1>Checkout</h1><p>Pay below.</p><div style="height:1400px"></div>
 <iframe src="http://localhost:{port}/pay" title="Payment" style="width:500px;height:200px;padding:9px"></iframe>""",
     "/pay": """<!doctype html><title>Pay</title><label>Card <input id=c></label>
-<button onclick="out.textContent = 'paid with ' + c.value">Pay now</button><p id=out>unpaid</p>""",
+<button onclick="out.textContent = 'checked ' + c.value">Check card</button><p id=out>unpaid</p>""",
     "/cookie": """<!doctype html><title>Cookie</title><p id=out></p><script>
 if (!document.cookie.includes('milk=')) document.cookie = 'milk=fresh; path=/';
 out.textContent = document.cookie</script>""",
@@ -403,23 +403,23 @@ def test_a_frame_of_another_site_is_read_and_used_like_the_page(web, site):
     ctx = context(web)
     page = kit.browser_open.func(ctx, site + "/shop")
     assert 'frame "Payment" (another site: localhost' in page and "not readable" not in page
-    assert re.search(r'^  textbox e\d+ "Card"', page, re.M) and re.search(r'button e\d+ "Pay now"', page)
+    assert re.search(r'^  textbox e\d+ "Card"', page, re.M) and re.search(r'button e\d+ "Check card"', page)
     result = kit.browser_act.func(ctx, [{"action": "fill", "target": ids(page, '"Card"'), "text": "4242"},
-                                        {"action": "click", "target": ids(page, '"Pay now"')}])
-    assert "paid with 4242" in result
-    found = kit.browser_view.func(ctx, find="Pay now").text
-    assert 'frame "Payment"' in found and '"Pay now"' in found
-    assert "paid with 4242" in kit.browser_read.func(ctx)
-    assert '"paid with 4242" shows' in kit.browser_act.func(ctx, [{"action": "wait", "text": "paid with 4242"}])
+                                        {"action": "click", "target": ids(page, '"Check card"')}])
+    assert "checked 4242" in result
+    found = kit.browser_view.func(ctx, find="Check card").text
+    assert 'frame "Payment"' in found and '"Check card"' in found
+    assert "checked 4242" in kit.browser_read.func(ctx)
+    assert '"checked 4242" shows' in kit.browser_act.func(ctx, [{"action": "wait", "text": "checked 4242"}])
     browser_ = web.brain.browser
     tab = browser_.owners["cli/main"]["tabs"]["t1"]
     kit.browser_view.func(ctx, picture=True)
     with tab.lock:
-        place = browser_._point(tab, ids(page, '"Pay now"'), hit_test=False)  # in the window, the frame in view
+        place = browser_._point(tab, ids(page, '"Check card"'), hit_test=False)  # in the window, the frame in view
     kit.browser_view.func(ctx, picture=True)
     x, y = round(place["x"] / tab.picture), round(place["y"] / tab.picture)
     pointed = kit.browser_act.func(ctx, [{"action": "click", "target": f"{x},{y}"}])
-    assert 'at button e' in pointed and '"Pay now"' in pointed  # what is there, from the frame's own world
+    assert 'at button e' in pointed and '"Check card"' in pointed  # what is there, from the frame's own world
 
 
 def test_the_console_and_the_network_are_read(web, site):

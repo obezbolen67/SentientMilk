@@ -19,6 +19,9 @@ STEP = {
                                                   "scroll: down, up, top or bottom; wait: words to wait for; "
                                                   "open: the address; dialog: a prompt's answer; save: a file name "
                                                   "in the working folder (.pdf, .png, .jpg, .html, .mhtml)."},
+        "secret": {"type": "string", "description": "fill, in place of text: the name of a value the user typed for "
+                                                    "this field in browser_secrets. It goes into the field unseen; "
+                                                    "each value types once."},
         "to": {"type": "string", "description": "drag: where it ends (an id or \"x,y\")."},
         "files": {"type": "array", "items": {"type": "string"}, "description": "upload: the files' paths."},
         "amount": {"type": "number", "description": "scroll: screens (1 if not given); wait: seconds at most."},
@@ -42,7 +45,10 @@ GUIDE = ("Your browser is a Chrome of your own on the user's connection: the sit
          "Chrome (where they are signed in), browser_open in_user_chrome=true opens a tab of yours there, and every "
          "tool works in it the same; their own tabs are never yours. Sign-ins (unless the user gave you what to "
          "type), checks that you are a human (never try to pass them yourself) and payments are the user's: the "
-         "step show puts your browser in front of them for it.")
+         "step show puts your browser in front of them for it. What you must not see (a card number, a password, a "
+         "code) the user types in a panel: browser_secrets, then fill steps with secret. Before they pay for an "
+         "order you put together, browser_review shows it to them as the page says it, for their yes; you never "
+         "press pay (your browser refuses).")
 
 
 def _seen(brain, run, arguments):
@@ -68,10 +74,13 @@ def browser_open(ctx: ToolContext, url: str = "", new_tab: bool = False, headles
     "find": "Only the lines with these words (and what they are in): to find a field or a button on a long page.",
     "part": "An id (e12) of a part of the page, to see all of it: a long list or table shows only its start.",
     "picture": "Add a picture of the tab's window: for what text does not show (a canvas, a map, a layout), and "
-               "for pointing at things without ids."})
-def browser_view(ctx: ToolContext, tab: str = "", find: str = "", part: str = "", picture: bool = False):
+               "for pointing at things without ids.",
+    "texts": "true: every piece of text gets an id too (8,39 zł ⟨e44⟩): to point at names, prices and an address "
+             "in browser_review."})
+def browser_view(ctx: ToolContext, tab: str = "", find: str = "", part: str = "", picture: bool = False,
+                 texts: bool = False):
     """See a tab as it is now: its text, with an id on each thing you can use."""
-    result = ctx.brain.browser.view(ctx, tab, find, part, picture)
+    result = ctx.brain.browser.view(ctx, tab, find, part, picture, texts)
     return ToolResult(cap(ctx, result.text, "page"), result.images)
 
 
@@ -116,6 +125,67 @@ def browser_log(ctx: ToolContext, kind: str = "console", tab: str = "", find: st
     return cap(ctx, ctx.brain.browser.log(ctx, kind, tab, find), "page")
 
 
+FIELD = {"type": "object", "properties": {
+    "name": {"type": "string", "description": "What it is, in letters, digits and _ (card_number, password): the "
+                                              "name a fill step types it by."},
+    "target": {"type": "string", "description": "The field's id in the latest view (e14): where it goes, and nowhere "
+                                                "else."},
+    "purpose": {"type": "string", "description": "What it is for, in a few words the user reads beside it (\"your "
+                                                 "card number, to pay for the order\")."}},
+    "required": ["name", "target", "purpose"]}
+
+
+@tool(policy="auto", rule_arg="site", seen=_seen, args={
+    "fields": {"type": "array", "items": FIELD, "description": "The fields the user types into, one each."},
+    "tab": TAB})
+def browser_secrets(ctx: ToolContext, fields: list, tab: str = ""):
+    """Ask the user to type what you must never see (a card number, a password, a one-time code) in a panel in their
+    chat: it shows them the site and the field each goes into, and waits until they typed it or closed the panel.
+    What they type stays out of your sight: a fill step with secret types it into its field."""
+    return ctx.brain.browser.ask_secrets(ctx, fields, tab)
+
+
+PART = ("Its id in the latest view (e44; browser_view texts=true gives each piece of text one): the brain reads it "
+        "from the page, so the user sees what the page says.")
+LINE = {"type": "object", "properties": {
+    "name": {"type": "string", "description": "The item's name. " + PART},
+    "size": {"type": "string", "description": "Its size or weight, if the page shows one. " + PART},
+    "quantity": {"type": "string", "description": "How many. " + PART},
+    "price": {"type": "string", "description": "Its price for one. " + PART},
+    "total": {"type": "string", "description": "The line's total. " + PART},
+    "why": {"type": "string", "description": "In one line, why this one, when you chose between options (a variant, "
+                                             "a size, a pack, how many; cheapest per kg or per pack): the user checks "
+                                             "the rule you used."}},
+    "required": ["name", "total"]}
+CHARGE = {"type": "object", "properties": {
+    "label": {"type": "string", "description": "What it is, in your word: Delivery, Packing, Service."},
+    "amount": {"type": "string", "description": "What it costs. " + PART}}, "required": ["label", "amount"]}
+
+
+@tool(policy="auto", rule_arg="site", seen=_seen, args={
+    "lines": {"type": "array", "items": LINE, "description": "Each item of the order, as the page lists it."},
+    "charges": {"type": "array", "items": CHARGE, "description": "Every charge besides the items: delivery, "
+                                                                 "packing, service fees."},
+    "total": "What the order costs in all. " + PART,
+    "shortfall": "What is missing to a minimum order or to free delivery (\"12,00 zł to free delivery\"), if the "
+                 "page says it. " + PART,
+    "slot": "The delivery or pick-up time. " + PART,
+    "address": "Where it goes. " + PART,
+    "unverified": "What you could not check, in plain words (a substitution policy, a price that only shows at "
+                  "payment): the user reads it last.",
+    "tab": TAB})
+def browser_review(ctx: ToolContext, lines: list, total: str, charges: Optional[list] = None, shortfall: str = "",
+                   slot: str = "", address: str = "", unverified: str = "", tab: str = ""):
+    """Before the user pays for an order you put together (a basket, a booking, a form you filled), show it to
+    them in a panel in their chat as the page says it: you point at the page's parts, the brain reads each from the
+    page with a picture of it, and your why beside each choice. Waits for their yes or no; a yes is for exactly
+    what they saw (an order that changes asks again). They pay themselves: there is no paying for you."""
+    order = {"lines": lines, "charges": charges or [], "total": total, "shortfall": shortfall, "slot": slot,
+             "address": address, "unverified": unverified}
+    return ctx.brain.browser.review(ctx, order, tab)
+
+
 TOOLKIT = Toolkit("browser", "Your own web browser (Chrome): open sites, read them, click, type, fill in forms, sign "
                              "in once and stay signed in; out of the user's sight, or on their screen to watch.",
-                  [browser_open, browser_view, browser_act, browser_read, browser_script, browser_log])
+                  [browser_open, browser_view, browser_act, browser_read, browser_script, browser_log, browser_secrets,
+                   browser_review])

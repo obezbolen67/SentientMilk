@@ -401,7 +401,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `files` | `files_read(path, offset, limit)`, `files_search(pattern, path, glob)`, `files_find(glob)`, `files_edit(path, old, new, all)`, `files_write(path, content)` | Read gives numbered lines in windows: 500 lines by default, whole lines, with a footer "lines 1-500 of 1,834". Images come back as images. Search uses ripgrep if it is installed, otherwise Python, and returns `path:line: text` for every match; only the user's stop ends a search. A result over 30,000 characters goes to a file with both ends shown. Edit is an exact, unique string replace. It fails if the file was not read in this session or changed on disk since. Paths are confined to the app's roots; what the user attached in the session (`mentions.attachment`) can be read wherever it is. |
 | `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits as long as asked for a job to end when the model needs the result, and says when a job has written nothing for 10 s or more, so the model can tell a slow job from a stuck one. MCP calls go the same way (section 8.3). |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
-| `browser` | `browser_open(url, new_tab, headless)`, `browser_view(tab, find, part, picture)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)` | Her own Chrome, out of sight or on the user's screen: section 6.7. |
+| `browser` | `browser_open(url, new_tab, headless)`, `browser_view(tab, find, part, picture, texts)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`, `browser_secrets(fields, tab)`, `browser_review(lines, total, charges, shortfall, slot, address, unverified, tab)` | Her own Chrome, out of sight or on the user's screen: section 6.7. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save(key, value, category, scope)`, `memory_forget(key, category, scope)`; scope `everywhere` or, in turns, `session` | Every app has it (section 10). |
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
@@ -713,6 +713,43 @@ screen if it is not there and brings the tab in front: they sign in, pass the ch
 pay, and she goes on there with what they did. The panel's Show on my screen does the same
 from the user's side (with a window of their own when she has no page), Hide takes it back,
 and Forget sign-ins deletes the profile.
+
+**Artifacts: what only the user types, and orders they check** (`artifacts.py`). Panels a
+turn puts in the user's app, above the box they type in; the lead's only, and they close
+when her turn ends (a stop or a message from the user closes them too).
+
+- `browser_secrets(fields)`: she names each field (`card_number`, the id it goes into, what
+  it is for). The brain reads where each goes (the field's label, the site, a frame of
+  another site) and binds it: tab, document, origin, frame and the field's signature (tag,
+  type, name, id, autocomplete). The user types the values in the panel; they reach the
+  brain over its API and live in memory only, as bytes zeroed when typed, refused, taken
+  back or at the turn's end (the copies Python makes on the way are freed, not wiped). A fill step with `secret` checks the binding again and calls
+  the page's `fillSecret` with the value as an argument (`Runtime.callFunctionOn`, never in
+  code sent, so in no error): it focuses that field, checks it has the focus, inserts the
+  text as typing does, marks it (`-webkit-text-security: disc`) and the views show it as
+  `(filled with the user's card_number)`. Anything else is refused with `not typed: page
+  changed`, and nothing is typed. Her reply is only `filled e14 (secret card_number)`.
+  While the page holds one, no picture, script or saved copy is made of it; every reply of
+  the tab (view, read, act, log) is searched for each value at least 6 letters long by a
+  keyed hash of windows of its letters and digits (the value itself is not kept), and what
+  matches becomes `[the user's card_number]`. The sockets that carry values (the browser's,
+  the extension's) log at INFO at most, never their frames.
+- `browser_review(lines, charges, total, shortfall, slot, address, unverified)`: every part
+  is an id (`browser_view texts=true` gives each piece of text one). The brain reads each
+  from the page (`__milk.parts`: its words, where it is, a CSS path to find it again after a
+  reload), takes a picture of the whole page, and shows the order with her reasons. Its
+  fingerprint is a hash of every part's words. Refresh and approve read the page again:
+  a fingerprint that changed makes the panel `changed`, with what changed (`line 1 price:
+  8,39 zł → 9,49 zł`, a part gone from the page), and a yes counts only with the
+  fingerprint of what the panel shows now. Nothing in it pays.
+- Her browser refuses to press what pays, whoever asks: a click or a point on a control
+  whose words pay (`PAYS`: pay now, place order, buy now, zapłać, złóż zamówienie, kaufen,
+  payer...), Enter or Space on one, Enter in a field whose form's button pays, and a dialog
+  whose message does. Paying is the user's, in front of them (`show`).
+
+Apps hear `artifact.requested`, `artifact.updated` and `artifact.closed` on the turn's
+stream, list a session's open panels with `GET /v1/artifacts` and answer with `POST
+/v1/artifacts/<id>`; a value is never in an event, a view, a result or an error.
 
 ## 7. Context management
 
@@ -1289,6 +1326,7 @@ bearer token.
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
 | `GET/POST /v1/apps/<app>/sessions/<id>/rewind` | preview or go back to before a user message (section 5.6) |
 | `GET /v1/skills`, `DELETE /v1/skills/<name>` | skills (section 6.6), removing one of the user's |
+| `GET /v1/artifacts?app=&session=`, `POST /v1/artifacts/<id>` | a session's open panels (section 6.7); the user's answer: `fill` (`values`) or `cancel`, `approve` (`fingerprint`), `reject` (`reason`), `refresh`, `show` (`part`) |
 
 ## 14. Build plan
 

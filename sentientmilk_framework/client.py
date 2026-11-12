@@ -340,6 +340,15 @@ class BrainClient:
         return self._call("POST", "/tasks", {"app": app, "goal": goal, **({"session": session} if session else {}),
                                              **options})
 
+    def artifacts(self, app: str, session: str) -> List[dict]:
+        """The panels open in a session (artifacts.py): ``kind`` secrets or review, ``state`` and what to show."""
+        return self._call("GET", "/artifacts", params={"app": app, "session": session})["artifacts"]
+
+    def artifact(self, artifact: str, action: str, **answer: Any) -> dict:
+        """Answer a panel: fill (``values``: name -> what the user typed) or cancel; approve (``fingerprint``),
+        reject (``reason``), refresh or show (``part``). The panel as it is after."""
+        return self._call("POST", f"/artifacts/{artifact}", {"action": action, **answer})
+
     def tasks(self, app: Optional[str] = None, status: Optional[str] = None, kind: str = "task") -> List[dict]:
         """Background runs, the newest first: tasks, or with ``kind`` "agent" the runs of agents."""
         params = {key: value for key, value in (("app", app), ("status", status), ("kind", kind)) if value}
