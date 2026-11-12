@@ -576,8 +576,27 @@ an extension (below), never by default: `browser_open in_user_chrome=true`.
 key in its manifest) that the user adds once with Load unpacked. It connects to the brain
 over a WebSocket on 127.0.0.1 (`extension.py`, port `browser_extension_port`, 48217) with
 the code the panel shows (the port and a token of its own in `browser/extension.json`),
-from its own origin only, and keeps itself awake with a ping every 20 s; it reconnects
-every half minute, and two seconds after a connection it had is lost. The connection is
+from its own origin only, and keeps itself awake with a ping every 20 s.
+
+Connecting: the brain speaks first (`PROTOCOL`, its version, a nonce), and the extension
+answers with an HMAC of the nonce keyed with the token, so a program that took the port
+never learns the code; a port another program holds is tried again every 10 s (the panel
+says so). One browser at a time: another one with the extension is refused (4003, with the
+name of the one connected) unless the user chose it there (its Connect, or the panel's,
+whose page says `take`), which takes over (the old one hears 4004 and who took it). The
+same extension connecting again replaces its old connection, which may be dead without
+having said so; the brain's pings find those too. A wrong code (4001) is not tried again
+until it changes; a mismatched protocol (4002) stops with what to update, and an extension
+older than SentientMilk reloads itself once from its folder (SentientMilk's update brought
+the newer files), so no reload loops on files that are still older. Anything else is tried
+again after 1, 2, 4, 8 and 15 s, then every half minute. The extension's Disconnect (4100)
+stops all of it until the user connects again, and she is told the user did it, not that
+the connection was lost. The panel's Connect opens the extension's page with the code; a
+Chrome that was not running blocks that page while the extension loads, so the extension
+reads the code from the blocked tab and reloads it; the brain waits up to 15 s for that
+Chrome to connect (or, already connected, to say its page opened) and says how it went.
+Her tabs there are in a purple "SentientMilk" tab group, and the toolbar button shows her
+tabs there, or `!` when something needs the user. The connection is
 then a DevTools protocol connection like her own browser's (`Wire` over the server's
 socket): a page's commands (and its frames' of other sites, by their session ids) go to
 `chrome.debugger` as they are, and what a browser does it answers with the extension APIs

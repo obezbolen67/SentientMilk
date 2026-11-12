@@ -438,8 +438,9 @@ class BrainClient:
         """Her browser: ``command`` (the Chrome or Edge it uses; empty: none found), ``version``, ``mode`` (off,
         hidden: running out of the user's sight, shown: on their screen), ``shown`` (where it opens next),
         ``profile`` (its folder), ``has_profile``, ``tabs`` (all conversations'), ``chrome`` (the user's own
-        Chrome through the extension: ``connected``, ``browser``, ``code`` to give the extension, ``folder`` to
-        add it from, ``error``, ``tabs`` of hers there)."""
+        Chrome through the extension: ``connected``, ``browser`` ("Chrome 157"), ``extension`` (its version),
+        ``disconnected`` (the user pressed Disconnect in it), ``code`` to give the extension, ``folder`` to add it
+        from, ``error`` (its port is taken), ``tabs`` of hers there)."""
         return self._call("GET", "/browser")
 
     def open_browser(self, headless: bool = False) -> dict:
@@ -449,7 +450,8 @@ class BrainClient:
 
     def connect_chrome(self) -> dict:
         """Open SentientMilk's extension in the user's Chrome with the code, so it connects (it must be added to
-        Chrome first: ``chrome.folder`` of browser(), with Load unpacked)."""
+        Chrome first: ``chrome.folder`` of browser(), with Load unpacked). browser() once that Chrome connected,
+        or 15 s went by; ``chrome.took``: whether it did."""
         return self._call("POST", "/browser/connect", timeout=30)
 
     def clear_browser(self) -> dict:

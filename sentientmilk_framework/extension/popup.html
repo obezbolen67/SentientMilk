@@ -1,21 +1,86 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SentientMilk</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 13px system-ui, sans-serif; width: 320px; margin: 14px; }
-  h1 { font-size: 15px; margin: 0 0 6px; }
-  p { margin: 0 0 10px; opacity: .8; }
-  #state { margin: 0 0 12px; padding: 6px 8px; border-radius: 6px; background: #8882; }
-  label { display: block; margin-bottom: 6px; }
-  input { box-sizing: border-box; width: 100%; padding: 5px; margin-top: 4px; font: 12px monospace; }
-  button { margin-top: 8px; padding: 5px 12px; }
+  /* the control panel's own colours (panel.py THEME), and its cards: a rounded edge with the title in it */
+  :root {
+    color-scheme: dark;
+    --ink: #0d0f15; --surface: #141720; --panel: #1b1f2c; --edge: rgb(179 164 255 / .4); --field: #2c3142;
+    --lavender: #b3a4ff; --text: #e9e6f2; --muted: #8b8fa3; --peach: #ffd59e;
+    --ok: #7bd88f; --warn: #f2c35b; --bad: #ff6b7a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--ink); color: var(--text);
+               font: 12px/1.5 "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", ui-monospace, monospace; }
+  body { width: 348px; }
+  p { margin: 0; }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--panel); }
+  header img { width: 32px; height: 32px; }
+  header b { color: var(--lavender); font-size: 13px; }
+  header span { color: var(--muted); }
+  main { padding: 14px 14px 2px; }
+
+  fieldset { min-width: 0; margin: 0 0 12px; padding: 2px 12px 12px; border: 1px solid var(--edge);
+             border-radius: 10px; background: var(--surface); }
+  legend { padding: 0 6px; color: var(--lavender); font-weight: 700; }
+  .line { margin-top: 4px; font-weight: 700; }
+  .more { margin-top: 2px; color: var(--muted); }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .muted { color: var(--muted); }
+
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer;
+           background: rgb(179 164 255 / .14); color: var(--lavender); }
+  button:hover { background: var(--lavender); color: var(--ink); }
+  button.bad { background: rgb(255 107 122 / .14); color: var(--bad); }
+  button.bad:hover { background: var(--bad); color: var(--ink); }
+  #act { margin-top: 10px; }
+  form { display: flex; gap: 8px; margin-top: 6px; }
+  input { flex: 1; min-width: 0; padding: 5px 8px; font: inherit; color: var(--text); background: var(--ink);
+          border: 1px solid var(--field); border-radius: 6px; }
+  input:focus { border-color: var(--lavender); outline: none; box-shadow: 0 0 0 2px rgb(179 164 255 / .25); }
+  button:focus-visible { outline: 2px solid var(--peach); outline-offset: 2px; }
+  #hint { margin-top: 6px; }
+  footer { padding: 0 14px 12px; color: var(--muted); }
+  @media (prefers-reduced-motion: no-preference) { button { transition: background .12s, color .12s; } }
+
+  /* the same page in a tab: right after Load unpacked, and SentientMilk's Connect */
+  body.page { width: auto; min-height: 100vh; padding: 12vh 16px 32px; }
+  body.page .sheet { max-width: 420px; margin: 0 auto; border: 1px solid var(--edge); border-radius: 12px;
+                     overflow: hidden; }
+  body.page header { padding: 14px 18px; }
+  body.page header img { width: 44px; height: 44px; }
+  body.page header b { font-size: 15px; }
+  body.page main { padding: 18px 18px 4px; }
+  body.page footer { padding: 0 18px 16px; }
 </style>
-<h1>SentientMilk</h1>
-<p>Lets her use this Chrome, with your sign-ins, in tabs of her own, when you ask her to. Cancel on Chrome's
-  "started debugging" bar stops her at once.</p>
-<div id="state">…</div>
-<label>Connection code (SentientMilk: Tools &gt; Her browser &gt; Your Chrome)
-  <input id="code" autocomplete="off" spellcheck="false"></label>
-<button id="save">Connect</button>
+<body>
+<div class="sheet">
+  <header>
+    <img src="icons/on-128.png" alt="">
+    <b>SentientMilk</b>
+    <span id="version"></span>
+  </header>
+  <main>
+    <fieldset>
+      <legend id="legend">This Chrome</legend>
+      <p id="line" class="line muted" role="status" aria-live="polite">Starting…</p>
+      <p id="more" class="more"></p>
+      <button id="act" type="button" hidden></button>
+    </fieldset>
+    <fieldset id="code-card" hidden>
+      <legend>Connection code</legend>
+      <form id="form">
+        <input id="code" aria-label="Connection code" placeholder="48217-…" autocomplete="off" spellcheck="false">
+        <button type="submit">Connect</button>
+      </form>
+      <p id="hint" class="bad" hidden></p>
+    </fieldset>
+  </main>
+  <footer>Cancel on Chrome's “started debugging” bar stops her at once.</footer>
+</div>
 <script src="popup.js"></script>
+</body>
+</html>

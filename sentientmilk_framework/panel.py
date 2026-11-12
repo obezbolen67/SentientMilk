@@ -7,7 +7,6 @@ are changed here, through the brain's own API, and every app uses them from its 
 from __future__ import annotations
 
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -548,9 +547,10 @@ class Panel(App):
                     yield FlatButton("Hide", id="browser-hide")
                     yield FlatButton("Forget sign-ins", id="browser-clear", variant="error")
                 yield Static("Your Chrome: she can also use your own Chrome, signed in as you are, in tabs of her "
-                             "own there, when you ask her to. Add the extension once (chrome://extensions > "
-                             "Developer mode > Load unpacked > the folder below), then press Connect (or paste the "
-                             "code into the extension). Cancel on Chrome's bar stops her there.", classes="hint")
+                             "own there (a purple SentientMilk group), when you ask her to. Add the extension once "
+                             "(chrome://extensions > Developer mode > Load unpacked > the folder below), then press "
+                             "Connect (or paste the code into the extension). Cancel on Chrome's bar stops her there, "
+                             "and the extension's Disconnect until you connect again.", classes="hint")
                 with Grid(classes="form"):
                     yield Label("Extension folder")
                     yield Input(id="t-chrome-folder")
@@ -679,6 +679,26 @@ class Panel(App):
         client.home = None  # a brain the user stops here is not started again behind their back
         self.client, self.state = client, "running"
         self.call_from_thread(self.load_all)
+
+    @work(thread=True, exclusive=True, group="chrome")
+    def connect_chrome(self) -> None:
+        """Connect my Chrome: the brain waits up to 15 s for that Chrome to connect, so off the panel's thread."""
+        client = self.api()
+        if client is None:
+            return self.call_from_thread(self.notify, "The brain is not running. Press s to start it.",
+                                         severity="warning")
+        try:
+            status = client.connect_chrome()
+        except BrainError as exc:
+            return self.call_from_thread(self.notify, exc.message, severity="error", timeout=10)
+        self.call_from_thread(self.load_browser, status)
+        chrome = status["chrome"]
+        if chrome["took"]:
+            self.call_from_thread(self.notify, f"Connected: she can use {chrome['browser']} when you ask her to.")
+        else:
+            self.call_from_thread(self.notify, "Your Chrome opened the extension's page but did not connect. Add "
+                                  "the extension to the Chrome profile you use (Load unpacked, the folder above), "
+                                  "then press Connect again.", severity="warning", timeout=12)
 
     def load_all(self) -> None:
         if not self.is_running:
@@ -1033,9 +1053,10 @@ class Panel(App):
         if chrome["error"]:
             words = f"[{WARN}]{escape(chrome['error'])}[/]"
         elif chrome["connected"]:
-            agent = re.search(r"(Edg|Chrome)/(\d+)", chrome["browser"])
-            name = f"{'Edge' if agent.group(1) == 'Edg' else 'Chrome'} {agent.group(2)}" if agent else "your browser"
-            words = f"[{OK}]connected ({name})[/] · {chrome['tabs']} tab{'s' if chrome['tabs'] != 1 else ''} of hers"
+            words = (f"[{OK}]connected ({escape(chrome['browser'])}, extension {escape(chrome['extension'])})[/] · "
+                     f"{chrome['tabs']} tab{'s' if chrome['tabs'] != 1 else ''} of hers")
+        elif chrome["disconnected"]:
+            words = f"[{MUTED}]you disconnected it in Chrome: Connect there, or here, brings her back[/]"
         else:
             words = "not connected"
         self.main.query_one("#t-chrome-status", Static).update("Your Chrome: " + words)
@@ -1348,9 +1369,8 @@ class Panel(App):
             self.load_browser(self.call(lambda c: c.open_browser(),
                                         done="Her browser is on your screen: sign in there, or watch her use it."))
         elif button == "chrome-connect":
-            self.load_browser(self.call(lambda c: c.connect_chrome(),
-                                        done="The extension opened in your Chrome with the code: it connects now "
-                                             "(add it first if Chrome says the page is blocked or missing)."))
+            self.notify("Opening SentientMilk's extension in your Chrome…")
+            self.connect_chrome()
         elif button == "browser-hide":
             self.load_browser(self.call(lambda c: c.open_browser(headless=True), done="Her browser is out of sight."))
         elif button == "browser-clear":

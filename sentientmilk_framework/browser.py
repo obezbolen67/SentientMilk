@@ -75,6 +75,8 @@ MOVED = ("Your browser moved {where} (it started again there): your pages opened
          "was typed and not sent is gone.")
 NOT_LINKED = ("The user's Chrome is not connected: it needs SentientMilk's extension, connected with the code in "
               "SentientMilk (Tools > Her browser > Your Chrome). Tell the user, or use your own browser.")
+UNPLUGGED = ("The user disconnected their Chrome from you (Disconnect in SentientMilk's extension): your tabs there "
+             "stay open, but you cannot use it until they connect it again. Ask them, or use your own browser.")
 LINK_LOST = ("The user's Chrome let go of you (it closed, or SentientMilk restarted): your tabs there are taken up "
              "again, or opened again at their addresses, at your next call once it is connected.")
 CANCELED = ("The user pressed Cancel on their Chrome's bar, which stopped you there: this tab stays open, and your next "
@@ -417,16 +419,13 @@ class Browser:
         return find_browser(self.brain.config.values()["browser_command"])
 
     def status(self) -> dict:
-        from .extension import FOLDER
-
         command = self.command() or ""
         with self._lock:
             self._check()
             return {"command": command, "version": version_of(command) if command else "", "mode": self.mode,
                     "shown": self._shown_wanted(), "profile": str(self.profile), "has_profile": self.profile.exists(),
                     "tabs": sum(len(owner["tabs"]) for owner in self.owners.values()),
-                    "chrome": {"connected": self.link is not None, "browser": self.bridge.agent if self.link else "",
-                               "code": self.bridge.code(), "folder": str(FOLDER), "error": self.bridge.error,
+                    "chrome": {**self.bridge.status(), "connected": self.link is not None,
                                "tabs": sum(t.user for owner in self.owners.values() for t in owner["tabs"].values())}}
 
     def _shown_wanted(self) -> bool:
@@ -496,15 +495,16 @@ class Browser:
             del self._downloads[guid]
 
     def linked(self, wire: Wire) -> None:
-        """The user's Chrome connected through the extension (a newer connection takes over)."""
+        """The user's Chrome connected through the extension (a newer connection takes over: the bridge closes
+        the old one)."""
         with self._lock:
             old, self.link = self.link, wire
             if old:
-                old.close()
                 self._let_go(user=True)
             self._threads_on()
 
-    def unlinked(self, wire: Wire) -> None:
+    def unlinked(self, wire: Wire, disconnected: bool = False) -> None:
+        """``disconnected``: the user pressed Disconnect in the extension, which she hears when she tries."""
         with self._lock:
             if self.link is not wire:
                 return
@@ -512,8 +512,11 @@ class Browser:
             self._let_go(user=True)
             for owner in self.owners.values():
                 for tab in owner["tabs"].values():
-                    if tab.user:
+                    if tab.user and not disconnected:
                         tab.news.append(LINK_LOST)
+
+    def _not_linked(self) -> ToolError:
+        return ToolError(UNPLUGGED if self.bridge.disconnected else NOT_LINKED)
 
     def _wire_of(self, tab: Tab) -> Optional[Wire]:
         return self.link if tab.user else self.wire
@@ -646,14 +649,24 @@ class Browser:
                 self.link.close()
         self.bridge.close()
 
-    def connect_chrome(self) -> dict:
-        """The panel's Connect: the extension's page in the user's Chrome, given the code (it must be there)."""
+    def connect_chrome(self, wait: float = 15.0) -> dict:
+        """The panel's Connect: the extension's page in the user's Chrome, given the code (it must be there; a
+        Chrome that was not running blocks it while the extension loads, and the extension picks it up). The
+        status once that Chrome connected, or ``wait`` s went by; ``chrome.took``: whether it did."""
+        if not self.bridge.code():
+            raise BrainError("no_bridge", f"The extension cannot connect: {self.bridge.error}", http_status=409)
         command = self.command()
-        if not command or not self.bridge.code():
-            raise BrainError("no_browser", self.bridge.error or "There is no Chrome or Edge on this computer",
-                             http_status=409)
+        if not command:
+            raise BrainError("no_browser", "There is no Chrome or Edge on this computer", http_status=409)
+        before, asked = self.link, time.monotonic()
         desktops.start([command, self.bridge.connect_url()], desktop=self.user_desktop)
-        return self.status()
+        # it connected, or the Chrome already connected says its page opened
+        took = lambda: self.link not in (None, before) or self.bridge.confirmed > asked  # noqa: E731
+        while not took() and time.monotonic() < asked + wait:
+            time.sleep(0.2)
+        status = self.status()
+        status["chrome"]["took"] = took()
+        return status
 
     def put(self, shown: bool) -> dict:
         """The panel's Show and Hide: her browser on the user's screen (to sign in to sites for her, or to watch
@@ -895,7 +908,7 @@ class Browser:
     def _attach(self, tab: Tab, target: str, resize: bool = True) -> None:
         wire = self._wire_of(tab)
         if wire is None:
-            raise ToolError(NOT_LINKED)
+            raise self._not_linked()
         session = wire.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
         tab.target, tab.session, tab.wire = target, session, wire
         self._by_target[target], self._by_session[session] = tab, tab
@@ -916,7 +929,7 @@ class Browser:
             return
         wire = self._wire_of(tab)
         if wire is None:
-            raise ToolError(NOT_LINKED)
+            raise self._not_linked()
         if tab.user and tab.target and not tab.session and not tab.crashed:  # still open there: taken up again
             target = tab.target
             tab._reset()
@@ -982,7 +995,7 @@ class Browser:
                 if tab.user and not self.link:
                     if made:
                         owner["tabs"].pop(tab.name, None)
-                    raise ToolError(NOT_LINKED)
+                    raise self._not_linked()
                 if tab.user:  # the user's Chrome: her own browser is not needed for it
                     moved = []
                     if shown is not None:

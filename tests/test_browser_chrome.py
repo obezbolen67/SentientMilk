@@ -1,7 +1,9 @@
 """Her tabs in the user's own Chrome, through SentientMilk's extension: a real Edge with the extension stands in for
 the user's Chrome (Chrome 137 and later no longer add an unpacked extension from the command line; Edge still
-does), on a hidden desktop, with a profile of the test's own."""
+does), on a hidden desktop, with a profile of the test's own. Its debugging port lets the tests use the
+extension's own page as the user would; fake extensions (a WebSocket with the extension's origin) try the rest."""
 
+import contextlib
 import json
 import re
 import shutil
@@ -12,14 +14,19 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import requests
 from test_browser import PAGES, Site, ids
+from websockets.exceptions import ConnectionClosed
+from websockets.sync.client import connect
 
-from sentientmilk_framework import BrainClient, browser, desktops
+from sentientmilk_framework import BrainClient, __version__, browser, desktops, extension
 from sentientmilk_framework.config import BrainConfig
 from sentientmilk_framework.extension import EXTENSION_ID, FOLDER
 from sentientmilk_framework.server import start
 from sentientmilk_framework.toolkits import ToolContext, ToolError
 from sentientmilk_framework.toolkits import browser as kit
+
+ORIGIN = f"chrome-extension://{EXTENSION_ID}"
 
 EDGE = browser.find_browser(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
 pytestmark = pytest.mark.skipif(not desktops.WINDOWS or not EDGE or not browser.find_browser(),
@@ -54,22 +61,62 @@ def chrome(tmp_path_factory):
     client = BrainClient(server.url, server.token)
     client.declare_app("cli", name="CLI", environment="A terminal.", toolkits=["browser", "files"])
     client.update_session("cli", "main", cwd=str(work), roots=[str(work)])
+    port = browser._free_port()
+    # as the panel's Connect does to a Chrome that was not running: its page, given the code, at its start (Chrome
+    # blocks that page while the extension loads; the extension picks it up)
     edge = desktops.start([EDGE, f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
-                           f"--load-extension={FOLDER}", "about:blank"], desktop="SentientMilkTestsChrome", tied=True)
-    until(lambda: desktops.windows_of(edge))  # up, so the page goes to it (with the extension), not a new one
-    time.sleep(2)
-    # then as the panel's Connect does, to a Chrome with the extension: its page, given the code (a page asked for
-    # while the extension is still loading is blocked, so again until it connects)
-    deadline = time.monotonic() + 60
-    while server.brain.browser.link is None:
-        assert time.monotonic() < deadline, "the extension never connected"
-        desktops.start([EDGE, f"--user-data-dir={profile}", server.brain.browser.bridge.connect_url()],
-                       desktop="SentientMilkTestsChrome")
-        time.sleep(3)
-    yield SimpleNamespace(server=server, brain=server.brain, client=client, work=work, edge=edge, downloads=downloads)
+                           f"--remote-debugging-port={port}", f"--load-extension={FOLDER}",
+                           server.brain.browser.bridge.connect_url()], desktop="SentientMilkTestsChrome", tied=True)
+    until(lambda: server.brain.browser.link is not None, 60)
+    yield SimpleNamespace(server=server, brain=server.brain, client=client, work=work, edge=edge, downloads=downloads,
+                          profile=profile, port=port)
     server.close()
     desktops.stop(edge, 5)
     shutil.rmtree(profile, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def extension_page(chrome, hash=""):
+    """The extension's page in a tab of the stand-in Edge: ``run(js)`` gives what the expression comes to."""
+    url = requests.get(f"http://127.0.0.1:{chrome.port}/json/version", timeout=5).json()["webSocketDebuggerUrl"]
+    wire = browser.Wire(url, lambda *_: None)
+    target = wire.call("Target.createTarget", {"url": f"{ORIGIN}/popup.html{hash}"})["targetId"]
+    session = wire.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
+
+    def run(expression):
+        return wire.call("Runtime.evaluate", {"expression": expression, "returnByValue": True, "awaitPromise": True},
+                         session)["result"].get("value")
+
+    try:
+        until(lambda: run("document.readyState") == "complete")
+        yield run
+    finally:
+        with contextlib.suppress(Exception):
+            wire.call("Target.closeTarget", {"targetId": target})
+        wire.close()
+
+
+def says(run):
+    return run("document.getElementById('line').textContent")
+
+
+def fake(chrome):
+    """A WebSocket as the extension's, from its origin."""
+    return connect(f"ws://127.0.0.1:{chrome.brain.browser.bridge.port}/extension", origin=ORIGIN)
+
+
+def hello(chrome, socket, token=None, **more):
+    greeting = json.loads(socket.recv(timeout=5))["sentientmilk"]
+    proof = extension.proof(token or chrome.brain.browser.bridge.token, greeting["nonce"])
+    socket.send(json.dumps({"hello": {"protocol": extension.PROTOCOL, "proof": proof, "instance": "fake",
+                                      "name": "Fake 1", "version": "9.9.9", **more}}))
+    return greeting
+
+
+def refused(socket):
+    with pytest.raises(ConnectionClosed):
+        socket.recv(timeout=5)
+    return socket.close_code, socket.close_reason
 
 
 def context(chrome, session="main", kind="turn"):
@@ -81,13 +128,26 @@ def context(chrome, session="main", kind="turn"):
 
 def test_the_panel_s_code_connects_the_extension_and_says_so(chrome, monkeypatch):
     status = chrome.client.browser()["chrome"]
-    assert status["connected"] and "Edg/" in status["browser"] and status["folder"] == str(FOLDER)
-    assert re.fullmatch(r"\d+-\S+", status["code"]) and not status["error"]
+    assert status["connected"] and re.fullmatch(r"Edge \d+", status["browser"]) and status["extension"] == __version__
+    assert status["folder"] == str(FOLDER) and re.fullmatch(r"\d+-\S+", status["code"]) and not status["error"]
     assert chrome.brain.browser.mode == "off"  # her own browser was never needed
-    started = []
-    monkeypatch.setattr(desktops, "start", lambda args, desktop=None, tied=False: started.append((args, desktop)))
-    chrome.client.connect_chrome()  # Connect: the user's Chrome (theirs, on their screen) at the extension's page
+    with extension_page(chrome) as run:  # the popup's page says so too, in its colours
+        until(lambda: says(run) == f"✓ Connected to SentientMilk {__version__}")
+        assert run("document.getElementById('legend').textContent") == "This Edge"
+        assert run("document.getElementById('code-card').hidden") is True
+    started, real = [], desktops.start
+
+    def hand_over(args, desktop=None, tied=False):  # the user's Chrome (theirs, on their screen): here, the stand-in
+        started.append((args, desktop))
+        return real([EDGE, f"--user-data-dir={chrome.profile}", args[1]], desktop="SentientMilkTestsChrome")
+
+    monkeypatch.setattr(desktops, "start", hand_over)
+    link = chrome.brain.browser.link
+    status = chrome.client.connect_chrome()  # Connect, while it is connected already: it says the page opened
     assert started == [([browser.find_browser(), chrome.brain.browser.bridge.connect_url()], "SentientMilkTestsUser")]
+    assert status["chrome"]["took"] and chrome.brain.browser.link is link  # nothing let go of
+    until(lambda: not [t for t in requests.get(f"http://127.0.0.1:{chrome.port}/json/list", timeout=5).json()
+                       if "popup.html#code" in t["url"]])  # and the page closed itself
 
 
 def test_a_tab_in_the_user_s_chrome_is_used_like_her_own(chrome, site):
@@ -124,6 +184,10 @@ def test_popups_and_downloads_there_are_hers(chrome, site):
     until(lambda: saved.exists(), 15)
     assert saved.read_text() == "milk is good" and not list(chrome.downloads.iterdir())  # moved, not copied
     assert "download" in result.lower() or "Downloaded" in kit.browser_view.func(ctx).text
+    with extension_page(chrome) as run:  # her tabs wear SentientMilk's colour; the toolbar button counts them
+        assert set(run("chrome.tabGroups.query({title: 'SentientMilk'}).then(gs => gs.map(g => g.color))")) == {"purple"}
+        grouped = run("chrome.tabs.query({}).then(ts => ts.filter(t => t.groupId !== -1).length)")
+        assert grouped >= 2 and run("chrome.action.getBadgeText({})") == str(grouped)  # the popup t2 joined it too
 
 
 def test_her_browser_and_the_user_s_chrome_side_by_side(chrome, site):
@@ -163,18 +227,61 @@ def test_without_the_extension_she_is_told_what_the_user_does(chrome, site, monk
 
 
 def test_only_the_extension_with_the_code_connects(chrome):
-    from websockets.exceptions import ConnectionClosed
-    from websockets.sync.client import connect
-
     url = f"ws://127.0.0.1:{chrome.brain.browser.bridge.port}/extension"
-    for origin, token, words in [("http://example.com", chrome.brain.browser.bridge.token, "only SentientMilk"),
-                                 (f"chrome-extension://{EXTENSION_ID}", "nope", "wrong code")]:
-        with connect(url, origin=origin) as socket:
-            with pytest.raises(ConnectionClosed):  # refused at once, or once it says hello
-                socket.send(json.dumps({"hello": {"token": token}}))
-                socket.recv(timeout=5)
-            assert words in (socket.close_reason or "")
+    with connect(url, origin="http://example.com") as socket:  # a web page
+        assert refused(socket) == (1008, "only SentientMilk's extension connects here")
+    with fake(chrome) as socket:  # 0.13's extension said hello with the code itself, and shows the reason
+        assert json.loads(socket.recv(timeout=5))["sentientmilk"]["version"] == __version__
+        socket.send(json.dumps({"hello": {"token": chrome.brain.browser.bridge.token}}))
+        code, reason = refused(socket)
+        assert code == extension.OUTDATED and reason.startswith(f"This extension is older than SentientMilk {__version__}")
+    with fake(chrome) as socket:  # the code is never sent: what proves it is keyed with this nonce
+        hello(chrome, socket, token="nope")
+        assert refused(socket)[0] == extension.WRONG_CODE
+    with fake(chrome) as socket:  # the right code, from another browser: SentientMilk has one, which it names
+        hello(chrome, socket)
+        code, reason = refused(socket)
+        assert code == extension.BUSY and re.fullmatch(r"Edge \d+", reason)
     assert chrome.brain.browser.link is not None  # the extension's own connection stays
+
+
+def test_another_browser_takes_over_only_when_the_user_says_and_gives_back(chrome):
+    bridge, edge_link = chrome.brain.browser.bridge, chrome.brain.browser.link
+    with extension_page(chrome) as run, fake(chrome) as first:
+        hello(chrome, first, take=True)  # the user pressed Connect in that browser
+        assert json.loads(first.recv(timeout=5)) == {"welcome": {"version": __version__}}
+        until(lambda: edge_link.closed.is_set())
+        assert chrome.client.browser()["chrome"]["browser"] == "Fake 1"
+        until(lambda: says(run) == "SentientMilk moved to Fake 1")  # the extension in Edge says where it went
+        assert run("document.getElementById('act').textContent") == "Use this Edge instead"
+        with fake(chrome) as second:  # the same browser again, its old connection perhaps dead: no take needed
+            hello(chrome, second)
+            assert "welcome" in json.loads(second.recv(timeout=5))
+            assert refused(first) == (extension.REPLACED, "Fake 1")
+            run("document.getElementById('act').click()")  # Use this Edge instead
+            until(lambda: bridge.current and bridge.current["name"].startswith("Edge "))
+            assert refused(second)[0] == extension.REPLACED
+        until(lambda: says(run) == f"✓ Connected to SentientMilk {__version__}")
+
+
+def test_disconnect_in_the_extension_stops_her_until_the_user_connects(chrome, site):
+    ctx = context(chrome, "unplugged")
+    kit.browser_open.func(ctx, site + "/terms", in_user_chrome=True)
+    with extension_page(chrome) as run:
+        until(lambda: run("document.getElementById('act').textContent") == "Disconnect")
+        run("document.getElementById('act').click()")
+        until(lambda: chrome.brain.browser.link is None)
+        until(lambda: says(run) == "Disconnected")
+        status = chrome.client.browser()["chrome"]
+        assert status["disconnected"] and not status["connected"]
+        with pytest.raises(ToolError, match="disconnected their Chrome"):
+            kit.browser_view.func(ctx)
+        time.sleep(1.5)  # not even the half-minute alarm brings it back
+        assert chrome.brain.browser.link is None
+        run("document.getElementById('act').click()")  # Connect
+        until(lambda: chrome.brain.browser.link is not None)
+    seen = kit.browser_view.func(ctx).text
+    assert seen.startswith("t1 · Terms") and "let go of you" not in seen  # her tab again, and no tale of a loss
 
 
 def test_pages_there_are_saved_and_logged(chrome, site):
