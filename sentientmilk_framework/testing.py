@@ -11,7 +11,7 @@ with ``journal_note`` and recorded in ``journal_requests``, never taken from ``r
 
 import json
 from types import SimpleNamespace
-from typing import Any, List
+from typing import Any, List, Sequence
 
 import requests
 
@@ -83,7 +83,12 @@ class FakeProvider:
         self.title = "A chat"
         self.title_requests: List[dict] = []
 
-    def install(self, monkeypatch) -> "FakeProvider":
+    def install(self, monkeypatch, claude_code: Sequence[str] = ()) -> "FakeProvider":
+        """``claude_code``: the command line of a stand-in Claude Code; empty: the brain finds none (a test
+        never reaches the user's own)."""
+        from .claudecode import ClaudeCode
+
+        monkeypatch.setattr(ClaudeCode, "argv", lambda self: list(claude_code))
         real = requests.post
 
         def post(url, *args, **kwargs):

@@ -393,8 +393,9 @@ sentientmilk eval                  # 10 real tasks against the configured model
 ```
 
 `sentientmilk_framework.testing.FakeProvider` stands in for the provider in tests, for
-this repository and for apps; `tests/fake_claude.py` stands in for Claude Code (every test gets it,
-never the user's own). `tests/test_panel.py` drives the panel headless.
+this repository and for apps; with it the brain finds no Claude Code (`install(monkeypatch,
+claude_code=[...])` gives it a stand-in, as this repository's tests do with `tests/fake_claude.py`), so a
+test never reaches the user's own. `tests/test_panel.py` drives the panel headless.
 
 ## Repository layout
 

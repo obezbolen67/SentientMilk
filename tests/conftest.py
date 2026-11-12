@@ -42,7 +42,7 @@ def stand_in_claude_code(tmp_path, monkeypatch):
 def brain(tmp_path, monkeypatch):
     """A brain server with a faked provider; queue replies in ``brain.provider.replies``."""
     monkeypatch.setattr(loop_module, "RETRIES", (0, 0, 0))
-    provider = FakeProvider().install(monkeypatch)
+    provider = FakeProvider().install(monkeypatch, claude_code=[sys.executable, str(FAKE_CLAUDE)])
     home = tmp_path / "home"
     work = tmp_path / "work"
     work.mkdir()
