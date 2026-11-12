@@ -20,6 +20,11 @@ FAKE = textwrap.dedent('''
         log.write(json.dumps({"args": args, "cwd": os.getcwd(), "mcp": mcp}) + "\\n")
     resumed = args[args.index("--resume") + 1] if "--resume" in args else None
     session = resumed or "claude-session-1"
+    if resumed == "gone-session":  # Claude Code deleted it (it keeps them 30 days)
+        sys.stderr.write("No conversation found with session ID: gone-session\\n")
+        sys.stdout.write(json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True,
+                                     "num_turns": 0, "session_id": resumed}) + "\\n")
+        sys.exit(1)
 
     def out(event):
         sys.stdout.write(json.dumps(event) + "\\n")
@@ -37,7 +42,8 @@ FAKE = textwrap.dedent('''
     def message():
         for line in sys.stdin:
             event = json.loads(line)
-            if event["type"] == "user":
+            if event["type"] == "user":  # taken in: it says so (--replay-user-messages)
+                out({"type": "user", "isReplay": True, "message": event["message"]})
                 return event["message"]["content"]
             if event["type"] == "control_response":
                 return event["response"]["response"]
@@ -46,6 +52,11 @@ FAKE = textwrap.dedent('''
     out({"type": "system", "subtype": "init", "session_id": session})
     while True:
         text = message()
+        if "brain restarted" in text:  # it goes on where it was: in these tests, the write
+            text = "write"
+        if "is gone" in text:
+            result("anew: " + " | ".join(text.splitlines()))
+            continue
         if "crash" in text:
             sys.stderr.write("boom\\n")
             sys.exit(3)
@@ -67,6 +78,19 @@ FAKE = textwrap.dedent('''
                 out({"type": "user", "message": {"content": [
                     {"type": "tool_result", "tool_use_id": "toolu_1", "content": answer["message"], "is_error": True}]}})
                 result("Could not write: " + answer["message"])
+        elif "mcp" in text:
+            out({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "toolu_2", "name": "mcp__editor__save", "input": {"scene": "main"}}]}})
+            out({"type": "control_request", "request_id": "r2", "request": {
+                "subtype": "can_use_tool", "tool_name": "mcp__editor__save", "tool_use_id": "toolu_2",
+                "input": {"scene": "main"}}})
+            answer = message()
+            result("saved" if answer["behavior"] == "allow" else "refused")
+        elif "race" in text:  # it finishes only once the test has sent it a message
+            said("Part A.")
+            while not os.path.exists(os.environ["FAKE_GO"]):
+                time.sleep(0.02)
+            result("Did A.")
         elif "slow" in text:
             time.sleep(60)
         elif "wait" in text:
@@ -128,7 +152,7 @@ def test_the_lead_is_told_it_has_super_agents_and_how_to_start_one(brain, claude
         brain.brain.agents.start(brain.store.runs(kind="turn")[0], "x", "Do.", super_agent=True)
 
 
-def test_a_super_agent_writes_with_the_users_approval_and_reports_to_the_lead(brain, claude):
+def test_a_super_agent_writes_with_the_users_approval_and_reports_to_the_lead(brain, claude, monkeypatch):
     brain.store.update_session("cli", "main", "state", lambda s: {**s, "session_memory": {"no_push": "Never push."}})
     brain.store.remember("milk", "preferences", "tests", "Always run the tests before saying done.")
     run = start_super(brain, "Please write out.txt.")
@@ -137,8 +161,11 @@ def test_a_super_agent_writes_with_the_users_approval_and_reports_to_the_lead(br
     waiting = wait_for(lambda: brain.client.run(run["id"])["waiting"])
     assert [w["name"] for w in waiting] == ["Write"] and waiting[0]["call_id"] == "toolu_1"
     assert brain.client.agents("cli", "main")[0]["status"] == "waiting"
+    spawned, spawn = [], brain.brain.runs.spawn
+    monkeypatch.setattr(brain.brain.runs, "spawn", lambda run_id: (spawned.append(run_id), spawn(run_id)))
     brain.client.answer(run["id"], call_id="toolu_1", decision="allow")
     done = ended(brain, run["id"])
+    assert run["id"] not in spawned  # the answer woke it where it waits: no thread started to find it busy
     assert done["status"] == "completed" and done["result"]["reply"] == "Wrote out.txt."
     assert (brain.work / "out.txt").read_text() == "made"
     args = claude.started()[0]["args"]
@@ -221,6 +248,72 @@ def test_a_claude_code_that_dies_fails_the_agent_with_what_it_said(brain, claude
     done = ended(brain, run["id"])
     assert done["status"] == "failed" and "stopped before it finished" in done["error"]["message"]
     assert "boom" in done["error"]["details"]
+
+
+def test_always_allowing_a_tool_the_brain_has_no_name_for_saves_a_rule(brain, claude):
+    """Only Claude's Bash, Write, Edit... had rules: an MCP tool allowed always was asked again each time."""
+    run = start_super(brain, "Please use mcp.")
+    waiting = wait_for(lambda: brain.client.run(run["id"])["waiting"])
+    assert [w["name"] for w in waiting] == ["mcp__editor__save"]
+    brain.client.answer(run["id"], call_id="toolu_2", decision="always")
+    assert ended(brain, run["id"])["result"]["reply"] == "saved"
+    assert "mcp__editor__save" in brain.store.app("cli")["settings"]["rules"]["allow"]
+    again = start_super(brain, "Please use mcp.", name="again")
+    assert ended(brain, again["id"])["result"]["reply"] == "saved"  # nobody was asked
+    assert not brain.client.run(again["id"])["waiting"]
+
+
+def test_a_super_agent_whose_claude_code_session_is_gone_starts_anew_with_what_it_knew(brain, claude):
+    """Claude Code deletes old sessions: a message to an agent of a month ago failed then, and every one after."""
+    run = start_super(brain, "Say hello.")
+    assert ended(brain, run["id"])["result"]["reply"] == "echo: Say hello."
+    brain.store.update_session("cli", run["session"], "state", lambda s: {**s, "claude_session": "gone-session"})
+    brain.brain.agents.message(brain.store.runs(kind="turn")[0], "coder", "And now?")
+    second = wait_for(lambda: [r for r in brain.store.runs(kind="agent") if r["id"] != run["id"]])[0]
+    done = ended(brain, second["id"])
+    reply = done["result"]["reply"]
+    assert done["status"] == "completed" and reply.startswith("anew: [The Claude Code session you worked in is gone")
+    assert "Your task: | Say hello." in reply and "Your last report: | echo: Say hello." in reply
+    assert "| Now: |" in reply and reply.endswith("[A message from the lead] | And now?")
+    resumed, fresh = claude.started()[-2:]
+    assert resumed["args"][resumed["args"].index("--resume") + 1] == "gone-session" and "--resume" not in fresh["args"]
+    assert brain.store.session("cli", run["session"])["state"]["claude_session"] == "claude-session-1"
+
+
+def test_a_message_that_comes_as_a_super_agent_finishes_is_its_next_turn(brain, claude, tmp_path, monkeypatch):
+    """Sent to Claude Code as it wrote its last words, the message was its next turn: the run ended before it."""
+    go = tmp_path / "go"
+    monkeypatch.setenv("FAKE_GO", str(go))
+    run = start_super(brain, "Please race.")
+    wait_for(lambda: brain.client.agents("cli", "main")[0]["step"] >= 1)  # it said Part A. and finishes on go
+    brain.brain.agents.message(brain.store.runs(kind="turn")[0], "coder", "Also B.")
+    wait_for(lambda: any(e["type"] == "input" and "Also B." in str(e["content"])
+                         for e in brain.store.run_events(run["id"])))  # sent on to Claude Code
+    go.write_text("", encoding="utf-8")
+    done = ended(brain, run["id"])
+    assert done["status"] == "completed" and done["result"]["reply"] == "echo: Also B."
+
+
+def test_a_super_agent_waiting_for_the_user_when_the_brain_restarts_asks_again(brain, claude):
+    """Its Claude Code went with the brain: the old question had nobody to answer it, and the run waited on."""
+    run = brain.store.add_run("cli", "agent-90", "agent", {"input": None, "agent": 90, "parent_session": "main",
+                                                           "super": True, "profile": {"from_session": "main"}},
+                              status="input_required")
+    brain.store.update_session("cli", "agent-90", "settings", lambda s: {"title": "coder", "agent": {
+        "name": "coder", "parent": "main", "task": "Please write out.txt.", "created": 0, "super": "Opus 5.5"}})
+    brain.store.update_session("cli", "agent-90", "state",
+                               lambda s: {"claude_session": "claude-session-1", "claude_run": run})
+    brain.store.add_event("cli", "agent-90", run, "input", {"content": "Please write out.txt.", "display": "x"})
+    brain.store.add_event("cli", "agent-90", run, "approval_request",
+                          {"call_id": "toolu_old", "name": "Write", "arguments": {"file_path": "out.txt"}})
+    brain.brain.runs.recover()
+    asked = wait_for(lambda: brain.client.run(run)["waiting"])
+    assert [w["call_id"] for w in asked] == ["toolu_1"]  # its new Claude Code asks again; the old one is closed
+    assert "--resume" in claude.started()[0]["args"]
+    brain.client.answer(run, call_id="toolu_1", decision="allow")
+    assert ended(brain, run)["status"] == "completed"
+    closed = [e for e in brain.store.run_events(run) if e["type"] == "tool" and e["call_id"] == "toolu_old"]
+    assert len(closed) == 1 and "restarted" in closed[0]["content"]
 
 
 def test_without_claude_code_a_super_agent_is_refused_with_why(brain, monkeypatch):

@@ -266,7 +266,7 @@ holds the tools.
 
   | kind | posted when | delivered |
   |---|---|---|
-  | `report` | an agent run ends (done, failed, or stopped by a cascade) | `agents_wait`; a note before the lead's next model call; or, when no run of the lead session goes on, a note plus `agent.finished` (not for a stop) |
+  | `report` | an agent run ends (done, failed, or interrupted) | `agents_wait`; a note before the lead's next model call; or, when no run of the lead session goes on, a note plus `agent.finished` (not for an interruption) |
   | `question` | `ask_lead` | the same, but the notification is `agent.asked` |
   | `update` | `task_progress` | `agents_wait` or the lead's next model call. Never wakes the lead; only the latest per agent waits, and a report replaces it |
 
@@ -274,11 +274,19 @@ holds the tools.
   `runs/<id>/report.md`.
 - **Lifecycle**:
   - Apps hear `agent.updated` (`agent`, `name`, `status`, `run`) when an agent starts, asks,
-    ends or is stopped. Statuses are working, asking, waiting (for the user), done, failed
-    and stopped.
-  - A stop from the user reaches the agents a run started (through `parent`). Such an agent
-    stays; its report says it was stopped.
-  - A turn given up because the user moved on does not stop its agents.
+    ends or is stopped. Statuses are working, asking, waiting (for the user), done, failed,
+    interrupted (its run was cut short; it stays, and a message goes on with it) and stopped
+    (deleted as soon as its run ends).
+  - Agents are work of their own: stopping the lead's turn, or a turn given up because the
+    user moved on, does not stop them (2026-11-12: a Stop reached only the agents the stopped
+    turn had started or messaged, and left them listed as stopped with their names taken).
+    The user stops an agent in the app (`POST /v1/agents/<id>/stop`), or the lead does
+    (`agent_stop`). A return to an earlier message stops what it undoes (section 5.7), which
+    leaves an older agent it messaged since interrupted.
+  - A message that comes as an agent writes its report is read before the run ends: a run
+    seals itself just before it ends (`Runs.seal`) unless a message waits, and a message to a
+    sealed run starts the agent's next run. A failed run's report names the messages it did
+    not read.
   - After a restart, working agents resume like tasks.
   - Deleting a chat deletes its idle agents at once. Working ones stop and delete their own
     session when their run ends. `agent_stop` works the same way.
@@ -306,14 +314,26 @@ holds the tools.
     names (`shell_run(command)` for Bash and PowerShell, `files_write(path)`,
     `files_edit(path)`, `web_fetch(url)`) and under Claude's own; the rest is an
     `approval_request` like any agent's call (`agent.input_required`, the run's `waiting`
-    list). "Always" saves the brain-named rule.
+    list). "Always" saves the brain-named rule, or, for a tool the brain has no name for (an
+    MCP server's, Task), a rule for the whole tool under Claude's name.
   - Its words, tool calls and results are written into the session as they happen, so apps
     show its steps. Usage counts input, cache writes and cache reads as prompt tokens, plus
     `cost_usd` as Claude Code reports it.
-  - A message to a working super agent is the next user message of the same process. One to
-    a finished agent resumes its Claude Code session (`--resume`, kept in the session state)
-    in a new run. A stop kills the process tree. After a brain restart the run resumes its
-    session with a note to go on.
+  - A message to a working super agent is the next user message of the same process. Claude
+    Code takes it in after its next tool result, or, while it writes, as a turn of its own
+    after the one it is in; it says when it took each one (`--replay-user-messages`), and the
+    run ends only at a result once it took them all. One to a finished agent resumes its
+    Claude Code session (`--resume`, kept in the session state; Claude Code finds it from any
+    folder) in a new run. Claude Code deletes old sessions (30 days by default): one it no
+    longer has starts anew, told its task, its last report and the message. A stop kills the
+    process tree. After a brain restart the run resumes its session with a note to go on; an
+    approval it waited for is closed (its process is gone) and Claude Code asks again.
+  - The run itself is kept as any run's, through `Runs`: its input, messages, approvals, the
+    seal and the end are the loop's code, so the two engines cannot drift apart. One
+    difference: Claude Code lives on while it waits for an approval, so the run waits in its
+    own thread (`Runs.await_answer`), and the answer wakes it there instead of starting the run
+    again. Nothing is read from the store while it waits: stops, messages and answers come as
+    in-memory signals (`Attention`).
   - The lead hears it has super agents (a line of `agent_start`'s guide in YOUR TOOLS, 7.3,
     with the model's name) only while one can start: a super model is set and Claude Code is
     found. Otherwise `super_agent=true` is refused with why, and the lead starts an ordinary

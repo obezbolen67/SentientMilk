@@ -15,9 +15,10 @@ import threading
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
-from . import titles, transport
+from . import context, mentions, titles, transport
+from . import signals as signal_format
 from .exceptions import BrainError
 from .loop import ACTIVE, TERMINAL, VERIFY_PROMPT, Loop
 from .toolkits import Attention
@@ -25,6 +26,12 @@ from .toolkits import Attention
 logger = logging.getLogger(__name__)
 
 REPORT_CHARS = 8_000  # about 2,000 tokens; a longer report is shown in part, the whole of it in a file
+
+
+def _stored(items: List[dict]) -> dict:
+    """What an input event keeps for apps besides its text: its mentions, and the skills the user started."""
+    started = [item["name"] for item in items if item["type"] == "skill"]
+    return {**mentions.stored(items), **({"skills": started} if started else {})}
 
 
 def whole_report(home, run_id: int, text: str) -> str:
@@ -141,8 +148,7 @@ class Runs:
         """A new turn; a turn of this session still waiting for answers is given up first."""
         for waiting in self.store.runs(app=app, kind="turn", statuses=("input_required",)):
             if waiting["session"] == session:  # ended here, so its end is logged before the new turn
-                # its agents are work of their own: they go on and report to the session
-                self.cancel(waiting["id"], reason="The user moved on without answering.", now=True, agents=False)
+                self.cancel(waiting["id"], reason="The user moved on without answering.", now=True)
         options = {"input": items, "context": context, "reply": reply}
         if max_steps:
             options["max_steps"] = int(max_steps)
@@ -298,8 +304,10 @@ class Runs:
             images = [transport.encode_image(transport.validate_image(url), pixels) for url in images or []]
             self.store.add_event(run["app"], run["session"], run_id, "action_result",
                                  {"call_id": call_id, "result": result, "status": status, "images": images})
-        if len(waiting) == 1 and run["status"] == "input_required":  # the last answer of a paused run
-            self.spawn(run_id)  # a run still working sees the answer before it would pause
+        attention = self.attention(run_id)
+        attention.answer()  # a run that waits in its own thread (await_answer) goes on there
+        if len(waiting) == 1 and run["status"] == "input_required" and not attention.held:
+            self.spawn(run_id)  # the last answer of a paused run; a run still working sees it before it pauses
 
     def waiting(self, run_id: int) -> List[dict]:
         """The approvals and app actions a paused run still waits for."""
@@ -318,20 +326,22 @@ class Runs:
         with self._attention_lock:
             return self._attention.setdefault(run_id, Attention())
 
-    def cancel(self, run_id: int, reason: str = "Cancelled.", now: bool = False, agents: bool = True) -> None:
-        """Stop a run at once, its helpers with it (and the agents it started or messaged, unless ``agents``
-        is False): waits end, calls still running are left behind."""
+    def cancel(self, run_id: int, reason: str = "Cancelled.", now: bool = False) -> None:
+        """Stop a run at once, and its helpers with it (a task's reviewer): waits end, calls still running are
+        left behind. Not the agents it started or messaged: they are work of their own that goes on and reports
+        to the session (Agents.stop stops one)."""
         with self.pause_lock:  # a run about to wait for answers sees the flag, or is waiting already
             run = self.store.run(run_id)
             if not run or run["status"] in TERMINAL:
                 return
             self.store.update_run_options(run_id, lambda options: {**options, "cancel": reason})
-        self.attention(run_id).stop()
+        attention = self.attention(run_id)
+        attention.stop()
         for helper in self.store.runs(app=run["app"], statuses=ACTIVE, limit=1000):
-            if helper["parent"] == run_id and (agents or helper["kind"] != "agent"):
+            if helper["parent"] == run_id and helper["kind"] != "agent":
                 self.cancel(helper["id"], reason, now)
-        if run["status"] == "input_required":  # the loop sees the flag and ends the run
-            self._execute(run_id) if now else self.spawn(run_id)
+        if run["status"] == "input_required" and not attention.held:  # the loop sees the flag and ends the run
+            self._execute(run_id) if now else self.spawn(run_id)  # (one waiting in its thread just woke)
 
     def steer(self, run_id: int, items: list, refuse_approvals: bool = True) -> None:
         """A message for a run that works: it reaches the model at the next step, and waits inside tools end
@@ -340,7 +350,7 @@ class Runs:
         refuses it (``ended``): send it as a new turn."""
         with self.steer_lock:
             run = self.store.run(run_id)
-            if not run or run["status"] in TERMINAL:
+            if not run or run["status"] in TERMINAL or run["options"].get("sealed"):  # sealed: it is ending
                 raise BrainError("ended", "This turn has ended; send the message as a new turn", http_status=409)
             self.store.update_run_options(run_id, lambda options: {**options, "steer": options.get("steer", []) + items})
         self.attention(run_id).message()
@@ -356,6 +366,120 @@ class Runs:
         if not run or run["kind"] != "turn":
             raise ValueError(f"Run {run_id} is not a turn")
         self.store.update_run_options(run_id, lambda options: {**options, "detached": True})
+
+    # ============== The run protocol: what every engine keeps (Loop; a super agent's Claude Code) ==============
+
+    def emitter(self, run_id: int) -> Callable[[dict], None]:
+        def emit(event: dict) -> None:
+            self.brain.bus.publish(("run", run_id), {"run": run_id, **event})
+        return emit
+
+    def log_input(self, run: dict, profile: dict, emit) -> None:
+        """The run's input, logged once; apps hear its event id (``input``), the place to return to (rewind.py)."""
+        options = run["options"]
+        if options.get("input") is None or any(e["type"] == "input" for e in self.store.run_events(run["id"])):
+            return
+        reminders = []
+        if profile["signals"] and run["kind"] == "turn":
+            reminders.append(signal_format.FORMAT_REMINDER)
+        if options.get("reply") == "optional":
+            reminders.append(signal_format.OPTIONAL_REPLY)
+        items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], options["input"]))
+        content, display = context.input_content(items, options.get("context") or {}, reminders=reminders)
+        logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
+                                      {"content": content, "display": display, **_stored(items)})
+        self.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
+        emit({"type": "input", "id": logged["id"], "text": display})
+
+    def take_messages(self, run: dict, emit) -> List[dict]:
+        """Messages sent while the run worked (steering), logged as its input before it goes on: the input
+        events logged (none when nothing came)."""
+        with self.steer_lock:
+            items = self.store.run(run["id"])["options"].get("steer") or []
+            if items:
+                self.store.update_run_options(run["id"], lambda options: {**options, "steer": []})
+            self.attention(run["id"]).settle()
+        if not items:
+            return []
+        items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], items))
+        content, display = context.input_content(items, {}, reminders=[])
+        logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
+                                      {"content": content, "display": display, **_stored(items)})
+        emit({"type": "steered", "text": display or "", "id": logged["id"]})
+        return [logged]
+
+    def ask(self, run: dict, kind: str, call_id: str, name: str, arguments: dict, emit,
+            always_ask: bool = False) -> None:
+        """Ask for a call: the user's ``approval`` or the app's ``action``. ``always_ask``: the user must answer,
+        even in an app that allows everything on its own."""
+        request = {"call_id": call_id, "name": name, "arguments": arguments,
+                   **({"always_ask": True} if always_ask else {}),
+                   # an app's pictures fitted to what the model sees reach it as they are: their points stay exact
+                   **({"image_pixels": self.brain.config.values()["image_pixels"]} if kind == "action" else {})}
+        self.store.add_event(run["app"], run["session"], run["id"], f"{kind}_request", request)
+        emit({"type": f"{kind}.requested", **request})
+
+    def await_answer(self, run: dict, call_id: str, emit) -> Optional[dict]:
+        """For an engine that cannot leave its thread while it waits (a super agent: its Claude Code lives on):
+        the answer to the approval asked for ``call_id``, or None once the run is stopped. The run shows as
+        waiting meanwhile and the app hears it as it hears any paused run; the answer wakes it here (no thread
+        is started for it), and nothing is read until something comes."""
+        attention, paused, answer = self.attention(run["id"]), False, None
+        attention.held = True
+        try:
+            while not attention.stopped.is_set():
+                attention.answered.clear()  # first: an answer from now on wakes the wait below
+                with self.pause_lock:  # an answer and the pause never cross
+                    answer = next((e for e in self.store.run_events(run["id"])
+                                   if e["type"] == "approval" and e["call_id"] == call_id), None)
+                    if answer is None and not paused:
+                        self.store.update_run(run["id"], status="input_required")
+                if answer is not None:
+                    break
+                if not paused:
+                    emit({"type": "paused", "status": "input_required"})
+                    self.paused(self.store.run(run["id"]))
+                    paused = True
+                attention.answered.wait()
+        finally:
+            attention.held = False
+        if attention.stopped.is_set():
+            return None
+        if paused:
+            self.store.update_run(run["id"], status="working")
+        return answer
+
+    def seal(self, run: dict) -> bool:
+        """The run is about to end: from now on a message to it is refused (``ended``: it starts anew, as an
+        agent's next run or the next turn). False, and nothing sealed, when messages came that a run other than
+        a turn must read first (an app sends a turn's own again: they come back in its result, unread)."""
+        with self.steer_lock:
+            if run["kind"] != "turn" and self.store.run(run["id"])["options"].get("steer"):
+                return False
+            self.store.update_run_options(run["id"], lambda options: {**options, "sealed": True})
+        return True
+
+    def end(self, run: dict, status: str, emit, reply: str = "", signals: Optional[dict] = None,
+            silent: bool = False, error: Optional[BrainError] = None, extra: Optional[dict] = None) -> None:
+        store = self.store
+        if error and run['options'].get('occurrence'):
+            reply = 'This scheduled task could not finish: ' + error.message
+        result = {"reply": reply, "signals": signals or {}, "silent": silent, **(extra or {})}
+        with self.steer_lock:  # a message that came too late goes back to the app, unread
+            unread = store.run(run["id"])["options"].get("steer") or []
+            if unread:
+                result["unread"] = unread
+            store.add_event(run["app"], run["session"], run["id"], "end",
+                            {"status": status, **result, "error": error.as_dict() if error else None})
+            self.brain.agents.ending({**run, "status": status, "result": result,
+                                      "error": error.as_dict() if error else None})
+            store.update_run(run["id"], status=status, result=result, error=error.as_dict() if error else None)
+        final = store.run(run["id"])
+        if error:
+            emit({"type": "error", "status": status, "error": error.as_dict()})
+        else:
+            emit({"type": "done", "status": status, **result, "usage": final["usage"]})
+        self.finished(final)
 
     # ============== Lifecycle ==============
 
@@ -432,7 +556,14 @@ class Runs:
 
     def recover(self) -> None:
         waiting_reviewers = self.store.runs(kind="subagent", statuses=("input_required",), limit=1000)
-        for run in self.store.runs(statuses=("working", "queued"), limit=1000) + waiting_reviewers:
+        waiting_supers = [run for run in self.store.runs(kind="agent", statuses=("input_required",), limit=1000)
+                          if run["options"].get("super")]
+        for run in waiting_supers:  # its Claude Code went with the brain: what it asked goes too (it asks again)
+            for request in self.waiting(run["id"]):
+                self.store.add_event(run["app"], run["session"], run["id"], "tool", {
+                    "call_id": request["call_id"], "name": request["name"], "arguments": request["arguments"],
+                    "content": "The brain restarted before the user answered; Claude asks again.", "status": "error"})
+        for run in self.store.runs(statuses=("working", "queued"), limit=1000) + waiting_reviewers + waiting_supers:
             if run["kind"] in ("task", "agent") or run['options'].get('occurrence'):
                 logger.info("Resuming %s %s after a restart", run["kind"], run["id"])
                 self.brain.note(run["app"], run["session"], "The brain restarted while you worked; continue.")

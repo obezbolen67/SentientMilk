@@ -178,7 +178,8 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
   Each report, question and update reaches the chat once: through `agents_wait`, as a note,
   or with `agent.finished` / `agent.asked` when nobody was there to take it. Apps hear
   `agent.updated` as agents start and end; `client.agents(app, session)`, `client.agent(id)`
-  and `client.stop_agent(id)` (which deletes it) let them show and stop agents.
+  and `client.stop_agent(id)` (which deletes it) let them show and stop agents. Agents are work
+  of their own: stopping her turn leaves them working.
 - **Super agents** are agents Claude does, through the user's own Claude Code, for code and
   deep thinking: `agent_start(..., super_agent=true)`. The model and its thinking effort (low
   to max) are set under Provider > Super model in the control panel (default: Opus 5.5, high).

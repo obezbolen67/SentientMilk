@@ -10,6 +10,7 @@ from PIL import Image
 
 from sentientmilk_framework import BrainError, context
 from sentientmilk_framework import loop as loop_module
+from sentientmilk_framework import runs as runs_module
 from sentientmilk_framework.loop import INTERRUPTED_CALL
 from sentientmilk_framework.testing import tool_call, tool_calls
 
@@ -427,7 +428,7 @@ def test_context_keeps_zero_and_missing_output_counts(brain, input_tokens, outpu
 
 def test_a_message_sent_while_a_turn_starts_is_not_lost(brain, monkeypatch):
     """Updating a run's options read the run, then wrote it whole: a message steered in between was lost."""
-    original = loop_module.Loop._log_input
+    original = runs_module.Runs.log_input
 
     def log_input(self, run, profile, emit):
         if run["kind"] == "turn" and not sent:
@@ -435,7 +436,7 @@ def test_a_message_sent_while_a_turn_starts_is_not_lost(brain, monkeypatch):
         return original(self, run, profile, emit)
 
     sent = []
-    monkeypatch.setattr(loop_module.Loop, "_log_input", log_input)
+    monkeypatch.setattr(runs_module.Runs, "log_input", log_input)
     brain.provider.replies += ["ok"]
     turn(brain, "cli", "first")
     assert sent and "Also this." in json.dumps(brain.provider.sent[0]["messages"])

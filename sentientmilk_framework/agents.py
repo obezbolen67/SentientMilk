@@ -5,15 +5,18 @@ An agent lives in a session of its own (``agent-<id>``, after its first run) and
 agent has the lead's whole profile: its toolkits, MCP servers, app actions, rules and model. What it knows
 is the task the lead wrote. Agents get no agent tools: the lead is the one orchestrator.
 
-A message to a working agent reaches it at its next step (steering) and answers its question (ask_lead).
-A message to one that finished is a new run in the same session, so it goes on with all it knew.
+A message to a working agent reaches it at its next step (steering) and answers its question (ask_lead);
+one that comes as it writes its report is read before it ends (Runs.seal). A message to one that finished is
+a new run in the same session, so it goes on with all it knew.
 
 What agents send the lead goes through one mailbox (``agent_mail``): reports, questions and progress
 updates. Each reaches the lead's session exactly once (claimed in one transaction): from agents_wait, as a
 note before the lead's next model call, or, when no run of that session goes on, as a note with
 ``agent.finished`` or ``agent.asked``, so the app can start a turn. Updates never wake the lead. Stopping
-an agent deletes it: its session and its mail. Apps hear ``agent.updated`` when one starts, ends or is
-stopped. See docs/architecture.md, 5.5.
+an agent (agent_stop, or the user in the app) deletes it: its session and its mail. Stopping the lead's turn
+does not stop its agents: they are work of their own. An agent whose run was cut short otherwise (a return to
+an earlier message) stays, ``interrupted``, and goes on with a message. Apps hear ``agent.updated`` when one
+starts, ends or is stopped. See docs/architecture.md, 5.5.
 """
 
 import json
@@ -51,9 +54,10 @@ MESSAGE = "[A message from the lead]\n{text}"
 WAIT_DEFAULT = 600
 TASK_CHARS, RESULT_CHARS = 150, 160
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}")
-# working, asking (waits for the lead), waiting (for the user's approval), done, failed, stopped
+# working, asking (waits for the lead), waiting (for the user's approval), done, failed, interrupted (its
+# run was cut short; a message goes on), and stopped (deleted, as soon as its run ends)
 STATUS = {"queued": "working", "working": "working", "input_required": "waiting", "completed": "done",
-          "failed": "failed", "cancelled": "stopped"}
+          "failed": "failed", "cancelled": "interrupted"}
 
 
 def duration(seconds: float) -> str:
@@ -69,7 +73,7 @@ def short(text: str, limit: int) -> str:
 class Agents:
     def __init__(self, brain):
         self.brain, self.store = brain, brain.store
-        self._lock = threading.Lock()  # starts: names and the cap
+        self._lock = threading.Lock()  # starts: one agent per name
 
     # ============== Reading ==============
 
@@ -89,6 +93,8 @@ class Agents:
         if only_open and not is_open:
             return None
         status, activity = self._state(latest) if working else (STATUS.get(latest["status"], latest["status"]), "")
+        if not is_open:
+            status = "stopped"
         reply = (latest["result"] or {}).get("reply", "") if latest["status"] == "completed" else ""
         return {
             "id": int(session.split("-", 1)[1]), "name": record["name"], "task": record["task"], "session": session,
@@ -116,7 +122,8 @@ class Agents:
         found = next((a for a in mine if a["name"] == text or str(a["id"]) == text), None)
         if found is None:
             names = ", ".join(a["name"] for a in mine) or "none"
-            raise ToolError(f"You have no agent {ref!r} (stopped agents are gone). Your agents: {names}.")
+            raise ToolError(f"You have no agent {ref!r} (an agent stopped by you or the user is gone). "
+                            f"Your agents: {names}.")
         return found
 
     def details(self, app: str, agent: dict) -> dict:
@@ -206,7 +213,9 @@ class Agents:
                   **({"super": self.brain.superagents.label()} if super_agent else {})}
         with self._lock:
             self.sweep(app, parent)
-            self._check_room(app, parent, name)
+            if any(a["name"] == name for a in self.open(app, parent)):
+                raise ToolError(f"You have an agent called {name} already: send it a message with agent_message, "
+                                "or pick another name.")
             run_id = self.store.add_run(app, "pending", "agent", {}, parent=parent_run["id"])
             session = f"agent-{run_id}"
             self.store.update_session(app, session, "settings", lambda s: {**s, "title": name, "agent": record})
@@ -214,12 +223,6 @@ class Agents:
         self.brain.runs.spawn(run_id)
         self._updated(app, parent, run_id, name, "working", run_id)
         return self.summary(app, session)
-
-    def _check_room(self, app: str, parent: str, name: Optional[str] = None) -> None:
-        mine = self.open(app, parent)
-        if name and any(a["name"] == name for a in mine):
-            raise ToolError(f"You have an agent called {name} already: send it a message with agent_message, "
-                            "or pick another name.")
 
     def _options(self, record: dict, agent_id: int, text: str) -> dict:
         return {"input": [{"type": "text", "text": text}], "agent": agent_id, "parent_session": record["parent"],
@@ -239,12 +242,10 @@ class Agents:
                 self.brain.runs.steer(agent["run"], item, refuse_approvals=False)
                 return f"Sent: {agent['name']} reads it at its next step (it answers its question, if it asked one)."
             except BrainError:
-                pass  # it ended just now: the message is a new request then
-        with self._lock:
-            self._check_room(app, parent)
-            record = self.record(app, agent["session"])
-            run_id = self.store.add_run(app, agent["session"], "agent",
-                                        self._options(record, agent["id"], item[0]["text"]), parent=parent_run["id"])
+                pass  # it is ending (sealed) or ended: the message is its next run, after this one
+        record = self.record(app, agent["session"])
+        run_id = self.store.add_run(app, agent["session"], "agent", self._options(record, agent["id"], item[0]["text"]),
+                                    parent=parent_run["id"])
         self.brain.runs.spawn(run_id)
         self._updated(app, parent, agent["id"], agent["name"], "working", run_id)
         return f"Sent: {agent['name']} goes on with it, with all it knew. Collect its answer with agents_wait."
@@ -354,10 +355,12 @@ class Agents:
     def report(self, run: dict) -> str:
         record = self.record(run["app"], run["session"])
         who = f"Agent {record.get('name', '?')} (#{run['options'].get('agent')})"
-        if run["status"] == "cancelled":
-            return f"{who} was stopped before it finished."
+        if run["status"] == "cancelled":  # a stopped agent says nothing more: this one stays
+            return f"{who} was interrupted before it finished: send it a message and it goes on."
         if run["status"] != "completed":
-            return f"{who} failed: {(run['error'] or {}).get('message', 'unknown error')}"
+            unread = [item.get("text", "") for item in (run["result"] or {}).get("unread") or []]
+            missed = "".join(f"\nIt did not read your message: {short(text, 300)}" for text in unread)
+            return f"{who} failed: {(run['error'] or {}).get('message', 'unknown error')}{missed}"
         text = (run["result"] or {}).get("reply", "").strip() or "(It finished without a report.)"
         return f"{who} finished:\n{whole_report(self.brain.home, run['id'], text)}"
 

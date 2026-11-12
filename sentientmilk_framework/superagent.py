@@ -15,7 +15,9 @@ and its use counts against their Claude plan. What it does is written into the a
 agent's call: the brain's rules first (``shell_run``, ``files_write``, ``files_edit`` and ``web_fetch`` rules hold
 for Claude's Bash, Write, Edit and WebFetch too, as do rules naming Claude's tools), then the app asks the user
 (or allows it, in its bypass). A message to a working super agent is the next user message of the same process;
-a message to one that finished resumes its Claude Code session in a new run. See docs/architecture.md, 5.6.
+a message to one that finished resumes its Claude Code session in a new run (one Claude Code deleted starts anew
+with the agent's task and last report). The run itself (its input, messages, approvals, its end) goes as any
+run's (Runs); only the work is Claude Code's. See docs/architecture.md, 5.6.
 """
 
 import json
@@ -40,7 +42,7 @@ from .toolkits.shell import kill_tree
 logger = logging.getLogger(__name__)
 
 MODELS = (("claude-opus-5-5", "Opus 5.5"), ("claude-sonnet-5-5", "Sonnet 5.5"), ("claude-haiku-5-5", "Haiku 5.5"),
-          ("claude-fable-5-1", "Fable 5.1"))
+          ("claude-fable-5-2", "Fable 5.2"))
 EFFORT_NAMES = {"low": "Low", "medium": "Medium", "high": "High", "xhigh": "Extra high", "max": "Max"}
 assert set(EFFORT_NAMES) == set(EFFORTS)
 # Restricted mode leaves out the tools that run code unless named; these are named, the rest of Claude Code's
@@ -65,6 +67,8 @@ approves your changes when you are asked.
 - End with a compact report for the lead, findings first: what you did, the exact paths, names and results,
   what you verified and what you did not. Put long output in files and name them."""
 RESTARTED = "[The brain restarted while you worked: continue the task where you were.]"
+LOST = ("[The Claude Code session you worked in is gone (Claude Code deletes old ones), so you start without "
+        "what you did and read before. Look again at what you need.]")
 VERSION_AGE = 600  # seconds a ``claude --version`` answer is kept
 LOOK_AGE = 60  # seconds where claude is stays known
 STDERR_LINES = 30
@@ -165,16 +169,23 @@ def _text(content) -> str:
 
 
 class SuperRun:
+    """One run of a super agent. It keeps the run protocol as the loop does (Runs: input, messages, approvals,
+    the end); only the work is Claude Code's."""
+
     def __init__(self, owner: SuperAgents, run: dict, profile: dict, emit):
         self.owner, self.brain, self.store = owner, owner.brain, owner.brain.store
         self.run, self.profile, self.emit = run, profile, emit
-        self.events: queue.Queue = queue.Queue()
-        self.errors: deque = deque(maxlen=STDERR_LINES)
         self.calls: dict = {}  # tool use id -> (name, input)
         self.process: Optional[subprocess.Popen] = None
+        self.events: queue.Queue = queue.Queue()
+        self.errors: deque = deque(maxlen=STDERR_LINES)
+        self.readers: List[threading.Thread] = []
         self.write_lock = threading.Lock()
         self.reply = ""
-        self.mcp_file: Optional[str] = None  # the lead's MCP servers for --mcp-config; removed when it ends
+        self.resumed = False  # it went on with a Claude Code session of an earlier run
+        # messages sent to the process, and those it took in (it says so: --replay-user-messages). One sent as
+        # it works joins the turn after its next tool result, or, as it writes, is a turn of its own after it
+        self.said = self.taken = 0
 
     # ============== The process ==============
 
@@ -184,7 +195,7 @@ class SuperRun:
         folder = profile.get("cwd") or (roots[0] if roots else str(Path.home()))
         args = self.owner.argv() + [
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--restricted", "--tools", TOOLS, "--strict-mcp-config",
+            "--replay-user-messages", "--restricted", "--tools", TOOLS, "--strict-mcp-config",
             "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
             "--model", values["super_model"], "--effort", values["super_effort"],
             "--append-system-prompt", PROMPT.format(name=profile["name"]) + self._memory()]
@@ -193,38 +204,46 @@ class SuperRun:
                 args += ["--add-dir", root]
         # the lead's MCP servers too: code that lives in an app the user connected (a game editor) is Claude's
         # as well, and Claude can check it there (2026-11-09: it had none, so the lead wrote it by trial and error)
-        servers = self.brain.mcp.for_claude(profile.get("toolkits") or [])
+        servers, mcp_file = self.brain.mcp.for_claude(profile.get("toolkits") or []), None
         if servers:
-            fd, self.mcp_file = tempfile.mkstemp(prefix="super-mcp-", suffix=".json", dir=self.brain.home)
+            fd, mcp_file = tempfile.mkstemp(prefix="super-mcp-", suffix=".json", dir=self.brain.home)
             with os.fdopen(fd, "w", encoding="utf-8") as config:  # a file, not argv: env and headers may hold keys
                 json.dump({"mcpServers": servers}, config)
-            args += ["--mcp-config", self.mcp_file]
-        resumed = self._state().get("claude_session")
+            args += ["--mcp-config", mcp_file]
+        resumed = self._state().get("claude_session")  # Claude Code finds it from any folder
         if resumed:
             args += ["--resume", resumed]
+        self.resumed = bool(resumed)
+        self.events, self.errors = queue.Queue(), deque(maxlen=STDERR_LINES)
+        self.said = self.taken = 0
         self.process = subprocess.Popen(
             args, cwd=folder, env=_env(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=_NO_WINDOW,
             start_new_session=os.name != "nt")
-        threading.Thread(target=self._read, daemon=True, name=f"super-{self.run['id']}").start()
-        threading.Thread(target=lambda: self.errors.extend(line.rstrip() for line in self.process.stderr),
-                         daemon=True).start()
+        process, events, errors = self.process, self.events, self.errors  # this process's: a next one has its own
+        self.readers = [
+            threading.Thread(target=self._read, args=(process, events, errors, mcp_file), daemon=True,
+                             name=f"super-{self.run['id']}"),
+            threading.Thread(target=lambda: errors.extend(line.rstrip() for line in process.stderr), daemon=True)]
+        for reader in self.readers:
+            reader.start()
         self.send({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize",
                                                                                 "hooks": None}})
         self.say(prompt)
 
-    def _read(self) -> None:
-        for line in self.process.stdout:
+    @staticmethod
+    def _read(process: subprocess.Popen, events: queue.Queue, errors: deque, mcp_file: Optional[str]) -> None:
+        for line in process.stdout:
             try:
-                self.events.put(json.loads(line))
+                events.put(json.loads(line))
             except ValueError:
-                self.errors.append(line.rstrip())
-        if self.mcp_file:  # it read the file when it started
+                errors.append(line.rstrip())
+        if mcp_file:  # it read the file when it started
             try:
-                os.remove(self.mcp_file)
+                os.remove(mcp_file)
             except OSError:
                 pass
-        self.events.put(None)  # the end of its output
+        events.put(None)  # the end of its output
 
     def send(self, message: dict) -> None:
         with self.write_lock:
@@ -235,8 +254,22 @@ class SuperRun:
                 pass  # it ended: its end shows in its output
 
     def say(self, text: str) -> None:
+        self.said += 1
         self.send({"type": "user", "session_id": "", "parent_tool_use_id": None,
                    "message": {"role": "user", "content": text}})
+
+    def close(self) -> None:
+        """Its work is done: it ends on its own (it saves its session), and all it wrote is read."""
+        try:
+            self.process.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.kill()
+        for reader in self.readers:
+            reader.join(timeout=5)
 
     def kill(self) -> None:
         if self.process is not None:
@@ -263,36 +296,71 @@ class SuperRun:
         return "".join("\n\n" + part for part in parts)
 
     def execute(self) -> None:
-        run, store, runs = self.run, self.store, self.brain.runs
+        run, runs = self.run, self.brain.runs
         if not self.owner.argv():
             raise BrainError("super_unavailable", self.owner.why_not())
-        runs.loop._log_input(run, self.profile, self.emit)
-        logged = self._inputs()
+        if self.store.run(run["id"])["options"].get("cancel"):  # stopped before it started (or before a restart)
+            return runs.end(self.store.run(run["id"]), "cancelled", self.emit)
+        runs.log_input(run, self.profile, self.emit)
+        inputs = [e for e in self.store.run_events(run["id"]) if e["type"] == "input"]
+        message = _text(inputs[0]["content"]) if inputs else ""
         # the brain restarted during this run, after Claude Code took it: its session goes on
         restarted = self._state().get("claude_run") == run["id"]
-        prompt = RESTARTED if restarted or not logged else _text(logged[0]["content"])
-        attention = runs.attention(run["id"])
-        self.start(prompt)
         try:
-            while True:
-                if attention.stopped.is_set() or store.run(run["id"])["options"].get("cancel"):
-                    self.kill()
-                    return runs.loop._end(store.run(run["id"]), "cancelled", self.emit)
-                self._steer()
-                try:
-                    event = self.events.get(timeout=0.2)
-                except queue.Empty:
-                    continue
-                if event is None:
-                    raise BrainError("super_failed", "Claude Code stopped before it finished",
-                                     "\n".join(self.errors) or None)
-                if self._handle(event):
-                    return
+            if self._converse(RESTARTED if restarted or not message else message):
+                return
+            # the session it would go on with is gone (Claude Code deletes old ones): it starts anew
+            self.store.update_session(run["app"], run["session"], "state", lambda state: {
+                key: value for key, value in state.items() if key not in ("claude_session", "claude_run")})
+            self._converse(self._anew(message))
         finally:
             self.kill()
 
-    def _handle(self, event: dict) -> bool:
-        """One message from Claude Code; True once the run ended."""
+    def _converse(self, prompt: str) -> bool:
+        """One Claude Code process, to the run's end (True), or False when the session it resumed is gone."""
+        runs = self.brain.runs
+        attention = runs.attention(self.run["id"])
+        self.start(prompt)
+        while True:
+            if attention.stopped.is_set():
+                self.kill()
+                runs.end(self.store.run(self.run["id"]), "cancelled", self.emit)
+                return True
+            if attention.woken.is_set():
+                self._take_messages()
+            try:
+                event = self.events.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if event is None:
+                self.close()
+                if self._gone():
+                    return False
+                raise BrainError("super_failed", "Claude Code stopped before it finished",
+                                 "\n".join(self.errors) or None)
+            ended = self._handle(event)
+            if ended is not None:
+                return ended
+
+    def _gone(self) -> bool:
+        return self.resumed and any("No conversation found" in line for line in self.errors)
+
+    def _anew(self, message: str) -> str:
+        """What a super agent whose Claude Code session is gone starts with: its task, its last report and
+        what this run is for."""
+        app, session = self.run["app"], self.run["session"]
+        task = self.brain.agents.record(app, session).get("task", "")
+        last = self.store.runs(app=app, session=session, statuses=("completed",), limit=1)
+        report = ((last[0]["result"] or {}).get("reply") or "").strip() if last else ""
+        parts = [LOST, f"Your task:\n{task}"]
+        if report:
+            parts.append(f"Your last report:\n{report}")
+        if message and message != task:
+            parts.append(f"Now:\n{message}")
+        return "\n\n".join(parts)
+
+    def _handle(self, event: dict) -> Optional[bool]:
+        """One message from Claude Code: None while the run goes on, then what _converse returns."""
         kind, run = event.get("type"), self.run
         if kind == "system" and event.get("subtype") == "init" and event.get("session_id"):
             self.store.update_session(run["app"], run["session"], "state",
@@ -301,6 +369,8 @@ class SuperRun:
         elif kind == "assistant":
             for block in (event.get("message") or {}).get("content") or []:
                 self._said(block)
+        elif kind == "user" and event.get("isReplay"):
+            self.taken += 1
         elif kind == "user":
             content = (event.get("message") or {}).get("content")
             for block in content if isinstance(content, list) else []:
@@ -319,7 +389,7 @@ class SuperRun:
             self.send({"type": "control_response", "response": response})
         elif kind == "result":
             return self._result(event)
-        return False
+        return None
 
     def _said(self, block: dict) -> None:
         run, store = self.run, self.store
@@ -348,22 +418,14 @@ class SuperRun:
         self.emit({"type": "tool.end", "call_id": call_id, "name": name, "arguments": arguments, "status": status,
                    "result": text[:2000]})
 
-    def _steer(self) -> None:
-        """Messages from the lead, sent while it works: logged as the loop logs them, then the next user
-        messages of the same process."""
-        if not self.store.run(self.run["id"])["options"].get("steer"):
-            return
-        seen = {e["id"] for e in self._inputs()}
-        self.brain.runs.loop._take_messages(self.store.run(self.run["id"]), self.emit)
-        for event in self._inputs():
-            if event["id"] not in seen:
-                self.say(_text(event["content"]))
+    def _take_messages(self) -> None:
+        """Messages from the lead, sent while it works: logged as any run's, then the next user messages of the
+        same process."""
+        for logged in self.brain.runs.take_messages(self.store.run(self.run["id"]), self.emit):
+            self.say(_text(logged["content"]))
 
-    def _inputs(self) -> list:
-        return [e for e in self.store.run_events(self.run["id"]) if e["type"] == "input"]
-
-    def _result(self, event: dict) -> bool:
-        run, store = self.run, self.store
+    def _result(self, event: dict) -> Optional[bool]:
+        run, store, runs = self.run, self.store, self.brain.runs
         usage = event.get("usage") or {}
         cached = usage.get("cache_read_input_tokens") or 0
         prompt = (usage.get("input_tokens") or 0) + (usage.get("cache_creation_input_tokens") or 0) + cached
@@ -374,21 +436,23 @@ class SuperRun:
                  "completion_tokens": total["completion_tokens"] + (usage.get("output_tokens") or 0),
                  "cost_usd": round(total.get("cost_usd", 0) + (event.get("total_cost_usd") or 0), 4)}
         store.update_run(run["id"], usage=total)
-        if store.run(run["id"])["options"].get("steer"):
-            return False  # the lead wrote meanwhile: it goes on with that (sent at the next round)
-        self.process.stdin.close()
-        try:
-            self.process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            self.kill()
+        failed = bool(event.get("is_error")) or event.get("subtype") != "success"
+        if not failed and self.taken < self.said:
+            return None  # a message it was sent as it wrote is its next turn
+        if not failed and not runs.seal(store.run(run["id"])):
+            self._take_messages()  # the lead wrote as it finished: it reads that and goes on
+            return None
+        self.close()
         reply = str(event.get("result") or self.reply or "").strip()
-        if event.get("is_error") or event.get("subtype") != "success":
+        if failed:
+            if self._gone():
+                return False
             error = BrainError("super_failed", f"Claude Code could not finish: {reply or event.get('subtype')}",
                                "\n".join(self.errors) or None)
-            self.brain.runs.loop._end(store.run(run["id"]), "failed", self.emit, error=error)
+            runs.end(store.run(run["id"]), "failed", self.emit, error=error)
             return True
-        self.brain.runs.loop._end(store.run(run["id"]), "completed", self.emit, reply=reply,
-                                  extra={"model": self.brain.config.values()["super_model"]})
+        runs.end(store.run(run["id"]), "completed", self.emit, reply=reply,
+                 extra={"model": self.brain.config.values()["super_model"]})
         return True
 
     # ============== Asking before changes ==============
@@ -407,10 +471,20 @@ class SuperRun:
                 return decision
         return "ask"
 
+    def _always_rule(self, name: str, arguments: dict) -> str:
+        """The rule an "always allow" saves: the brain's, for Claude's tools it has a name for (this command,
+        this file), else the whole tool under Claude's name (an MCP server's tool, Task...)."""
+        own = RULE_NAMES.get(name)
+        if own:
+            tool, arguments = SimpleNamespace(name=own[0], rule_arg=own[1]), {own[1]: arguments.get(own[2], "")}
+        else:
+            tool = SimpleNamespace(name=name, rule_arg=None)
+        return permissions.always_rule(tool, arguments, self.profile.get("cwd"))
+
     def _permit(self, request: dict) -> dict:
         """What Claude Code asks: decided by the rules, or asked like any agent's call (the app asks the user,
-        or allows it in its bypass); this waits for the answer."""
-        run, store, runs = self.run, self.store, self.brain.runs
+        or allows it in its bypass); this waits for the answer, as its Claude Code does."""
+        run, runs = self.run, self.brain.runs
         name, arguments = request.get("tool_name", ""), request.get("input") or {}
         allow = {"behavior": "allow", "updatedInput": arguments}
         decision = self._rules(name, arguments)
@@ -419,36 +493,15 @@ class SuperRun:
         if decision == "auto":
             return allow
         call_id = request.get("tool_use_id") or f"super-{time.time_ns()}"
-        asked = {"call_id": call_id, "name": name, "arguments": arguments}
-        store.add_event(run["app"], run["session"], run["id"], "approval_request", asked)
-        self.emit({"type": "approval.requested", **asked})
-        attention = runs.attention(run["id"])
-        paused = False
-        while True:
-            with runs.pause_lock:  # an answer and the pause never cross (as in Loop._settle)
-                answer = next((e for e in store.run_events(run["id"]) if e["type"] == "approval"
-                               and e["call_id"] == call_id), None)
-                if answer is None and not paused:
-                    store.update_run(run["id"], status="input_required")
-            if answer is not None:
-                break
-            if attention.stopped.is_set():
-                return {"behavior": "deny", "message": "The agent was stopped.", "interrupt": True}
-            if not paused:
-                self.emit({"type": "paused", "status": "input_required"})
-                runs.paused(store.run(run["id"]))
-                paused = True
-            time.sleep(0.2)
-        # the answer spawned the run again (Runs._answer): that waits for the session and finds it ended
-        store.update_run(run["id"], status="working")
+        runs.ask(run, "approval", call_id, name, arguments, self.emit)
+        answer = runs.await_answer(run, call_id, self.emit)
+        if answer is None:
+            return {"behavior": "deny", "message": "The agent was stopped.", "interrupt": True}
         if answer["decision"] == "deny":
             reason = f" Their reason: {answer['reason']}" if answer.get("reason") else ""
             return {"behavior": "deny", "message": f"The user did not allow this call.{reason}"}
-        own = RULE_NAMES.get(name)
-        if answer["decision"] == "always" and own:
-            tool = SimpleNamespace(name=own[0], policy="ask", rule_arg=own[1])
-            self.brain.allow_always(run["app"], permissions.always_rule(tool, {own[1]: arguments.get(own[2], "")},
-                                                                        self.profile.get("cwd")))
+        if answer["decision"] == "always":
+            self.brain.allow_always(run["app"], self._always_rule(name, arguments))
         return allow
 
     def _state(self) -> dict:

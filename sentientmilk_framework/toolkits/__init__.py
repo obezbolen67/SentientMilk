@@ -78,19 +78,27 @@ CALLBACK_WAIT = 10  # s a turn of an app that calls back waits for a job or agen
 
 
 class Attention:
-    """What a run must notice at once: the user stopped it, or sent a message while it works. Waits inside
-    tools end early on either (``ToolContext.pause``); the loop stops waiting for anything on a stop."""
+    """What a run must notice at once: the user stopped it, sent a message while it works, or answered what it
+    asked. Waits inside tools end early on a stop or a message (``ToolContext.pause``); the loop stops waiting
+    for anything on a stop. ``held``: the run waits for answers in its own thread (Runs.await_answer), so an
+    answer wakes it there instead of starting it again."""
 
     def __init__(self):
         self.stopped = threading.Event()
         self.woken = threading.Event()  # a stop or a message
+        self.answered = threading.Event()  # a stop or an answer
+        self.held = False
 
     def stop(self) -> None:
         self.stopped.set()
         self.woken.set()
+        self.answered.set()
 
     def message(self) -> None:
         self.woken.set()
+
+    def answer(self) -> None:
+        self.answered.set()
 
     def settle(self) -> None:
         """The loop took the messages: waits go on until the next one."""

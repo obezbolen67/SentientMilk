@@ -361,11 +361,16 @@ def test_moving_on_from_a_waiting_turn_leaves_its_agents_working(brain):
     wait_for(lambda: agent_runs(brain, "completed"))
 
 
-def test_a_stop_from_the_user_stops_the_agents_the_turn_started(brain):
+def test_a_stop_from_the_user_ends_the_turn_and_its_agents_go_on(brain):
+    """Agents are work of their own (2026-11-12): a Stop reached only the agents the stopped turn started or
+    messaged, left them listed as stopped with their names taken, and spared those of earlier turns."""
     hold = threading.Event()
 
     def route(payload):
-        if is_agent(payload) or results(payload):
+        if is_agent(payload):
+            assert hold.wait(10)
+            return "Done."
+        if results(payload):
             assert hold.wait(10)
             return "late"
         return calls(("agent_start", {"name": "fg", "task": "Work."}, "s"))
@@ -375,8 +380,90 @@ def test_a_stop_from_the_user_stops_the_agents_the_turn_started(brain):
     wait_for(lambda: len(main_requests(brain)) == 2 and agent_runs(brain))
     brain.client.cancel(run)
     wait_for(lambda: brain.store.run(run)["status"] == "cancelled")
-    wait_for(lambda: agent_runs(brain)[0]["status"] == "cancelled")
+    assert agent_runs(brain)[0]["status"] == "working"
     hold.set()
+    wait_for(lambda: agent_runs(brain, "completed"))
+    assert [(a["name"], a["status"]) for a in brain.client.agents("cli", "main")] == [("fg", "done")]
+
+
+def test_a_message_that_comes_as_an_agent_writes_its_report_is_read_before_it_ends(brain):
+    """The lead heard "reads it at its next step", but the run ended there and the message stayed unread."""
+    def route(payload):
+        if is_agent(payload):
+            if "Also check B." in text_of(payload):
+                return "Checked A and B."
+            said = brain.brain.agents.message(brain.store.runs(kind="turn")[0], "w", "Also check B.")
+            assert "reads it at its next step" in said
+            return "Checked A."
+        return "Started." if results(payload) else calls(("agent_start", {"name": "w", "task": "Check A."}, "s"))
+
+    brain.provider.replies += [route] * 4
+    turn(brain, "cli", "go")
+    done = wait_for(lambda: agent_runs(brain, "completed"))
+    assert len(agent_runs(brain)) == 1 and done[0]["result"]["reply"] == "Checked A and B."
+    assert "unread" not in done[0]["result"]
+
+
+def test_a_message_to_an_agent_that_is_ending_is_its_next_run(brain):
+    hold = threading.Event()
+
+    def route(payload):
+        if is_agent(payload):
+            if "Then do B." in text_of(payload):
+                return "Did B."
+            assert hold.wait(10)
+            return "Did A."
+        return "Started." if results(payload) else calls(("agent_start", {"name": "w", "task": "Do A."}, "s"))
+
+    brain.provider.replies += [route] * 4
+    turn(brain, "cli", "go")
+    first = wait_for(lambda: agent_runs(brain))[0]
+    assert brain.brain.runs.seal(brain.store.run(first["id"]))  # as its loop does once it has its report
+    said = brain.brain.agents.message(brain.store.runs(kind="turn")[0], "w", "Then do B.")
+    assert "goes on with it" in said
+    hold.set()
+    wait_for(lambda: len(agent_runs(brain, "completed")) == 2)
+    assert [r["result"]["reply"] for r in agent_runs(brain, "completed")] == ["Did B.", "Did A."]
+
+
+def test_an_agent_whose_run_was_cut_short_is_interrupted_and_a_message_goes_on(brain):
+    hold = threading.Event()
+
+    def route(payload):
+        if is_agent(payload):
+            if "Go on." in text_of(payload):
+                return "Finished."
+            assert hold.wait(10)
+            return "late"
+        return "Started." if results(payload) else calls(("agent_start", {"name": "w", "task": "Work."}, "s"))
+
+    brain.provider.replies += [route] * 4
+    turn(brain, "cli", "go")
+    run = wait_for(lambda: agent_runs(brain))[0]
+    brain.brain.runs.cancel(run["id"], "A return went back to before it.")
+    wait_for(lambda: brain.store.run(run["id"])["status"] == "cancelled")
+    hold.set()
+    agent = brain.client.agents("cli", "main")[0]
+    assert (agent["status"], agent["open"]) == ("interrupted", True)
+    brain.brain.agents.message(brain.store.runs(kind="turn")[0], "w", "Go on.")
+    assert wait_for(lambda: agent_runs(brain, "completed"))[0]["result"]["reply"] == "Finished."
+    brain.brain.agents.stop("cli", run["id"])
+    assert not brain.client.agents("cli", "main", all=True)  # stopped: gone, its name free
+
+
+def test_an_agent_that_fails_says_which_message_it_did_not_read(brain):
+    def route(payload):
+        if is_agent(payload):
+            brain.brain.agents.message(brain.store.runs(kind="turn")[0], "w", "Also check B.")
+            return 400
+        return "Started." if results(payload) else calls(("agent_start", {"name": "w", "task": "Check A."}, "s"))
+
+    brain.provider.replies += [route] * 3
+    turn(brain, "cli", "go")
+    wait_for(lambda: agent_runs(brain, "failed"))
+    note = wait_for(lambda: [n["text"] for n in brain.store.events("cli", "main", types=("note",))
+                             if "Agent w (#" in n["text"]])
+    assert "It did not read your message: [A message from the lead] Also check B." in note[0]
 
 
 def test_deleting_a_chat_while_its_agent_works_stops_it_and_it_goes_when_it_ends(brain):

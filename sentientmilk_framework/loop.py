@@ -14,7 +14,7 @@ import threading
 from dataclasses import replace
 from typing import Callable, Dict, Iterable, List, Optional
 
-from . import checkpoint, context, mentions, permissions, transport
+from . import checkpoint, context, permissions, transport
 from . import signals as signal_format
 from .exceptions import BrainError, classify
 from .toolkits import Tool, ToolContext, ToolError, ToolResult, cap, format_result, tool
@@ -205,12 +205,6 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Opt
                    order=list(dict.fromkeys(t.toolkit for t in unique)), origins=origins, withheld=withheld)
 
 
-def _stored(items: List[dict]) -> dict:
-    """What an input event keeps for apps besides its text: its mentions, and the skills the user started."""
-    started = [item["name"] for item in items if item["type"] == "skill"]
-    return {**mentions.stored(items), **({"skills": started} if started else {})}
-
-
 def _parameters(tool_: Tool) -> str:
     return f"Its parameters: {json.dumps(tool_.parameters, ensure_ascii=False)}"
 
@@ -263,7 +257,7 @@ class Loop:
         run = store.run(run_id)
         if not run or run["status"] in TERMINAL:
             return
-        emit = self._emitter(run_id)
+        emit = self.brain.runs.emitter(run_id)
         try:
             store.update_run(run_id, status="working")
             profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
@@ -281,11 +275,11 @@ class Loop:
                 news = brain.memory_news(profile)
                 if news:
                     brain.note(run["app"], run["session"], news)
-            self._log_input(run, profile, emit)
+            self.brain.runs.log_input(run, profile, emit)
             while True:
                 run = store.run(run_id)
                 if run["options"].get("cancel"):
-                    return self._end(run, "cancelled", emit)
+                    return self.brain.runs.end(run, "cancelled", emit)
                 if self._settle(run, profile, toolset, emit):
                     return  # waiting for the user or the app
                 requested = store.run(run_id)['options'].get('compact_requested')
@@ -306,7 +300,7 @@ class Loop:
                     brain.note(run["app"], run["session"], LAST_STEP)
                 if run["kind"] in ("turn", "task"):
                     self.brain.agents.take_mail(run)  # what its agents sent meanwhile
-                self._take_messages(run, emit)
+                self.brain.runs.take_messages(run, emit)
                 message, usage = self._think(run, profile, toolset, emit)
                 store.add_event(run["app"], run["session"], run_id, "assistant", {"message": message, "usage": usage})
                 self._count(run_id, usage)
@@ -323,12 +317,12 @@ class Loop:
                 if self._finish(run, profile, message, emit):
                     return
         except Stopped:
-            self._end(store.run(run_id), "cancelled", emit)
+            self.brain.runs.end(store.run(run_id), "cancelled", emit)
         except Exception as exc:
             error = classify(exc)
             if error.type == "unknown":
                 logger.exception("Run %s failed", run_id)
-            self._end(store.run(run_id), "failed", emit, error=error)
+            self.brain.runs.end(store.run(run_id), "failed", emit, error=error)
 
     def _unless_stopped(self, run_id: int, work: Callable, *args, **kwargs):
         """``work`` on its own thread; a stop ends the wait at once (Stopped) and leaves the work behind."""
@@ -340,21 +334,6 @@ class Loop:
             except concurrent.futures.TimeoutError:
                 if stopped.is_set():
                     raise Stopped()
-
-    def _take_messages(self, run: dict, emit) -> None:
-        """Messages the user sent while the run worked (steering) join the log before the next model call."""
-        runs, store = self.brain.runs, self.brain.store
-        with runs.steer_lock:
-            items = store.run(run["id"])["options"].get("steer") or []
-            if items:
-                store.update_run_options(run["id"], lambda options: {**options, "steer": []})
-            runs.attention(run["id"]).settle()
-        if items:
-            items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], items))
-            content, display = context.input_content(items, {}, reminders=[])
-            logged = store.add_event(run["app"], run["session"], run["id"], "input",
-                                     {"content": content, "display": display, **_stored(items)})
-            emit({"type": "steered", "text": display or "", "id": logged["id"]})
 
     def _tool_news(self, run: dict, profile: dict, toolset: Toolset) -> None:
         """The first turn after an app's tools changed (a plugin installed, an MCP server connected, a toolkit
@@ -376,28 +355,6 @@ class Loop:
         news = context.tools_changed(before, seen) if before is not None else ""
         if news:
             self.brain.note(run["app"], run["session"], news)
-
-    def _emitter(self, run_id: int) -> Callable[[dict], None]:
-        def emit(event: dict) -> None:
-            self.brain.bus.publish(("run", run_id), {"run": run_id, **event})
-        return emit
-
-    def _log_input(self, run: dict, profile: dict, emit) -> None:
-        """The run's input, logged once; apps hear its event id (``input``), the place to return to (rewind.py)."""
-        options = run["options"]
-        if options.get("input") is None or any(e["type"] == "input" for e in self.brain.store.run_events(run["id"])):
-            return
-        reminders = []
-        if profile["signals"] and run["kind"] == "turn":
-            reminders.append(signal_format.FORMAT_REMINDER)
-        if options.get("reply") == "optional":
-            reminders.append(signal_format.OPTIONAL_REPLY)
-        items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], options["input"]))
-        content, display = context.input_content(items, options.get("context") or {}, reminders=reminders)
-        logged = self.brain.store.add_event(run["app"], run["session"], run["id"], "input",
-                                            {"content": content, "display": display, **_stored(items)})
-        self.brain.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
-        emit({"type": "input", "id": logged["id"], "text": display})
 
     def _count(self, run_id: int, usage: dict) -> None:
         run = self.brain.store.run(run_id)
@@ -448,7 +405,7 @@ class Loop:
                 if answer is None:
                     waiting = True
                     if (call["id"], "approval_request") not in asked:
-                        self._ask(run, "approval", call, name, arguments, emit, always_ask=must_ask)
+                        self.brain.runs.ask(run, "approval", call["id"], name, arguments, emit, always_ask=must_ask)
                     continue
                 if answer["decision"] == "deny":
                     reason = f" Their reason: {answer['reason']}" if answer.get("reason") else ""
@@ -466,7 +423,7 @@ class Loop:
                     self._attach(run, answer.get("images") or [])
                 else:  # the app runs it as soon as it is asked: only once the calls before it are done
                     if not waiting and not ready and (call["id"], "action_request") not in asked:
-                        self._ask(run, "action", call, name, arguments, emit)
+                        self.brain.runs.ask(run, "action", call["id"], name, arguments, emit)
                     waiting = True  # with nothing asked yet, the step settles again after the calls before it
                 continue
             if waiting:  # an earlier call waits for an answer: this one runs after it, in the model's order
@@ -503,15 +460,6 @@ class Loop:
                 f" Your tools: {', '.join(toolset.by_name)}."
             raise ToolError(f"There is no tool {name!r}.{hint}{more}")
         return name, tool_, _arguments(call, tool_)
-
-    def _ask(self, run: dict, kind: str, call: dict, name: str, arguments: dict, emit, always_ask: bool = False) -> None:
-        """``always_ask``: the user must answer, even in an app that allows everything on its own."""
-        request = {"call_id": call["id"], "name": name, "arguments": arguments,
-                   **({"always_ask": True} if always_ask else {}),
-                   # an app's pictures fitted to what the model sees reach it as they are: their points stay exact
-                   **({"image_pixels": self.brain.config.values()["image_pixels"]} if kind == "action" else {})}
-        self.brain.store.add_event(run["app"], run["session"], run["id"], f"{kind}_request", request)
-        emit({"type": f"{kind}.requested", **request})
 
     def _run_tools(self, run: dict, profile: dict, ready: list, emit) -> None:
         """Run the calls (read-only ones together), each on its own thread. A stop ends the step at once: calls
@@ -652,7 +600,7 @@ class Loop:
             **state, 'context_tokens': used, 'context_source': source,
             'context_input': input_tokens, 'context_output': output_tokens})
         measured = brain.session_info(run['app'], run['session'])['context']
-        self._emitter(run['id'])({'type': 'context', **measured})
+        self.brain.runs.emitter(run['id'])({'type': 'context', **measured})
         return measured
 
     def _messages(self, run: dict, profile: dict, system, schemas=()) -> List[dict]:
@@ -673,7 +621,7 @@ class Loop:
                         system() if callable(system) else system, schemas)
                     store.add_event(run["app"], run["session"], run["id"], "clearing",
                                     {"ids": sorted(cleared), "after": after})
-                    self._emitter(run["id"])({"type": "cleared", "results": len(cleared)})
+                    self.brain.runs.emitter(run["id"])({"type": "cleared", "results": len(cleared)})
                     self._context(run, profile)
                     continue
             if tokens > context.COMPACT_AT * window and self.compact(run, profile):
@@ -700,7 +648,7 @@ class Loop:
         if cut == 0:
             return False
         older = events[:cut]
-        self._emitter(run["id"])({"type": "compacting"})  # it takes a model call: apps can show it
+        self.brain.runs.emitter(run["id"])({"type": "compacting"})  # it takes a model call: apps can show it
         state = store.session(app, session)["state"]
         if run["options"].get("context_mode") == "reset":
             summary = context.handoff(brain.home / "runs" / str(run["id"]), state.get("todo", []), profile.get("cwd"))
@@ -758,7 +706,7 @@ class Loop:
         brain.refresh_snapshot(profile)
         self._context(run, profile)
         brain.journal.request(app, session)
-        self._emitter(run["id"])({"type": "compacted"})
+        self.brain.runs.emitter(run["id"])({"type": "compacted"})
         return True
 
     def _compact_now(self, run: dict, profile: dict, emit) -> None:
@@ -776,13 +724,14 @@ class Loop:
                                            turn_tools.by_name, turn_tools.toolmap(profile), brain.skills.prompt())
             after = context.estimate_tokens(context.project(events, compaction), system, turn_tools.schemas())
             self._context(run, profile, used=after)
-        self._end(store.run(run["id"]), "completed", emit, extra={"compacted": compacted, "before": before,
+        self.brain.runs.end(store.run(run["id"]), "completed", emit, extra={"compacted": compacted, "before": before,
                                                                     "after": after})
 
     # ============== Ending ==============
 
     def _finish(self, run: dict, profile: dict, message: dict, emit) -> bool:
-        """Handle the final reply; False when a reviewer sent the task back to work."""
+        """Handle the final reply; False when the run goes on: a reviewer sent the task back to work, or a
+        message came that it must read."""
         content = message.get("content") or ""
         values: dict = {}
         if profile["signals"] and run["kind"] == "turn":
@@ -811,27 +760,7 @@ class Loop:
                     self.brain.note(run["app"], run["session"],
                                     f"A reviewer checked your work and it did not pass:\n{verdict}\nFix this, then report again.")
                     return False
-        self._end(run, "completed", emit, reply=reply, signals=values, silent=silent)
+        if not self.brain.runs.seal(run):
+            return False  # a message came as it answered: it reads that first (the next step takes it)
+        self.brain.runs.end(run, "completed", emit, reply=reply, signals=values, silent=silent)
         return True
-
-    def _end(self, run: dict, status: str, emit, reply: str = "", signals: Optional[dict] = None,
-             silent: bool = False, error: Optional[BrainError] = None, extra: Optional[dict] = None) -> None:
-        store = self.brain.store
-        if error and run['options'].get('occurrence'):
-            reply = 'This scheduled task could not finish: ' + error.message
-        result = {"reply": reply, "signals": signals or {}, "silent": silent, **(extra or {})}
-        with self.brain.runs.steer_lock:  # a message that came too late goes back to the app, unread
-            unread = store.run(run["id"])["options"].get("steer") or []
-            if unread:
-                result["unread"] = unread
-            store.add_event(run["app"], run["session"], run["id"], "end",
-                            {"status": status, **result, "error": error.as_dict() if error else None})
-            self.brain.agents.ending({**run, "status": status, "result": result,
-                                      "error": error.as_dict() if error else None})
-            store.update_run(run["id"], status=status, result=result, error=error.as_dict() if error else None)
-        final = store.run(run["id"])
-        if error:
-            emit({"type": "error", "status": status, "error": error.as_dict()})
-        else:
-            emit({"type": "done", "status": status, **result, "usage": final["usage"]})
-        self.brain.runs.finished(final)
