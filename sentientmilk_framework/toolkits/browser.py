@@ -38,7 +38,9 @@ GUIDE = ("Your browser is a Chrome of your own on the user's connection: the sit
          "fill e4, click e5); its reply says what changed. Ids hold while the page lives; after a page changes to "
          "another, use the ids of its new view. What has no id (a canvas, a map) you point at in a picture: "
          "browser_view picture=true, then target \"x,y\" in it. Your tabs (t1, t2...) are this conversation's and "
-         "stay; links that open a new tab or window open one of yours. Sign-ins (unless the user gave you what to "
+         "stay; links that open a new tab or window open one of yours. When the user wants you to use their own "
+         "Chrome (where they are signed in), browser_open in_user_chrome=true opens a tab of yours there, and every "
+         "tool works in it the same; their own tabs are never yours. Sign-ins (unless the user gave you what to "
          "type), checks that you are a human (never try to pass them yourself) and payments are the user's: the "
          "step show puts your browser in front of them for it.")
 
@@ -51,11 +53,14 @@ def _seen(brain, run, arguments):
     "url": "The address to open (https://...); empty with headless: the tab you are in, moved.",
     "new_tab": "Open it in a new tab of yours (keeping the page you are on); otherwise in the tab you are in.",
     "headless": "false: your browser on the user's screen from now on, for them to watch you; true: out of their "
-                "sight again. Leave it out to keep it where it is."})
-def browser_open(ctx: ToolContext, url: str = "", new_tab: bool = False, headless: Optional[bool] = None):
+                "sight again. Leave it out to keep it where it is.",
+    "in_user_chrome": "true: in a tab of yours in the user's own Chrome, signed in as they are there (their saved "
+                      "accounts); false: in your browser again. Leave it out to stay where your tab is."})
+def browser_open(ctx: ToolContext, url: str = "", new_tab: bool = False, headless: Optional[bool] = None,
+                 in_user_chrome: Optional[bool] = None):
     """Open a page in your browser and see it: its text, with an id on each thing you can use (links, buttons,
     fields), to act on with browser_act."""
-    return cap(ctx, ctx.brain.browser.open(ctx, url, new_tab, headless), "page")
+    return cap(ctx, ctx.brain.browser.open(ctx, url, new_tab, headless, in_user_chrome), "page")
 
 
 @tool(readonly=True, rule_arg="site", seen=_seen, args={  # open and act show the page: this is for looking again

@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SentientMilk</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 13px system-ui, sans-serif; width: 320px; margin: 14px; }
+  h1 { font-size: 15px; margin: 0 0 6px; }
+  p { margin: 0 0 10px; opacity: .8; }
+  #state { margin: 0 0 12px; padding: 6px 8px; border-radius: 6px; background: #8882; }
+  label { display: block; margin-bottom: 6px; }
+  input { box-sizing: border-box; width: 100%; padding: 5px; margin-top: 4px; font: 12px monospace; }
+  button { margin-top: 8px; padding: 5px 12px; }
+</style>
+<h1>SentientMilk</h1>
+<p>Lets her use this Chrome, with your sign-ins, in tabs of her own, when you ask her to. Cancel on Chrome's
+  "started debugging" bar stops her at once.</p>
+<div id="state">…</div>
+<label>Connection code (SentientMilk: Tools &gt; Her browser &gt; Your Chrome)
+  <input id="code" autocomplete="off" spellcheck="false"></label>
+<button id="save">Connect</button>
+<script src="popup.js"></script>

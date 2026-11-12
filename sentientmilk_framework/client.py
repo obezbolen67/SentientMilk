@@ -437,13 +437,20 @@ class BrainClient:
     def browser(self) -> dict:
         """Her browser: ``command`` (the Chrome or Edge it uses; empty: none found), ``version``, ``mode`` (off,
         hidden: running out of the user's sight, shown: on their screen), ``shown`` (where it opens next),
-        ``profile`` (its folder), ``has_profile``, ``tabs`` (all conversations')."""
+        ``profile`` (its folder), ``has_profile``, ``tabs`` (all conversations'), ``chrome`` (the user's own
+        Chrome through the extension: ``connected``, ``browser``, ``code`` to give the extension, ``folder`` to
+        add it from, ``error``, ``tabs`` of hers there)."""
         return self._call("GET", "/browser")
 
     def open_browser(self, headless: bool = False) -> dict:
         """Her browser on the user's screen from now on (to sign in to sites for her, or to watch her: she goes on
         using it there), or with ``headless`` out of their sight again."""
         return self._call("POST", "/browser/open", {"headless": headless}, timeout=60)
+
+    def connect_chrome(self) -> dict:
+        """Open SentientMilk's extension in the user's Chrome with the code, so it connects (it must be added to
+        Chrome first: ``chrome.folder`` of browser(), with Load unpacked)."""
+        return self._call("POST", "/browser/connect", timeout=30)
 
     def clear_browser(self) -> dict:
         """Forget what she signed in to (her browser's profile is deleted)."""

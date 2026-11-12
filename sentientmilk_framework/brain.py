@@ -175,6 +175,7 @@ class Brain:
         self.journal.start()
         self.summaries.start()
         self.mcp.start()
+        self.browser.start()
 
     def close(self) -> None:
         self.stopping.set()

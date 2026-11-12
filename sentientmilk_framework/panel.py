@@ -7,6 +7,7 @@ are changed here, through the brain's own API, and every app uses them from its 
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -546,6 +547,18 @@ class Panel(App):
                     yield FlatButton("Show on my screen", id="browser-open")
                     yield FlatButton("Hide", id="browser-hide")
                     yield FlatButton("Forget sign-ins", id="browser-clear", variant="error")
+                yield Static("Your Chrome: she can also use your own Chrome, signed in as you are, in tabs of her "
+                             "own there, when you ask her to. Add the extension once (chrome://extensions > "
+                             "Developer mode > Load unpacked > the folder below), then press Connect (or paste the "
+                             "code into the extension). Cancel on Chrome's bar stops her there.", classes="hint")
+                with Grid(classes="form"):
+                    yield Label("Extension folder")
+                    yield Input(id="t-chrome-folder")
+                    yield Label("Code")
+                    yield Input(id="t-chrome-code")
+                yield Static(id="t-chrome-status")
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Connect my Chrome", id="chrome-connect")
             with Horizontal(classes="buttons"):
                 yield FlatButton("Save", id="t-save", variant="primary")
             with Vertical(classes="card", id="mcp-card"):
@@ -1014,6 +1027,18 @@ class Panel(App):
                 "shown": f"[{WARN}]on your screen[/]"}[status["mode"]]
             line += f" · {status['tabs']} tab{'s' if status['tabs'] != 1 else ''}"
         self.main.query_one("#t-browser-status", Static).update(line)
+        chrome = status["chrome"]
+        self.main.query_one("#t-chrome-folder", Input).value = chrome["folder"]
+        self.main.query_one("#t-chrome-code", Input).value = chrome["code"]
+        if chrome["error"]:
+            words = f"[{WARN}]{escape(chrome['error'])}[/]"
+        elif chrome["connected"]:
+            agent = re.search(r"(Edg|Chrome)/(\d+)", chrome["browser"])
+            name = f"{'Edge' if agent.group(1) == 'Edg' else 'Chrome'} {agent.group(2)}" if agent else "your browser"
+            words = f"[{OK}]connected ({name})[/] · {chrome['tabs']} tab{'s' if chrome['tabs'] != 1 else ''} of hers"
+        else:
+            words = "not connected"
+        self.main.query_one("#t-chrome-status", Static).update("Your Chrome: " + words)
 
     def save_tools(self) -> None:
         listed = [str(option.value) for option in self.main.query_one("#toolkits", SelectionList).options]
@@ -1322,6 +1347,10 @@ class Panel(App):
         elif button == "browser-open":
             self.load_browser(self.call(lambda c: c.open_browser(),
                                         done="Her browser is on your screen: sign in there, or watch her use it."))
+        elif button == "chrome-connect":
+            self.load_browser(self.call(lambda c: c.connect_chrome(),
+                                        done="The extension opened in your Chrome with the code: it connects now "
+                                             "(add it first if Chrome says the page is blocked or missing)."))
         elif button == "browser-hide":
             self.load_browser(self.call(lambda c: c.open_browser(headless=True), done="Her browser is out of sight."))
         elif button == "browser-clear":

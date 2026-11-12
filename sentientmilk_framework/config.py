@@ -44,6 +44,7 @@ DEFAULTS = {
     "super_command": "",  # empty: claude, found on PATH or where its installer puts it
     "browser_command": "",  # her browser (browser.py); empty: Chrome, else Edge, where their installers put them
     "browser_headless": True,  # it opens out of the user's sight (False: on their screen, where they watch her)
+    "browser_extension_port": 48217,  # where the user's Chrome connects, through the extension (0: any free port)
 }
 logger = logging.getLogger(__name__)
 

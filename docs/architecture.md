@@ -569,9 +569,29 @@ read a public page once; computer use stays for the user's own windows.
 **Which Chrome.** Her own: the installed Chrome (else Edge, or `browser_command`) with a
 profile in `<home>/browser/profile`, so what she signs in to stays, and nothing of the
 user's own profile is touched (Chrome 136 and later refuse remote debugging of the default
-profile anyway). Claude in Chrome drives the user's real Chrome through an extension and a
-native messaging host; that needs an extension installed and trusted, and puts her in the
-user's own sessions, which is not what a desktop character should have by default.
+profile anyway). For what needs the user's own accounts there is their Chrome too, through
+an extension (below), never by default: `browser_open in_user_chrome=true`.
+
+**The user's own Chrome.** `extension/` is a Manifest V3 extension (a fixed id, from the
+key in its manifest) that the user adds once with Load unpacked. It connects to the brain
+over a WebSocket on 127.0.0.1 (`extension.py`, port `browser_extension_port`, 48217) with
+the code the panel shows (the port and a token of its own in `browser/extension.json`),
+from its own origin only, and keeps itself awake with a ping every 20 s; it reconnects
+every half minute, and two seconds after a connection it had is lost. The connection is
+then a DevTools protocol connection like her own browser's (`Wire` over the server's
+socket): a page's commands (and its frames' of other sites, by their session ids) go to
+`chrome.debugger` as they are, and what a browser does it answers with the extension APIs
+and tells as the protocol's events: `Target.createTarget` is a window of its own behind
+what the user uses, attach is `chrome.debugger.attach`, windows are `chrome.windows`, a
+tab or window her tab opens is hers too (`Target.targetCreated` with its opener), and a
+download from her tab (the page it came from, else her page on its site) is moved from
+where the user's downloads go to her working folder. So every tool works there as in her
+own browser; a tab says it is in the user's Chrome, and approvals say so. Her tabs there
+stay when the connection goes (SentientMilk restarting, the user pressing Cancel on
+Chrome's "started debugging" bar) and are taken up again by their target at her next call;
+one the user closed opens again at its address. The user's own tabs are never hers.
+Chrome 137 and later no longer add an unpacked extension from the command line; the tests
+use Edge, which still does, as the user's Chrome.
 
 **Out of sight, or on the user's screen.** On Windows it starts (`CreateProcessW` with
 `lpDesktop`) on the brain's hidden desktop, in a job that ends with the brain. Windows
