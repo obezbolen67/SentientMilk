@@ -3,10 +3,11 @@
 An agent started with ``super_agent`` (agents.py) is an ordinary agent to everyone else: a session of its own,
 runs of kind ``agent``, its report in the lead's mailbox, messages, stopping, approvals. Only its engine differs:
 instead of the brain's loop and model, each run is one Claude Code process in headless mode (``claude -p``,
-stream-json both ways) on the super model, at the thinking effort set in the panel (``super_model``,
-``super_effort``). Claude works in the app's folders with Claude Code's own tools. Restricted mode keeps the
-user's own Claude Code settings, hooks, plugins and MCP servers out, confines its file tools to those folders and
-refuses bypassing permissions.
+stream-json both ways, claudecode.py) on the super model, at the thinking effort set in the panel
+(``super_model``, ``super_effort``: the nearest one the model takes). Its models and their names are Claude
+Code's. Claude works in the app's folders with Claude Code's own tools. Restricted mode keeps the user's own
+Claude Code settings, hooks, plugins and MCP servers out, confines its file tools to those folders and refuses
+bypassing permissions.
 
 Claude Code signs in as it does for the user (their Claude account, or their key): nothing is taken out of it,
 and its use counts against their Claude plan. What it does is written into the agent's session as it happens
@@ -24,27 +25,18 @@ import json
 import logging
 import os
 import queue
-import shutil
-import subprocess
 import tempfile
-import threading
 import time
-from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List, Optional
+from typing import Optional
 
 from . import permissions
-from .config import EFFORTS
+from .claudecode import Process, failure, prompt_file
 from .exceptions import BrainError
-from .toolkits.shell import kill_tree
 
 logger = logging.getLogger(__name__)
 
-MODELS = (("claude-opus-5-5", "Opus 5.5"), ("claude-sonnet-5-5", "Sonnet 5.5"), ("claude-haiku-5-5", "Haiku 5.5"),
-          ("claude-fable-5-2", "Fable 5.2"))
-EFFORT_NAMES = {"low": "Low", "medium": "Medium", "high": "High", "xhigh": "Extra high", "max": "Max"}
-assert set(EFFORT_NAMES) == set(EFFORTS)
 # Restricted mode leaves out the tools that run code unless named; these are named, the rest of Claude Code's
 # (scheduling, messaging, design sync...) are not a super agent's.
 TOOLS = "Bash,PowerShell,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task"
@@ -69,74 +61,36 @@ approves your changes when you are asked.
 RESTARTED = "[The brain restarted while you worked: continue the task where you were.]"
 LOST = ("[The Claude Code session you worked in is gone (Claude Code deletes old ones), so you start without "
         "what you did and read before. Look again at what you need.]")
-VERSION_AGE = 600  # seconds a ``claude --version`` answer is kept
-LOOK_AGE = 60  # seconds where claude is stays known
-STDERR_LINES = 30
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
-def label(model: str) -> str:
-    return dict(MODELS).get(model, model)
 
 
 class SuperAgents:
     def __init__(self, brain):
         self.brain = brain
-        self._found = (0.0, None)  # (when, path) of the claude command
-        self._versions: dict = {}  # path -> (when, version)
+        self.claude = brain.claude
         self._live: dict = {}  # run id -> SuperRun while its process works
 
     # ============== Whether there is one ==============
 
-    def command(self) -> Optional[str]:
-        """Claude Code's command: the one set in the panel, or claude where it is found."""
-        configured = self.brain.config.values()["super_command"]
-        if configured:
-            return configured if Path(configured).is_file() else shutil.which(configured)
-        when, found = self._found
-        if time.time() - when > LOOK_AGE:
-            local = Path.home() / ".local" / "bin" / ("claude.exe" if os.name == "nt" else "claude")
-            found = shutil.which("claude") or (str(local) if local.is_file() else None)
-            self._found = (time.time(), found)
-        return found
-
-    def argv(self) -> List[str]:
-        """What starts Claude Code, before its arguments (tests start a stand-in)."""
-        command = self.command()
-        return [command] if command else []
-
-    def version(self) -> str:
-        argv = self.argv()
-        if not argv:
-            return ""
-        when, version = self._versions.get(argv[0], (0.0, ""))
-        if time.time() - when > VERSION_AGE:
-            try:
-                version = subprocess.run(argv + ["--version"], capture_output=True, text=True, timeout=20,
-                                         creationflags=_NO_WINDOW, env=_env()).stdout.strip()
-            except (OSError, subprocess.SubprocessError):
-                version = ""
-            self._versions[argv[0]] = (time.time(), version)
-        return version
-
     def ready(self) -> bool:
-        return bool(self.brain.config.values()["super_model"] and self.argv())
+        """A super model is set and Claude Code is there (whether it can work now, problem() says)."""
+        return bool(self.brain.config.values()["super_model"] and self.claude.argv())
 
     def why_not(self) -> str:
         if not self.brain.config.values()["super_model"]:
             return "There is no super model: the user turned super agents off in SentientMilk (Provider)."
-        return ("Claude Code is not installed on this computer, so there are no super agents: the user installs it "
-                "and signs in to it, or sets where it is in SentientMilk (Provider).")
+        problem = self.claude.problem()
+        return f"{problem.message}, so there are no super agents now. {problem.details or ''}".strip() if problem else ""
 
     def label(self) -> str:
-        return label(self.brain.config.values()["super_model"])
+        return self.claude.label(self.brain.config.values()["super_model"])
 
     def status(self) -> dict:
-        """For the panel and apps: the model and effort, and the Claude Code that runs them."""
+        """For the panel and apps: the model, its name in Claude Code and the effort it starts with."""
         values = self.brain.config.values()
-        return {"model": values["super_model"], "label": label(values["super_model"]),
-                "effort": values["super_effort"], "command": self.command() or "", "version": self.version(),
-                "ready": self.ready(), "models": [list(m) for m in MODELS], "efforts": list(EFFORTS)}
+        model = values["super_model"]
+        return {"model": model, "label": self.label() if model else "", "effort": values["super_effort"],
+                "starts_with": self.claude.effort(model, values["super_effort"]) if model else None,
+                "ready": self.ready()}
 
     # ============== Running ==============
 
@@ -155,12 +109,6 @@ class SuperAgents:
             work.kill()
 
 
-def _env() -> dict:
-    """The brain's environment, without what ties a process to a Claude Code session it may run inside."""
-    return {key: value for key, value in os.environ.items()
-            if not key.startswith(("CLAUDECODE", "CLAUDE_CODE_")) and key not in ("CLAUDE_PID", "CLAUDE_EFFORT")}
-
-
 def _text(content) -> str:
     """A tool result's content as text: a string, or blocks."""
     if isinstance(content, list):
@@ -176,13 +124,11 @@ class SuperRun:
         self.owner, self.brain, self.store = owner, owner.brain, owner.brain.store
         self.run, self.profile, self.emit = run, profile, emit
         self.calls: dict = {}  # tool use id -> (name, input)
-        self.process: Optional[subprocess.Popen] = None
-        self.events: queue.Queue = queue.Queue()
-        self.errors: deque = deque(maxlen=STDERR_LINES)
-        self.readers: List[threading.Thread] = []
-        self.write_lock = threading.Lock()
+        self.process: Optional[Process] = None
         self.reply = ""
         self.resumed = False  # it went on with a Claude Code session of an earlier run
+        self.error: Optional[str] = None  # what Claude Code said went wrong (not signed in, a plan limit...)
+        self.limit: Optional[dict] = None  # the plan's last rate limit news
         # messages sent to the process, and those it took in (it says so: --replay-user-messages). One sent as
         # it works joins the turn after its next tool result, or, as it writes, is a turn of its own after it
         self.said = self.taken = 0
@@ -190,90 +136,54 @@ class SuperRun:
     # ============== The process ==============
 
     def start(self, prompt: str) -> None:
-        values, profile = self.brain.config.values(), self.profile
+        values, profile, claude = self.brain.config.values(), self.profile, self.owner.claude
         roots = profile["roots"]
         folder = profile.get("cwd") or (roots[0] if roots else str(Path.home()))
-        args = self.owner.argv() + [
-            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--replay-user-messages", "--restricted", "--tools", TOOLS, "--strict-mcp-config",
-            "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
-            "--model", values["super_model"], "--effort", values["super_effort"],
-            "--append-system-prompt", PROMPT.format(name=profile["name"]) + self._memory()]
+        # in a file, not on the command line: memory is long, and Windows ends a command line at 32k characters
+        appended = prompt_file(claude.folder, PROMPT.format(name=profile["name"]) + self._memory(), "super-")
+        files = [appended]
+        args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                "--replay-user-messages", "--restricted", "--tools", TOOLS, "--strict-mcp-config",
+                "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
+                "--model", values["super_model"], "--append-system-prompt-file", appended]
+        effort = claude.effort(values["super_model"], values["super_effort"])
+        if effort:
+            args += ["--effort", effort]
         for root in roots:
             if root != folder:
                 args += ["--add-dir", root]
         # the lead's MCP servers too: code that lives in an app the user connected (a game editor) is Claude's
         # as well, and Claude can check it there (2026-11-09: it had none, so the lead wrote it by trial and error)
-        servers, mcp_file = self.brain.mcp.for_claude(profile.get("toolkits") or []), None
+        servers = self.brain.mcp.for_claude(profile.get("toolkits") or [])
         if servers:
             fd, mcp_file = tempfile.mkstemp(prefix="super-mcp-", suffix=".json", dir=self.brain.home)
             with os.fdopen(fd, "w", encoding="utf-8") as config:  # a file, not argv: env and headers may hold keys
                 json.dump({"mcpServers": servers}, config)
             args += ["--mcp-config", mcp_file]
+            files.append(mcp_file)
         resumed = self._state().get("claude_session")  # Claude Code finds it from any folder
         if resumed:
             args += ["--resume", resumed]
         self.resumed = bool(resumed)
-        self.events, self.errors = queue.Queue(), deque(maxlen=STDERR_LINES)
         self.said = self.taken = 0
-        self.process = subprocess.Popen(
-            args, cwd=folder, env=_env(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=_NO_WINDOW,
-            start_new_session=os.name != "nt")
-        process, events, errors = self.process, self.events, self.errors  # this process's: a next one has its own
-        self.readers = [
-            threading.Thread(target=self._read, args=(process, events, errors, mcp_file), daemon=True,
-                             name=f"super-{self.run['id']}"),
-            threading.Thread(target=lambda: errors.extend(line.rstrip() for line in process.stderr), daemon=True)]
-        for reader in self.readers:
-            reader.start()
-        self.send({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize",
-                                                                                "hooks": None}})
+        self.process = Process(claude, args, folder, files)
+        self.process.initialize()
         self.say(prompt)
 
-    @staticmethod
-    def _read(process: subprocess.Popen, events: queue.Queue, errors: deque, mcp_file: Optional[str]) -> None:
-        for line in process.stdout:
-            try:
-                events.put(json.loads(line))
-            except ValueError:
-                errors.append(line.rstrip())
-        if mcp_file:  # it read the file when it started
-            try:
-                os.remove(mcp_file)
-            except OSError:
-                pass
-        events.put(None)  # the end of its output
-
     def send(self, message: dict) -> None:
-        with self.write_lock:
-            try:
-                self.process.stdin.write(json.dumps(message, ensure_ascii=False) + "\n")
-                self.process.stdin.flush()
-            except (OSError, ValueError):
-                pass  # it ended: its end shows in its output
+        self.process.send(message)
 
     def say(self, text: str) -> None:
         self.said += 1
-        self.send({"type": "user", "session_id": "", "parent_tool_use_id": None,
-                   "message": {"role": "user", "content": text}})
+        self.process.say(text)
 
     def close(self) -> None:
         """Its work is done: it ends on its own (it saves its session), and all it wrote is read."""
-        try:
-            self.process.stdin.close()
-        except OSError:
-            pass
-        try:
-            self.process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            self.kill()
-        for reader in self.readers:
-            reader.join(timeout=5)
+        self.process.close()
 
     def kill(self) -> None:
         if self.process is not None:
-            kill_tree(self.process)
+            self.process.kill()
 
     # ============== One run ==============
 
@@ -297,8 +207,9 @@ class SuperRun:
 
     def execute(self) -> None:
         run, runs = self.run, self.brain.runs
-        if not self.owner.argv():
-            raise BrainError("super_unavailable", self.owner.why_not())
+        reason = self.owner.why_not()
+        if reason:
+            raise BrainError("super_unavailable", reason)
         if self.store.run(run["id"])["options"].get("cancel"):  # stopped before it started (or before a restart)
             return runs.end(self.store.run(run["id"]), "cancelled", self.emit)
         runs.log_input(run, self.profile, self.emit)
@@ -329,7 +240,7 @@ class SuperRun:
             if attention.woken.is_set():
                 self._take_messages()
             try:
-                event = self.events.get(timeout=0.2)
+                event = self.process.events.get(timeout=0.2)
             except queue.Empty:
                 continue
             if event is None:
@@ -337,13 +248,13 @@ class SuperRun:
                 if self._gone():
                     return False
                 raise BrainError("super_failed", "Claude Code stopped before it finished",
-                                 "\n".join(self.errors) or None)
+                                 "\n".join(self.process.errors) or None)
             ended = self._handle(event)
             if ended is not None:
                 return ended
 
     def _gone(self) -> bool:
-        return self.resumed and any("No conversation found" in line for line in self.errors)
+        return self.resumed and any("No conversation found" in line for line in self.process.errors)
 
     def _anew(self, message: str) -> str:
         """What a super agent whose Claude Code session is gone starts with: its task, its last report and
@@ -366,9 +277,13 @@ class SuperRun:
             self.store.update_session(run["app"], run["session"], "state",
                                       lambda state: {**state, "claude_session": event["session_id"],
                                                      "claude_run": run["id"]})
+        elif kind == "assistant" and event.get("error"):  # Claude Code's words for it, not Claude's
+            self.error = event["error"]
         elif kind == "assistant":
             for block in (event.get("message") or {}).get("content") or []:
                 self._said(block)
+        elif kind == "rate_limit_event":
+            self.limit = event.get("rate_limit_info") or self.limit
         elif kind == "user" and event.get("isReplay"):
             self.taken += 1
         elif kind == "user":
@@ -447,8 +362,9 @@ class SuperRun:
         if failed:
             if self._gone():
                 return False
-            error = BrainError("super_failed", f"Claude Code could not finish: {reply or event.get('subtype')}",
-                               "\n".join(self.errors) or None)
+            error = failure(self.error, reply, self.limit) if self.error else BrainError(
+                "super_failed", f"Claude Code could not finish: {reply or event.get('subtype')}",
+                "\n".join(self.process.errors) or None)
             runs.end(store.run(run["id"]), "failed", self.emit, error=error)
             return True
         runs.end(store.run(run["id"]), "completed", self.emit, reply=reply,

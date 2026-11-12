@@ -186,10 +186,12 @@ class _Handler(BaseHTTPRequestHandler):
         elif route == ["shutdown"] and method == "POST":
             self._send(200, {"status": "ok"})
             threading.Thread(target=self.server.close, name="sentientmilk-shutdown", daemon=True).start()
-        elif route == ["config"] and method == "GET":  # with the Claude Code that runs super agents
+        elif route == ["config"] and method == "GET":  # with the super agents' model as Claude Code names it
             self._send(200, {**brain.config.public(), "super": brain.superagents.status()})
         elif route == ["config"] and method == "PATCH":
             self._send(200, {**brain.config.update(body), "super": brain.superagents.status()})
+        elif route == ["claude_code"] and method == "GET":  # what the user's Claude Code says about itself
+            self._send(200, brain.claude.status(refresh=query.get("refresh") == "1"))
         elif route == ["models"] and method == "POST":
             if not all(isinstance(body.get(key, ""), str) for key in ("base_url", "api_key")):
                 raise ValueError("base_url and api_key must be strings")

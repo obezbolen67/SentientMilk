@@ -46,17 +46,43 @@ def test_the_panel_shows_the_brain_and_saves_the_provider(brain):
         panel.query_one("#p-budget", Input).value = "512"
         assert panel.query_one("#p-pixels", Input).value == "1600"  # thousand pixels: what the model sees
         panel.query_one("#p-pixels", Input).value = "0"
-        assert panel.query_one("#p-super-model", Select).value == "claude-opus-5-5"  # the default: Opus 5.5, high
-        panel.query_one("#p-super-model", Select).value = "claude-sonnet-5-5"
+        await until(pilot, lambda: panel.claude.get("models"))  # Claude Code's own list, asked off the UI thread
+        assert panel.query_one("#p-super-model", Select).value == "opus"  # the default: its newest Opus, high
+        panel.query_one("#p-super-model", Select).value = "sonnet"
         panel.query_one("#p-super-effort", Select).value = "max"
         await press(pilot, panel, "p-save")
         assert panel.query_one("#p-key", Input).value == ""
-        assert "Sonnet 5.5 · Max effort" in str(panel.query_one("#p-super-status").render())
+        status = str(panel.query_one("#p-super-status").render())
+        assert "Sonnet 9 · High effort" in status and "the most it takes of Max" in status and "✓ ready" in status
+        assert "✓ Claude Code 9.9.9" in str(panel.query_one("#p-claude-status").render())
     run(brain, scenario)
     values = brain.brain.config.values()
     assert (values["model"], values["api_key"], values["request_budget"]) == ("another-model", "sk-replaced", 512 * 1024)
-    assert (values["super_model"], values["super_effort"]) == ("claude-sonnet-5-5", "max")
+    assert (values["super_model"], values["super_effort"]) == ("sonnet", "max")
     assert values["image_pixels"] == 0  # pictures go as the apps send them
+
+
+def test_she_can_think_with_claude_code_chosen_in_the_panel(brain):
+    async def scenario(panel, pilot):
+        panel.action_tab("provider")
+        await until(pilot, lambda: panel.claude.get("models"))
+        assert panel.query_one("#service-card").display and not panel.query_one("#claude-models").display
+        panel.query_one("#p-provider", Select).value = "claude_code"
+        await pilot.pause(0.1)
+        assert not panel.query_one("#service-card").display and panel.query_one("#claude-models").display
+        model = panel.query_one("#p-claude-model", Select)
+        assert ("Default (Opus 9)", "default") in [(str(p), v) for p, v in model._options]  # its names
+        model.value = "sonnet"
+        panel.query_one("#p-claude-effort", Select).value = "high"
+        await press(pilot, panel, "p-save")
+        await until(pilot, lambda: "Claude Code · Sonnet 9" in str(panel.query_one("#state").render()))
+        panel.action_tab("overview")
+        await until(pilot, lambda: "Sonnet 9" in str(panel.query_one("#provider-info").render()))
+        assert "Claude Max" in str(panel.query_one("#provider-info").render())
+    run(brain, scenario)
+    values = brain.brain.config.values()
+    assert (values["provider"], values["claude_model"], values["claude_effort"]) == ("claude_code", "sonnet", "high")
+    assert values["model"] == "sonnet"  # what she thinks with now
 
 
 def test_apps_get_their_persona_and_toolkits_and_memory_is_forgotten_in_its_tab(brain):

@@ -301,10 +301,13 @@ holds the tools.
   approvals, messages and stopping all work the same, and its summary carries `super` (the
   model's name). Only the engine differs:
   - Each run is one Claude Code process in headless mode (`claude -p`, stream-json both
-    ways), on the panel's **super model** (`super_model`, default `claude-opus-5-5`; empty:
-    no super agents) at its **thinking effort** (`super_effort`: low, medium, high, xhigh or
-    max; default high). `super_command` says where `claude` is when it is not found on
-    `PATH` or in `~/.local/bin`.
+    ways, `claudecode.Process`). It runs on the panel's **super model** (`super_model`, Claude
+    Code's name for it, default `opus`: its newest Opus; empty: no super agents) at its
+    **thinking effort** (`super_effort`: low, medium, high, xhigh or max; default high, or the
+    most the model takes). Model names and efforts come from Claude Code itself (11.1).
+    `claude_command` says where `claude` is when it is not found on `PATH` or in
+    `~/.local/bin`. Its prompt and the user's memory go in a file
+    (`--append-system-prompt-file`): on the command line, Windows ends them at 32k characters.
   - It runs in `--restricted` mode: the user's own Claude Code settings, hooks, plugins and
     MCP servers stay out, file tools stay in the app's folders (the session's `cwd`, the
     other roots as `--add-dir`), and bypassing permissions is refused. Its tools are named:
@@ -342,8 +345,10 @@ holds the tools.
     (2026-11-09): next to "do small things yourself", a model judges code it can write as
     small.
   - It signs in as Claude Code does for the user and counts against their Claude plan; the
-    brain takes nothing out of it. `GET /config` carries `super`: the model, effort, the
-    command and its version, and whether it is ready (the panel's Provider page shows it).
+    brain takes nothing out of it. Claude Code's own error words come through as the
+    provider's do (11.1): not signed in, a plan limit and its reset time. `GET /config`
+    carries `super`: the model, its name in Claude Code, the effort set, the one it starts
+    with and whether it is ready (the panel's Provider page shows it).
 
 ### 5.6 Going back to a message
 
@@ -1174,6 +1179,62 @@ Sources: [Claude Code memory](https://code.claude.com/docs/en/memory),
 - `ai.py` shrinks to `provider.py`: one call in, one message out, with streaming and usage.
   The loop moves to `loop.py`, where the event log lives.
 - Strict tool schemas (DeepSeek beta) only if evals show bad tool arguments.
+
+### 11.1 Claude Code as the provider
+
+`provider` is `api` (the OpenAI-compatible service above) or `claude_code`: she thinks with Claude
+through the user's own Claude Code, signed in as they are, on their plan (`claude_provider.py`).
+The loop does not change. It builds the messages from the log, runs her tools, asks the user and
+calls `complete()` for one message at a time.
+
+- **Her tools are Claude Code's tools.** The host serves them as an MCP server over the control
+  protocol (`--mcp-config` with a server of type `sdk`). Claude Code passes each `tools/call` to
+  the host with the tool use's id (`_meta["claudecode/toolUseId"]`). When Claude calls tools,
+  `complete()` returns them as `tool_calls` under her names (`mcp__milk__` is dropped). The next
+  `complete()` answers the waiting calls with the loop's results.
+  - User messages that follow the results go in first, as a user message sent while the calls
+    wait: her notes, pictures from the tools, the user's words. Claude Code gives them to Claude
+    right after the results, as the user's, so they are not read as tool output.
+  - Every tool goes with every request (no `tools_search`/`tools_load`), because Claude Code calls
+    no tool it was not given. `ENABLE_TOOL_SEARCH=false` keeps Claude Code from deferring them.
+  - Claude Code's permission questions are allowed at once: the loop has already decided each
+    call with its rules or with the user.
+- **Warm conversations.** Claude Code holds a conversation of its own, so one process stays warm
+  for each conversation the loop has. It goes on while what the loop sends goes on from what it
+  told the process and got back.
+  - Messages are compared by what they say. Pictures and the words that stand in for dropped ones
+    are left out, because `transport` shrinks older pictures at every step.
+  - A conversation that ended a turn goes on in a new process (`--resume`, with
+    `--system-prompt-snapshot off` so a changed prompt applies) in these cases: its prompt, tools
+    or model changed; it waited too long and was ended (10 minutes idle, an hour while it waits
+    for results); or the brain restarted. Where each conversation ended is kept in
+    `claude-code/conversations.json` for 30 days, as long as Claude Code keeps sessions.
+  - When nothing goes on from what the loop sends, a new session starts. Causes: old results were
+    cleared, the chat was compacted, it returned to before, or it thought with an API service
+    until now. The first message is a record of what came before, followed by what is new.
+    Claude Code's own context management never decides: the loop's log stays the truth.
+- **Helper calls** without tools (titles, compaction, journal notes) are one process each, with
+  no session kept, on `claude_light_model`.
+- **Isolation.** Every process gets `--safe-mode --restricted --tools "" --strict-mcp-config
+  --disable-slash-commands`, and her prompt goes in a file (`--system-prompt-file`). None of the
+  user's CLAUDE.md, settings, hooks, plugins, skills or MCP servers reach her, and Claude Code's
+  own system prompt is replaced. Measured 2026-11-12: about 1.1k tokens of fixed overhead, and no
+  sign of the user's CLAUDE.md.
+- **Models are Claude Code's.** Its `initialize` answer names its models (value, model, display
+  name, the efforts each takes), the account (email, organization, plan), the version and
+  whether it is signed in (`claudecode.py`). That answer is kept for 10 minutes, or 10 seconds
+  when it is a failure (the user may be signing in right now). It is asked again when Claude Code
+  changed on disk, and learned from every process it starts.
+  - `claude_model` (default `default`), `claude_light_model` (`haiku`) and `claude_effort`
+    (`medium`) use its names. A model gets the nearest effort it takes, or none.
+  - An app's own `model` names an API service's model, so on Claude Code it is not used.
+- **Errors in Claude Code's words.** Its assistant `error` (`authentication_failed`,
+  `billing_error`, `rate_limit`...) becomes `claude_code` with what to do, or `plan_limit` with
+  the time it resets (from its `rate_limit_event`). A server error is retried like an API's, and
+  "prompt is too long" compacts. The loop asks `provider_problem()` before a run, so a Claude
+  Code that is not installed or not signed in fails fast, with no process started.
+- `GET /claude_code[?refresh=1]` returns what it said about itself. The panel's Provider page
+  shows it in the Claude Code card, which super agents share.
 
 ## 12. Evaluation
 

@@ -19,6 +19,8 @@ from . import context, mentions, permissions, skills, transport
 from . import signals as signal_format
 from .agents import Agents
 from .browser import Browser
+from .claude_provider import ClaudeCodeProvider
+from .claudecode import ClaudeCode
 from .config import BrainConfig, validate_rules, validate_setting
 from .exceptions import BrainError
 from .journal import Journal
@@ -155,6 +157,7 @@ class Brain:
         self.mcp = McpHost(self)
         self.runs = Runs(self)
         self.agents = Agents(self)
+        self.claude = ClaudeCode(self)  # the user's Claude Code: her super agents', and hers when she thinks with it
         self.superagents = SuperAgents(self)
         self.scheduler = Scheduler(self)
         self.journal = Journal(self)
@@ -176,6 +179,7 @@ class Brain:
         self.summaries.start()
         self.mcp.start()
         self.browser.start()
+        self.claude.known()  # what Claude Code offers, asked now: her first turn already names its models right
 
     def close(self) -> None:
         self.stopping.set()
@@ -184,6 +188,7 @@ class Brain:
         self.summaries.stop()
         self.runs.stop()
         self.superagents.close()
+        self.claude.close()
         self.browser.close()
         self.mcp.stop()
 
@@ -287,7 +292,9 @@ class Brain:
             "toolkits": toolkits, "rules": rules, "roots": list(dict.fromkeys(roots)),
             # the first open folder when none was set: the file tools and the rules' paths start in the same place
             "cwd": overrides.get("cwd") or session_settings.get("cwd") or next(iter(roots), None), "journal": journal,
-            "model": settings.get("model") or values["model"], "light_model": values["light_model"],
+            # an app's own model is one of the API service's: on Claude Code she thinks with Claude Code's
+            "model": (values["provider"] == "api" and settings.get("model")) or values["model"],
+            "light_model": values["light_model"],
             "context_window": values["context_window"], "callbacks": bool(declaration.get("callbacks")),
             "super": self.superagents.label() if self.superagents.ready() else "",  # its agents can be Claude
         }
@@ -299,16 +306,30 @@ class Brain:
         origins = {**{kit: f"from the plugin {plugin}, which the user installed"
                       for kit, plugin in self.plugins.installed().items()},
                    **{kit: "from an MCP server the user added" for kit in servers}}
-        return build_toolset(kits, profile, kind, self.shell_label(), origins)
+        # on Claude Code every tool goes with every request: Claude Code calls none it was not given
+        return build_toolset(kits, profile, kind, self.shell_label(), origins,
+                             defer=self.config.values()["provider"] != "claude_code")
 
     def shell_label(self) -> str:
         return {"powershell": "Windows PowerShell 5.1", "pwsh": "PowerShell 7", "bash": "bash", "sh": "sh",
                 "cmd": "cmd.exe"}[shell_name(self.config.values()["shell"])]
 
-    def provider(self, model: str) -> Provider:
+    def provider(self, model: str):
+        """What she thinks with: ``complete(messages, tools, on_text, stopped)`` -> (message, usage)."""
         values = self.config.values()
+        if values["provider"] == "claude_code":
+            return ClaudeCodeProvider(self.claude, model)
         return Provider(values["base_url"], values["api_key"], model, thinking_mode=values["thinking_mode"],
                         thinking_tokens=values["thinking_tokens"], stream=values["stream"])
+
+    def provider_problem(self) -> Optional[BrainError]:
+        """Why she cannot think now, in words for the user; None when she can."""
+        if self.config.values()["provider"] == "claude_code":
+            return self.claude.problem()
+        if not self.config.values()["api_key"]:
+            return BrainError("config_missing", "SentientMilk has no provider API key",
+                              "Open the SentientMilk control panel (run sentientmilk) and set it under Provider.")
+        return None
 
     # ============== Sessions ==============
 

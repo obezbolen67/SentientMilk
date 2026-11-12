@@ -35,7 +35,7 @@ def clean(text: str) -> str:
 def _name(brain, app: str, session: str) -> None:
     try:
         found = brain.store.find_session(app, session)  # it may be deleted by now
-        if not found or found["settings"].get("title") or not brain.config.values()["api_key"]:
+        if not found or found["settings"].get("title") or brain.provider_problem():
             return
         events = brain.store.events(app, session, types=("input", "end"))
         said = next((e["display"] for e in events if e["type"] == "input" and e.get("display")), "")

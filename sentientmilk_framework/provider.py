@@ -61,8 +61,9 @@ class Provider:
         self.options = thinking_request_options(base_url, thinking_mode, thinking_tokens)
 
     def complete(self, messages: List[dict], tools: Optional[List[dict]] = None,
-                 on_text: Optional[Callable[[str], None]] = None) -> Tuple[dict, dict]:
-        """The assistant message (as the provider sent it, reasoning included) and its usage."""
+                 on_text: Optional[Callable[[str], None]] = None, stopped=None) -> Tuple[dict, dict]:
+        """The assistant message (as the provider sent it, reasoning included) and its usage. ``stopped``: an
+        Event the caller sets when it no longer waits (a request is simply left behind here)."""
         payload = {"model": self.model, "messages": messages, **self.options}
         if tools:
             payload.update(tools=tools, tool_choice="auto")

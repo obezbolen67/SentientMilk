@@ -41,27 +41,55 @@ from textual.widgets import (
 )
 
 from . import __version__, autostart
+from .claudecode import EFFORT_NAMES
 from .client import BrainClient, connect, start_command
 from .config import DEFAULT_BASE_URL, DEFAULT_MODEL, SHELLS
 from .exceptions import BrainError
-from .superagent import EFFORT_NAMES, MODELS
 from .thinking import THINKING_MODES
 
 OK, WARN, BAD, MUTED, ACCENT = "#7bd88f", "#f2c35b", "#ff6b7a", "#8b8fa3", "#b3a4ff"
+PROVIDERS = (("An API service: the key, URL and model below", "api"),
+             ("Claude Code: Claude on your own Claude plan", "claude_code"))
+OFF = ("Off: no super agents", "")
 
 
-def super_line(status: dict, where: bool = True) -> str:
-    """The super model, its effort and the Claude Code that runs it (the brain's ``super`` status); ``where``:
-    with the path of claude."""
+def claude_line(claude: dict) -> str:
+    """The user's Claude Code as it says about itself (the brain's /claude_code)."""
+    if not claude:
+        return f"[{MUTED}]asking Claude Code…[/]"
+    if not claude["command"]:
+        return f"[{BAD}]✗ not found: install Claude Code and sign in to it, or set where it is[/]"
+    name = escape(" ".join(f"Claude Code {claude['version']}".split()))
+    if claude["error"] == "not signed in":
+        return f"[{BAD}]✗ {name} is not signed in: run claude in a terminal and sign in with /login[/]"
+    if claude["error"]:
+        return f"[{BAD}]✗ {name}: {escape(claude['error'])}[/]"
+    account = claude["account"]
+    who = " · ".join(escape(part) for part in (account.get("plan"), account.get("email")) if part)
+    return f"[{OK}]✓ {name}[/]" + (f" · {who}" if who else "")
+
+
+def super_line(status: dict, claude: dict) -> str:
+    """The super model and its effort (the brain's ``super`` status), and whether Claude Code can run it."""
     if not status:
         return f"[{MUTED}]unknown (an older brain)[/]"
     if not status["model"]:
         return f"[{MUTED}]off: apps have no super agents[/]"
-    head = f"{escape(status['label'])} · {EFFORT_NAMES.get(status['effort'], status['effort'])} effort"
-    if not status["command"]:
-        return f"{head} · [{BAD}]✗ Claude Code not found: install it and sign in, or set its path[/]"
-    path = f" [{MUTED}]{escape(status['command'])}[/]" if where else ""
-    return f"{head} · [{OK}]✓ {escape(status['version'] or 'Claude Code')}[/]{path}"
+    effort, starts = status["effort"], status.get("starts_with", status["effort"])
+    head = escape(status["label"]) + (f" · {EFFORT_NAMES[starts]} effort" if starts else "")
+    if starts and starts != effort:
+        head += f" [{MUTED}](the most it takes of {EFFORT_NAMES[effort]})[/]"
+    if not claude:
+        return head
+    ready = claude["command"] and not claude["error"]
+    return head + (f" · [{OK}]✓ ready[/]" if ready else f" · [{BAD}]✗ Claude Code is not ready[/]")
+
+
+def model_options(claude: dict, *chosen: str) -> List[Tuple[str, str]]:
+    """Claude Code's models for a Select ("Opus 5.5 · For complex work"), and any chosen one it does not list."""
+    options = [(m["label"] + (f" · {m['about']}" if m["about"] and m["value"] != "default" else ""), m["value"])
+               for m in (claude or {}).get("models", [])]
+    return options + [(value, value) for value in chosen if value and value not in {v for _, v in options}]
 
 
 THEME = Theme(name="sentientmilk", primary=ACCENT, secondary="#7fd1c7", accent="#ffd59e", foreground="#e9e6f2",
@@ -326,6 +354,7 @@ class Panel(App):
         self.state = "stopped"
         self.health: dict = {}
         self.settings: dict = {}
+        self.claude: dict = {}  # what the user's Claude Code said about itself, through the brain
         self.app_id: Optional[str] = None
         self.app_record: dict = {}
         self.log_offset = 0
@@ -391,9 +420,31 @@ class Panel(App):
             yield Static(id="activity")
 
     def compose_provider(self) -> ComposeResult:
-        yield Static("Which AI service SentientMilk thinks with. Keys are write-only: the brain never shows "
-                     "them again; leave a key field empty to keep the saved one.", classes="hint")
+        yield Static("What SentientMilk thinks with. Keys are write-only: the brain never shows them again; leave "
+                     "a key field empty to keep the saved one.", classes="hint")
         with VerticalScroll():
+            with Vertical(classes="card", id="engine-card"):
+                with Grid(classes="form"):
+                    yield Label("She thinks with")
+                    yield Select(PROVIDERS, allow_blank=False, id="p-provider")
+            with Vertical(classes="card", id="claude-card"):
+                yield Static("Your own Claude Code, signed in as you: Claude through it, on your plan. Super agents "
+                             "always use it; she does too when she thinks with Claude Code.", classes="hint")
+                yield Static(id="p-claude-status")
+                with Grid(classes="form"):
+                    yield Label("Where it is")
+                    with Horizontal(classes="field"):
+                        yield Input(placeholder="found by itself (default) · or the path of claude",
+                                    id="p-claude-command")
+                        yield FlatButton("Check again", id="p-claude-refresh")
+                with Grid(classes="form", id="claude-models"):
+                    yield Label("Model")
+                    yield Select([("Default", "default")], allow_blank=False, id="p-claude-model")
+                    yield Label("Model for helpers")
+                    yield Select([("Haiku", "haiku")], allow_blank=False, id="p-claude-light")
+                    yield Label("Thinking effort")
+                    yield Select([(name, effort) for effort, name in EFFORT_NAMES.items()], allow_blank=False,
+                                 id="p-claude-effort")
             with Vertical(classes="card", id="service-card"):
                 with Grid(classes="form"):
                     yield Label("API key")
@@ -427,17 +478,14 @@ class Panel(App):
                     yield Label("Brave search key")
                     yield Input(password=True, id="p-web-key")
             with Vertical(classes="card", id="super-card"):
-                yield Static("Super agents do the apps' code and hard thinking: Claude, through your own Claude "
-                             "Code (its sign-in, its plan). Off: the apps' own model does it.", classes="hint")
+                yield Static("Super agents do the apps' code and hard thinking: Claude, through your Claude Code "
+                             "(above). Off: her own agents do it.", classes="hint")
                 with Grid(classes="form"):
                     yield Label("Super model")
-                    yield Select([(name, model) for model, name in MODELS] + [("Off: no super agents", "")],
-                                 allow_blank=False, id="p-super-model")
+                    yield Select([("Opus", "opus"), OFF], allow_blank=False, id="p-super-model")
                     yield Label("Thinking effort")
                     yield Select([(name, effort) for effort, name in EFFORT_NAMES.items()], allow_blank=False,
                                  id="p-super-effort")
-                    yield Label("Claude Code")
-                    yield Input(placeholder="found by itself (default) · or the path of claude", id="p-super-command")
                 yield Static(id="p-super-status")
             with Horizontal(classes="buttons"):
                 yield FlatButton("Save", id="p-save", variant="primary")
@@ -601,7 +649,8 @@ class Panel(App):
         self.register_theme(THEME)
         self.theme = "sentientmilk"
         for card, title in (("brain-card", "Brain"), ("provider-card", "Provider"), ("usage-card", "Usage by app"),
-                            ("activity-card", "Activity"), ("service-card", "Service"),
+                            ("activity-card", "Activity"), ("engine-card", "Thinks with"),
+                            ("claude-card", "Claude Code"), ("service-card", "API service"),
                             ("thinking-card", "Thinking and requests"), ("super-card", "Super model"),
                             ("apps-pane", "Apps"),
                             ("persona-card", "Persona"), ("app-settings-card", "Settings"),
@@ -717,7 +766,10 @@ class Panel(App):
         self.show_state()
         live = {"overview": self.load_overview, "apps": self.load_app_tables, "work": self.load_work,
                 "journal": self.load_memory, "tools": self.load_mcp, "plugins": self.load_plugins}
-        live.get(self.main.query_one(TabbedContent).active, lambda: None)()
+        active = self.main.query_one(TabbedContent).active
+        live.get(active, lambda: None)()
+        if active in ("overview", "provider") and self.state == "running":  # signed in or out meanwhile
+            self.load_claude()
 
     # ============== Overview ==============
 
@@ -727,8 +779,13 @@ class Panel(App):
             self.health = self.call(lambda c: c.health(), quiet=True) or {}
             self.settings = self.call(lambda c: c.config(), quiet=True) or self.settings
         state = self.state if client or self.state == "starting" else "stopped"
-        model = self.settings.get("model") or DEFAULT_MODEL
-        key = f"[{OK}]key ✓[/]" if self.settings.get("api_key_set") else f"[{BAD}]no API key ✗[/]"
+        if self.settings.get("provider") == "claude_code":
+            model = "Claude Code · " + self.model_label(self.settings["claude_model"])
+            ready = self.claude and self.claude["command"] and not self.claude["error"]
+            key = f"[{OK}]✓[/]" if ready else f"[{BAD}]not ready ✗[/]" if self.claude else ""
+        else:
+            model = self.settings.get("model") or DEFAULT_MODEL
+            key = f"[{OK}]key ✓[/]" if self.settings.get("api_key_set") else f"[{BAD}]no API key ✗[/]"
         if state == "running" and self.health:
             text = (f"[{OK}]● running[/]  [{MUTED}]pid {self.health.get('pid')} · {client.url.split('//')[-1]} · "
                     f"up {uptime(self.health.get('started'))}[/]   {escape(model)}  {key}")
@@ -754,16 +811,26 @@ class Panel(App):
         self.main.query_one("#brain-info", Static).update(self.lines(rows))
         self.show_autostart()
         thinking = dict((v, k) for k, v in THINKING_MODES).get(settings.get("thinking_mode"), "?")
-        provider = [
-            ("Service", escape(settings.get("base_url") or f"{DEFAULT_BASE_URL} (default)")),
-            ("Model", escape(settings.get("model") or f"{DEFAULT_MODEL} (default)")),
-            ("Helpers", escape(settings.get("light_model") or "same model")),
-            ("API key", f"[{OK}]✓ saved[/]" if settings.get("api_key_set")
-             else f"[{BAD}]✗ missing: apps cannot think until you add one[/]"),
-            ("Thinking", f"{thinking} · images {'on' if settings.get('vision', True) else 'off'}"),
+        if settings.get("provider") == "claude_code":
+            provider = [
+                ("Service", claude_line(self.claude)),
+                ("Model", escape(self.model_label(settings["claude_model"]))
+                 + f" · {EFFORT_NAMES[settings['claude_effort']]} effort"),
+                ("Helpers", escape(self.model_label(settings["claude_light_model"]))),
+            ]
+        else:
+            provider = [
+                ("Service", escape(settings.get("base_url") or f"{DEFAULT_BASE_URL} (default)")),
+                ("Model", escape(settings.get("model") or f"{DEFAULT_MODEL} (default)")),
+                ("Helpers", escape(settings.get("light_model") or "same model")),
+                ("API key", f"[{OK}]✓ saved[/]" if settings.get("api_key_set")
+                 else f"[{BAD}]✗ missing: apps cannot think until you add one[/]"),
+                ("Thinking", f"{thinking} · images {'on' if settings.get('vision', True) else 'off'}"),
+            ]
+        provider += [
             ("Web search", f"[{OK}]✓ Brave key saved[/]" if settings.get("web_search_key_set")
              else f"[{MUTED}]no Brave key (pages can still be read)[/]"),
-            ("Super model", super_line(settings.get("super") or {}, where=False)),
+            ("Super model", super_line(settings.get("super") or {}, self.claude)),
         ]
         self.main.query_one("#provider-info", Static).update(self.lines(provider))
         stats = self.call(lambda c: c.stats(), quiet=True) or {"apps": {}}
@@ -813,18 +880,71 @@ class Panel(App):
         self.main.query_one("#p-pixels", Input).value = str(settings["image_pixels"] // 1000)
         self.main.query_one("#p-stream", Switch).value = settings["stream"]
         self.main.query_one("#p-budget", Input).value = str(settings["request_budget"] // 1024)
-        model = self.main.query_one("#p-super-model", Select)
-        if settings["super_model"] not in dict(MODELS) and settings["super_model"]:  # one set by hand
-            model.set_options([(name, m) for m, name in MODELS] + [(settings["super_model"], settings["super_model"]),
-                                                                    ("Off: no super agents", "")])
-        model.value = settings["super_model"]
+        self.main.query_one("#p-provider", Select).value = settings["provider"]
+        self.main.query_one("#p-claude-command", Input).value = settings["claude_command"]
+        self.main.query_one("#p-claude-effort", Select).value = settings["claude_effort"]
         self.main.query_one("#p-super-effort", Select).value = settings["super_effort"]
-        self.main.query_one("#p-super-command", Input).value = settings["super_command"]
-        self.main.query_one("#p-super-status", Static).update(super_line(settings.get("super") or {}))
+        for field, key in (("#p-claude-model", "claude_model"), ("#p-claude-light", "claude_light_model"),
+                           ("#p-super-model", "super_model")):
+            self.choose(field, settings[key])
+        self.show_kind(settings["provider"])
+        self.show_claude(self.claude)
+        self.load_claude()
+
+    def choose(self, field: str, value: str) -> None:
+        """A model select set to ``value``, with Claude Code's models (and ``value``, if it lists no such one)."""
+        select = self.main.query_one(field, Select)
+        select.set_options(model_options(self.claude, value) + ([OFF] if field == "#p-super-model" else []))
+        select.value = value
+        select._watch_value(value)  # Textual 8 keeps the old option's words when the value stays the same
+
+    def model_label(self, value: str) -> str:
+        return next((m["label"] for m in self.claude.get("models", []) if m["value"] == value), value)
+
+    def show_kind(self, kind: str) -> None:
+        """The API service's card for an API service, Claude Code's models for Claude Code."""
+        self.main.query_one("#service-card").display = kind != "claude_code"
+        self.main.query_one("#claude-models").display = kind == "claude_code"
+
+    @on(Select.Changed, "#p-provider")
+    def kind_chosen(self, event: Select.Changed) -> None:
+        self.show_kind(str(event.value))
+
+    @work(thread=True, exclusive=True, group="claude")
+    def load_claude(self, refresh: bool = False) -> None:
+        """What the user's Claude Code says about itself, off the panel's thread (asking it takes a second)."""
+        client = self.client
+        if client is None:
+            return
+        try:
+            claude = client.claude_code(refresh)
+        except BrainError as exc:
+            if refresh:
+                self.call_from_thread(self.notify, exc.message, severity="error")
+            return
+        self.call_from_thread(self.show_claude, claude, refresh)
+
+    def show_claude(self, claude: dict, told: bool = False) -> None:
+        if claude.get("models") != self.claude.get("models"):  # the choices change, the chosen ones stay
+            self.claude = claude
+            for field in ("#p-claude-model", "#p-claude-light", "#p-super-model"):
+                self.choose(field, self.main.query_one(field, Select).value)
+        self.claude = claude
+        where = f"\n[{MUTED}]{escape(claude['command'])}[/]" if claude.get("command") else ""
+        self.main.query_one("#p-claude-status", Static).update(claude_line(claude) + where)
+        self.main.query_one("#p-super-status", Static).update(super_line(self.settings.get("super") or {}, claude))
+        if told:
+            self.notify("Claude Code checked." if claude and not claude["error"] and claude["command"]
+                        else "Claude Code is not ready: see its card.", severity="information")
 
     def save_provider(self) -> None:
         try:
             changes = {
+                "provider": self.main.query_one("#p-provider", Select).value,
+                "claude_command": self.main.query_one("#p-claude-command", Input).value.strip(),
+                "claude_model": self.main.query_one("#p-claude-model", Select).value,
+                "claude_light_model": self.main.query_one("#p-claude-light", Select).value,
+                "claude_effort": self.main.query_one("#p-claude-effort", Select).value,
                 "base_url": self.main.query_one("#p-base-url", Input).value.strip(),
                 "model": self.main.query_one("#p-model", Input).value.strip(),
                 "light_model": self.main.query_one("#p-light", Input).value.strip(),
@@ -837,7 +957,6 @@ class Panel(App):
                 "request_budget": number(self.main.query_one("#p-budget", Input), "Request size limit") * 1024,
                 "super_model": self.main.query_one("#p-super-model", Select).value,
                 "super_effort": self.main.query_one("#p-super-effort", Select).value,
-                "super_command": self.main.query_one("#p-super-command", Input).value.strip(),
             }
         except ValueError as exc:
             return self.notify(str(exc), severity="error")
@@ -1328,6 +1447,9 @@ class Panel(App):
             self.action_tab("provider")
         elif button == "p-save":
             self.save_provider()
+        elif button == "p-claude-refresh":
+            self.notify("Asking Claude Code…")
+            self.load_claude(refresh=True)
         elif button == "p-models":
             self.list_models(self.main.query_one("#p-base-url", Input).value.strip(),
                              self.main.query_one("#p-key", Input).value.strip())

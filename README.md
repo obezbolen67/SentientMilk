@@ -20,7 +20,7 @@ folders an app allows. Only connect apps you trust.
 
 ```bash
 python -m pip install -e ".[dev]"     # ".[mcp]" adds MCP support without the test tools
-sentientmilk                          # the control panel: set the API key under Provider
+sentientmilk                          # the control panel: set the API key (or Claude Code) under Provider
 sentientmilk chat                     # a coding agent in the current folder
 ```
 
@@ -48,9 +48,11 @@ stay out of the folder.
 none runs and shows it live:
 
 - **Overview**: state, address, uptime, the provider, token use per app, tasks, schedules.
-- **Provider**: service URL, model (with a model list from the service), keys (write-only),
-  thinking, context window, images and the picture size the model sees, streaming, request budget,
-  shell.
+- **Provider**: what she thinks with: an API service (service URL, model with a model list from the
+  service, keys write-only) or Claude Code (its model, helpers' model and effort, from Claude Code's own
+  list). The Claude Code card shows its version, sign-in and plan, and is shared with super agents.
+  Also: thinking, context window, images and the picture size the model sees, streaming, request
+  budget, shell.
 - **Apps**: each connected app's persona, model, toolkits and conversations.
 - **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: what the brain remembers for
   every app (with the app that saved each entry), where single entries can be forgotten, and the
@@ -185,11 +187,18 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
   `agent.updated` as agents start and end; `client.agents(app, session)`, `client.agent(id)`
   and `client.stop_agent(id)` (which deletes it) let them show and stop agents. Agents are work
   of their own: stopping her turn leaves them working.
+- **Claude Code as her provider**: with `provider` `claude_code` she thinks with Claude through the
+  user's own Claude Code, signed in as they are, on their plan. Her tools reach Claude through an MCP
+  server the brain serves to Claude Code; the loop, approvals and her log stay hers. One Claude Code
+  process stays warm per conversation and goes on after a restart (`--resume`). None of the user's
+  CLAUDE.md, settings, plugins or MCP servers reach her. Models, efforts and the account come from
+  Claude Code itself (`client.claude_code()`). See docs/architecture.md, 11.1.
 - **Super agents** are agents Claude does, through the user's own Claude Code, for code and
-  deep thinking: `agent_start(..., super_agent=true)`. The model and its thinking effort (low
-  to max) are set under Provider > Super model in the control panel (default: Opus 5.5, high).
-  They work like any agent, asking before changes; they need Claude Code installed and signed
-  in, and use the user's Claude plan.
+  deep thinking: `agent_start(..., super_agent=true)`. The model (Claude Code's names) and its
+  thinking effort (low to max, or the most the model takes) are set under Provider > Super model
+  in the control panel (default: `opus`, Claude Code's newest Opus, high). They work like any
+  agent, asking before changes; they need Claude Code installed and signed in, and use the
+  user's Claude plan.
 - **Tools on demand**: requests carry only the core tools plus `tools_search` and
   `tools_load`; the rest are listed with their parameters and loaded into the conversation when needed, so
   the tool list (and the prompt cache) stays the same. An action declared with
@@ -328,6 +337,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | Request | Does |
 | --- | --- |
 | `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
+| `GET /claude_code[?refresh=1]` | the user's Claude Code as it says: version, signed in, account, models with their efforts |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
 | `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app: `entries`, each with the app that saved it |
 | `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); one never used reads as empty and is not made by the GET; deleting it and its history, refused (409 `busy`) while a turn of it goes on |
@@ -357,7 +367,7 @@ key is only ever sent to the stored `base_url`.
 
 ## Settings
 
-`api_key`, `base_url`, `model`, `light_model` (compaction summaries, titles, journal notes, reviewers; empty:
+`provider` (`api`: the service below; `claude_code`: the user's Claude Code), `api_key`, `base_url`, `model`, `light_model` (compaction summaries, titles, journal notes, reviewers; empty:
 the same as `model`), `context_window` (128000), `thinking_mode` (`default`, `none`,
 `minimal`, `low`, `medium`, `high`, `xhigh` or `tokens`), `thinking_tokens`, `vision`,
 `image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
@@ -365,7 +375,10 @@ sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, 
 `task_workers` (2), `rules`, `disabled_toolkits`, `session_summaries` (true: the model goes over
 each conversation as it ends), `browser_command` (empty: Chrome, else Edge, where their installers put them),
 `browser_headless` (true: her browser opens out of sight; false: on the user's screen), `browser_extension_port`
-(48217: where the user's Chrome connects through the extension).
+(48217: where the user's Chrome connects through the extension). Claude Code: `claude_command` (empty: found on
+`PATH` or in `~/.local/bin`), `claude_model` (`default`), `claude_light_model` (`haiku`), `claude_effort`
+(`medium`), `super_model` (`opus`; empty: no super agents), `super_effort` (`high`); models are Claude Code's
+names or full ids.
 
 ## Development
 
@@ -380,7 +393,8 @@ sentientmilk eval                  # 10 real tasks against the configured model
 ```
 
 `sentientmilk_framework.testing.FakeProvider` stands in for the provider in tests, for
-this repository and for apps. `tests/test_panel.py` drives the panel headless.
+this repository and for apps; `tests/fake_claude.py` stands in for Claude Code (every test gets it,
+never the user's own). `tests/test_panel.py` drives the panel headless.
 
 ## Repository layout
 

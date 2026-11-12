@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SentientMilk",
   "description": "Lets her use this Chrome, with your sign-ins, in tabs of her own, when you ask her to.",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyK762G3nPpTaQnT9blTVhX2bAnAynYPqc7kXlUr7JoxSRb7bDxY8kF0oE7TW6E3KDQUAeef14A3J7a/Ovz3OltJhkbLtwPw5Ej9P+qpcAiivLOwgrMkBmCdfRxLMtgucHcn0bmlzx8wk/T3uWoRAhdJkjVGF1xlBLLTGwlVP6tJ9M0qtQIbV053xyeSebpHkXEht+oEYXkEP6snhOhMkuuzL0gzUJ8ETDj3mMSYEC8YWpqegp3fJwCdH1kwdJJjOJc4GDZ1+dXzoaOVlXANy/QWpj7Bgzb5QzWByXc/u0yTsWE1aSWGVPB3/zM+EZFCxw/vS3suCPWqJtwyTpcCXpwIDAQAB",
   "background": {"service_worker": "background.js"},
   "permissions": ["debugger", "tabs", "tabGroups", "downloads", "storage", "alarms"],

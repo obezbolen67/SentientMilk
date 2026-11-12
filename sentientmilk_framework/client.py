@@ -133,6 +133,12 @@ class BrainClient:
     def update_config(self, **changes: Any) -> dict:
         return self._call("PATCH", "/config", changes)
 
+    def claude_code(self, refresh: bool = False) -> dict:
+        """The user's Claude Code as it says: ``command``, ``version``, ``signed_in``, ``account`` (email,
+        organization, plan, provider), ``models`` (value, model, label, about, efforts), ``error``, ``checked``.
+        ``refresh``: asked now, not as kept."""
+        return self._call("GET", "/claude_code" + ("?refresh=1" if refresh else ""))
+
     def models(self, base_url: Optional[str] = None, api_key: Optional[str] = None) -> List[str]:
         payload = {key: value for key, value in (("base_url", base_url), ("api_key", api_key)) if value}
         return self._call("POST", "/models", payload)["models"]

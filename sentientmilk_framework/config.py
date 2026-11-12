@@ -1,4 +1,5 @@
-"""The brain's settings: provider, models, the super model, her browser, limits, tool keys and permission rules.
+"""The brain's settings: what she thinks with (an API service or Claude Code), models, the super model, her
+browser, limits, tool keys and permission rules.
 
 Stored as JSON in the brain's home. Secrets are never returned through the
 API; apps only learn whether they are set.
@@ -21,6 +22,7 @@ DEFAULT_BASE_URL = "https://api.refuseless.com/v1"
 DEFAULT_MODEL = "deepseek-v4.1-flash-fast"
 
 DEFAULTS = {
+    "provider": "api",  # what she thinks with: "api" (the service below) or "claude_code" (claude_provider.py)
     "api_key": "",
     "base_url": "",  # empty: DEFAULT_BASE_URL
     "model": "",  # empty: DEFAULT_MODEL
@@ -38,10 +40,14 @@ DEFAULTS = {
     "rules": {"allow": [], "ask": [], "deny": []},
     "disabled_toolkits": [],
     "session_summaries": True,  # she goes over each conversation as it ends and keeps what matters (summaries.py)
+    # The user's own Claude Code (claudecode.py): models are its names ("default", "opus", "haiku") or full ids
+    "claude_command": "",  # empty: claude, found on PATH or where its installer puts it
+    "claude_model": "default",  # when she thinks with Claude Code
+    "claude_light_model": "haiku",  # her helpers' (titles, compaction, notes, reviewers) on Claude Code
+    "claude_effort": "medium",  # the nearest one a model takes, if it takes any
     # Super agents (superagent.py): Claude, through the user's own Claude Code, for code and hard thinking.
-    "super_model": "claude-opus-5-5",  # empty: no super agents
+    "super_model": "opus",  # empty: no super agents
     "super_effort": "high",
-    "super_command": "",  # empty: claude, found on PATH or where its installer puts it
     "browser_command": "",  # her browser (browser.py); empty: Chrome, else Edge, where their installers put them
     "browser_headless": True,  # it opens out of the user's sight (False: on their screen, where they watch her)
     "browser_extension_port": 48217,  # where the user's Chrome connects, through the extension (0: any free port)
@@ -52,9 +58,11 @@ SECRETS = ("api_key", "web_search_key")
 MIN_BUDGET, MAX_BUDGET = 128 * 1024, 16 * 1024 * 1024
 MIN_PIXELS = 65_536  # 256 x 256
 OLD_BUDGET = 800 * 1024  # the default before 0.9: saved with the rest, it is not a choice of the user's
+OLD_SUPER_MODEL = "claude-opus-5-5"  # the default before 0.15 (now "opus": Claude Code's newest Opus), saved alike
 SHELLS = ("", "powershell", "pwsh", "bash", "sh", "cmd")
 RULE_KINDS = ("allow", "ask", "deny")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")  # Claude Code's --effort
+PROVIDERS = ("api", "claude_code")
 
 
 def normalize_base_url(base_url: str) -> str:
@@ -98,8 +106,12 @@ def validate_setting(key, value):
         raise ValueError(f"shell must be one of: {', '.join(s or '(empty)' for s in SHELLS)}")
     elif key == "rules":
         value = validate_rules(value)
-    elif key == "super_effort" and value not in EFFORTS:
-        raise ValueError(f"super_effort must be one of: {', '.join(EFFORTS)}")
+    elif key in ("super_effort", "claude_effort") and value not in EFFORTS:
+        raise ValueError(f"{key} must be one of: {', '.join(EFFORTS)}")
+    elif key == "provider" and value not in PROVIDERS:
+        raise ValueError(f"provider must be one of: {', '.join(PROVIDERS)}")
+    elif key in ("claude_model", "claude_light_model"):
+        value = value.strip() or DEFAULTS[key]
     elif key == "disabled_toolkits" and not all(isinstance(item, str) for item in value):
         raise ValueError("disabled_toolkits must be a list of toolkit names")
     elif isinstance(value, str):
@@ -120,6 +132,10 @@ class BrainConfig:
                 raise ValueError("top level is not an object")
             if stored.get("request_budget") == OLD_BUDGET:
                 del stored["request_budget"]
+            if stored.get("super_model") == OLD_SUPER_MODEL:
+                del stored["super_model"]
+            if "super_command" in stored and "claude_command" not in stored:  # its name before 0.15
+                stored["claude_command"] = stored["super_command"]
             self._values.update({key: validate_setting(key, stored[key]) for key in DEFAULTS if key in stored})
         except (OSError, ValueError) as exc:
             # Keep the unreadable file so a later save cannot destroy its contents.
@@ -135,6 +151,8 @@ class BrainConfig:
         values["base_url"] = values["base_url"] or DEFAULT_BASE_URL
         values["model"] = values["model"] or DEFAULT_MODEL
         values["light_model"] = values["light_model"] or values["model"]
+        if values["provider"] == "claude_code":  # her models are Claude Code's, and Claude sees pictures
+            values.update(model=values["claude_model"], light_model=values["claude_light_model"], vision=True)
         return values
 
     def public(self) -> dict:

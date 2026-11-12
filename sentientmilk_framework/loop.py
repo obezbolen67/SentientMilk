@@ -174,7 +174,9 @@ def meta_tools(toolset: Toolset) -> List[Tool]:
     return [tools_search, tools_load]
 
 
-def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Optional[Dict[str, str]] = None) -> Toolset:
+def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Optional[Dict[str, str]] = None,
+                  defer: bool = True) -> Toolset:
+    """``defer``: the tools that are not core are loaded when needed (see Toolset); else all go with each request."""
     tools: List[Tool] = []
     for internal in ('history', 'continuation'):
         if internal in kits:
@@ -199,7 +201,7 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Opt
     if kind in ("task", "agent"):
         tools.append(task_progress)  # every worker keeps notes that outlive its context
     unique = list({t.name: t for t in tools}.values())
-    return Toolset([t for t in unique if t.core], [t for t in unique if not t.core],
+    return Toolset([t for t in unique if t.core or not defer], [t for t in unique if defer and not t.core],
                    {name: kit.description for name, kit in kits.items()},
                    parts=[name for name, kit in kits.items() if kit.part],
                    order=list(dict.fromkeys(t.toolkit for t in unique)), origins=origins, withheld=withheld)
@@ -263,9 +265,9 @@ class Loop:
             profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
             if run["options"].get("super"):  # Claude does it, through Claude Code (superagent.py)
                 return brain.superagents.execute(run, profile, emit)
-            if not brain.config.values()["api_key"]:
-                raise BrainError("config_missing", "SentientMilk has no provider API key",
-                                 "Open the SentientMilk control panel (run sentientmilk) and set it under Provider.")
+            problem = brain.provider_problem()
+            if problem:
+                raise problem
             if run["kind"] == "compact":
                 return self._compact_now(run, profile, emit)
             toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
@@ -573,7 +575,8 @@ class Loop:
             if stream:
                 stream.reset()
             try:
-                return self._unless_stopped(run["id"], provider.complete, sent, toolset.schemas(), on_text=on_text)
+                return self._unless_stopped(run["id"], provider.complete, sent, toolset.schemas(), on_text=on_text,
+                                            stopped=stopped)
             except Stopped:
                 raise
             except Exception as exc:
@@ -666,7 +669,8 @@ class Loop:
             provider = brain.provider(profile["light_model"])
             message, _ = self._unless_stopped(run["id"], provider.complete,
                                               [{"role": "system", "content": context.COMPACT_PROMPT},
-                                               {"role": "user", "content": transcript}])
+                                               {"role": "user", "content": transcript}],
+                                              stopped=brain.runs.attention(run["id"]).stopped)
             content = message.get('content')
             summary = (content.strip() if isinstance(content, str) else '') or transcript[-8000:]
             summary = summary[:min(16000, profile['context_window'])]

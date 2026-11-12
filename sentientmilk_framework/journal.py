@@ -86,7 +86,7 @@ class Journal:
                 for call in event["message"].get("tool_calls") or []:
                     lines.append(f"(used {call['function']['name']})")
         if profile["journal"]["write"] and any(not line.startswith("(") for line in lines) and \
-                brain.config.values()["api_key"]:
+                not brain.provider_problem():
             transcript = "\n".join(lines)[-TRANSCRIPT_CHARS:]
             header = f"App: {profile['name']} ({app}), session {session}"
             if session.startswith("task-"):

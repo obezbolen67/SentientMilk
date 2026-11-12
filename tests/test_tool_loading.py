@@ -202,11 +202,9 @@ def test_one_map_of_all_it_can_do_marks_the_parts_of_it(brain):
 
 
 def test_the_first_turn_after_its_tools_changed_hears_what_changed(brain, tmp_path, monkeypatch):
-    import sys
-
     from test_plugins import make_plugin
 
-    monkeypatch.setattr(brain.brain.superagents, "argv", lambda: [sys.executable])  # super agents can start
+    brain.brain.claude.info()  # super agents can start (the stand-in Claude Code), named as Claude Code names it
     brain.provider.replies += ["hi"] * 4
     turn(brain, "cli", "hello")
     assert "Your tools changed" not in str(brain.provider.sent[-1]["messages"])  # an app's first turn: nothing
@@ -215,7 +213,7 @@ def test_the_first_turn_after_its_tools_changed_hears_what_changed(brain, tmp_pa
     turn(brain, "cli", "I installed something for you, and turned the super model off")
     said = brain.provider.sent[-1]["messages"][-1]["content"]
     assert said.index("Your tools changed") < said.index("I installed something")  # before what the user says
-    assert "- new: notes: notes_token" in said and "- agents, no longer: Super agents: Opus 5.5" in said
+    assert "- new: notes: notes_token" in said and "- agents, no longer: Super agents: Opus 9" in said
     # where it came from: the user may say "I installed it for you"
     assert "- notes [from the plugin notes, which the user installed]" in system(brain.provider.sent[-1])
     turn(brain, "cli", "and now?")

@@ -24,8 +24,9 @@ from .client import BrainClient, default_home
 from .config import BrainConfig
 
 TASKS_DIR = Path(__file__).parent / "eval_tasks"
-COPIED_SETTINGS = ("api_key", "base_url", "model", "light_model", "web_search_key", "thinking_mode",
-                   "thinking_tokens", "context_window", "vision", "image_pixels", "request_budget")
+COPIED_SETTINGS = ("provider", "api_key", "base_url", "model", "light_model", "web_search_key", "thinking_mode",
+                   "thinking_tokens", "context_window", "vision", "image_pixels", "request_budget", "claude_command",
+                   "claude_model", "claude_light_model", "claude_effort")
 DEFAULT_TOOLKITS = ["files", "shell", "web", "todo", "agents", "schedule"]  # and memory, as every app
 
 
@@ -179,11 +180,14 @@ def run_one(spec: dict, settings: dict, *, compact_between_turns: bool = False) 
 
 def main(names: Optional[List[str]] = None, model: str = "", report: str = "", *, context_pair: bool = False) -> None:
     values = BrainConfig(default_home() / "config.json").values()
-    if not values["api_key"]:
+    claude_code = values["provider"] == "claude_code"
+    if not claude_code and not values["api_key"]:
         raise SystemExit("Set the provider key first: sentientmilk config api_key")
     settings = {key: values[key] for key in COPIED_SETTINGS}
+    if claude_code:  # values() gave model and light_model Claude Code's names: the API service's stay unset
+        settings.update(model="", light_model="")
     if model:
-        settings["model"] = model
+        settings["claude_model" if claude_code else "model"] = model
     results = []
     print(f"{'task':<26} {'mode':<17} {'result':<6} {'time':>6} {'steps':>5} {'tools':>5} "
           f"{'errors':>6} {'cache':>6}  why")

@@ -205,8 +205,9 @@ class Agents:
                             "digit, e.g. tests or docs-research.")
         if not task:
             raise ToolError("The task is empty: say what the agent must do, with everything it needs.")
-        if super_agent and not self.brain.superagents.ready():
-            raise ToolError(self.brain.superagents.why_not() + " Start an ordinary agent instead.")
+        reason = self.brain.superagents.why_not() if super_agent else ""
+        if reason:  # turned off, not installed, not signed in
+            raise ToolError(reason + " Start an ordinary agent instead.")
         app, parent = parent_run["app"], parent_run["session"]
         base = (parent_run["options"].get("profile") or {}).get("from_session") or parent  # a task works for a chat
         record = {"name": name, "parent": parent, "base": base, "task": task, "created": time.time(),
