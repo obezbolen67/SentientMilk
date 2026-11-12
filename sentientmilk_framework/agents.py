@@ -299,6 +299,7 @@ class Agents:
     def _delete(self, app: str, session: str, agent_id: int) -> None:
         self.store.delete_session(app, session)
         self.store.delete_mail(app, agent=agent_id)
+        self.brain.browser.forget(app, session)
 
     def sweep(self, app: Optional[str] = None, parent: Optional[str] = None) -> None:
         """Delete stopped agents left behind (and ones that never ran): their names are free again."""

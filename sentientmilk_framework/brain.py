@@ -18,6 +18,7 @@ import requests
 from . import context, mentions, permissions, skills, transport
 from . import signals as signal_format
 from .agents import Agents
+from .browser import Browser
 from .config import BrainConfig, validate_rules, validate_setting
 from .exceptions import BrainError
 from .journal import Journal
@@ -160,6 +161,7 @@ class Brain:
         self.summaries = Summaries(self)
         self._started = False
         self.stopping = threading.Event()  # set by close(): background work ends quietly
+        self.browser = Browser(self)
 
     def start(self) -> None:
         """Recover interrupted work and start the background threads."""
@@ -181,6 +183,7 @@ class Brain:
         self.summaries.stop()
         self.runs.stop()
         self.superagents.close()
+        self.browser.close()
         self.mcp.stop()
 
     # ============== Apps ==============
@@ -439,6 +442,7 @@ class Brain:
         """A session and its history, with the agents it started (stopped)."""
         self.store.delete_session(app, session)  # first: agents that end from now on see it is gone
         self.agents.delete_for(app, session)
+        self.browser.forget(app, session)
 
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """The conversation as apps show it: what the user said and what the brain replied; with

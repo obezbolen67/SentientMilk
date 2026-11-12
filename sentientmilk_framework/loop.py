@@ -390,7 +390,13 @@ class Loop:
             if call["id"] in started and not tool_.readonly:
                 self._result(run, call, name, arguments, ToolResult(INTERRUPTED_CALL), "error", emit)
                 continue
-            decision = permissions.decide(tool_, arguments, profile["rules"], profile.get("cwd"))
+            shown = arguments  # as the rules and the user see the call (a browser call's site added)
+            if tool_.seen:
+                try:
+                    shown = tool_.seen(self.brain, run, arguments)
+                except Exception:
+                    logger.exception("How %s looks to its rules", name)
+            decision = permissions.decide(tool_, shown, profile["rules"], profile.get("cwd"))
             must_ask = decision == "always"  # an "always allow" is this once, and apps may not answer for the user
             decision = "ask" if must_ask else decision
             if decision == "ask" and run["kind"] == "summary":  # nobody is there to answer
@@ -405,7 +411,7 @@ class Loop:
                 if answer is None:
                     waiting = True
                     if (call["id"], "approval_request") not in asked:
-                        self.brain.runs.ask(run, "approval", call["id"], name, arguments, emit, always_ask=must_ask)
+                        self.brain.runs.ask(run, "approval", call["id"], name, shown, emit, always_ask=must_ask)
                     continue
                 if answer["decision"] == "deny":
                     reason = f" Their reason: {answer['reason']}" if answer.get("reason") else ""
@@ -413,7 +419,7 @@ class Loop:
                                  ToolResult(f"The user did not allow this call.{reason}"), "error", emit)
                     continue
                 if answer["decision"] == "always" and not must_ask:
-                    self.brain.allow_always(run["app"], permissions.always_rule(tool_, arguments, profile.get("cwd")))
+                    self.brain.allow_always(run["app"], permissions.always_rule(tool_, shown, profile.get("cwd")))
             if tool_.action:  # the app runs it
                 if call["id"] in results:
                     answer = results[call["id"]]

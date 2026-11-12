@@ -200,6 +200,23 @@ def test_skills_show_here_and_hers_are_removed_after_asking(brain, monkeypatch):
     assert not folder.exists()
 
 
+def test_her_browser_is_set_in_the_tools_tab(brain, tmp_path):
+    chrome = tmp_path / "chrome.exe"
+    chrome.write_bytes(b"")  # a Chrome where the user says it is (it is never started here)
+
+    async def scenario(panel, pilot):
+        panel.action_tab("tools")
+        await pilot.pause(0.2)
+        assert panel.query_one("#t-browser", Input).value == ""  # found by itself
+        panel.query_one("#t-browser", Input).value = str(chrome)
+        await press(pilot, panel, "t-save")
+        await until(pilot, lambda: "chrome.exe · closed · 0 tabs" in str(panel.query_one("#t-browser-status").render()))
+        if tmp_path.exists():
+            panel.save_screenshot(str(tmp_path / "tools.svg"))
+    run(brain, scenario)
+    assert brain.brain.config.values()["browser_command"] == str(chrome)
+
+
 def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
     panel = Panel(brain.home)  # no screens: as while it closes, with a row highlight still queued
     panel.show_plugin()

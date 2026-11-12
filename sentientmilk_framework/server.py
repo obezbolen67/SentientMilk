@@ -243,6 +243,12 @@ class _Handler(BaseHTTPRequestHandler):
         elif head == "mcp" and len(rest) == 2 and rest[1] == "reconnect" and method == "POST":
             brain.mcp.reconnect(rest[0])
             self._send(200, {"status": "ok"})
+        elif route == ["browser"] and method == "GET":
+            self._send(200, brain.browser.status())
+        elif route == ["browser", "open"] and method == "POST":  # her profile on the user's screen, to sign in
+            self._send(200, brain.browser.open_for_user())
+        elif route == ["browser", "clear"] and method == "POST":
+            self._send(200, brain.browser.clear())
         elif route == ["journal"] and method == "GET":
             self._send(200, {"notes": brain.store.notes(query.get("q", ""), _number(query.get("limit", 200), "limit"))})
         elif route == ["memory"] and method == "GET":

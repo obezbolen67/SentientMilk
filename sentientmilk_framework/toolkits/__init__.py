@@ -51,6 +51,9 @@ class Tool:
     # when and how to use it, shown with its toolkit in YOUR TOOLS while the run has it: text, or a function
     # of the profile for what depends on the brain's state ("" for nothing)
     guide: Any = ""
+    # (brain, run, arguments) -> the arguments as rules and the user's approval see them: what the call acts on
+    # added (a browser call's site), so rule_arg can name it; the tool itself gets the model's arguments
+    seen: Optional[Callable] = None
 
     def guide_for(self, profile: dict) -> str:
         return (self.guide(profile) if callable(self.guide) else self.guide) or ""
@@ -172,9 +175,9 @@ def _schema(annotation: Any) -> dict:
 
 def tool(readonly: bool = False, policy: Optional[str] = None, rule_arg: Optional[str] = None,
          args: Optional[Dict[str, Any]] = None, only_in: Optional[tuple] = None, name: Optional[str] = None,
-         core: bool = False, guide: Any = ""):
+         core: bool = False, guide: Any = "", seen: Optional[Callable] = None):
     """Make a Tool from ``func(ctx, ...)``. ``args`` maps an argument to its description, or to a full
-    JSON schema dict for arguments plain type hints cannot describe. ``guide``: see Tool.guide."""
+    JSON schema dict for arguments plain type hints cannot describe. ``guide``, ``seen``: see Tool."""
     def wrap(func: Callable) -> Tool:
         hints = get_type_hints(func)
         properties, required = {}, []
@@ -190,7 +193,7 @@ def tool(readonly: bool = False, policy: Optional[str] = None, rule_arg: Optiona
         parameters = {"type": "object", "properties": properties, **({"required": required} if required else {})}
         return Tool(name=name or func.__name__, description=inspect.getdoc(func) or "", parameters=parameters,
                     func=func, readonly=readonly, policy=policy or ("auto" if readonly else "ask"),
-                    rule_arg=rule_arg, only_in=only_in, core=core, guide=guide)
+                    rule_arg=rule_arg, only_in=only_in, core=core, guide=guide, seen=seen)
     return wrap
 
 
@@ -215,6 +218,7 @@ def cap(ctx: ToolContext, text: str, stem: str = "out") -> str:
 def builtin() -> Dict[str, Toolkit]:
     from . import (
         agents,
+        browser,
         continuation,
         files,
         history,
@@ -230,6 +234,6 @@ def builtin() -> Dict[str, Toolkit]:
     )
 
     return {kit.TOOLKIT.name: kit.TOOLKIT
-            for kit in (files, shell, web, todo, memory, journal, agents, schedule, plugins, sessions, skills,
-                        history, continuation)}
+            for kit in (files, shell, web, browser, todo, memory, journal, agents, schedule, plugins, sessions,
+                        skills, history, continuation)}
 

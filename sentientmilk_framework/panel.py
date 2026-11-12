@@ -530,6 +530,18 @@ class Panel(App):
                         yield Input(placeholder="files_write, …", id="t-ask")
                         yield Label("Always allow")
                         yield Input(placeholder="shell_run(git status*), …", id="t-allow")
+            with Vertical(classes="card", id="browser-card"):
+                yield Static("A Chrome of her own, out of your sight, for the web. Sign in to sites for her with "
+                             "Open (she cannot use it while it is open); Forget sign-ins deletes its profile. Rules "
+                             "name sites: browser_act(github.com), browser_*(*.bank.com).",
+                             classes="hint")
+                with Grid(classes="form"):
+                    yield Label("Browser")
+                    yield Input(placeholder="found by itself (Chrome, else Edge) · or its path", id="t-browser")
+                yield Static(id="t-browser-status")
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Open to sign in", id="browser-open")
+                    yield FlatButton("Forget sign-ins", id="browser-clear", variant="error")
             with Horizontal(classes="buttons"):
                 yield FlatButton("Save", id="t-save", variant="primary")
             with Vertical(classes="card", id="mcp-card"):
@@ -579,7 +591,8 @@ class Panel(App):
                             ("sessions-card", "Conversations"), ("memory-card", "Memory, every app's"),
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
-                            ("runtime-card", "Runtime and permissions"), ("mcp-card", "MCP servers"),
+                            ("runtime-card", "Runtime and permissions"), ("browser-card", "Her browser"),
+                            ("mcp-card", "MCP servers"),
                             ("plugins-card", "Plugins")):
             self.main.query_one(f"#{card}").border_title = title
         columns = {
@@ -979,7 +992,23 @@ class Panel(App):
         self.main.query_one("#t-workers", Input).value = str(settings["task_workers"])
         for kind in ("deny", "ask", "allow"):
             self.main.query_one(f"#t-{kind}", Input).value = ", ".join(settings["rules"].get(kind, []))
+        self.main.query_one("#t-browser", Input).value = settings["browser_command"]
+        self.load_browser()
         self.load_mcp()
+
+    def load_browser(self, status: Optional[dict] = None) -> None:
+        status = status or self.call(lambda c: c.browser(), quiet=True)
+        if status is None:
+            return
+        if not status["command"]:
+            line = f"[{WARN}]No Chrome or Edge found: install one, or give its path.[/]"
+        else:
+            line = escape(f"{Path(status['command']).name} {status['version']}".strip()) + " · " + {
+                "off": "closed", "hidden": f"[{OK}]in use, out of sight[/]",
+                "shown": f"[{WARN}]on your screen for a sign-in she asked for[/]",
+                "user": f"[{WARN}]open on your screen: she uses it once you close it[/]"}[status["mode"]]
+            line += f" · {status['tabs']} tab{'s' if status['tabs'] != 1 else ''}"
+        self.main.query_one("#t-browser-status", Static).update(line)
 
     def save_tools(self) -> None:
         listed = [str(option.value) for option in self.main.query_one("#toolkits", SelectionList).options]
@@ -988,6 +1017,7 @@ class Panel(App):
             changes = {"disabled_toolkits": [kit for kit in listed if kit not in chosen],
                        "shell": self.main.query_one("#t-shell", Select).value,
                        "task_workers": number(self.main.query_one("#t-workers", Input), "Background workers"),
+                       "browser_command": self.main.query_one("#t-browser", Input).value.strip(),
                        "rules": {kind: items(self.main.query_one(f"#t-{kind}", Input).value)
                                  for kind in ("deny", "ask", "allow")}}
         except ValueError as exc:
@@ -1283,6 +1313,14 @@ class Panel(App):
                                  lambda yes: yes and self.call(lambda c: c.delete_note(int(key)), done="Note deleted."))
         elif button == "t-save":
             self.save_tools()
+        elif button == "browser-open":
+            self.load_browser(self.call(lambda c: c.open_browser(),
+                                        done="Her browser is open on your screen: sign in, then close it."))
+        elif button == "browser-clear":
+            self.push_screen(Confirm("Forget every site she signed in to? Her browser's profile (sign-ins, cookies, "
+                                     "history) is deleted.", "Forget"),
+                             lambda yes: yes and self.load_browser(self.call(lambda c: c.clear_browser(),
+                                                                             done="Her sign-ins are forgotten.")))
         elif button == "mcp-add":
             self.push_screen(AddServer(), self.add_server)
         elif button in ("mcp-reconnect", "mcp-toggle", "mcp-remove"):

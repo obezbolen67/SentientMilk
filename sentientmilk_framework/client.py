@@ -434,6 +434,21 @@ class BrainClient:
     def reconnect_mcp(self, name: str) -> None:
         self._call("POST", f"/mcp/{name}/reconnect")
 
+    def browser(self) -> dict:
+        """Her browser: ``command`` (the Chrome or Edge it uses; empty: none found), ``version``, ``mode`` (off,
+        hidden: she uses it out of sight, shown: on the user's screen for a sign-in she asked for, user: opened
+        from here), ``profile`` (its folder), ``has_profile``, ``tabs`` (all conversations')."""
+        return self._call("GET", "/browser")
+
+    def open_browser(self) -> dict:
+        """Her browser's profile in a plain Chrome on the user's screen, nothing attached: they sign in to sites
+        for her there. She cannot use it until they close it."""
+        return self._call("POST", "/browser/open", timeout=60)
+
+    def clear_browser(self) -> dict:
+        """Forget what she signed in to (her browser's profile is deleted)."""
+        return self._call("POST", "/browser/clear", timeout=60)
+
     def journal(self, query: str = "") -> List[dict]:
         return self._call("GET", "/journal", params={"q": query} if query else None)["notes"]
 

@@ -1,4 +1,4 @@
-"""The brain's settings: provider, models, the super model, limits, tool keys and permission rules.
+"""The brain's settings: provider, models, the super model, her browser, limits, tool keys and permission rules.
 
 Stored as JSON in the brain's home. Secrets are never returned through the
 API; apps only learn whether they are set.
@@ -42,6 +42,7 @@ DEFAULTS = {
     "super_model": "claude-opus-5-5",  # empty: no super agents
     "super_effort": "high",
     "super_command": "",  # empty: claude, found on PATH or where its installer puts it
+    "browser_command": "",  # her browser (browser.py); empty: Chrome, else Edge, where their installers put them
 }
 logger = logging.getLogger(__name__)
 
