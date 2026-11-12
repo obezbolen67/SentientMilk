@@ -248,7 +248,7 @@ def test_her_browser_is_set_in_the_tools_tab(brain, tmp_path):
         assert panel.query_one("#t-browser", Input).value == ""  # found by itself
         panel.query_one("#t-browser", Input).value = str(chrome)
         await press(pilot, panel, "t-save")
-        await until(pilot, lambda: "chrome.exe · closed · 0 tabs" in str(panel.query_one("#t-browser-status").render()))
+        await until(pilot, lambda: str(panel.query_one("#t-chrome-status").render()).endswith(" · chrome.exe"))
         if tmp_path.exists():
             panel.save_screenshot(str(tmp_path / "tools.svg"))
     run(brain, scenario)

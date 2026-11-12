@@ -58,9 +58,8 @@ none runs and shows it live:
 - **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: what the brain remembers for
   every app (with the app that saved each entry), where single entries can be forgotten, and the
   journal, to search and delete notes.
-- **Tools**: toolkits on or off for every app, approval rules, her browser (which Chrome, out of sight
-  or on your screen, Show it to sign in for her or to watch her, Hide, Forget sign-ins; Your Chrome:
-  the extension's folder, its code, Connect my Chrome), MCP servers.
+- **Tools**: toolkits on or off for every app, approval rules, her browser (your Chrome: which one she
+  opens when it is not running, the extension's folder, its code, Connect my Chrome), MCP servers.
 - **Plugins**: install (a folder or a git URL), turn on or off, settings (secrets
   write-only), remove.
 - **Skills**: every skill, who starts it, what is wrong with a broken one; open its folder,
@@ -99,7 +98,7 @@ The brain keeps its files in `~/.sentientmilk` (`--home` or `SENTIENTMILK_HOME` 
 - `brain.sqlite3`: apps, sessions, the event log of every run, memory, journal, schedules.
 - `server.json`: the running brain's address and token; `launch.json`: how apps start it;
   `brain.lock`, `brain.log`.
-- `browser/`: her browser's profile (her sign-ins, and its session cookies while it is closed),
+- `browser/`: her tabs in your Chrome (`tabs.json`) and the extension's code (`extension.json`),
   `tabs.json` (each conversation's tabs), `extension.json` (the token in the extension's code) and
   downloads on their way to a working folder.
 - `runs/<id>/`: long tool output and task progress files; `plugins/`: installed plugins;
@@ -221,7 +220,7 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
 | `files` | `files_read`, `files_search`, `files_find`, `files_edit`, `files_write` (a change that breaks Python, JSON or TOML syntax is refused) |
 | `shell` | `shell_run` (PowerShell on Windows; `shell` setting), `shell_output`, `shell_stop` for background jobs; a command still running after 30 s goes on as one |
 | `web` | `web_search` (Brave, needs `web_search_key`), `web_fetch` |
-| `browser` | `browser_open`, `browser_view`, `browser_act`, `browser_read`, `browser_script`, `browser_log`, `browser_secrets`, `browser_review`: her own Chrome (else Edge), out of sight on a hidden desktop or on the user's screen when they want to watch (`headless`), with a profile of its own that keeps her sign-ins. Pages (and their frames of other sites) come as text with an id on each thing she can use; she acts by ids, several steps a call, is told what changed, saves pages as PDF, picture or HTML, and reads the console and the requests. With `in_user_chrome` she works in tabs of her own in the user's Chrome, signed in as they are, through SentientMilk's extension (`extension/`, added once with Load unpacked, connected with the panel's code; her tabs there are in a purple SentientMilk group, and its Disconnect stops her there until the user connects again). Acting asks per site ("allow always" saves `browser_act(<site>)`); a sign-in or a human check goes in front of the user (step `show`, or Tools > Browser > Show on my screen). What she must not see (a card number, a password) the user types in a panel of their app (`browser_secrets`): it goes into the one field it was asked for, once, after the brain checks it is still that field on that page, and she hears only `filled e14 (secret card_number)`. Before the user pays, `browser_review` shows them the order as the page says it (each part read from the page, a picture of it, her reasons) for a yes bound to what they saw; her browser never presses pay |
+| `browser` | `browser_open`, `browser_view`, `browser_act`, `browser_read`, `browser_script`, `browser_log`, `browser_secrets`, `browser_review`: the user's own Chrome (else Edge), signed in as they are, through SentientMilk's extension (`extension/`, added once with Load unpacked, connected with the panel's code): she works in tabs of her own there, in a purple SentientMilk group, and the extension's Disconnect stops her until the user connects again. When it is not connected (Chrome is not running), her call opens it with the extension's page, as the panel's Connect does, and goes on once it connected. Pages (their frames too, of the site and of other sites) come as text with an id on each thing she can use; she acts by ids, several steps a call, each returning once the page has loaded and stopped changing (an app that draws itself late is waited for), is told what changed, saves pages as PDF, picture or HTML, and reads the console and the requests. Acting asks per site ("allow always" saves `browser_act(<site>)`); a sign-in or a human check goes in front of the user (step `show` brings her tab to the front). What she must not see (a card number, a password) the user types in a panel of their app (`browser_secrets`): it goes into the one field it was asked for, once, after the brain checks it is still that field on that page, and she hears only `filled e14 (secret card_number)`. Before the user pays, `browser_review` shows them the order as the page says it (each part read from the page, a picture of it, her reasons) for a yes bound to what they saw; her browser never presses pay |
 | `todo` | `todo_write` |
 | `memory` (every app) | `memory_save`, `memory_forget`, each with `scope` everywhere (lasting) or session (this session only) |
 | `journal` | `journal_search` |
@@ -356,7 +355,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET`/`POST /schedules`, `PATCH`/`DELETE /schedules/{id}` | schedules |
 | `GET /apps/{app}/scheduled?pending=1` | durable scheduled deliveries for the app |
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
-| `GET /browser`, `POST /browser/open`, `POST /browser/connect`, `POST /browser/clear` | her browser (`command`, `version`, `mode`: off, hidden or shown, `shown`: where it opens, `profile`, `has_profile`, `tabs`, `chrome`: the user's Chrome through the extension, `connected`, `browser`, `extension`, `disconnected`, `code`, `folder`, `error`, `tabs`); `{"headless": false}` puts it on the user's screen from now on (to sign in for her, to watch her), `true` out of sight; the extension's page in the user's Chrome with the code, answered once that Chrome connected or after 15 s (`chrome.took`); forgetting her sign-ins (409 `busy` while she uses it) |
+| `GET /browser`, `POST /browser/connect` | her browser, the user's Chrome (`command`: the one she opens when it is not running, `version`, `chrome`: its connection through the extension, `connected`, `browser`, `extension`, `disconnected`, `code`, `folder`, `error`, `tabs`); the extension's page in the user's Chrome with the code, answered once that Chrome connected or after 15 s (`chrome.took`) |
 | `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
 | `GET /skills`, `DELETE /skills/{name}` | skills (`name`, `description`, `argument_hint`, `model_invocable`, `user_invocable`, `builtin`, `path`, `error`); removing one of the user's |
 | `GET /apps`, `DELETE /memory/{category}/{key}`, `DELETE /apps/{app}/sessions/{id}/memory/{key}`, `POST /shutdown` | apps, forgetting a memory or one thing of a session's memory, stopping the brain |
@@ -375,9 +374,9 @@ name it), `thinking_mode` (`default`, `none`,
 `image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
 sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, `web_search_key`, `shell`,
 `task_workers` (2), `rules`, `disabled_toolkits`, `session_summaries` (true: the model goes over
-each conversation as it ends), `browser_command` (empty: Chrome, else Edge, where their installers put them),
-`browser_headless` (true: her browser opens out of sight; false: on the user's screen), `browser_extension_port`
-(48217: where the user's Chrome connects through the extension). Claude Code: `claude_command` (empty: found on
+each conversation as it ends), `browser_command` (the user's Chrome she opens when it is not running;
+empty: Chrome, else Edge, where their installers put them), `browser_extension_port` (48217: where the
+user's Chrome connects through the extension). Claude Code: `claude_command` (empty: found on
 `PATH` or in `~/.local/bin`), `claude_model` (`default`), `claude_light_model` (`haiku`), `claude_effort`
 (`medium`), `super_model` (`opus`; empty: no super agents), `super_effort` (`high`); models are Claude Code's
 names or full ids.
@@ -418,7 +417,7 @@ sentientmilk_framework/
   journal.py     notes about sessions across apps
   scheduler.py   schedules, once or repeating (at, in, every, cron)
   mcp_host.py    MCP servers as toolkits
-  browser.py     her own Chrome over the DevTools protocol; browser_page.js reads pages in it
+  browser.py     her browser, the user's Chrome, over the DevTools protocol; browser_page.js reads pages
   extension.py   the user's own Chrome through extension/ (its connection to the brain)
   desktops.py    programs started on the brain's hidden desktop, ending with the brain
   plugins/       plugin loading, settings and install; github/: the GitHub plugin

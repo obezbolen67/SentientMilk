@@ -401,7 +401,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `files` | `files_read(path, offset, limit)`, `files_search(pattern, path, glob)`, `files_find(glob)`, `files_edit(path, old, new, all)`, `files_write(path, content)` | Read gives numbered lines in windows: 500 lines by default, whole lines, with a footer "lines 1-500 of 1,834". Images come back as images. Search uses ripgrep if it is installed, otherwise Python, and returns `path:line: text` for every match; only the user's stop ends a search. A result over 30,000 characters goes to a file with both ends shown. Edit is an exact, unique string replace. It fails if the file was not read in this session or changed on disk since. Paths are confined to the app's roots; what the user attached in the session (`mentions.attachment`) can be read wherever it is. |
 | `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits as long as asked for a job to end when the model needs the result, and says when a job has written nothing for 10 s or more, so the model can tell a slow job from a stuck one. MCP calls go the same way (section 8.3). |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
-| `browser` | `browser_open(url, new_tab, headless)`, `browser_view(tab, find, part, picture, texts)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`, `browser_secrets(fields, tab)`, `browser_review(lines, total, charges, shortfall, slot, address, unverified, tab)` | Her own Chrome, out of sight or on the user's screen: section 6.7. |
+| `browser` | `browser_open(url, new_tab)`, `browser_view(tab, find, part, picture, texts)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`, `browser_secrets(fields, tab)`, `browser_review(lines, total, charges, shortfall, slot, address, unverified, tab)` | The user's own Chrome, through SentientMilk's extension: section 6.7. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save(key, value, category, scope)`, `memory_forget(key, category, scope)`; scope `everywhere` or, in turns, `session` | Every app has it (section 10). |
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
@@ -564,24 +564,31 @@ project-level skill folders, and `!command` expansion.
 
 ### 6.7 Her browser
 
-`browser.py`, `browser_page.js`, `desktops.py`; the `browser` toolkit: `browser_open(url,
-new_tab, headless)`, `browser_view(tab, find, part, picture)`, `browser_act(steps, tab)`,
-`browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`.
-It is for the web as a person uses
-it: pages that need scripts, clicks, forms and accounts. `web_fetch` stays the quick way to
-read a public page once; computer use stays for the user's own windows.
+`browser.py`, `browser_page.js`, `extension.py`, `extension/`; the `browser` toolkit:
+`browser_open(url, new_tab)`, `browser_view(tab, find, part, picture, texts)`,
+`browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`,
+`browser_log(kind, tab, find)`. It is for the web as a person uses it: pages that need
+scripts, clicks, forms and accounts. `web_fetch` stays the quick way to read a public page
+once; computer use stays for the user's own windows.
 
-**Which Chrome.** Her own: the installed Chrome (else Edge, or `browser_command`) with a
-profile in `<home>/browser/profile`, so what she signs in to stays, and nothing of the
-user's own profile is touched (Chrome 136 and later refuse remote debugging of the default
-profile anyway). For what needs the user's own accounts there is their Chrome too, through
-an extension (below), never by default: `browser_open in_user_chrome=true`.
+**Which Chrome.** The user's own (else Edge; `browser_command` names it), signed in as they
+are, through an extension: she works in tabs of her own there, and their own tabs are never
+hers. Until 0.17 she also had a Chrome of her own with a profile of its own, out of sight
+on a hidden desktop or on the user's screen; it went, so there is one browser, the one the
+user already uses and is signed in to.
 
-**The user's own Chrome.** `extension/` is a Manifest V3 extension (a fixed id, from the
-key in its manifest) that the user adds once with Load unpacked. It connects to the brain
-over a WebSocket on 127.0.0.1 (`extension.py`, port `browser_extension_port`, 48217) with
-the code the panel shows (the port and a token of its own in `browser/extension.json`),
-from its own origin only, and keeps itself awake with a ping every 20 s.
+**Opening it.** When the extension is not connected (Chrome is not running, or it has not
+reached the brain yet), her call opens Chrome on the user's screen with the extension's page
+and the code, as the panel's Connect does, waits up to 30 s for it to connect, and goes on;
+the page closes itself once connected. If it does not connect she is told what the user
+does (add the extension, connect it), never to try something else. After the user pressed
+Disconnect nothing opens: she is told they did it.
+
+**The extension.** `extension/` is a Manifest V3 extension (a fixed id, from the key in its
+manifest) that the user adds once with Load unpacked. It connects to the brain over a
+WebSocket on 127.0.0.1 (`extension.py`, port `browser_extension_port`, 48217) with the code
+the panel shows (the port and a token of its own in `browser/extension.json`), from its own
+origin only, and keeps itself awake with a ping every 20 s.
 
 Connecting: the brain speaks first (`PROTOCOL`, its version, a nonce), and the extension
 answers with an HMAC of the nonce keyed with the token, so a program that took the port
@@ -596,69 +603,40 @@ older than SentientMilk reloads itself once from its folder (SentientMilk's upda
 the newer files), so no reload loops on files that are still older. Anything else is tried
 again after 1, 2, 4, 8 and 15 s, then every half minute. The extension's Disconnect (4100)
 stops all of it until the user connects again, and she is told the user did it, not that
-the connection was lost. The panel's Connect opens the extension's page with the code; a
-Chrome that was not running blocks that page while the extension loads, so the extension
-reads the code from the blocked tab and reloads it; the brain waits up to 15 s for that
-Chrome to connect (or, already connected, to say its page opened) and says how it went.
-Her tabs there are in a purple "SentientMilk" tab group, and the toolbar button shows her
-tabs there, or `!` when something needs the user. The connection is
-then a DevTools protocol connection like her own browser's (`Wire` over the server's
-socket): a page's commands (and its frames' of other sites, by their session ids) go to
-`chrome.debugger` as they are, and what a browser does it answers with the extension APIs
-and tells as the protocol's events: `Target.createTarget` is a window of its own behind
-what the user uses, attach is `chrome.debugger.attach`, windows are `chrome.windows`, a
-tab or window her tab opens is hers too (`Target.targetCreated` with its opener), and a
-download from her tab (the page it came from, else her page on its site) is moved from
-where the user's downloads go to her working folder. So every tool works there as in her
-own browser; a tab says it is in the user's Chrome, and approvals say so. Her tabs there
-stay when the connection goes (SentientMilk restarting, the user pressing Cancel on
-Chrome's "started debugging" bar) and are taken up again by their target at her next call;
-one the user closed opens again at its address. The user's own tabs are never hers.
-Chrome 137 and later no longer add an unpacked extension from the command line; the tests
-use Edge, which still does, as the user's Chrome.
+the connection was lost. A Chrome that was not running blocks the extension's page while
+the extension loads, so the extension reads the code from the blocked tab and reloads it.
+Her tabs are in a purple "SentientMilk" tab group, and the toolbar button shows how many,
+or `!` when something needs the user. The connection is then a DevTools protocol connection
+(`Wire` over the server's socket): a page's commands (and its frames' of other sites, by
+their session ids) go to `chrome.debugger` as they are, and what a browser does it answers
+with the extension APIs and tells as the protocol's events: `Target.createTarget` is a
+window of its own behind what the user uses, attach is `chrome.debugger.attach`, windows
+are `chrome.windows`, a tab or window her tab opens is hers too (`Target.targetCreated`
+with its opener: `tabs.onCreated` has it for a link's new tab, `webNavigation`'s
+`onCreatedNavigationTarget` for a `window.open` popup), and a download from her tab (the
+page it came from, else her page on its site) is moved from where the user's downloads go
+to her working folder. Her tabs stay when the connection goes (SentientMilk restarting, the
+user pressing Cancel on Chrome's "started debugging" bar) and are taken up again by their
+target at her next call; one that is gone (Chrome restarted) opens again at its address,
+and one the user closed (her window) stops being hers. Chrome 137 and later no longer add
+an unpacked extension from the command line, and Edge does only into a profile it never
+ran: the tests use Edge as the user's Chrome, on a hidden desktop, with a new profile for
+each start and sync off (`--disable-sync`: otherwise Edge signs a new profile in to the
+Windows account and syncs into it).
 
-**Out of sight, or on the user's screen.** On Windows it starts (`CreateProcessW` with
-`lpDesktop`) on the brain's hidden desktop, in a job that ends with the brain. Windows
-there are real: pages lay out, paint and run their timers as on the screen, WebGL uses the
-GPU and screenshots work, and nothing takes the user's focus. When the user wants to watch
-her ("don't run it headless"), it runs on their desktop instead, driven the same way:
-`browser_headless` (the panel's Out of sight) says where it opens, `browser_open
-headless=false|true` (and the panel's Show and Hide) move it now. A Chrome process cannot
-change desktops, so moving starts it again on the other one: the session cookies come along
-(`Storage.getCookies`, and back with `Storage.setCookies`; they also wait in the profile
-while it is closed, since for her it is still open), and the conversation's pages open
-again at their addresses. On the user's screen nothing needs its focus: new windows open
-behind what they use (`createTarget` with `background`), focus is emulated, covered windows
-paint (`--disable-backgrounding-occluded-windows`). A minimized window still reads, clicks
-and types (measured), but paints nothing, so a picture of it would wait forever: the window
-comes back first. It never closes while idle there (they may be looking at it), and the
-user closing her window is told to her as such. Chrome starts with `--no-startup-window`,
-so no window is there but hers. Measured on Chrome 157 (2026-11-12) against a local page
-that reports what it sees, each launch compared with the same Chrome started plainly:
-
-| How it is driven | `navigator.webdriver` | What else gives it away |
-|---|---|---|
-| fixed `--remote-debugging-port` | false | nothing |
-| port 0, or `--remote-debugging-pipe` | true | |
-| with `--disable-blink-features=AutomationControlled` | false | a warning bar: 56 px less page |
-| `Runtime.enable` (Puppeteer's way) | false | nothing seen on 157 (the stack-getter check no longer shows it); left off all the same |
-| a minimized window | false | a 158 x 27 window at the screen's bottom edge, clicks at screen points outside it; timers once a second, no `requestAnimationFrame`, screenshots time out |
-| typed with `Input.insertText` | false | `input` events with no key events |
-
-So: a free port fixed per launch on 127.0.0.1 (found through `/json/version`), windows of
-normal size, `Runtime` never enabled (pages are read in an isolated world,
+How it is driven: `Runtime` never enabled (pages are read in an isolated world,
 `Page.createIsolatedWorld`), focus emulated for each tab, the pointer moved along a path
-before every click, and text typed key by key. A page sees the user's Chrome on the user's
-connection. Checks that the visitor is a human are the user's: she never tries to pass one,
-and the step `show` hands the browser over.
+before every click, and text typed key by key. New windows open behind what the user is
+using and never take their keys; a minimized window still reads, clicks and types, but
+paints nothing, so a picture of it would wait forever: the window comes back first. Checks
+that the visitor is a human are the user's: she never tries to pass one, and the step
+`show` puts her tab in front of them.
 
 **Tabs.** Each conversation (agents and tasks too, by session) has tabs `t1`, `t2`... in
 windows of their own, so every page renders as the one in front. Links that open a tab or a
 window open the conversation's next tab, which becomes current; a page that closes itself
 (a sign-in window) stops being a tab. Tabs are kept in `browser/tabs.json` with their
-addresses: the browser closes after 10 idle minutes and when the brain stops, a crash
-closes it, and each tab opens again where it was when next used. Deleting a conversation or
-an agent closes its tabs.
+addresses and targets. Deleting a conversation or an agent closes its tabs.
 
 **Pages as text.** `browser_page.js` turns the page into indented lines: headings as `#`,
 lists as `-`, groups (form, dialog, nav, table, …) as heads, and everything that can be
@@ -670,8 +648,15 @@ id that shows them all (`part`); `find` keeps the lines with some words and what
 in. A view over 12,000 characters keeps its shape and everything that can be used, but each
 run of prose shows its first two lines and how many more there are (and their links):
 reading is `browser_read`'s, 20,000 characters at a time. A page of 1,000 paragraphs and a
-3,000-row table came to 3 KB this way instead of 100 KB. Same-site frames and open shadow
-roots are read in the page's world. A frame of another site (a payment form, an embedded
+3,000-row table came to 3 KB this way instead of 100 KB. What is shown is what is laid out:
+`display: contents` wrappers count by what is in them (`checkVisibility()` is false for
+them, having no box of their own: an app shell of such wrappers, as Oracle Cloud's console
+is, read as nothing but its skip link until 0.17), and what is visible again inside
+`visibility: hidden` shows. Same-site frames and open shadow roots are read in the page's
+world. As a check, a view that comes to almost nothing while Chrome lays out more than 400
+characters of words says so, and `browser_read` falls back to Chrome's own words
+(`innerText`, the site's frames too) when its walk missed most of them (not on a page that
+holds what the user typed for her). A frame of another site (a payment form, an embedded
 sign-in, a cookie banner) runs in a process of its own: auto-attach (`Target.setAutoAttach`,
 iframes only, nested ones too) gives it a session, it is read in a world of the brain's own
 like the page, and its iframe element in the parent's world is marked with its key
@@ -687,20 +672,26 @@ the page's own menu only: Chrome's would stay open on the screen, out of her rea
 keeps the page in the working folder as a PDF (a PDF tab's own document), a picture of all
 of it, its HTML or a web archive, never over a file that is there. A target is brought into
 view and hit-tested first: a covered one names what covers it, a disabled or hidden one
-says so. After each step the brain waits for the page to settle: the load, pending
-requests (documents, fetches, scripts; not streams), and 350 ms without DOM changes,
-at most 10 s. The reply says how each step went, then what changed on the page (lines
-gone and new), or the whole page when it is another page or most of it changed. Steps stop
-at the first failure, at a dialog of the page (unless the next step answers it), and when
-the tab goes to another site. Alerts are closed and told; confirm and prompt wait for the
-step `dialog`. Downloads go to the conversation's working folder; uploads take files from
-the folders open to her only.
+says so. Opening a page and each step return once it has loaded and settled: the load,
+pending requests (documents, fetches, scripts; not streams), and 350 ms without DOM changes,
+at most 10 s (30 s for an address); a page that shows nothing yet (no words, no picture, no
+field) is waited for up to 8 s more, since an app draws itself once its scripts ran (Oracle
+Cloud's sign-up page came back empty until 0.17, and she waited by hand). A request the
+page made while it was asked whether it was quiet counts as busy (its event comes before
+the answer). So she needs no wait after a click: `wait` with text waits for words, and
+without it ends as soon as the page has loaded (at once when it has). The reply says how
+each step went, then what changed on the page (lines gone and new), or the whole page when
+it is another page or most of it changed. Steps stop at the first failure, at a dialog of
+the page (unless the next step answers it), and when the tab goes to another site. Alerts
+are closed and told; confirm and prompt wait for the step `dialog`. Downloads go to the
+conversation's working folder; uploads take files from the folders open to her only.
 
 **Approvals per site.** A tool's `seen(brain, run, arguments)` gives the arguments as the
-rules and the user see them: the browser adds `site` (the tab's host, or the url's) and
-what each step's target is (`about`). Its tools have `rule_arg="site"`: "allow always" on
-an act saves `browser_act(github.com)`, a rule can deny `browser_*(*.bank.com)`. Opening,
-viewing and reading run without asking; acting and scripts ask.
+rules and the user see them: the browser adds `site` (the tab's host, or the url's), that it
+is the user's Chrome (`chrome: user`), and what each step's target is (`about`). Its tools
+have `rule_arg="site"`: "allow always" on an act saves `browser_act(github.com)`, a rule
+can deny `browser_*(*.bank.com)`. Opening, viewing and reading run without asking; acting
+and scripts ask.
 
 **Console and network.** `browser_log` reads a tab's console or its requests since the page
 loaded. Requests come from the `Network` events the brain has on anyway (method, status or
@@ -708,11 +699,9 @@ error, type, address). The console needs `Runtime`, which stays off: it is enabl
 moment of the call, when V8 tells every message it kept (logs, warnings, errors, uncaught
 exceptions), objects are taken as JSON while they are still there, and it is disabled again.
 
-**The user's screen.** The step `show` (the lead's only) moves her browser to the user's
-screen if it is not there and brings the tab in front: they sign in, pass the check, or
-pay, and she goes on there with what they did. The panel's Show on my screen does the same
-from the user's side (with a window of their own when she has no page), Hide takes it back,
-and Forget sign-ins deletes the profile.
+**The user's turn.** The step `show` (the lead's only) brings her tab to the front of the
+user's Chrome: they sign in, pass the check, or pay, and she goes on there with what they
+did.
 
 **Artifacts: what only the user types, and orders they check** (`artifacts.py`). Panels a
 turn puts in the user's app, above the box they type in; the lead's only, and they close

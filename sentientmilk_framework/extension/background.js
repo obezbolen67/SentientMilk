@@ -33,6 +33,7 @@ const targets = new Map();    // target id -> tabId: hers (attached or not yet)
 const children = new Map();   // session id of a frame of another site -> tabId
 const loads = new Map();      // download id -> {target, told}
 const reloaded = new Set();   // connect pages reloaded once already
+const adopted = new Set();    // tabs told as hers (a new one is told once, whichever event came first)
 
 function send(message) {
   if (socket && socket.welcomed && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -306,17 +307,24 @@ chrome.debugger.onDetach.addListener((source, reason) => {
         params: {sessionId: 'tab:' + source.tabId, targetId: target, reason}});
 });
 
-chrome.tabs.onCreated.addListener(async tab => {  // a tab or a window one of hers opened is hers too
-  if (tab.openerTabId === undefined || !attached.has(tab.openerTabId)) return;
+async function adopt(tabId, opener, url) {  // a tab or a window one of hers opened is hers too
+  if (!attached.has(opener) || adopted.has(tabId)) return;
+  adopted.add(tabId);
   try {
-    const targetId = await targetOf(tab.id);
-    send({method: 'Target.targetCreated', params: {targetInfo: {
-      targetId, type: 'page', openerId: attached.get(tab.openerTabId), url: tab.pendingUrl || tab.url || ''}}});
+    const targetId = await targetOf(tabId);
+    send({method: 'Target.targetCreated', params: {targetInfo: {targetId, type: 'page', openerId: attached.get(opener),
+                                                                url}}});
   } catch (error) {}
+}
+chrome.tabs.onCreated.addListener(tab => {
+  if (tab.openerTabId !== undefined) adopt(tab.id, tab.openerTabId, tab.pendingUrl || tab.url || '');
 });
+// a window.open popup has no openerTabId: the navigation that made it says where it came from
+chrome.webNavigation.onCreatedNavigationTarget.addListener(made => adopt(made.tabId, made.sourceTabId, made.url));
 
 chrome.tabs.onRemoved.addListener(tabId => {
   reloaded.delete(tabId);
+  adopted.delete(tabId);
   for (const [targetId, id] of [...targets]) {
     if (id !== tabId) continue;
     targets.delete(targetId);

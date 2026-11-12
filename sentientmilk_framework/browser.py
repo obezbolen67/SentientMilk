@@ -1,21 +1,18 @@
-"""Her browser: a Chrome (or Edge) of her own, driven over the DevTools protocol, for the web as a person uses it.
+"""Her browser: the user's own Chrome, through SentientMilk's extension (extension.py), driven over the DevTools
+protocol, for the web as a person uses it: sites see the user, signed in as they are, on their connection.
 
-It is the real browser with a profile of its own (``browser/profile``): sites see the Chrome they see from the
-user, on the user's connection, and what she signs in to stays. It runs out of sight (headless, as people say:
-on Windows on the brain's hidden desktop, desktops.py, in ordinary windows the user never sees) or on the user's
-screen, where they watch her (``browser_headless``, and browser_open's ``headless`` for the moment); either way it
-is driven the same, whether its windows are in front, behind others or minimized, and it ends with the brain.
-Measured on Chrome 157 (2026-11-12): a fixed debugging port leaves ``navigator.webdriver`` false (port 0 and the
-pipe set it, and the switch that hides it adds a warning bar). So: a fixed port on 127.0.0.1, ordinary windows,
-Runtime never enabled but for a moment to read the console (the page's world is left alone: the brain reads pages
-in an isolated world of its own, browser_page.js, and each frame of another site in one of its own), the pointer
-moves before clicks and typing goes key by key.
+When it is not connected (Chrome is not running, or the extension has not reached the brain yet), her call opens
+it with the extension's page, which connects it, as the panel's Connect does, and goes on once it connected.
+Runtime is never enabled but for a moment to read the console (the page's world is left alone: the brain reads
+pages in an isolated world of its own, browser_page.js, and each frame of another site in one of its own), the
+pointer moves before clicks and typing goes key by key; a call that changes the page returns once it has loaded
+and stopped changing.
 
-Each chat (and each agent or task) has tabs of its own, t1, t2..., each in a window of its own so that every
-page renders as the one in front. Tabs outlive the browser: it closes when idle out of sight and when the brain
-stops, and a tab opens again at its address (and session cookies come back) when it is next used. When a site
-needs the user (a sign-in, a check that she is human), the step ``show`` puts the browser on the user's screen
-and she goes on there once they are done. See docs/architecture.md, 6.7.
+Each chat (and each agent or task) has tabs of its own there, t1, t2..., each in a window of its own (behind what
+the user is using) so that every page renders as the one in front; the user's own tabs are never hers. Tabs outlive
+the connection: one still open is taken up again, else it opens again at its address. When a site needs the user
+(a sign-in, a check that she is human), the step ``show`` puts her tab in front of them and she goes on there once
+they are done. See docs/architecture.md, 6.7.
 """
 
 import base64
@@ -30,15 +27,12 @@ import os
 import queue
 import re
 import shutil
-import socket
 import sys
 import threading
 import time
 import urllib.parse
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
-
-import requests
 
 from . import desktops, transport
 from .exceptions import BrainError
@@ -48,45 +42,40 @@ logger = logging.getLogger(__name__)
 
 PAGE_JS = Path(__file__).with_name("browser_page.js").read_text(encoding="utf-8")
 WORLD = "sentientmilk"
-WINDOW = (1280, 900)  # each tab's window, in device-independent pixels
-FLAGS = ["--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble", "--no-startup-window",
-         "--disable-backgrounding-occluded-windows"]  # windows on top of each other all render
-COOKIES = "sentientmilk-session-cookies.json"  # in the profile: session cookies kept while the browser is closed
-COOKIE_FIELDS = {"name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "priority", "sourceScheme",
-                 "sourcePort", "partitionKey"}
+WINDOW = (1280, 900)  # each tab's window (the extension makes them so), in device-independent pixels
 AUTO_ATTACH = {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True, "filter": [{"type": "iframe"}]}
 FRAME = re.compile(r"^( *)⟦frame (\d+)⟧$", re.M)  # where a frame of another site goes in a view
 FRAME_GONE = "That frame is not on the page any more: view the page again."
 SAVES = {".pdf": "a PDF", ".png": "a picture", ".jpg": "a picture", ".jpeg": "a picture", ".webp": "a picture",
          ".html": "its HTML", ".htm": "its HTML", ".mhtml": "a web archive"}
 SETTLE, QUIET, GRACE = 10.0, 0.35, 0.15  # s: at most, no change for, at least, after an act
+BLANK = 8.0  # s a page that shows nothing yet is waited for: an app draws itself once its scripts ran
 LONG_REQUEST = 3.0  # s: a request open longer is a stream or a poll, not the page loading
 LONG_LOAD = 30.0  # s: a load that never says it stopped is not waited for again
 BUSY_TYPES = {"Document", "XHR", "Fetch", "Script"}  # requests that change the page when they come back
-IDLE = 600  # s without a call: the browser closes, and opens again with its tabs when next used
+CONNECT_WAIT = 30.0  # s her call waits for the user's Chrome to connect once it was opened (a cold start)
 READ_CHARS = 20_000
 TAB_IDS = 10_000  # ids each tab of a conversation has before it could reach the next tab's
 STEPS = ("click", "fill", "type", "key", "hover", "scroll", "drag", "upload", "wait", "open", "back", "forward",
          "reload", "dialog", "save", "close", "show")
 CHANGES = 0.6  # a reply shows the whole page when more of it than this changed
-BUSY_ELSEWHERE = ("Your browser is in use in another conversation right now, so it cannot move to or from the "
-                  "user's screen: try again in a moment.")
-MOVED = ("Your browser moved {where} (it started again there): your pages opened again at their addresses, so what "
-         "was typed and not sent is gone.")
-NOT_LINKED = ("The user's Chrome is not connected: it needs SentientMilk's extension, connected with the code in "
-              "SentientMilk (Tools > Her browser > Your Chrome). Tell the user, or use your own browser.")
+NOT_LINKED = ("The user's Chrome did not connect to you: SentientMilk opened it, but its extension did not answer in "
+              f"{CONNECT_WAIT:.0f} s (it may not be added to that Chrome yet, or it holds another code). Tell the user: "
+              "SentientMilk's Tools > Her browser > Your Chrome says how.")
 UNPLUGGED = ("The user disconnected their Chrome from you (Disconnect in SentientMilk's extension): your tabs there "
-             "stay open, but you cannot use it until they connect it again. Ask them, or use your own browser.")
+             "stay open, but you cannot use it until they connect it again. Ask them.")
 LINK_LOST = ("The user's Chrome let go of you (it closed, or SentientMilk restarted): your tabs there are taken up "
-             "again, or opened again at their addresses, at your next call once it is connected.")
+             "again, or opened again at their addresses, now that it is connected again.")
 CANCELED = ("The user pressed Cancel on their Chrome's bar, which stopped you there: this tab stays open, and your next "
             "call takes it up again. Ask them before you go on if they meant you to stop.")
-SHOWN = ("Your browser is on the user's screen at {urls}, and still yours. Tell them what to do there (sign in, the "
-         "check, the payment) and to tell you when they are done; then go on with your browser tools as before, with "
-         "what they did (a sign-in stays). It stays on their screen until browser_open headless=true.")
-LEAD_ONLY = ("Only the lead can hand the browser to the user: say in your report what the user should do there "
+SHOWN = ("Your tab {urls} is in front of the user in their Chrome, and still yours. Tell them what to do there (sign "
+         "in, the check, the payment) and to tell you when they are done; then go on with your browser tools as "
+         "before, with what they did (a sign-in stays).")
+LEAD_ONLY = ("Only the lead can put a tab in front of the user: say in your report what the user should do there "
              "(sign in at ...), or ask the lead with ask_lead.")
-GONE = "Your browser closed under the call (it opens again, with your tabs, at your next browser call)."
+GONE = ("The user's Chrome let go of you under the call (it closed, or SentientMilk's extension stopped): your next "
+        "browser call opens it again, with your tabs.")
+CLOSED = "was closed (by the page, or by the user in their Chrome)"
 LEAD_ASKS = ("Only the lead puts a panel in front of the user: say in your report what the user should type or check "
              "(and where), or ask the lead with ask_lead.")
 # What pays (or orders to pay): her browser never presses it; the user does (Mode B's panel ends at their yes)
@@ -96,7 +85,7 @@ PAYS = re.compile(r"\b(pay( now| securely| with| \d)?|buy( it)? now|place( your)
                   r"potwierd[zź] (i zap[lł]a[cć]|zakup|zam[oó]wienie|p[lł]atno[sś][cć])|zahlungspflichtig|jetzt kaufen|"
                   r"bezahlen|payer|acheter)\b", re.I)
 PAYING = ("{what} pays: paying is the user's own, never yours. Tell them the order is ready, and if they want to pay "
-          "in your browser put it in front of them (the step show).")
+          "in your tab put it in front of them (the step show).")
 HOLDS = ("not while this page holds what the user typed for you ({names}): a {what} could show it. Go on with "
          "browser_view (text), or once the page moved on.")
 SECRET_NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
@@ -245,12 +234,6 @@ class Mark:
         return text
 
 
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 def _key(app: str, session: str) -> str:
     return f"{app}/{session}"
 
@@ -312,7 +295,7 @@ class Wire:
     thread, which must never wait for a call."""
 
     def __init__(self, url: Optional[str], on_event, socket=None):
-        """To ``url``, or over ``socket`` (the extension's connection to the brain)."""
+        """Over ``socket`` (the extension's connection to the brain), or to a browser's own ``url`` (tests)."""
         if socket is None:
             from websockets.sync.client import connect
 
@@ -384,11 +367,10 @@ class Wire:
 
 
 class Tab:
-    """One of a conversation's pages, t1, t2...; it keeps its address while the browser is closed."""
+    """One of a conversation's pages in the user's Chrome, t1, t2...; it keeps its address while Chrome is away."""
 
-    def __init__(self, owner: str, name: str, url: str = "about:blank", title: str = "", user: bool = False):
+    def __init__(self, owner: str, name: str, url: str = "about:blank", title: str = ""):
         self.owner, self.name, self.url, self.title = owner, name, url, title
-        self.user = user  # in the user's own Chrome (through the extension), not hers
         self.lock = threading.RLock()
         self.folder: Optional[Path] = None  # where its downloads go: the conversation's working folder
         # ids given out on its pages so far: a new page goes on from here, so old ids never hit; each tab of a
@@ -402,9 +384,9 @@ class Tab:
         self._reset()
 
     def _reset(self) -> None:
-        """No live page (yet, or the browser closed)."""
+        """No live page (yet, or Chrome let go)."""
         self.target = self.session = self.window = None
-        self.wire: Optional[Wire] = None  # her browser's connection, or the extension's
+        self.wire: Optional[Wire] = None  # the extension's connection
         self.context = None  # the brain's isolated world on the page now
         self.document = 0  # the main frame's navigations
         self.loading, self.loading_since, self.crashed = False, 0.0, False
@@ -500,15 +482,9 @@ class Browser:
     def __init__(self, brain):
         self.brain = brain
         self.folder = brain.home / "browser"
-        self.profile = self.folder / "profile"
-        self.desktop = desktops.DESKTOP if desktops.WINDOWS else None  # where she browses (None: the user's)
-        self.user_desktop: Optional[str] = None  # the user's screen (tests: a hidden desktop standing in for it)
         self._lock = threading.RLock()
-        self.mode = "off"  # off, hidden (out of the user's sight), shown (on the user's screen)
-        self.wanted: Optional[str] = None  # hidden or shown, as she or the user asked; None: browser_headless
-        self.process: Optional[desktops.Process] = None
-        self.wire: Optional[Wire] = None
-        self.link: Optional[Wire] = None  # the user's own Chrome, through the extension (extension.py)
+        self._reaching = threading.Lock()  # one call at a time opens the user's Chrome
+        self.link: Optional[Wire] = None  # the user's Chrome, through the extension (extension.py)
         from .extension import Bridge
 
         self.bridge = Bridge(self, brain.config.values()["browser_extension_port"])
@@ -518,32 +494,21 @@ class Browser:
         self._frame_sessions: Dict[str, Tab] = {}  # a frame of another site's session -> its tab
         self._frame_keys = itertools.count(1)
         self._downloads: Dict[str, dict] = {}
-        self._events: "queue.Queue" = queue.Queue()  # the browser's own events, handled off the reading thread
-        self.calls = 0  # browser calls under way
-        self.used = time.monotonic()
-        self._threads = False  # its own threads, from the first launch on
+        self._events: "queue.Queue" = queue.Queue()  # Chrome's own events, handled off the reading thread
         self._load()
 
     # ============== What there is ==============
 
     def command(self) -> Optional[str]:
+        """The user's Chrome, to open when it is not running."""
         return find_browser(self.brain.config.values()["browser_command"])
 
     def status(self) -> dict:
         command = self.command() or ""
         with self._lock:
-            self._check()
-            return {"command": command, "version": version_of(command) if command else "", "mode": self.mode,
-                    "shown": self._shown_wanted(), "profile": str(self.profile), "has_profile": self.profile.exists(),
-                    "tabs": sum(len(owner["tabs"]) for owner in self.owners.values()),
-                    "chrome": {**self.bridge.status(), "connected": self.link is not None,
-                               "tabs": sum(t.user for owner in self.owners.values() for t in owner["tabs"].values())}}
-
-    def _shown_wanted(self) -> bool:
-        """Where it opens: on the user's screen or out of sight."""
-        if self.wanted:
-            return self.wanted == "shown"
-        return not self.brain.config.values()["browser_headless"]
+            tabs = sum(len(owner["tabs"]) for owner in self.owners.values())
+        return {"command": command, "version": version_of(command) if command else "",
+                "chrome": {**self.bridge.status(), "connected": self.link is not None, "tabs": tabs}}
 
     def _load(self) -> None:
         try:
@@ -553,15 +518,14 @@ class Browser:
         for key, owner in saved.items():
             tabs = {}
             for name, tab in owner.get("tabs", {}).items():
-                tabs[name] = Tab(key, name, tab.get("url") or "about:blank", tab.get("title", ""), bool(tab.get("user")))
+                tabs[name] = Tab(key, name, tab.get("url") or "about:blank", tab.get("title", ""))
                 tabs[name].restore = tab.get("url") if tab.get("url") not in (None, "", "about:blank") else None
-                tabs[name].target = tab.get("target")  # a tab in the user's Chrome may still be open there
+                tabs[name].target = tab.get("target")  # it may still be open in the user's Chrome
             self.owners[key] = {"next": owner.get("next", len(tabs)), "current": owner.get("current"), "tabs": tabs}
 
     def _save(self) -> None:
         data = {key: {"next": owner["next"], "current": owner["current"],
-                      "tabs": {name: {"url": tab.restore or tab.url, "title": tab.title,
-                                      **({"user": True, "target": tab.target} if tab.user else {})}
+                      "tabs": {name: {"url": tab.restore or tab.url, "title": tab.title, "target": tab.target}
                                for name, tab in owner["tabs"].items()}}
                 for key, owner in self.owners.items() if owner["tabs"]}
         try:
@@ -572,38 +536,31 @@ class Browser:
         except OSError as exc:
             logger.warning("Could not keep the browser's tabs: %s", exc)
 
-    # ============== The process ==============
+    # ============== The user's Chrome ==============
 
-    def _check(self) -> None:
-        """Whether what was started still runs (under the lock)."""
-        if self.mode != "off" and (self.wire.closed.is_set() or self.process.poll() is not None):
-            self._gone()
+    def start(self) -> None:
+        """The brain starts: the user's Chrome can connect through the extension from now on."""
+        threading.Thread(target=self._handle_events, name="browser-events", daemon=True).start()
+        self.bridge.start()
 
-    def _gone(self) -> None:
-        if self.wire:
-            self.wire.close()
-        if self.process and self.process.poll() is None:
-            self.process.kill()
-        self.mode, self.process, self.wire = "off", None, None
-        self._let_go(user=False)
+    def close(self) -> None:
+        """The brain stops: the extension lets go of her tabs in the user's Chrome (they stay open there)."""
+        with self._lock:
+            if self.link:
+                self.link.close()
+        self.bridge.close()
 
-    def _let_go(self, user: bool) -> None:
-        """Her browser's tabs (or those in the user's Chrome) have no page now: they open again at their
-        addresses when next used (one in the user's Chrome, still open there, is taken up again)."""
+    def _let_go(self) -> None:
+        """Her tabs have no page now: at the next call each is taken up again where it is still open in the user's
+        Chrome, else opened again at its address."""
         for owner in self.owners.values():
             for tab in owner["tabs"].values():
-                if tab.user != user:
-                    continue
                 tab.restore = tab.restore or (tab.url if tab.session and tab.url != "about:blank" else None)
                 target = tab.target
                 tab._reset()
-                if user:
-                    tab.target = target
-        for table in (self._by_target, self._by_session, self._frame_sessions):
-            for key in [key for key, tab in table.items() if tab.user == user]:
-                del table[key]
-        for guid in [guid for guid, d in self._downloads.items() if (d["tab"] is None or d["tab"].user) == user]:
-            del self._downloads[guid]
+                tab.target = target
+        for table in (self._by_target, self._by_session, self._frame_sessions, self._downloads):
+            table.clear()
 
     def linked(self, wire: Wire) -> None:
         """The user's Chrome connected through the extension (a newer connection takes over: the bridge closes
@@ -611,8 +568,7 @@ class Browser:
         with self._lock:
             old, self.link = self.link, wire
             if old:
-                self._let_go(user=True)
-            self._threads_on()
+                self._let_go()
 
     def unlinked(self, wire: Wire, disconnected: bool = False) -> None:
         """``disconnected``: the user pressed Disconnect in the extension, which she hears when she tries."""
@@ -620,157 +576,27 @@ class Browser:
             if self.link is not wire:
                 return
             self.link = None
-            self._let_go(user=True)
+            self._let_go()
             for owner in self.owners.values():
                 for tab in owner["tabs"].values():
-                    if tab.user and not disconnected:
+                    if not disconnected:
                         tab.news.append(LINK_LOST)
 
     def _not_linked(self) -> ToolError:
         return ToolError(UNPLUGGED if self.bridge.disconnected else NOT_LINKED)
 
-    def _wire_of(self, tab: Tab) -> Optional[Wire]:
-        return self.link if tab.user else self.wire
-
-    def _ensure(self, key: str, shown: Optional[bool] = None) -> List[Tab]:
-        """A running browser, where it is wanted (``shown``: where she asked for it now). The conversation's tabs
-        that had pages when it moved, to open again."""
-        self._check()
-        if shown is not None:
-            self.wanted = "shown" if shown else "hidden"
-        if self.mode == "off":
-            self._launch(self._shown_wanted())
-            return []
-        if shown is None or (self.mode == "shown") == shown:
-            return []
-        if self.calls > 1:
-            raise ToolError(BUSY_ELSEWHERE)
-        moved = [tab for tab in self._owner(key)["tabs"].values() if tab.session and not tab.user]
-        self._shut()
-        self._launch(shown)
-        return moved
-
-    def _launch(self, shown: bool) -> None:
-        command = self.command()
-        if not command:
-            raise ToolError("There is no Chrome or Edge on this computer, so you have no browser: the user installs "
-                            "one, or sets where it is in SentientMilk (Tools > Browser).")
-        self.profile.mkdir(parents=True, exist_ok=True)
-        (self.folder / "downloads").mkdir(exist_ok=True)
-        port = _free_port()
-        args = [command, f"--user-data-dir={self.profile}", f"--remote-debugging-port={port}", *FLAGS,
-                f"--window-size={WINDOW[0]},{WINDOW[1]}"]
-        process = desktops.start(args, desktop=self.user_desktop if shown else self.desktop, tied=True)
-        deadline, url = time.monotonic() + 30, None
-        while url is None:
-            if process.poll() is not None:
-                raise ToolError("Your browser closed as it started: its profile may be open in another Chrome "
-                                f"({self.profile}). The user closes that one, or clears your browser's data.")
-            if time.monotonic() > deadline:
-                process.kill()
-                raise ToolError("Your browser did not start in 30 s.")
-            try:
-                url = requests.get(f"http://127.0.0.1:{port}/json/version", timeout=1).json()["webSocketDebuggerUrl"]
-            except (requests.RequestException, ValueError, KeyError):
-                time.sleep(0.1)
-        try:
-            wire = Wire(url, self._event)
-            wire.call("Target.setDiscoverTargets", {"discover": True})
-            wire.call("Browser.setDownloadBehavior", {"behavior": "allowAndName", "eventsEnabled": True,
-                                                     "downloadPath": str(self.folder / "downloads")})
-            self._bring_cookies(wire)
-        except Exception as exc:
-            process.kill()
-            raise ToolError(f"Your browser started but could not be reached: {exc}")
-        self.process, self.wire, self.mode = process, wire, "shown" if shown else "hidden"
-        self._threads_on()
-
-    def _threads_on(self) -> None:
-        if not self._threads:
-            self._threads = True
-            threading.Thread(target=self._handle_events, name="browser-events", daemon=True).start()
-            threading.Thread(target=self._watch, name="browser-idle", daemon=True).start()
-
-    def start(self) -> None:
-        """The brain starts: the user's Chrome can connect through the extension from now on."""
-        self.bridge.start()
-
-    def _keep_cookies(self) -> None:
-        """Session cookies (a sign-in that lasts while the browser is open) wait in the profile while it is closed:
-        for her it is still open, its tabs are."""
-        try:
-            cookies = self.wire.call("Storage.getCookies", timeout=5)["cookies"]
-        except Exception:
-            return
-        kept = []
-        for cookie in cookies:
-            if not cookie.get("session"):
-                continue
-            kept.append({k: v for k, v in cookie.items() if k in COOKIE_FIELDS})
-            if not cookie.get("domain", "").startswith("."):  # a host's own, not its subdomains'
-                scheme = "https" if cookie.get("secure") else "http"
-                kept[-1]["url"] = f"{scheme}://{kept[-1].pop('domain')}{cookie.get('path', '/')}"
-        try:
-            if kept:
-                (self.profile / COOKIES).write_text(json.dumps(kept), encoding="utf-8")
-        except OSError as exc:
-            logger.warning("Could not keep the browser's session cookies: %s", exc)
-
-    def _bring_cookies(self, wire: Wire) -> None:
-        path = self.profile / COOKIES
-        try:
-            cookies = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return
-        try:
-            wire.call("Storage.setCookies", {"cookies": cookies}, timeout=10)
-        except CdpError as exc:
-            logger.warning("Could not bring back the browser's session cookies: %s", exc)
-        path.unlink(missing_ok=True)
-
-    def _watch(self) -> None:
-        """An idle browser out of sight closes: its tabs open again at their addresses when next used (one on the
-        user's screen stays, they may be looking at it)."""
-        while not self.brain.stopping.wait(15):
-            with self._lock:
-                if self.mode == "hidden" and not self.calls and time.monotonic() - self.used > IDLE:
-                    self._shut()
-                    self.wanted = None  # as browser_headless says, when it opens again
-
-    def _shut(self, keep: bool = True) -> None:
-        """It closes (under the lock); ``keep``: its session cookies come back when it opens again."""
-        if self.mode == "off":
-            return
-        if keep:
-            self._keep_cookies()
-        try:
-            self.wire.call("Browser.close", timeout=5)
-        except Exception:
-            pass
-        if self.process and not self.process.wait(10):
-            self.process.kill()
-        self._gone()
-        self._save()
-
-    def close(self) -> None:
-        """The brain stops: her browser closes, and the extension lets go of her tabs in the user's Chrome."""
-        with self._lock:
-            self._shut()
-            if self.link:
-                self.link.close()
-        self.bridge.close()
-
     def connect_chrome(self, wait: float = 15.0) -> dict:
-        """The panel's Connect: the extension's page in the user's Chrome, given the code (it must be there; a
-        Chrome that was not running blocks it while the extension loads, and the extension picks it up). The
-        status once that Chrome connected, or ``wait`` s went by; ``chrome.took``: whether it did."""
+        """The panel's Connect, and her call when Chrome is not connected: the extension's page in the user's
+        Chrome, given the code (a Chrome that was not running starts with it, blocked while the extension loads,
+        and the extension picks it up; the page closes itself once connected). The status once that Chrome
+        connected, or ``wait`` s went by; ``chrome.took``: whether it did."""
         if not self.bridge.code():
             raise BrainError("no_bridge", f"The extension cannot connect: {self.bridge.error}", http_status=409)
         command = self.command()
         if not command:
             raise BrainError("no_browser", "There is no Chrome or Edge on this computer", http_status=409)
         before, asked = self.link, time.monotonic()
-        desktops.start([command, self.bridge.connect_url()], desktop=self.user_desktop)
+        desktops.start([command, self.bridge.connect_url()])  # on the user's screen: it is theirs
         # it connected, or the Chrome already connected says its page opened
         took = lambda: self.link not in (None, before) or self.bridge.confirmed > asked  # noqa: E731
         while not took() and time.monotonic() < asked + wait:
@@ -779,74 +605,34 @@ class Browser:
         status["chrome"]["took"] = took()
         return status
 
-    def put(self, shown: bool) -> dict:
-        """The panel's Show and Hide: her browser on the user's screen (to sign in to sites for her, or to watch
-        her) or out of sight, from now on. Her pages there open again, and on a screen with none of hers a
-        window of the user's own opens."""
-        with self._lock:
-            self._check()
-            if self.calls:
-                raise BrainError("busy", "She is using her browser right now: try again in a moment", http_status=409)
-            if not self.command():
-                raise BrainError("no_browser", "There is no Chrome or Edge on this computer", http_status=409)
-            self.wanted = "shown" if shown else "hidden"
-            if (self.mode == "shown") == shown and self.mode != "off":
-                return self.status()
-            moved = [tab for owner in self.owners.values() for tab in owner["tabs"].values()
-                     if tab.session and not tab.user]
+    def _reach(self) -> None:
+        """The user's Chrome connected, opened for it when it is not (outside the lock: connecting takes it). Never
+        after the user pressed Disconnect: that is theirs to undo."""
+        with self._reaching:
+            if self.link:
+                return
+            if self.bridge.disconnected:
+                raise ToolError(UNPLUGGED)
             try:
-                self._shut()
-                if shown:
-                    self._launch(True)
-                    self._reopen(moved)
-                    if not moved:
-                        self.wire.call("Target.createTarget", {"url": "about:blank", "newWindow": True})
-            except ToolError as exc:
-                raise BrainError("no_browser", str(exc), http_status=409)
-            return self.status()
-
-    def _reopen(self, tabs) -> None:
-        """Tabs that had pages before it moved get them again, not waited for (under the lock)."""
-        for tab in tabs:
-            try:
-                self._live(tab)
-                if tab.restore:
-                    url, tab.restore = tab.restore, None
-                    tab.wire.call("Page.navigate", {"url": url}, tab.session, timeout=30, until=tab.held)
-            except (CdpError, BrowserGone, ToolError) as exc:
-                logger.info("A tab did not open again: %s", exc)
-
-    def clear(self) -> dict:
-        """Forget what she signed in to: her profile goes (her tabs keep their addresses)."""
-        with self._lock:
-            self._check()
-            if self.calls:
-                raise BrainError("busy", "She is using her browser right now: try again in a moment", http_status=409)
-            self._shut(keep=False)
-            deadline = time.monotonic() + 15
-            while True:  # Chrome's helper processes let go of its files a moment after it ends
-                shutil.rmtree(self.profile, ignore_errors=True)
-                if not self.profile.exists() or time.monotonic() > deadline:
-                    break
-                time.sleep(0.25)
-            if self.profile.exists():
-                raise BrainError("busy", f"Could not delete {self.profile} (in use)", http_status=409)
-            return self.status()
+                self.connect_chrome(CONNECT_WAIT)
+            except BrainError as exc:
+                raise ToolError(f"You cannot use the user's Chrome: {exc.message}.")
+            if not self.link:
+                raise ToolError(NOT_LINKED)
 
     # ============== Events ==============
 
-    def _event(self, session: Optional[str], method: str, params: dict, user: bool = False) -> None:
-        """On the reading thread: a page's events at once, the browser's own to the events thread (``user``:
-        from the user's Chrome)."""
+    def _event(self, session: Optional[str], method: str, params: dict) -> None:
+        """On the extension's reading thread: a page's events at once, Chrome's own to the events thread."""
         if not session:
-            if user and method == "Target.detachedFromTarget" and params.get("reason") != "target_closed":
+            if method == "Target.detachedFromTarget" and params.get("reason") != "target_closed":
                 method = "Extension.canceled"  # let go of, and still open there
             if method in ("Target.targetDestroyed", "Target.detachedFromTarget"):  # at once: a call may wait on it
                 ended = self._by_target.get(params.get("targetId") or "") or self._by_session.get(
                     params.get("sessionId") or "")
                 if ended and not ended.closing:
                     ended.ended = True
-            self._events.put((method, params, user))
+            self._events.put((method, params))
             return
         tab = self._by_session.get(session) or self._frame_sessions.get(session)
         if tab is None:
@@ -857,7 +643,7 @@ class Browser:
                 frame = Frame(params["sessionId"], info["targetId"], session, next(self._frame_keys))
                 tab.remote[frame.session] = frame
                 self._frame_sessions[frame.session] = tab
-                self._events.put(("frame", {"session": frame.session}, user))  # its own frames of other sites too
+                self._events.put(("frame", {"session": frame.session}))  # its own frames of other sites too
         elif method == "Target.detachedFromTarget":
             tab.remote.pop(params.get("sessionId"), None)
             self._frame_sessions.pop(params.get("sessionId"), None)
@@ -868,7 +654,7 @@ class Browser:
             if kind in ("alert", "beforeunload"):  # nothing to decide: closed, and told
                 tab.news.append(f"The page showed a message: \"{message}\" (closed)." if kind == "alert" else
                                 "The page asked to stay as it had changes unsaved: it was left.")
-                self._events.put(("answer", {"session": session}, user))
+                self._events.put(("answer", {"session": session}))
             else:
                 tab.dialog = {"type": kind, "message": message, "default": params.get("defaultPrompt", "")}
         else:
@@ -877,20 +663,20 @@ class Browser:
     def _handle_events(self) -> None:
         while not self.brain.stopping.is_set():
             try:
-                method, params, user = self._events.get(timeout=1)
+                method, params = self._events.get(timeout=1)
             except queue.Empty:
                 continue
             try:
                 with self._lock:
-                    self._browser_event(method, params, user)
+                    self._browser_event(method, params)
             except (BrowserGone, CdpError, ToolError):
                 pass
             except Exception:
                 logger.exception("Browser event %s", method)
 
-    def _browser_event(self, method: str, params: dict, user: bool = False) -> None:
-        wire = self.link if user else self.wire
-        if wire is None or (not user and self.mode == "off"):
+    def _browser_event(self, method: str, params: dict) -> None:
+        wire = self.link
+        if wire is None:
             return
         if method == "answer":
             self._quietly(wire.call, "Page.handleJavaScriptDialog", {"accept": True}, params["session"], 5)
@@ -932,8 +718,8 @@ class Browser:
             download = self._downloads.get(params["guid"])
             if download and params.get("state") in ("completed", "canceled"):
                 download["done"] = True
-                # in the user's Chrome it went where theirs go: it is moved from there
-                self._downloaded(params["guid"], params["state"], params.get("filePath") if user else None)
+                # it went where the user's downloads go: it is moved from there
+                self._downloaded(params["guid"], params["state"], params.get("filePath") or "")
 
     def _closed_itself(self, tab: Tab) -> None:
         """The page closed itself (a sign-in window that is done): it is no tab of hers any more (under the lock;
@@ -946,13 +732,8 @@ class Browser:
             if owner["current"] == tab.name:
                 owner["current"] = next(reversed(owner["tabs"]), None)
             for other in owner["tabs"].values():
-                other.news.append(f"Tab {tab.name} ({tab.title or tab.url}) {self._closed_words(tab)}.")
+                other.news.append(f"Tab {tab.name} ({tab.title or tab.url}) {CLOSED}.")
             self._save()
-
-    def _closed_words(self, tab: Optional[Tab] = None) -> str:
-        if self.mode == "shown" or (tab and tab.user):
-            return "was closed (by the page, or by the user on their screen)"
-        return "closed itself"
 
     @staticmethod
     def _quietly(work, *args) -> None:
@@ -961,41 +742,40 @@ class Browser:
         except Exception:
             pass
 
-    def _downloaded(self, guid: str, state: str, path: Optional[str] = None) -> None:
-        """A finished download goes to the conversation's working folder, under its own name."""
+    def _downloaded(self, guid: str, state: str, path: str) -> None:
+        """A finished download of hers goes from where the user's Chrome put it to the conversation's working
+        folder, under its own name (what is left of a cancelled one is Chrome's)."""
         download = self._downloads.pop(guid, {})
         tab = download.get("tab")
-        source = Path(path) if path else self.folder / "downloads" / guid
-        if state != "completed":
-            if tab:
-                tab.news.append(f"The download of {download['name']} was cancelled.")
-            if not path:  # what is left of one in the user's Chrome is theirs
-                source.unlink(missing_ok=True)
+        if not tab:
             return
-        folder = tab.folder if tab and tab.folder else self.folder / "downloads"
         name = download["name"]
-        target, number = folder / name, 1
+        if state != "completed":
+            tab.news.append(f"The download of {name} was cancelled.")
+            return
+        if not tab.folder or not path:
+            tab.news.append(f"Downloaded {name}" + (f" to {path}." if path else "."))
+            return
+        target, number = tab.folder / name, 1
         while target.exists():
-            target = folder / f"{Path(name).stem} ({number}){Path(name).suffix}"
+            target = tab.folder / f"{Path(name).stem} ({number}){Path(name).suffix}"
             number += 1
         try:
-            folder.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(source), target)
+            tab.folder.mkdir(parents=True, exist_ok=True)
+            shutil.move(path, target)
         except OSError as exc:
-            if tab:
-                tab.news.append(f"{name} downloaded but could not be put in {folder}: {exc}")
+            tab.news.append(f"{name} downloaded to {path} but could not be put in {tab.folder}: {exc}")
             return
-        if tab:
-            tab.news.append(f"Downloaded {name} to {target}.")
+        tab.news.append(f"Downloaded {name} to {target}.")
 
     def _adopt(self, opener: Tab, target: str) -> None:
         """A page the opener opened (a link to a new tab, a sign-in window): the conversation's next tab."""
         owner = self.owners.get(opener.owner)
         if owner is None:
             return
-        tab = self._new_tab(opener.owner, opener.user)
+        tab = self._new_tab(opener.owner)
         try:
-            self._attach(tab, target, resize=False)
+            self._attach(tab, target)
         except (CdpError, BrowserGone, ToolError):
             del owner["tabs"][tab.name]
             return
@@ -1009,15 +789,16 @@ class Browser:
     def _owner(self, key: str) -> dict:
         return self.owners.setdefault(key, {"next": 0, "current": None, "tabs": {}})
 
-    def _new_tab(self, key: str, user: bool = False) -> Tab:
+    def _new_tab(self, key: str) -> Tab:
         owner = self._owner(key)
         owner["next"] += 1
-        tab = Tab(key, f"t{owner['next']}", user=user)
+        tab = Tab(key, f"t{owner['next']}")
         owner["tabs"][tab.name] = tab
         return tab
 
-    def _attach(self, tab: Tab, target: str, resize: bool = True) -> None:
-        wire = self._wire_of(tab)
+    def _attach(self, tab: Tab, target: str) -> None:
+        """Her hold on a tab of the user's Chrome; its window is the user's to move and size."""
+        wire = self.link
         if wire is None:
             raise self._not_linked()
         session = wire.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
@@ -1028,24 +809,19 @@ class Browser:
         wire.call("Emulation.setFocusEmulationEnabled", {"enabled": True}, session)  # each page is the one in front
         wire.call("Target.setAutoAttach", AUTO_ATTACH, session)  # its frames of other sites
         tab.window = wire.call("Browser.getWindowForTarget", {"targetId": target})["windowId"]
-        if resize and not tab.user:  # the user's Chrome makes her windows that size, and they are the user's to move
-            wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {"windowState": "normal"}})
-            place = {"left": 0, "top": 0} if self.mode == "hidden" else {}  # on the user's screen: where Chrome puts it
-            wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {
-                **place, "width": WINDOW[0], "height": WINDOW[1]}})
 
     def _live(self, tab: Tab) -> None:
         """A page for the tab (under the lock); its address comes back in ``using``, outside the lock."""
         if tab.session and tab.target in self._by_target and not tab.crashed:
             return
-        wire = self._wire_of(tab)
+        wire = self.link
         if wire is None:
             raise self._not_linked()
-        if tab.user and tab.target and not tab.session and not tab.crashed:  # still open there: taken up again
+        if tab.target and not tab.session and not tab.crashed:  # still open there: taken up again
             target = tab.target
             tab._reset()
             try:
-                self._attach(tab, target, resize=False)
+                self._attach(tab, target)
                 tab.restore = None
                 return
             except (CdpError, ToolError):  # it was closed meanwhile: a new one at its address
@@ -1060,15 +836,15 @@ class Browser:
             self._quietly(wire.call, "Target.closeTarget", {"targetId": tab.target})
             tab.restore = tab.restore or (tab.url if tab.url != "about:blank" else None)
         tab._reset()
-        # on the user's screen a new window stays behind what they are using: it never takes their keys
+        # a new window stays behind what the user is using: it never takes their keys
         target = wire.call("Target.createTarget", {"url": "about:blank", "newWindow": True,
-                                                   "background": self.mode == "shown" or tab.user})["targetId"]
+                                                   "background": True})["targetId"]
         self._attach(tab, target)
 
     def _shown_window(self, tab: Tab) -> None:
-        """A minimized window on the user's screen paints nothing, so a picture of it waits forever: it comes back
-        (behind what they are using). Reading and acting need none of this."""
-        if (self.mode != "shown" and not tab.user) or tab.window is None:
+        """A minimized window paints nothing, so a picture of it waits forever: it comes back (behind what the user
+        is using). Reading and acting need none of this."""
+        if tab.window is None:
             return
         state = tab.wire.call("Browser.getWindowBounds", {"windowId": tab.window})["bounds"].get("windowState")
         if state == "minimized":
@@ -1076,55 +852,34 @@ class Browser:
             time.sleep(0.3)  # until it paints
 
     @contextlib.contextmanager
-    def using(self, ctx, name: str = "", create: bool = False, new: bool = False, shown: Optional[bool] = None,
-              user: Optional[bool] = None):
-        """The conversation's tab ``name`` (or its current one; ``new``: a new one, in the user's Chrome when
-        ``user``), live and held for a call; ``shown``: her browser on the user's screen (or out of sight) from
-        now on."""
+    def using(self, ctx, name: str = "", create: bool = False, new: bool = False):
+        """The conversation's tab ``name`` (or its current one; ``create``: one if there is none; ``new``: a new
+        one), live in the user's Chrome (opened for it if need be) and held for a call."""
         from .toolkits.files import cwd
 
         key = _key(ctx.app, ctx.session)
         name = self._name(name)
-        with self._lock:
-            self.calls += 1
-            self.used = time.monotonic()
         try:
-            with self._lock:
-                owner, made = self._owner(key), new
-                if new:
-                    tab = self._new_tab(key, bool(user))
-                elif name:
-                    tab = owner["tabs"].get(name)
-                    if tab is None:
+            with self._lock:  # which tab, before Chrome is opened for it
+                owner = self._owner(key)
+                tab = None if new else owner["tabs"].get(name or owner["current"] or "")
+                if tab is None and not new:
+                    if name:
                         raise ToolError(f"There is no tab {name}. {self._tabs_line(key) or 'You have no tabs.'}")
-                else:
-                    tab = owner["tabs"].get(owner["current"] or "")
-                    if tab is None:
-                        if not create:
-                            raise ToolError("You have no tab open: open a page with browser_open.")
-                        tab, made = self._new_tab(key, bool(user)), True
-                if tab.user and not self.link:
-                    if made:
-                        owner["tabs"].pop(tab.name, None)
-                    raise self._not_linked()
-                if tab.user:  # the user's Chrome: her own browser is not needed for it
-                    moved = []
-                    if shown is not None:
-                        self.wanted = "shown" if shown else "hidden"
-                else:
-                    moved = self._ensure(key, shown)
-                if tab.ended:  # it closed itself since her last call
+                    if not create:
+                        raise ToolError("You have no tab open: open a page with browser_open.")
+                if tab is not None and tab.ended:  # it closed itself since her last call
                     self._closed_itself(tab)
-                    raise ToolError(f"Tab {tab.name} {self._closed_words(tab)}. "
-                                    f"{self._tabs_line(key) or 'You have no tabs.'}")
+                    raise ToolError(f"Tab {tab.name} {CLOSED}. {self._tabs_line(key) or 'You have no tabs.'}")
+            self._reach()
+            with self._lock:
+                owner = self._owner(key)
+                if tab is None:
+                    tab = self._new_tab(key)
                 owner["current"] = tab.name
                 tab.folder = cwd(ctx)
                 self._live(tab)
-                if moved:
-                    tab.news.append(MOVED.format(where="to the user's screen" if self.mode == "shown"
-                                                 else "out of the user's sight"))
-                    self._reopen([t for t in moved if t is not tab])
-                if any(t.window == tab.window for t in self._by_target.values() if t is not tab and t.user == tab.user):
+                if any(t.window == tab.window for t in self._by_target.values() if t is not tab):
                     self._quietly(tab.wire.call, "Target.activateTarget", {"targetId": tab.target})
                 self._save()
             with tab.lock:
@@ -1133,15 +888,9 @@ class Browser:
                     self._navigate(tab, url)
                 yield tab
         except BrowserGone:
-            with self._lock:
-                self._check()
             raise ToolError(GONE)
         except CdpError as exc:
             raise ToolError(f"The browser refused: {exc}")
-        finally:
-            with self._lock:
-                self.calls -= 1
-                self.used = time.monotonic()
 
     @staticmethod
     def _name(name: str) -> str:
@@ -1153,7 +902,7 @@ class Browser:
         if not tabs:
             return ""
         return ("Your tabs: " if besides is None else "Your other tabs: ") + "; ".join(
-            f"{t.name} {t.title or t.url}" + (" (in the user's Chrome)" if t.user else "") for t in tabs)
+            f"{t.name} {t.title or t.url}" for t in tabs)
 
     def forget(self, app: str, session: str) -> None:
         """A conversation (or agent) is gone: its tabs close."""
@@ -1175,10 +924,7 @@ class Browser:
             site = site_of(arguments.get("url"))
         else:
             site = site_of(tab.restore or tab.url) if tab else ""
-        shown = {**arguments, "site": site}
-        user = arguments.get("in_user_chrome")
-        if user or (user is None and tab and tab.user):  # the user's own Chrome, with their sign-ins
-            shown["chrome"] = "user"
+        shown = {**arguments, "site": site, "chrome": "user"}  # the user's own Chrome, with their sign-ins
         if isinstance(arguments.get("steps"), list):
             shown["steps"] = [{**step, **({"about": tab.labels[_id(step["target"])]}
                                           if tab and _id(step.get("target")) in tab.labels else {})}
@@ -1194,7 +940,7 @@ class Browser:
         dialog of the page opened meanwhile."""
         world = frame or tab
         if tab.ended:
-            raise ToolError(f"Tab {tab.name} {self._closed_words(tab)}.")
+            raise ToolError(f"Tab {tab.name} {CLOSED}.")
         if tab.dialog:
             raise ToolError(self._dialog_line(tab))
         if frame and tab.remote.get(frame.session) is not frame:
@@ -1210,7 +956,7 @@ class Browser:
                         "returnByValue": True}, world.session, until=tab.held)
                     if installed is None:
                         if tab.ended:
-                            raise ToolError(f"Tab {tab.name} {self._closed_words(tab)}.")
+                            raise ToolError(f"Tab {tab.name} {CLOSED}.")
                         return None
                     tab.next_id = max(tab.next_id, installed.get("result", {}).get("value") or 0)
                 reply = tab.wire.call("Runtime.evaluate", {
@@ -1222,7 +968,7 @@ class Browser:
                     raise ToolError(FRAME_GONE)
                 if tab.ended or "session" in str(exc).lower():
                     tab.ended = True
-                    raise ToolError(f"Tab {tab.name} {self._closed_words(tab)}.")
+                    raise ToolError(f"Tab {tab.name} {CLOSED}.")
                 if any(word in str(exc).lower() for word in ("context", "frame", "target")):
                     world.context = None
                     time.sleep(0.1)
@@ -1230,7 +976,7 @@ class Browser:
                 raise ToolError(f"The page could not be read: {exc}")
             if reply is None:
                 if tab.ended:
-                    raise ToolError(f"Tab {tab.name} {self._closed_words(tab)}.")
+                    raise ToolError(f"Tab {tab.name} {CLOSED}.")
                 return None
             if "exceptionDetails" in reply:
                 details = reply["exceptionDetails"]
@@ -1340,25 +1086,33 @@ class Browser:
                 raise
             tab.ended = True  # the click closed the page (a sign-in window that is done)
 
+    def _busy(self, tab: Tab) -> bool:
+        """The page is loading, downloading, or waiting for a request that changes it when it comes back."""
+        now = time.monotonic()
+        for request, since in list(tab.requests.items()):
+            if now - since > 60:
+                tab.requests.pop(request, None)
+        downloading = any(d["tab"] is tab and not d["done"] for d in list(self._downloads.values()))
+        return (tab.loading and now - tab.loading_since < LONG_LOAD) or downloading or \
+            any(now - since < LONG_REQUEST for since in list(tab.requests.values()))
+
     def _settle(self, tab: Tab, budget: float = SETTLE, after: bool = True) -> bool:
-        """Until the page has loaded and stopped changing (False: still busy after ``budget`` seconds). ``after``
-        an act it waits at least QUIET too: what the act started late (a timer, then a request) shows by then."""
+        """Until the page has loaded, stopped changing and shows something (False: still busy after ``budget``
+        seconds). ``after`` an act it waits at least QUIET too: what the act started late (a timer, then a request)
+        shows by then. A page that shows nothing yet is waited for up to BLANK: an app that draws itself once its
+        scripts ran."""
         start = time.monotonic()
         time.sleep(GRACE)
         while True:
             now = time.monotonic()
             if tab.dialog or tab.crashed or tab.ended or not tab.session:
                 return True
-            for request, since in list(tab.requests.items()):
-                if now - since > 60:
-                    tab.requests.pop(request, None)
-            downloading = any(d["tab"] is tab and not d["done"] for d in list(self._downloads.values()))
-            busy = (tab.loading and now - tab.loading_since < LONG_LOAD) or downloading or \
-                any(now - since < LONG_REQUEST for since in list(tab.requests.values()))
-            if not busy and (not after or now - start >= QUIET):
+            if not self._busy(tab) and (not after or now - start >= QUIET):
                 try:
                     quiet = self._quiet_for(tab)
-                    if quiet is None or quiet / 1000 >= QUIET:
+                    # busy again: a request it made while it was asked (its event came before the answer)
+                    if (quiet is None or quiet / 1000 >= QUIET) and not self._busy(tab) and (
+                            now - start >= BLANK or not self._eval(tab, "__milk.blank()", timeout=3)):
                         return True
                 except ToolError:
                     pass
@@ -1401,8 +1155,7 @@ class Browser:
         return data
 
     def _head(self, tab: Tab) -> List[str]:
-        lines = [f"{tab.name} · {tab.title or '(no title)'} · {tab.url}" +
-                 (" · in the user's Chrome" if tab.user else " · on the user's screen" if self.mode == "shown" else "")]
+        lines = [f"{tab.name} · {tab.title or '(no title)'} · {tab.url}"]
         lines += [f"Meanwhile: {news}" for news in tab.news]
         tab.news = []
         if tab.dialog:
@@ -1444,29 +1197,12 @@ class Browser:
 
     # ============== The tools ==============
 
-    def open(self, ctx, url: str = "", new_tab: bool = False, headless: Optional[bool] = None,
-             in_user_chrome: Optional[bool] = None) -> str:
+    def open(self, ctx, url: str = "", new_tab: bool = False) -> str:
         url = str(url or "").strip()
-        shown = None if headless is None else not headless
-        owner = self.owners.get(_key(ctx.app, ctx.session)) or {"tabs": {}, "current": None}
-        current = owner["tabs"].get(owner["current"] or "")
-        user = bool(current and current.user) if in_user_chrome is None else bool(in_user_chrome)
-        if current and current.user != user:  # the other browser: a tab of hers there, at this page if none given
-            new_tab, url = True, url or (current.url if current.url != "about:blank" else "")
         if not url:
-            if shown is None:
-                raise ToolError("url is empty: give the address to open (https://...).")
-            if not current:  # nothing to show yet: it opens there next time
-                with self._lock:
-                    self.wanted = "shown" if shown else "hidden"
-                    busy = self.mode != "off" and (self.mode == "shown") != shown and self.calls
-                    if self.mode != "off" and (self.mode == "shown") != shown and not busy:
-                        self._shut()
-                where = "on the user's screen" if shown else "out of the user's sight"
-                when = "once another conversation is done with it" if busy else "from now on"
-                return f"Your browser opens {where} {when}. You have no tab open: open a page with browser_open."
-        with self.using(ctx, create=True, new=new_tab and bool(url), shown=shown, user=user) as tab:
-            note = self._navigate(tab, url) if url else ""
+            raise ToolError("url is empty: give the address to open (https://...).")
+        with self.using(ctx, create=True, new=new_tab) as tab:
+            note = self._navigate(tab, url)
             return self._whole(tab, self._view(tab), note)
 
     def view(self, ctx, tab: str = "", find: str = "", part: str = "", picture: bool = False,
@@ -1643,9 +1379,8 @@ class Browser:
                     break
             if page.ended:
                 with self._lock:
-                    words = self._closed_words(page)
                     self._closed_itself(page)
-                return "\n".join(notes + [f"Tab {page.name} {words}."] + self._after_close(page))
+                return "\n".join(notes + [f"Tab {page.name} {CLOSED}."] + self._after_close(page))
             if page.dialog:
                 return page.scrub("\n".join(self._head(page) + notes))
             data = self._view(page)
@@ -1670,24 +1405,11 @@ class Browser:
         return f"{tab.name} closed"
 
     def show(self, ctx, tab: Tab) -> str:
-        """Her browser on the user's screen at the tab, in front, for them to do what is theirs (a sign-in, a
-        check, a payment); she goes on there once they are done."""
+        """Her tab in front in the user's Chrome, for them to do what is theirs (a sign-in, a check, a payment);
+        she goes on there once they are done."""
         if ctx.run["kind"] != "turn":
             raise ToolError(LEAD_ONLY)
-        key = _key(ctx.app, ctx.session)
-        if tab.user:  # it is in their Chrome already: in front
-            self._quietly(tab.wire.call, "Target.activateTarget", {"targetId": tab.target})
-            return SHOWN.format(urls=f"{tab.name} ({tab.url})").replace(
-                " It stays on their screen until browser_open headless=true.", "")
-        with self._lock:
-            moved = self._ensure(key, shown=True)
-            if moved:
-                self._live(tab)
-                self._reopen([t for t in moved if t is not tab])
-        if moved and tab.restore:
-            url, tab.restore = tab.restore, None
-            self._navigate(tab, url)
-        self._quietly(tab.wire.call, "Target.activateTarget", {"targetId": tab.target})  # in front: theirs to use
+        self._quietly(tab.wire.call, "Target.activateTarget", {"targetId": tab.target})
         return SHOWN.format(urls=f"{tab.name} ({tab.url})")
 
     # ============== What the user types for her, and the orders they check (artifacts.py) ==============
@@ -1827,8 +1549,7 @@ class Browser:
             try:
                 with self.using(ctx, name) as live:
                     self.show(ctx, live)
-                    live.news.append("The user looked at the order in your browser: it is on their screen now "
-                                     "(browser_open headless=true takes it back).")
+                    live.news.append("The user looked at the order: your tab with it is in front in their Chrome.")
                     found = self._read_parts(live, [("", part.get("path") or "")])[0]  # ids start anew if it moved
                     if not found.get("gone"):
                         self._page_call(live, None, "flash", found["id"])
@@ -2239,15 +1960,19 @@ class Browser:
         return False
 
     def _wait(self, ctx, tab: Tab, text: str, amount) -> str:
+        """For words to show; without them, until the page has finished loading (at once when it has)."""
         try:
-            seconds = float(amount or (20 if text else 2))
+            seconds = float(amount or (20 if text else SETTLE))
         except (TypeError, ValueError):
             raise ToolError("amount is how many seconds to wait at most: a number.")
         if not text:
-            if ctx.pause(seconds):
-                return f"stopped waiting: {ctx.interruption()}"
-            self._settle(tab)
-            return f"waited {seconds:g} s"
+            deadline = time.monotonic() + seconds
+            while not self._settle(tab, min(1.0, deadline - time.monotonic()), after=False):
+                if time.monotonic() >= deadline:
+                    return f"the page is still loading after {seconds:g} s"
+                if ctx.pause(0.05):
+                    return f"stopped waiting: {ctx.interruption()}"
+            return "the page has loaded (each step waits for that by itself)"
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             if tab.dialog:

@@ -257,12 +257,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"status": "ok"})
         elif route == ["browser"] and method == "GET":
             self._send(200, brain.browser.status())
-        elif route == ["browser", "open"] and method == "POST":  # on the user's screen (to sign in, to watch) or not
-            self._send(200, brain.browser.put(not bool(body.get("headless", False))))
         elif route == ["browser", "connect"] and method == "POST":  # the extension's page in the user's Chrome
             self._send(200, brain.browser.connect_chrome())
-        elif route == ["browser", "clear"] and method == "POST":
-            self._send(200, brain.browser.clear())
         elif route == ["journal"] and method == "GET":
             self._send(200, {"notes": brain.store.notes(query.get("q", ""), _number(query.get("limit", 200), "limit"))})
         elif route == ["memory"] and method == "GET":

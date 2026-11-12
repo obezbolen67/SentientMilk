@@ -1,5 +1,5 @@
-"""Browser: her own Chrome (browser.py), for the web as a person uses it: pages that need scripts, clicks, forms,
-sign-ins. Pages come as text with an id on each thing she can use; she acts on ids, several steps per call."""
+"""Browser: the user's own Chrome (browser.py), for the web as a person uses it: pages that need scripts, clicks,
+forms, sign-ins. Pages come as text with an id on each thing she can use; she acts on ids, several steps per call."""
 
 from typing import Optional
 
@@ -16,7 +16,8 @@ STEP = {
         "text": {"type": "string", "description": "fill: what the field holds after (an option's text for a "
                                                   "select, true/false for a checkbox); type: text to type; key: keys "
                                                   "(Enter, Tab, Escape, ctrl+a, shift+Tab, several with spaces); "
-                                                  "scroll: down, up, top or bottom; wait: words to wait for; "
+                                                  "scroll: down, up, top or bottom; wait: words to wait for (none: "
+                                                  "until the page has loaded); "
                                                   "open: the address; dialog: a prompt's answer; save: a file name "
                                                   "in the working folder (.pdf, .png, .jpg, .html, .mhtml)."},
         "secret": {"type": "string", "description": "fill, in place of text: the name of a value the user typed for "
@@ -32,23 +33,22 @@ STEP = {
     "required": ["action"],
 }
 TAB = "Which of your tabs (t1, t2...); empty: the one you are in."
-GUIDE = ("Your browser is a Chrome of your own on the user's connection: the sites you sign in to stay signed in. It "
-         "runs out of their sight unless they want to watch you: then browser_open headless=false puts it on their "
-         "screen (it works the same there, in front or not), and headless=true takes it back. Use it for the web "
-         "(pages that need scripts, clicks, forms, accounts) rather than the screen; web_fetch stays quicker for "
-         "reading a public page once. A page comes as lines, and each thing you can use has an id: button e5 \"Sign "
-         "in\" (frames of other sites too). Act by ids in browser_act, all the steps you know in one call (fill e3, "
-         "fill e4, click e5); its reply says what changed. Ids hold while the page lives; after a page changes to "
-         "another, use the ids of its new view. What has no id (a canvas, a map) you point at in a picture: "
-         "browser_view picture=true, then target \"x,y\" in it. Your tabs (t1, t2...) are this conversation's and "
-         "stay; links that open a new tab or window open one of yours. When the user wants you to use their own "
-         "Chrome (where they are signed in), browser_open in_user_chrome=true opens a tab of yours there, and every "
-         "tool works in it the same; their own tabs are never yours. Sign-ins (unless the user gave you what to "
-         "type), checks that you are a human (never try to pass them yourself) and payments are the user's: the "
-         "step show puts your browser in front of them for it. What you must not see (a card number, a password, a "
-         "code) the user types in a panel: browser_secrets, then fill steps with secret. Before they pay for an "
-         "order you put together, browser_review shows it to them as the page says it, for their yes; you never "
-         "press pay (your browser refuses).")
+GUIDE = ("Your browser is the user's own Chrome, signed in as they are there: you work in tabs of your own (a "
+         "purple SentientMilk group), and their own tabs are never yours. When Chrome is not running, your call opens "
+         "it. Use it for the web (pages that need scripts, clicks, forms, accounts) rather than the screen; web_fetch "
+         "stays quicker for reading a public page once. A page comes as lines, and each thing you can use has an id: "
+         "button e5 \"Sign in\" (frames of the page and of other sites too). Act by ids in browser_act, all the steps "
+         "you know in one call (fill e3, fill e4, click e5); its reply says what changed. browser_open and each step return "
+         "once the page has loaded and stopped changing, so no wait step is needed after a click or an address: wait "
+         "with text only for what comes later (a message, a job finishing). Ids hold while the page lives; after a page "
+         "changes to another, use the ids of its new view. What has no id (a canvas, a map) you point at in a "
+         "picture: browser_view picture=true, then target \"x,y\" in it. Your tabs (t1, t2...) are this "
+         "conversation's and stay; links that open a new tab or window open one of yours. Sign-ins (unless the user "
+         "gave you what to type), checks that you are a human (never try to pass them yourself) and payments are "
+         "the user's: the step show puts your tab in front of them for it. What you must not see (a card number, a "
+         "password, a code) the user types in a panel: browser_secrets, then fill steps with secret. Before they "
+         "pay for an order you put together, browser_review shows it to them as the page says it, for their yes; "
+         "you never press pay (your browser refuses).")
 
 
 def _seen(brain, run, arguments):
@@ -56,17 +56,12 @@ def _seen(brain, run, arguments):
 
 
 @tool(core=True, policy="auto", rule_arg="site", seen=_seen, guide=GUIDE, args={
-    "url": "The address to open (https://...); empty with headless: the tab you are in, moved.",
-    "new_tab": "Open it in a new tab of yours (keeping the page you are on); otherwise in the tab you are in.",
-    "headless": "false: your browser on the user's screen from now on, for them to watch you; true: out of their "
-                "sight again. Leave it out to keep it where it is.",
-    "in_user_chrome": "true: in a tab of yours in the user's own Chrome, signed in as they are there (their saved "
-                      "accounts); false: in your browser again. Leave it out to stay where your tab is."})
-def browser_open(ctx: ToolContext, url: str = "", new_tab: bool = False, headless: Optional[bool] = None,
-                 in_user_chrome: Optional[bool] = None):
-    """Open a page in your browser and see it: its text, with an id on each thing you can use (links, buttons,
-    fields), to act on with browser_act."""
-    return cap(ctx, ctx.brain.browser.open(ctx, url, new_tab, headless, in_user_chrome), "page")
+    "url": "The address to open (https://...).",
+    "new_tab": "Open it in a new tab of yours (keeping the page you are on); otherwise in the tab you are in."})
+def browser_open(ctx: ToolContext, url: str, new_tab: bool = False):
+    """Open a page in your browser and see it once it has loaded: its text, with an id on each thing you can use
+    (links, buttons, fields), to act on with browser_act."""
+    return cap(ctx, ctx.brain.browser.open(ctx, url, new_tab), "page")
 
 
 @tool(readonly=True, rule_arg="site", seen=_seen, args={  # open and act show the page: this is for looking again
@@ -88,12 +83,13 @@ def browser_view(ctx: ToolContext, tab: str = "", find: str = "", part: str = ""
     "steps": {"type": "array", "items": STEP, "description":
               "The steps in order, e.g. [{\"action\": \"fill\", \"target\": \"e3\", \"text\": \"milk\"}, "
               "{\"action\": \"click\", \"target\": \"e4\"}]. They stop at the first that fails, at a dialog of the "
-              "page, and when the tab goes to another site. show: your browser in front of the user, on their "
-              "screen (they sign in or pass a check there); save: the page as a file; close: closes the tab."},
+              "page, and when the tab goes to another site. Each waits for the page to load and settle. show: "
+              "your tab in front of the user (they sign in or pass a check there); save: the page as a file; "
+              "close: closes the tab."},
     "tab": TAB})
 def browser_act(ctx: ToolContext, steps: list, tab: str = ""):
     """Use a page as the user would: click, fill fields, type, press keys, scroll, drag, upload files, answer
-    the page's dialogs, go back. Says how each step went and what changed on the page."""
+    the page's dialogs, go back. Says how each step went and what changed on the page once it settled."""
     return cap(ctx, ctx.brain.browser.act(ctx, steps, tab), "page")
 
 
@@ -185,7 +181,7 @@ def browser_review(ctx: ToolContext, lines: list, total: str, charges: Optional[
     return ctx.brain.browser.review(ctx, order, tab)
 
 
-TOOLKIT = Toolkit("browser", "Your own web browser (Chrome): open sites, read them, click, type, fill in forms, sign "
-                             "in once and stay signed in; out of the user's sight, or on their screen to watch.",
+TOOLKIT = Toolkit("browser", "The user's own Chrome, signed in as they are: open sites, read them, click, type, fill "
+                             "in forms, in tabs of your own there.",
                   [browser_open, browser_view, browser_act, browser_read, browser_script, browser_log, browser_secrets,
                    browser_review])

@@ -1,5 +1,5 @@
-"""Artifacts (artifacts.py) in a real Chrome (or Edge) on a hidden desktop, against a shop of its own on 127.0.0.1:
-what the user types for her goes into the page and nowhere else, and an order is shown as the page says it."""
+"""Artifacts (artifacts.py) in the stand-in for the user's Chrome (test_browser.py), against a shop of its own on
+127.0.0.1: what the user types for her goes into the page and nowhere else, and an order is shown as the page says it."""
 
 import json
 import logging
@@ -10,17 +10,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
+from test_browser import EDGE, brain_with_chrome
 
-from sentientmilk_framework import BrainClient, browser, desktops
+from sentientmilk_framework import BrainClient, desktops
 from sentientmilk_framework import loop as loop_module
 from sentientmilk_framework.exceptions import BrainError
-from sentientmilk_framework.server import start
 from sentientmilk_framework.testing import PROVIDER_URL, FakeProvider, tool_call
 from sentientmilk_framework.toolkits import ToolContext
 from sentientmilk_framework.toolkits import browser as kit
 
-pytestmark = pytest.mark.skipif(not desktops.WINDOWS or not browser.find_browser(),
-                                reason="needs Windows (a hidden desktop) and Chrome or Edge")
+pytestmark = pytest.mark.skipif(not desktops.WINDOWS or not EDGE,
+                                reason="needs Windows (a hidden desktop) and Edge (the user's Chrome's stand-in)")
 
 CARD = "7319 4462 0185 5023"  # what the user types: it must show up nowhere but in the page
 CARD_PLAIN = CARD.replace(" ", "")
@@ -83,14 +83,14 @@ def web(tmp_path_factory):
     patch.setattr(loop_module, "RETRIES", (0, 0, 0))
     provider = FakeProvider().install(patch)
     home, work = tmp_path_factory.mktemp("home"), tmp_path_factory.mktemp("work")
-    server = start(home)
-    server.brain.browser.desktop = "SentientMilkTests"  # nothing shows on the user's screen
-    server.brain.browser.user_desktop = "SentientMilkTestsUser"
+    server, chrome = brain_with_chrome(home, tmp_path_factory.mktemp("chrome"), patch)
     client = BrainClient(server.url, server.token)
     client.update_config(api_key="sk-test-secret", base_url=PROVIDER_URL)
     client.declare_app("cli", name="CLI", environment="A terminal.", toolkits=["browser", "files"])
     yield SimpleNamespace(server=server, brain=server.brain, client=client, work=work, home=home, provider=provider)
     server.close()
+    for process in chrome.processes:
+        desktops.stop(process, 5)
     patch.undo()
 
 

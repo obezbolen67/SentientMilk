@@ -1,8 +1,12 @@
-"""Her browser against a site of its own on 127.0.0.1, in a real Chrome (or Edge) on a hidden desktop: nothing
-shows on the user's screen, and the user's windows of it (show, Open to sign in) go to another hidden desktop."""
+"""Her browser, the user's own Chrome, against a site of its own on 127.0.0.1: a real Edge with SentientMilk's
+extension stands in for the user's Chrome (Chrome 137 and later no longer add an unpacked extension from the
+command line; Edge still does), on a hidden desktop, with a profile of the test's own: nothing shows on the user's
+screen. It is not running until the brain opens it, as it would the user's."""
 
 import json
 import re
+import shutil
+import socket
 import threading
 import time
 import urllib.parse
@@ -10,15 +14,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 from sentientmilk_framework import BrainClient, browser, desktops
+from sentientmilk_framework.config import BrainConfig
+from sentientmilk_framework.extension import FOLDER
 from sentientmilk_framework.server import start
 from sentientmilk_framework.testing import tool_call
 from sentientmilk_framework.toolkits import ToolContext, ToolError
 from sentientmilk_framework.toolkits import browser as kit
 
-pytestmark = pytest.mark.skipif(not desktops.WINDOWS or not browser.find_browser(),
-                                reason="needs Windows (a hidden desktop) and Chrome or Edge")
+EDGE = browser.find_browser(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+pytestmark = pytest.mark.skipif(not desktops.WINDOWS or not EDGE,
+                                reason="needs Windows (a hidden desktop) and Edge (the user's Chrome's stand-in)")
 
 PAGES = {
     "/form": """<!doctype html><title>Sign up</title><h1>Sign up</h1>
@@ -63,9 +71,6 @@ setTimeout(() => s.textContent = JSON.stringify({webdriver: navigator.webdriver,
 <iframe src="http://localhost:{port}/pay" title="Payment" style="width:500px;height:200px;padding:9px"></iframe>""",
     "/pay": """<!doctype html><title>Pay</title><label>Card <input id=c></label>
 <button onclick="out.textContent = 'checked ' + c.value">Check card</button><p id=out>unpaid</p>""",
-    "/cookie": """<!doctype html><title>Cookie</title><p id=out></p><script>
-if (!document.cookie.includes('milk=')) document.cookie = 'milk=fresh; path=/';
-out.textContent = document.cookie</script>""",
     "/console": """<!doctype html><title>Console</title><p>Logs</p><script>
 console.log('hello', {cups: 2}); console.warn('low milk'); console.error('spilled');
 fetch('/api'); fetch('/missing'); setTimeout(() => { throw new Error('boom') }, 50)</script>""",
@@ -76,6 +81,20 @@ fetch('/api'); fetch('/missing'); setTimeout(() => { throw new Error('boom') }, 
         f"<h2>Part {part}</h2>" + "".join(f"<p>Milk fact {part}.{n} is told here, see <a href=/f{part}{n}>source "
                                           f"{part}.{n}</a> for more words about it.</p>" for n in range(60))
         for part in range(5)) + "<form><input aria-label=Comment><button>Send</button></form>",
+    # as Oracle Cloud's console is made: a shell of wrappers (display: contents, visibility: hidden around what is
+    # visible again) and the app itself in a frame of the site
+    "/shell": """<!doctype html><title>Region Management</title><a href="#main">Skip to main content</a>
+<div style="display:contents"><div style="visibility:hidden"><header style="visibility:visible">
+<button>Germany Central (Frankfurt)</button></header></div>
+<main id=main style="display:contents"><iframe id=sandbox-app src="/app" style="width:900px;height:400px;border:0">
+</iframe></main></div>""",
+    "/app": """<!doctype html><title>App</title><div style="display:contents"><input placeholder="Search and Filter"
+ oninput="out.textContent = 'filter ' + this.value"><table><tr><td>Germany Central (Frankfurt)</td><td>Subscribed</td>
+</tr><tr><td>Singapore</td><td>Not subscribed</td></tr></table><p id=out>no filter</p></div>""",
+    "/late": """<!doctype html><title>Late</title><body><script>setTimeout(() => document.body.innerHTML =
+ '<h1>Ready</h1><button>Go</button>', 1500)</script>""",  # an app that draws itself once its scripts ran
+    "/inert": "<!doctype html><title>Inert</title><div aria-hidden=true>" + "<p>Milk is kept cold here.</p>" * 30 +
+              "</div>",  # all of it hidden from screen readers, and shown
 }
 
 
@@ -126,22 +145,76 @@ def site():
     server.shutdown()
 
 
-def _hide(brain_server):
-    """The user's windows of it on a hidden desktop too: tests never show anything."""
-    brain_server.brain.browser.desktop = "SentientMilkTests"
-    brain_server.brain.browser.user_desktop = "SentientMilkTestsUser"
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def stand_in(folder, patch):
+    """The user's Chrome for a test: what the brain opens (desktops.start) is an Edge with SentientMilk's extension
+    on a hidden desktop, with profiles and a downloads folder of its own (never the user's), and a debugging port
+    the test reaches it at. Edge adds an unpacked extension from its command line only to a profile it never ran,
+    so each start (when it is not running) has a new one; the user's own Chrome keeps the extension they added."""
+    chrome = SimpleNamespace(folder=folder, downloads=folder / "downloads", port=free_port(), opened=[], processes=[],
+                             profile=None)
+    chrome.downloads.mkdir(parents=True)
+    real = desktops.start
+
+    def opened(args, desktop=None, tied=False):
+        chrome.opened.append((args, desktop))
+        if not any(process.poll() is None for process in chrome.processes):
+            chrome.profile = folder / f"edge{len(chrome.processes)}"
+            (chrome.profile / "Default").mkdir(parents=True)
+            (chrome.profile / "Default" / "Preferences").write_text(json.dumps(  # never the user's Downloads
+                {"download": {"default_directory": str(chrome.downloads), "prompt_for_download": False}}),
+                encoding="utf-8")
+        process = real([EDGE, f"--user-data-dir={chrome.profile}", "--no-first-run", "--no-default-browser-check",
+                        "--hide-crash-restore-bubble", "--disable-sync", f"--remote-debugging-port={chrome.port}",
+                        f"--load-extension={FOLDER}", *args[1:]], desktop="SentientMilkTestsChrome", tied=True)
+        chrome.processes.append(process)
+        return process
+
+    patch.setattr(desktops, "start", opened)
+    return chrome
+
+
+def brain_with_chrome(home, folder, patch):
+    """A brain whose extension port is its own (0: any free one), and the stand-in for the user's Chrome."""
+    BrainConfig(home / "config.json").update({"browser_extension_port": 0})
+    return start(home), stand_in(folder, patch)
+
+
+def chrome_gone(chrome, brain):
+    """The user's Chrome is not running any more (it crashed, the computer restarted): the extension's connection
+    goes with it, and no tab of hers was closed by anyone (closing a window of hers is the user closing her tab)."""
+    for process in chrome.processes:
+        process.kill()
+        process.wait(10)
+    until(lambda: brain.browser.link is None)
+
+
+def until(check, seconds=30.0):
+    deadline = time.monotonic() + seconds
+    while not check():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.1)
 
 
 @pytest.fixture(scope="module")
 def web(tmp_path_factory):
+    patch = pytest.MonkeyPatch()
     home, work = tmp_path_factory.mktemp("home"), tmp_path_factory.mktemp("work")
-    server = start(home)
-    _hide(server)
+    server, chrome = brain_with_chrome(home, tmp_path_factory.mktemp("chrome"), patch)
     client = BrainClient(server.url, server.token)
     client.declare_app("cli", name="CLI", environment="A terminal.", toolkits=["browser", "files"])
     client.update_session("cli", "main", cwd=str(work), roots=[str(work)])
-    yield SimpleNamespace(server=server, brain=server.brain, client=client, work=work)
+    yield SimpleNamespace(server=server, brain=server.brain, client=client, work=work, chrome=chrome)
     server.close()
+    for process in chrome.processes:
+        desktops.stop(process, 5)
+    patch.undo()
+    shutil.rmtree(chrome.folder, ignore_errors=True)
 
 
 def context(web, session="main", kind="turn"):
@@ -155,6 +228,47 @@ def ids(text, what):
     """The id on the line that has ``what``."""
     line = next(line for line in text.splitlines() if what in line)
     return re.search(r"\be(\d+)\b", line).group(0)
+
+
+def test_her_call_opens_the_user_s_chrome_when_it_is_not_running(web, site):
+    if web.brain.browser.link:  # another test opened it: the user closes it first
+        chrome_gone(web.chrome, web.brain)
+    ctx, before = context(web, "opens"), len(web.chrome.opened)
+    page = kit.browser_open.func(ctx, site + "/terms")
+    assert page.startswith("t1 · Terms") and "Be kind to milk." in page
+    browser_ = web.brain.browser  # on the user's screen, with the extension's page that connects it
+    assert web.chrome.opened[before:] == [([browser_.command(), browser_.bridge.connect_url()], None)]
+    until(lambda: not [t for t in requests.get(f"http://127.0.0.1:{web.chrome.port}/json/list", timeout=5).json()
+                       if "popup.html#code" in t["url"]])  # and the page closed itself
+    chrome_gone(web.chrome, web.brain)  # it went: her next call opens it again, and her tab at its address
+    seen = kit.browser_view.func(ctx).text
+    assert seen.startswith("t1 · Terms") and "let go of you" in seen and len(web.chrome.opened) == before + 2
+
+
+def test_an_app_in_wrappers_and_a_frame_of_its_site_is_seen_whole(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/shell")
+    assert re.search(r'button e\d+ "Germany Central \(Frankfurt\)"', page)  # visible again in a hidden wrapper
+    assert re.search(r'textbox e\d+ "Search and Filter"', page) and "Singapore | Not subscribed" in page
+    done = kit.browser_act.func(ctx, [{"action": "fill", "target": ids(page, '"Search and Filter"'), "text": "Sing"}])
+    assert "filter Sing" in done
+    assert "Singapore | Not subscribed" in kit.browser_read.func(ctx)
+
+
+def test_an_app_that_draws_itself_late_is_waited_for_and_a_wait_ends_once_loaded(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/late")
+    assert "# Ready" in page and re.search(r'button e\d+ "Go"', page)
+    began = time.monotonic()
+    waited = kit.browser_act.func(ctx, [{"action": "wait"}])
+    assert "1. wait: the page has loaded" in waited and time.monotonic() - began < 2
+
+
+def test_what_the_view_cannot_reach_is_said_and_read(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/inert")
+    assert "(This view misses most of the page's" in page
+    assert kit.browser_read.func(ctx).count("Milk is kept cold here.") == 30
 
 
 def test_a_page_comes_as_text_with_ids_and_a_form_is_filled_by_them(web, site):
@@ -221,7 +335,7 @@ def test_links_to_new_tabs_and_windows_open_tabs_of_hers(web, site):
     window = kit.browser_view.func(ctx).text
     assert window.startswith("t3 · Signing in")
     closed = kit.browser_act.func(ctx, [{"action": "click", "target": ids(window, '"Done"')}])
-    assert "Tab t3 closed itself." in closed and "Now in t2 · Sign up" in closed  # no tab of hers any more
+    assert f"Tab t3 {browser.CLOSED}." in closed and "Now in t2 · Sign up" in closed  # no tab of hers any more
     assert set(web.brain.browser.owners["cli/popups"]["tabs"]) == {"t1", "t2"}
 
 
@@ -233,6 +347,7 @@ def test_a_download_goes_to_the_working_folder(web, site):
     if "Downloaded" not in result:  # a slow disk: it is told at the next call
         result += kit.browser_view.func(ctx).text
     assert f"Downloaded milk notes.txt to {saved}" in result and saved.read_text() == "milk is good"
+    assert not list(web.chrome.downloads.iterdir())  # moved from where the user's Chrome put it, not copied
 
 
 def test_uploads_take_files_from_open_folders_only(web, site, tmp_path):
@@ -307,15 +422,11 @@ def test_an_act_waits_for_what_the_page_loads(web, site):
     assert "loaded data" in result and "empty" not in result
 
 
-def test_sites_see_a_plain_chrome_and_nothing_shows_on_the_user_s_screen(web, site):
+def test_sites_see_a_plain_chrome_in_front(web, site):
     ctx = context(web)
     kit.browser_open.func(ctx, site + "/signals")
     signals = json.loads(kit.browser_script.func(ctx, "s.textContent"))
     assert signals["webdriver"] is False and signals["visibility"] == "visible" and signals["focus"] is True
-    assert signals["outer"][1] - signals["inner"][1] < 150  # no "controlled by automated software" bar
-    process = web.brain.browser.process
-    assert desktops.windows_of(process)  # its windows are on the hidden desktop...
-    assert not desktops.windows_of(desktops.Process(process.pid, process._handle, desktop=None))  # ...not here
 
 
 def test_tabs_are_each_conversation_s_own_and_go_with_it(web, site):
@@ -330,73 +441,40 @@ def test_tabs_are_each_conversation_s_own_and_go_with_it(web, site):
         kit.browser_view.func(context(web, "two"))
 
 
-def test_tabs_open_again_where_they_were_after_the_browser_closed(web, site):
-    ctx = context(web, "again")
-    kit.browser_open.func(ctx, site + "/terms")
-    web.brain.browser.close()
-    assert web.brain.browser.mode == "off"
-    assert kit.browser_view.func(ctx).text.startswith("t1 · Terms")
-    crashed = web.brain.browser.process
-    crashed.kill()  # a crash: the next call opens it again
-    crashed.wait(5)
-    assert kit.browser_view.func(ctx).text.startswith("t1 · Terms") and web.brain.browser.process is not crashed
-
-
-def where(web):
-    """The desktop her browser's windows are on."""
-    browser_ = web.brain.browser
-    return {browser_.desktop: "hidden", browser_.user_desktop: "shown"}[browser_.process.desktop]
-
-
-def test_only_the_lead_hands_the_browser_to_the_user_and_everyone_goes_on_there(web, site):
+def test_only_the_lead_puts_a_tab_in_front_of_the_user(web, site):
     agent = context(web, "agent-1", kind="agent")
     kit.browser_open.func(agent, site + "/terms")
     assert "Only the lead" in kit.browser_act.func(agent, [{"action": "show"}])
     lead = context(web, "lead")
     kit.browser_open.func(lead, site + "/form")
     shown = kit.browser_act.func(lead, [{"action": "show"}, {"action": "click", "target": "e1"}])
-    assert "on the user's screen at t1 (" + site + "/form)" in shown and "Steps 2-2 did not run" in shown
-    assert web.brain.browser.mode == "shown" and where(web) == "shown"
-    seen = kit.browser_view.func(lead).text  # still hers, on their screen
-    assert seen.startswith("t1 · Sign up") and "on the user's screen" in seen.splitlines()[0]
-    assert kit.browser_view.func(agent).text.startswith("t1 · Terms")  # its page came back there too
-    kit.browser_open.func(lead, headless=True)
-    assert web.brain.browser.mode == "hidden" and where(web) == "hidden"
+    assert f"Your tab t1 ({site}/form) is in front of the user" in shown and "Steps 2-2 did not run" in shown
+    assert kit.browser_view.func(lead).text.startswith("t1 · Sign up")  # still hers
 
 
-def test_headless_or_not_she_works_the_same_and_keeps_her_session(web, site):
-    ctx = context(web, "watched")
-    page = kit.browser_open.func(ctx, site + "/cookie")
-    assert "milk=fresh" in page and where(web) == "hidden"
-    moved = kit.browser_open.func(ctx, headless=False)  # "don't run it headless, I want to see"
-    assert moved.startswith("t1 · Cookie") and "moved to the user's screen" in moved and where(web) == "shown"
-    assert kit.browser_script.func(ctx, "document.cookie") == "milk=fresh"  # a session cookie came along
+def test_a_minimized_window_of_hers_is_read_and_pictured(web, site):
+    ctx = context(web, "minimized")
     page = kit.browser_open.func(ctx, site + "/form")
     done = kit.browser_act.func(ctx, [{"action": "fill", "target": ids(page, '"Name"'), "text": "Milk"},
                                       {"action": "click", "target": ids(page, '"Create account"')}])
     assert "Hello Milk" in done  # its window never had the focus
-    browser_ = web.brain.browser
-    tab = browser_.owners["cli/watched"]["tabs"]["t1"]
-    browser_.wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {"windowState": "minimized"}})
+    tab = web.brain.browser.owners["cli/minimized"]["tabs"]["t1"]
+    tab.wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {"windowState": "minimized"}})
     assert "Hello Milk" in kit.browser_read.func(ctx)  # minimized: read...
-    pictured = kit.browser_view.func(ctx, picture=True)  # ...and pictured, its window back first
-    assert len(pictured.images) == 1
-    state = browser_.wire.call("Browser.getWindowBounds", {"windowId": tab.window})["bounds"]["windowState"]
-    assert state == "normal"
-    hidden = kit.browser_open.func(ctx, headless=True)
-    assert "out of the user's sight" in hidden and where(web) == "hidden"
-    assert web.brain.browser.status()["shown"] is False
+    assert len(kit.browser_view.func(ctx, picture=True).images) == 1  # ...and pictured, its window back first
+    assert tab.wire.call("Browser.getWindowBounds", {"windowId": tab.window})["bounds"]["windowState"] == "normal"
 
 
 def test_a_right_click_opens_the_page_s_menu_and_never_chrome_s(web, site):
     ctx = context(web)
     page = kit.browser_open.func(ctx, site + "/menu")
-    windows = len(desktops.windows_of(web.brain.browser.process))
+    chrome = next(process for process in web.chrome.processes if process.poll() is None)
+    windows = len(desktops.windows_of(chrome))
     box = ids(page, "Right click here")
     result = kit.browser_act.func(ctx, [{"action": "click", "target": box, "button": "right"}])
     assert "its own menu" in result
     time.sleep(0.5)
-    assert len(desktops.windows_of(web.brain.browser.process)) == windows  # no menu window of Chrome's
+    assert len(desktops.windows_of(chrome)) == windows  # no menu window of Chrome's
 
 
 def test_a_frame_of_another_site_is_read_and_used_like_the_page(web, site):
@@ -458,8 +536,7 @@ def test_approvals_are_per_site(tmp_path, monkeypatch, site):
 
     monkeypatch.setattr(loop_module, "RETRIES", (0, 0, 0))
     provider = FakeProvider().install(monkeypatch)
-    server = start(tmp_path / "home")
-    _hide(server)
+    server, chrome = brain_with_chrome(tmp_path / "home", tmp_path / "chrome", monkeypatch)
     try:
         client = BrainClient(server.url, server.token)
         client.update_config(api_key="sk-test", base_url=PROVIDER_URL)
@@ -479,18 +556,8 @@ def test_approvals_are_per_site(tmp_path, monkeypatch, site):
         assert len(asked) == 1
         client.turn("cli", "main", "the other site", on_approval=lambda event: asked.append(event) or "deny")
         assert [event["arguments"]["site"] for event in asked] == ["127.0.0.1", "localhost"]
+        assert asked[1]["arguments"]["chrome"] == "user"  # the user sees it is their Chrome
     finally:
         server.close()
-
-
-def test_show_and_hide_from_the_panel_and_clear(web, site):
-    status = web.client.browser()
-    assert status["command"] and status["has_profile"] and status["shown"] is False
-    kit.browser_open.func(context(web), site + "/terms")
-    opened = web.client.open_browser()
-    assert opened["mode"] == "shown" and where(web) == "shown"
-    assert kit.browser_view.func(context(web)).text.startswith("t1 · Terms")  # she goes on there
-    hidden = web.client.open_browser(headless=True)
-    assert hidden["mode"] == "off" and hidden["shown"] is False  # out of sight from her next call on
-    cleared = web.client.clear_browser()
-    assert not cleared["has_profile"]
+        for process in chrome.processes:
+            desktops.stop(process, 5)

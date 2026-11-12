@@ -581,27 +581,15 @@ class Panel(App):
                         yield Label("Always allow")
                         yield Input(placeholder="shell_run(git status*), …", id="t-allow")
             with Vertical(classes="card", id="browser-card"):
-                yield Static("A Chrome of her own for the web, out of your sight unless you want to watch her. Show "
-                             "puts it on your screen to sign in to sites for her or to watch (she goes on using it), "
-                             "Hide takes it back; Forget sign-ins deletes its profile. Rules name sites: "
-                             "browser_act(github.com), browser_*(*.bank.com).",
-                             classes="hint")
+                yield Static("Her browser is your own Chrome, signed in as you are: she works in tabs of her own "
+                             "there (a purple SentientMilk group), and opens Chrome when it is not running. Add the "
+                             "extension once (chrome://extensions > Developer mode > Load unpacked > the folder "
+                             "below), then press Connect (or paste the code into the extension). Cancel on Chrome's "
+                             "bar stops her there, and the extension's Disconnect until you connect again. Rules name "
+                             "sites: browser_act(github.com), browser_*(*.bank.com).", classes="hint")
                 with Grid(classes="form"):
-                    yield Label("Browser")
+                    yield Label("Chrome")
                     yield Input(placeholder="found by itself (Chrome, else Edge) · or its path", id="t-browser")
-                    yield Label("Out of sight")
-                    yield Switch(id="t-browser-headless")
-                yield Static(id="t-browser-status")
-                with Horizontal(classes="buttons"):
-                    yield FlatButton("Show on my screen", id="browser-open")
-                    yield FlatButton("Hide", id="browser-hide")
-                    yield FlatButton("Forget sign-ins", id="browser-clear", variant="error")
-                yield Static("Your Chrome: she can also use your own Chrome, signed in as you are, in tabs of her "
-                             "own there (a purple SentientMilk group), when you ask her to. Add the extension once "
-                             "(chrome://extensions > Developer mode > Load unpacked > the folder below), then press "
-                             "Connect (or paste the code into the extension). Cancel on Chrome's bar stops her there, "
-                             "and the extension's Disconnect until you connect again.", classes="hint")
-                with Grid(classes="form"):
                     yield Label("Extension folder")
                     yield Input(id="t-chrome-folder")
                     yield Label("Code")
@@ -1153,7 +1141,6 @@ class Panel(App):
         for kind in ("deny", "ask", "allow"):
             self.main.query_one(f"#t-{kind}", Input).value = ", ".join(settings["rules"].get(kind, []))
         self.main.query_one("#t-browser", Input).value = settings["browser_command"]
-        self.main.query_one("#t-browser-headless", Switch).value = settings["browser_headless"]
         self.load_browser()
         self.load_mcp()
 
@@ -1161,15 +1148,6 @@ class Panel(App):
         status = status or self.call(lambda c: c.browser(), quiet=True)
         if status is None:
             return
-        if not status["command"]:
-            line = f"[{WARN}]No Chrome or Edge found: install one, or give its path.[/]"
-        else:
-            line = escape(f"{Path(status['command']).name} {status['version']}".strip()) + " · " + {
-                "off": "closed" + (", opens on your screen" if status["shown"] else ""),
-                "hidden": f"[{OK}]in use, out of sight[/]",
-                "shown": f"[{WARN}]on your screen[/]"}[status["mode"]]
-            line += f" · {status['tabs']} tab{'s' if status['tabs'] != 1 else ''}"
-        self.main.query_one("#t-browser-status", Static).update(line)
         chrome = status["chrome"]
         self.main.query_one("#t-chrome-folder", Input).value = chrome["folder"]
         self.main.query_one("#t-chrome-code", Input).value = chrome["code"]
@@ -1181,7 +1159,11 @@ class Panel(App):
         elif chrome["disconnected"]:
             words = f"[{MUTED}]you disconnected it in Chrome: Connect there, or here, brings her back[/]"
         else:
-            words = "not connected"
+            words = "not connected (she opens it when she needs it)"
+        if not status["command"]:
+            words += f" · [{WARN}]no Chrome or Edge found: install one, or give its path[/]"
+        else:
+            words += " · " + escape(f"{Path(status['command']).name} {status['version']}".strip())
         self.main.query_one("#t-chrome-status", Static).update("Your Chrome: " + words)
 
     def save_tools(self) -> None:
@@ -1192,7 +1174,6 @@ class Panel(App):
                        "shell": self.main.query_one("#t-shell", Select).value,
                        "task_workers": number(self.main.query_one("#t-workers", Input), "Background workers"),
                        "browser_command": self.main.query_one("#t-browser", Input).value.strip(),
-                       "browser_headless": self.main.query_one("#t-browser-headless", Switch).value,
                        "rules": {kind: items(self.main.query_one(f"#t-{kind}", Input).value)
                                  for kind in ("deny", "ask", "allow")}}
         except ValueError as exc:
@@ -1491,19 +1472,9 @@ class Panel(App):
                                  lambda yes: yes and self.call(lambda c: c.delete_note(int(key)), done="Note deleted."))
         elif button == "t-save":
             self.save_tools()
-        elif button == "browser-open":
-            self.load_browser(self.call(lambda c: c.open_browser(),
-                                        done="Her browser is on your screen: sign in there, or watch her use it."))
         elif button == "chrome-connect":
             self.notify("Opening SentientMilk's extension in your Chrome…")
             self.connect_chrome()
-        elif button == "browser-hide":
-            self.load_browser(self.call(lambda c: c.open_browser(headless=True), done="Her browser is out of sight."))
-        elif button == "browser-clear":
-            self.push_screen(Confirm("Forget every site she signed in to? Her browser's profile (sign-ins, cookies, "
-                                     "history) is deleted.", "Forget"),
-                             lambda yes: yes and self.load_browser(self.call(lambda c: c.clear_browser(),
-                                                                             done="Her sign-ins are forgotten.")))
         elif button == "mcp-add":
             self.push_screen(AddServer(), self.add_server)
         elif button in ("mcp-reconnect", "mcp-toggle", "mcp-remove"):

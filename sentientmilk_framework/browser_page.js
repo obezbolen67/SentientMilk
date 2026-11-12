@@ -10,6 +10,7 @@
   const marks = new WeakMap(), marked = new Map();
   // fields filled with what the user typed for her (browser_secrets): what they hold never shows in a view
   const secrets = new WeakMap();
+  let holds = false;  // some field here has one
   addEventListener('contextmenu', e => { if (!menus) e.preventDefault(); });  // her right clicks: the page's menu only
   let lastChange = performance.now();
   const observer = new MutationObserver(() => { lastChange = performance.now(); });
@@ -52,10 +53,23 @@
     const el = byId.get(Number(String(id).replace(/^e/, '')))?.deref();
     return el && el.isConnected ? el : null;
   }
-  function shown(el) {
-    if (el.checkVisibility && !el.checkVisibility({visibilityProperty: true})) return false;
-    const s = style(el);
-    return s.display === 'contents' || el.getClientRects().length > 0;
+  function rendered(el) {  // laid out on the page (display: contents has no box of its own: what is in it has)
+    if (style(el).display === 'contents') {
+      const up = el.parentElement || el.getRootNode().host;
+      return !up || rendered(up);
+    }
+    return el.checkVisibility ? el.checkVisibility() : el.getClientRects().length > 0;
+  }
+  function shown(el) {  // and seen: visibility: hidden is not, though what is in it can be again
+    return rendered(el) && style(el).visibility === 'visible';
+  }
+  function words(doc) {  // what the page shows as words, as Chrome lays it out (its frames of the site too)
+    let text = doc.body ? doc.body.innerText || '' : '';
+    for (const frame of doc.querySelectorAll('iframe, frame')) {
+      const inner = safeDoc(frame);
+      if (inner) text += '\n' + words(inner);
+    }
+    return text;
   }
   function deepActive() {
     let active = document.activeElement;
@@ -245,6 +259,8 @@
       const r = active(el);
       if (!shown(el)) {  // a file input is often hidden behind a button of the page's own: it still takes files
         if (r === 'file input') { flush(); add(token(el, full, labels), depth); flush(); }
+        else if (rendered(el))  // visibility: hidden, which what is in it can undo
+          for (const child of children(el)) if (child.nodeType === 1) visit(child, depth);
         return;
       }
       if (el.getAttribute('aria-hidden') === 'true' && !r) {  // decoration (icon glyphs): only what can be used
@@ -439,6 +455,9 @@
               oy + r.top + el.clientTop + parseFloat(s.paddingTop || 0)];
     },
     changed: () => document.readyState === 'loading' ? 0 : performance.now() - lastChange,
+    // nothing to see yet: an app that draws itself once its scripts ran (a spinner's drawing does not count)
+    blank: () => location.href !== 'about:blank' && !clean(words(document)) &&
+      !document.querySelector('img, canvas, video, iframe, embed, object, input, select, textarea'),
     view(options) {  // options.find is browser.py's, over every world's lines
       let root = document.body;
       if (options.part) {
@@ -446,9 +465,13 @@
         if (!root) return {gone: true};
       }
       const built = build(root || document.documentElement, {full: !!options.full, texts: !!options.texts});
-      const lines = built.lines;
+      let text = built.lines.map(item => '  '.repeat(item.depth) + item.text).join('\n');
+      const all = options.part ? 0 : clean(words(document)).length;
+      if (text.length < 200 && all > 400)  // what the page is made of hides it from this reading (a check on it)
+        text += `${text ? '\n' : ''}(This view misses most of the page's ${all} characters of words: browser_read ` +
+          'reads them, and a picture shows the page.)';
       const doc = document.documentElement;
-      return {text: lines.map(item => '  '.repeat(item.depth) + item.text).join('\n'), labels: built.labels,
+      return {text, labels: built.labels,
               next, title: document.title, url: location.href,
               scroll: [Math.round(scrollY), Math.max(doc.scrollHeight, document.body ? document.body.scrollHeight : 0),
                        innerHeight, innerWidth]};
@@ -535,6 +558,7 @@
       }
       el.dispatchEvent(new Event('change', {bubbles: true}));
       secrets.set(el, name);
+      holds = true;
       el.style.setProperty('-webkit-text-security', 'disc', 'important');  // a picture of it shows dots
       const plain = text => text.replace(/[\s-]/g, '');
       return {ok: true, reshaped: now() !== value && plain(now()) !== plain(value)};
@@ -633,19 +657,21 @@
       const out = [];
       let line = '';
       const flush = () => { if (clean(line)) out.push(clean(line)); line = ''; };
-      (function each(node) {
+      (function each(node, silent) {  // silent: its own text is not seen (visibility: hidden)
         for (const child of children(node)) {
-          if (child.nodeType === 3) { line += child.textContent; continue; }
+          if (child.nodeType === 3) { if (!silent) line += child.textContent; continue; }
           if (child.nodeType !== 1) continue;
           const tag = child.tagName.toLowerCase();
-          if (SKIPPED.has(tag) || !shown(child) || secrets.has(child)) continue;
+          if (SKIPPED.has(tag) || !rendered(child) || secrets.has(child)) continue;
+          if (!shown(child)) { each(child, true); continue; }
           if (tag === 'iframe') {
             const doc = safeDoc(child);
             if (doc?.body) { flush(); each(doc.body); flush(); }
             else if (marks.has(child)) { flush(); out.push(`⟦frame ${marks.get(child)}⟧`); }
             continue;
           }
-          const block = !INLINE.has(style(child).display);
+          const display = style(child).display;  // a table's cells stay on their row's line
+          const block = !INLINE.has(display) && display !== 'table-cell';
           if (block) flush();
           if (/^h[1-6]$/.test(tag)) { line += '#'.repeat(Number(tag[1])) + ' '; each(child); flush(); out.push(''); continue; }
           if (tag === 'li') { line += '- '; each(child); flush(); continue; }
@@ -662,7 +688,10 @@
         }
       })(document.body);
       flush();
-      return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+      const text = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+      const all = words(document).replace(/\n{3,}/g, '\n\n').trim();
+      // the walk missed most of it: Chrome's own words, unless they could hold what the user typed for her
+      return !holds && clean(all).length > 2 * clean(text).length + 200 ? all : text;
     },
   };
   globalThis.__milk = api;

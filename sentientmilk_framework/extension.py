@@ -1,11 +1,10 @@
-"""The user's own Chrome, through SentientMilk's extension (extension/): her tabs there have the user's sign-ins.
+"""The user's own Chrome, through SentientMilk's extension (extension/): her browser, with the user's sign-ins.
 
 The extension connects to the brain on 127.0.0.1 (``browser_extension_port``) from its own origin only. The brain
 speaks first (who it is, its protocol, a nonce); the extension answers with proof of the code the panel shows
 (the port and a token of its own, kept in ``browser/extension.json``), never the token itself, so a program that
-took the port learns nothing. Then the connection is a DevTools protocol connection like her own browser's
-(browser.Wire): page commands go to chrome.debugger, and the extension answers what a browser does (tabs,
-windows, downloads) itself.
+took the port learns nothing. Then the connection is a DevTools protocol connection (browser.Wire): page
+commands go to chrome.debugger, and the extension answers what a browser does (tabs, windows, downloads) itself.
 
 One browser at a time: another one with the extension is refused (BUSY) unless the user chose it there (Connect,
 or the panel's Connect), which takes over (the old one hears REPLACED). The same extension connecting again
@@ -24,7 +23,7 @@ from typing import Optional
 from . import __version__
 
 logger = logging.getLogger(__name__)
-WIRE_LOG = logging.getLogger("sentientmilk_framework.wire")  # the browsers' sockets (browser.py too)
+WIRE_LOG = logging.getLogger("sentientmilk_framework.wire")  # the browser's sockets (browser.py too)
 WIRE_LOG.setLevel(logging.INFO)  # never their frames, at any level: what the user typed for her travels in them
 
 EXTENSION_ID = "nchdmjacdboinhpkleiaehgiiopnjeba"  # fixed by the key in its manifest
@@ -146,4 +145,4 @@ class Bridge:
         if method == "Extension.connectPage":
             self.confirmed = time.monotonic()
         elif method != "Extension.ping":  # it only keeps the extension awake
-            self.browser._event(session, method, params, True)
+            self.browser._event(session, method, params)

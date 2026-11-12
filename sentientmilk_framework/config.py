@@ -48,8 +48,7 @@ DEFAULTS = {
     # Super agents (superagent.py): Claude, through the user's own Claude Code, for code and hard thinking.
     "super_model": "opus",  # empty: no super agents
     "super_effort": "high",
-    "browser_command": "",  # her browser (browser.py); empty: Chrome, else Edge, where their installers put them
-    "browser_headless": True,  # it opens out of the user's sight (False: on their screen, where they watch her)
+    "browser_command": "",  # the user's Chrome she opens (browser.py); empty: Chrome, else Edge, where installed
     "browser_extension_port": 48217,  # where the user's Chrome connects, through the extension (0: any free port)
 }
 logger = logging.getLogger(__name__)
