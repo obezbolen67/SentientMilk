@@ -458,7 +458,7 @@ class Panel(App):
                     yield Label("Model for helpers")
                     yield Input(placeholder="the same model (compaction, titles, journal notes, reviewers)", id="p-light")
                 yield OptionList(id="models")
-            with Vertical(classes="card", id="thinking-card"):
+                # the API service's own: shown with Claude Code, they changed the service's under the user
                 with Grid(classes="form"):
                     yield Label("Thinking")
                     yield Select([(label, value) for label, value in THINKING_MODES], allow_blank=False,
@@ -469,12 +469,14 @@ class Panel(App):
                     yield Input(type="integer", id="p-context")
                     yield Label("Send images")
                     yield Switch(id="p-vision")
-                    yield Label("Picture size the model sees (thousand pixels; 0: as sent)")
-                    yield Input(type="integer", id="p-pixels")
                     yield Label("Stream replies")
                     yield Switch(id="p-stream")
                     yield Label("Request size limit (KiB)")
                     yield Input(type="integer", id="p-budget")
+            with Vertical(classes="card", id="thinking-card"):
+                with Grid(classes="form"):
+                    yield Label("Picture size the model sees (thousand pixels; 0: as sent)")
+                    yield Input(type="integer", id="p-pixels")
                     yield Label("Brave search key")
                     yield Input(password=True, id="p-web-key")
             with Vertical(classes="card", id="super-card"):
@@ -651,7 +653,7 @@ class Panel(App):
         for card, title in (("brain-card", "Brain"), ("provider-card", "Provider"), ("usage-card", "Usage by app"),
                             ("activity-card", "Activity"), ("engine-card", "Thinks with"),
                             ("claude-card", "Claude Code"), ("service-card", "API service"),
-                            ("thinking-card", "Thinking and requests"), ("super-card", "Super model"),
+                            ("thinking-card", "Pictures and web search"), ("super-card", "Super model"),
                             ("apps-pane", "Apps"),
                             ("persona-card", "Persona"), ("app-settings-card", "Settings"),
                             ("sessions-card", "Conversations"), ("memory-card", "Memory, every app's"),
@@ -925,6 +927,8 @@ class Panel(App):
         self.call_from_thread(self.show_claude, claude, refresh)
 
     def show_claude(self, claude: dict, told: bool = False) -> None:
+        if not self.is_running:  # Claude Code answered as the panel closed
+            return
         if claude.get("models") != self.claude.get("models"):  # the choices change, the chosen ones stay
             self.claude = claude
             for field in ("#p-claude-model", "#p-claude-light", "#p-super-model"):

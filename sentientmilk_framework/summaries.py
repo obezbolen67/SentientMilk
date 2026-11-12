@@ -128,7 +128,7 @@ class Summaries:
         """Her runs over what is new in ``session``, the oldest part first; none when too little is new. The
         mark moves past each part she went over to the end."""
         runs = []
-        budget = int(self.brain.config.values()["context_window"] * SHARE * 3)
+        budget = int(self.brain.context_window() * SHARE * 3)
         while not self.brain.stopping.is_set():
             events = self.new(app, session)
             if said_by_user(events) < MESSAGES:

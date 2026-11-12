@@ -295,7 +295,7 @@ class Brain:
             # an app's own model is one of the API service's: on Claude Code she thinks with Claude Code's
             "model": (values["provider"] == "api" and settings.get("model")) or values["model"],
             "light_model": values["light_model"],
-            "context_window": values["context_window"], "callbacks": bool(declaration.get("callbacks")),
+            "context_window": self.context_window(), "callbacks": bool(declaration.get("callbacks")),
             "super": self.superagents.label() if self.superagents.ready() else "",  # its agents can be Claude
         }
 
@@ -321,6 +321,13 @@ class Brain:
             return ClaudeCodeProvider(self.claude, model)
         return Provider(values["base_url"], values["api_key"], model, thinking_mode=values["thinking_mode"],
                         thinking_tokens=values["thinking_tokens"], stream=values["stream"])
+
+    def context_window(self) -> int:
+        """Her model's context window: the API service's setting, or on Claude Code the model's as Claude Code
+        says it (shortcut: until one of its replies names it, the API service's stands in)."""
+        values = self.config.values()
+        return (values["provider"] == "claude_code" and self.claude.window(values["model"])) or \
+            values["context_window"]
 
     def provider_problem(self) -> Optional[BrainError]:
         """Why she cannot think now, in words for the user; None when she can."""
@@ -436,7 +443,7 @@ class Brain:
         return {"app": app, "id": session, "settings": record["settings"], "todo": state.get("todo", []),
                 "session_memory": session_memory(state),
                 "created": record["created"],
-                "context": {"used": state.get("context_tokens", 0), "window": self.config.values()["context_window"],
+                "context": {"used": state.get("context_tokens", 0), "window": self.context_window(),
                             "clear_at": context.CLEAR_AT, "compact_at": context.COMPACT_AT,
                             'source': state.get('context_source', 'estimate'),
                             'input_tokens': state.get('context_input'), 'output_tokens': state.get('context_output')}}

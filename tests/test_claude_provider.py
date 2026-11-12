@@ -46,6 +46,16 @@ def test_she_thinks_with_claude_code_and_only_with_what_sentientmilk_gives_it(br
     assert "files_read" in tools and "shell_run" in tools and "tools_search" not in tools  # all of hers, none deferred
 
 
+def test_her_context_window_is_the_one_claude_code_names_not_the_api_services(brain, claude):
+    window = lambda: brain.client.session("cli", "main")["context"]["window"]  # noqa: E731
+    assert window() == brain.brain.config.values()["context_window"]  # until Claude Code names it
+    turn(brain, "cli", "hello")
+    assert window() == 900000 and brain.brain.profile("cli", "main")["context_window"] == 900000
+    brain.client.update_config(provider="api")
+    assert window() == brain.brain.config.values()["context_window"]  # the API service's stays its own
+    assert json.loads((brain.home / "claude-code" / "windows.json").read_text())["claude-opus-9"] == 900000
+
+
 def test_her_tools_run_in_the_brain_and_their_results_go_back_to_the_same_claude_code(brain, claude):
     (brain.work / "a.txt").write_text("apple pie", encoding="utf-8")
     result = turn(brain, "cli", 'CALL files_read {"path": "a.txt"}')

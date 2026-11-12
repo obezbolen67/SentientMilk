@@ -101,6 +101,11 @@ class ClaudeCode:
         self._probing = threading.Lock()  # one question at a time; who comes meanwhile takes its answer
         self._asking = False
         self.conversations = None  # the provider's (claude_provider.Conversations), made when first used
+        # each model's context window, as its replies say (its initialize answer does not): kept across restarts
+        try:
+            self.windows = json.loads((self.folder / "windows.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.windows = {}
 
     # ============== Where it is ==============
 
@@ -257,6 +262,25 @@ class ClaudeCode:
         return next((m for m in models if m["value"] == value), None) or \
             next((m for m in models if m["model"] == value and m["value"] != "default"), None)
 
+    def learn_windows(self, usage: dict) -> None:
+        """A result's ``modelUsage``: {"claude-sonnet-5-5": {"contextWindow": 1000000, ...}}."""
+        windows = {name: entry["contextWindow"] for name, entry in usage.items()
+                   if isinstance(entry, dict) and isinstance(entry.get("contextWindow"), int)}
+        with self._lock:
+            if windows.items() <= self.windows.items():
+                return
+            self.windows = {**self.windows, **windows}
+            try:
+                self.folder.mkdir(parents=True, exist_ok=True)
+                (self.folder / "windows.json").write_text(json.dumps(self.windows), encoding="utf-8")
+            except OSError:
+                logger.warning("Could not keep Claude Code's context windows", exc_info=True)
+
+    def window(self, value: str) -> Optional[int]:
+        """A model's context window as Claude Code said it; None before one of its replies said it."""
+        entry = self.model(value)
+        return self.windows.get(entry["model"] if entry else value)
+
     def label(self, value: str) -> str:
         """How Claude Code names a model: "Opus 5.5", "Default (Opus 5.5)"; one it does not list, as given."""
         entry = self.model(value)
@@ -342,6 +366,8 @@ class Process:
                             self.claude.learn(response.get("response") or {})
                         except Exception:
                             logger.exception("Reading what Claude Code said about itself")
+                elif event.get("type") == "result" and isinstance(event.get("modelUsage"), dict):
+                    self.claude.learn_windows(event["modelUsage"])
                 if self._on_event:
                     self._on_event(self, event)
                 else:

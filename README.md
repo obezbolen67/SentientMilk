@@ -49,10 +49,11 @@ none runs and shows it live:
 
 - **Overview**: state, address, uptime, the provider, token use per app, tasks, schedules.
 - **Provider**: what she thinks with: an API service (service URL, model with a model list from the
-  service, keys write-only) or Claude Code (its model, helpers' model and effort, from Claude Code's own
-  list). The Claude Code card shows its version, sign-in and plan, and is shared with super agents.
-  Also: thinking, context window, images and the picture size the model sees, streaming, request
-  budget, shell.
+  service, keys write-only, and its own thinking, context window, images, streaming and request budget)
+  or Claude Code (its model, helpers' model and effort, from Claude Code's own list; the context window
+  is the one its replies name). Each keeps its own settings while the other is chosen. The Claude Code
+  card shows its version, sign-in and plan, and is shared with super agents. Both: the picture size the
+  model sees and the Brave search key.
 - **Apps**: each connected app's persona, model, toolkits and conversations.
 - **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: what the brain remembers for
   every app (with the app that saved each entry), where single entries can be forgotten, and the
@@ -368,7 +369,8 @@ key is only ever sent to the stored `base_url`.
 ## Settings
 
 `provider` (`api`: the service below; `claude_code`: the user's Claude Code), `api_key`, `base_url`, `model`, `light_model` (compaction summaries, titles, journal notes, reviewers; empty:
-the same as `model`), `context_window` (128000), `thinking_mode` (`default`, `none`,
+the same as `model`), `context_window` (128000; on Claude Code the model's own, as Claude Code's replies
+name it), `thinking_mode` (`default`, `none`,
 `minimal`, `low`, `medium`, `high`, `xhigh` or `tokens`), `thinking_tokens`, `vision`,
 `image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
 sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, `web_search_key`, `shell`,

@@ -153,6 +153,22 @@ def test_provider_failures_become_errors_and_busy_providers_are_retried(brain):
     assert caught.value.type == "config_missing"
 
 
+def test_a_services_words_on_why_it_refused_reach_the_user(monkeypatch):
+    from sentientmilk_framework.exceptions import classify
+    from sentientmilk_framework.provider import Provider
+
+    def refused(url, **kwargs):  # a real response, streamed as the brain asks for it: closed after the call
+        response = requests.Response()
+        response.status_code, response.url = 400, url
+        response.raw = io.BytesIO(b'{"error": {"message": "tool schema is invalid"}}')
+        return response
+    monkeypatch.setattr(requests, "post", refused)
+    with pytest.raises(requests.HTTPError) as caught:
+        Provider("https://service.example/v1", "sk", "m").complete([{"role": "user", "content": "hi"}],
+                                                                 on_text=lambda text: None)
+    assert "tool schema is invalid" in classify(caught.value).details
+
+
 def test_app_settings_override_the_declared_persona(brain):
     info = brain.client.update_app("milk", persona="You are grumpy Milk.")
     assert info["persona"] == "You are grumpy Milk." and info["persona_custom"]

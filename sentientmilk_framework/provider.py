@@ -75,7 +75,11 @@ class Provider:
                                           "Authorization": f"Bearer {self.api_key}"},
                                  timeout=REQUEST_TIMEOUT, stream=stream)
         try:
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.HTTPError:
+                response.text  # read before it closes below: a 400's words on why reached no one
+                raise
             if stream:
                 return self._read_stream(response, on_text)
             completion = response.json()

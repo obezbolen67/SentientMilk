@@ -63,6 +63,9 @@ def test_the_panel_shows_the_brain_and_saves_the_provider(brain):
 
 
 def test_she_can_think_with_claude_code_chosen_in_the_panel(brain):
+    brain.client.update_config(model="my-model", thinking_mode="high", context_window=256000, stream=False)
+    service = {k: v for k, v in brain.client.config().items() if k not in ("provider", "claude_model", "claude_effort")}
+
     async def scenario(panel, pilot):
         panel.action_tab("provider")
         await until(pilot, lambda: panel.claude.get("models"))
@@ -70,6 +73,10 @@ def test_she_can_think_with_claude_code_chosen_in_the_panel(brain):
         panel.query_one("#p-provider", Select).value = "claude_code"
         await pilot.pause(0.1)
         assert not panel.query_one("#service-card").display and panel.query_one("#claude-models").display
+        # the API service's thinking, window and requests go with its card: set on Claude Code, they changed it
+        for field in ("p-thinking", "p-thinking-tokens", "p-context", "p-vision", "p-stream", "p-budget"):
+            assert panel.query_one(f"#service-card #{field}")
+        assert panel.query_one("#thinking-card #p-pixels") and panel.query_one("#thinking-card").display
         model = panel.query_one("#p-claude-model", Select)
         assert ("Default (Opus 9)", "default") in [(str(p), v) for p, v in model._options]  # its names
         model.value = "sonnet"
@@ -79,10 +86,15 @@ def test_she_can_think_with_claude_code_chosen_in_the_panel(brain):
         panel.action_tab("overview")
         await until(pilot, lambda: "Sonnet 9" in str(panel.query_one("#provider-info").render()))
         assert "Claude Max" in str(panel.query_one("#provider-info").render())
+        values = brain.brain.config.values()
+        assert (values["provider"], values["claude_model"], values["claude_effort"]) == ("claude_code", "sonnet", "high")
+        assert values["model"] == "sonnet"  # what she thinks with now
+        panel.action_tab("provider")
+        panel.query_one("#p-provider", Select).value = "api"  # and back: the API service as it was
+        await press(pilot, panel, "p-save")
+        await until(pilot, lambda: "my-model" in str(panel.query_one("#state").render()))
     run(brain, scenario)
-    values = brain.brain.config.values()
-    assert (values["provider"], values["claude_model"], values["claude_effort"]) == ("claude_code", "sonnet", "high")
-    assert values["model"] == "sonnet"  # what she thinks with now
+    assert {k: v for k, v in brain.client.config().items() if k in service} == service
 
 
 def test_apps_get_their_persona_and_toolkits_and_memory_is_forgotten_in_its_tab(brain):

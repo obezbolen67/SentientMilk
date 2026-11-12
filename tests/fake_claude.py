@@ -123,7 +123,9 @@ def result(text, error=False, subtype="success"):
     out({"type": "result", "subtype": subtype, "is_error": error, "result": text, "num_turns": 2,
          "session_id": session, "total_cost_usd": 0.01,
          "usage": {"input_tokens": 10, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 100,
-                   "output_tokens": 7}})
+                   "output_tokens": 7},
+         "modelUsage": {next(m["resolvedModel"] for m in MODELS if m["value"] == (value("--model") or "default")):
+                        {"inputTokens": 10, "outputTokens": 7, "contextWindow": 900000, "maxOutputTokens": 64000}}})
 
 
 # ============== As the brain's provider ==============
