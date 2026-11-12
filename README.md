@@ -55,8 +55,8 @@ none runs and shows it live:
 - **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: what the brain remembers for
   every app (with the app that saved each entry), where single entries can be forgotten, and the
   journal, to search and delete notes.
-- **Tools**: toolkits on or off for every app, approval rules, her browser (which Chrome, Open to sign
-  in for her, Forget sign-ins), MCP servers.
+- **Tools**: toolkits on or off for every app, approval rules, her browser (which Chrome, out of sight
+  or on your screen, Show it to sign in for her or to watch her, Hide, Forget sign-ins), MCP servers.
 - **Plugins**: install (a folder or a git URL), turn on or off, settings (secrets
   write-only), remove.
 - **Skills**: every skill, who starts it, what is wrong with a broken one; open its folder,
@@ -95,8 +95,8 @@ The brain keeps its files in `~/.sentientmilk` (`--home` or `SENTIENTMILK_HOME` 
 - `brain.sqlite3`: apps, sessions, the event log of every run, memory, journal, schedules.
 - `server.json`: the running brain's address and token; `launch.json`: how apps start it;
   `brain.lock`, `brain.log`.
-- `browser/`: her browser's profile (her sign-ins), `tabs.json` (each conversation's tabs) and
-  downloads on their way to a working folder.
+- `browser/`: her browser's profile (her sign-ins, and its session cookies while it is closed),
+  `tabs.json` (each conversation's tabs) and downloads on their way to a working folder.
 - `runs/<id>/`: long tool output and task progress files; `plugins/`: installed plugins;
   `toolkits/`: single-file toolkits of your own.
 
@@ -209,7 +209,7 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
 | `files` | `files_read`, `files_search`, `files_find`, `files_edit`, `files_write` (a change that breaks Python, JSON or TOML syntax is refused) |
 | `shell` | `shell_run` (PowerShell on Windows; `shell` setting), `shell_output`, `shell_stop` for background jobs; a command still running after 30 s goes on as one |
 | `web` | `web_search` (Brave, needs `web_search_key`), `web_fetch` |
-| `browser` | `browser_open`, `browser_view`, `browser_act`, `browser_read`, `browser_script`: her own Chrome (else Edge), out of sight on a hidden desktop, with a profile of its own that keeps her sign-ins. Pages come as text with an id on each thing she can use; she acts by ids, several steps a call, and is told what changed. Acting asks per site ("allow always" saves `browser_act(<site>)`); a sign-in or a human check goes to the user's screen (step `show`, or Tools > Browser > Open to sign in) |
+| `browser` | `browser_open`, `browser_view`, `browser_act`, `browser_read`, `browser_script`, `browser_log`: her own Chrome (else Edge), out of sight on a hidden desktop or on the user's screen when they want to watch (`headless`), with a profile of its own that keeps her sign-ins. Pages (and their frames of other sites) come as text with an id on each thing she can use; she acts by ids, several steps a call, is told what changed, saves pages as PDF, picture or HTML, and reads the console and the requests. Acting asks per site ("allow always" saves `browser_act(<site>)`); a sign-in or a human check goes in front of the user (step `show`, or Tools > Browser > Show on my screen) |
 | `todo` | `todo_write` |
 | `memory` (every app) | `memory_save`, `memory_forget`, each with `scope` everywhere (lasting) or session (this session only) |
 | `journal` | `journal_search` |
@@ -343,7 +343,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET`/`POST /schedules`, `PATCH`/`DELETE /schedules/{id}` | schedules |
 | `GET /apps/{app}/scheduled?pending=1` | durable scheduled deliveries for the app |
 | `GET /toolkits`, `GET`/`PUT /mcp`, `POST /mcp/{name}/reconnect` | toolkits and MCP servers |
-| `GET /browser`, `POST /browser/open`, `POST /browser/clear` | her browser (`command`, `version`, `mode`: off, hidden, shown or user, `profile`, `has_profile`, `tabs`); her profile in a plain Chrome on the user's screen to sign in for her; forgetting her sign-ins (409 `busy` while it is open or in use) |
+| `GET /browser`, `POST /browser/open`, `POST /browser/clear` | her browser (`command`, `version`, `mode`: off, hidden or shown, `shown`: where it opens, `profile`, `has_profile`, `tabs`); `{"headless": false}` puts it on the user's screen from now on (to sign in for her, to watch her), `true` out of sight; forgetting her sign-ins (409 `busy` while she uses it) |
 | `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
 | `GET /skills`, `DELETE /skills/{name}` | skills (`name`, `description`, `argument_hint`, `model_invocable`, `user_invocable`, `builtin`, `path`, `error`); removing one of the user's |
 | `GET /apps`, `DELETE /memory/{category}/{key}`, `DELETE /apps/{app}/sessions/{id}/memory/{key}`, `POST /shutdown` | apps, forgetting a memory or one thing of a session's memory, stopping the brain |
@@ -361,7 +361,8 @@ the same as `model`), `context_window` (128000), `thinking_mode` (`default`, `no
 `image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
 sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, `web_search_key`, `shell`,
 `task_workers` (2), `rules`, `disabled_toolkits`, `session_summaries` (true: the model goes over
-each conversation as it ends), `browser_command` (empty: Chrome, else Edge, where their installers put them).
+each conversation as it ends), `browser_command` (empty: Chrome, else Edge, where their installers put them),
+`browser_headless` (true: her browser opens out of sight; false: on the user's screen).
 
 ## Development
 

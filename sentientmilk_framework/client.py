@@ -436,14 +436,14 @@ class BrainClient:
 
     def browser(self) -> dict:
         """Her browser: ``command`` (the Chrome or Edge it uses; empty: none found), ``version``, ``mode`` (off,
-        hidden: she uses it out of sight, shown: on the user's screen for a sign-in she asked for, user: opened
-        from here), ``profile`` (its folder), ``has_profile``, ``tabs`` (all conversations')."""
+        hidden: running out of the user's sight, shown: on their screen), ``shown`` (where it opens next),
+        ``profile`` (its folder), ``has_profile``, ``tabs`` (all conversations')."""
         return self._call("GET", "/browser")
 
-    def open_browser(self) -> dict:
-        """Her browser's profile in a plain Chrome on the user's screen, nothing attached: they sign in to sites
-        for her there. She cannot use it until they close it."""
-        return self._call("POST", "/browser/open", timeout=60)
+    def open_browser(self, headless: bool = False) -> dict:
+        """Her browser on the user's screen from now on (to sign in to sites for her, or to watch her: she goes on
+        using it there), or with ``headless`` out of their sight again."""
+        return self._call("POST", "/browser/open", {"headless": headless}, timeout=60)
 
     def clear_browser(self) -> dict:
         """Forget what she signed in to (her browser's profile is deleted)."""

@@ -1,19 +1,21 @@
 """Her browser: a Chrome (or Edge) of her own, driven over the DevTools protocol, for the web as a person uses it.
 
 It is the real browser with a profile of its own (``browser/profile``): sites see the Chrome they see from the
-user, on the user's connection, and what she signs in to stays. On Windows it runs on the brain's hidden desktop
-(desktops.py), in ordinary windows the user never sees, and it ends with the brain. Measured on Chrome 157
-(2026-11-12): a fixed debugging port leaves ``navigator.webdriver`` false (port 0 and the pipe set it, and the
-switch that hides it adds a warning bar); a minimized window gives itself away (its size and pointer positions)
-and stops a page's timers, a window on a hidden desktop does neither. So: a fixed port on 127.0.0.1, ordinary
-windows, Runtime never enabled (the page's world is left alone: the brain reads pages in an isolated world of its
-own, browser_page.js), the pointer moves before clicks and typing goes key by key.
+user, on the user's connection, and what she signs in to stays. It runs out of sight (headless, as people say:
+on Windows on the brain's hidden desktop, desktops.py, in ordinary windows the user never sees) or on the user's
+screen, where they watch her (``browser_headless``, and browser_open's ``headless`` for the moment); either way it
+is driven the same, whether its windows are in front, behind others or minimized, and it ends with the brain.
+Measured on Chrome 157 (2026-11-12): a fixed debugging port leaves ``navigator.webdriver`` false (port 0 and the
+pipe set it, and the switch that hides it adds a warning bar). So: a fixed port on 127.0.0.1, ordinary windows,
+Runtime never enabled but for a moment to read the console (the page's world is left alone: the brain reads pages
+in an isolated world of its own, browser_page.js, and each frame of another site in one of its own), the pointer
+moves before clicks and typing goes key by key.
 
 Each chat (and each agent or task) has tabs of its own, t1, t2..., each in a window of its own so that every
-page renders as the one in front. Tabs outlive the browser: it closes when idle and when the brain stops, and a
-tab opens again at its address when it is next used. When a site needs the user (a sign-in, a check that she is
-human), the step ``show`` opens her profile on the user's screen as a plain Chrome with nothing attached; her next
-browser call closes it there and she goes on here, signed in. See docs/architecture.md, 6.7.
+page renders as the one in front. Tabs outlive the browser: it closes when idle out of sight and when the brain
+stops, and a tab opens again at its address (and session cookies come back) when it is next used. When a site
+needs the user (a sign-in, a check that she is human), the step ``show`` puts the browser on the user's screen
+and she goes on there once they are done. See docs/architecture.md, 6.7.
 """
 
 import base64
@@ -47,8 +49,16 @@ logger = logging.getLogger(__name__)
 PAGE_JS = Path(__file__).with_name("browser_page.js").read_text(encoding="utf-8")
 WORLD = "sentientmilk"
 WINDOW = (1280, 900)  # each tab's window, in device-independent pixels
-FLAGS = ["--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble",
+FLAGS = ["--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble", "--no-startup-window",
          "--disable-backgrounding-occluded-windows"]  # windows on top of each other all render
+COOKIES = "sentientmilk-session-cookies.json"  # in the profile: session cookies kept while the browser is closed
+COOKIE_FIELDS = {"name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "priority", "sourceScheme",
+                 "sourcePort", "partitionKey"}
+AUTO_ATTACH = {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True, "filter": [{"type": "iframe"}]}
+FRAME = re.compile(r"^( *)⟦frame (\d+)⟧$", re.M)  # where a frame of another site goes in a view
+FRAME_GONE = "That frame is not on the page any more: view the page again."
+SAVES = {".pdf": "a PDF", ".png": "a picture", ".jpg": "a picture", ".jpeg": "a picture", ".webp": "a picture",
+         ".html": "its HTML", ".htm": "its HTML", ".mhtml": "a web archive"}
 SETTLE, QUIET, GRACE = 10.0, 0.35, 0.15  # s: at most, no change for, at least, after an act
 LONG_REQUEST = 3.0  # s: a request open longer is a stream or a poll, not the page loading
 LONG_LOAD = 30.0  # s: a load that never says it stopped is not waited for again
@@ -57,19 +67,17 @@ IDLE = 600  # s without a call: the browser closes, and opens again with its tab
 READ_CHARS = 20_000
 TAB_IDS = 10_000  # ids each tab of a conversation has before it could reach the next tab's
 STEPS = ("click", "fill", "type", "key", "hover", "scroll", "drag", "upload", "wait", "open", "back", "forward",
-         "reload", "dialog", "close", "show")
+         "reload", "dialog", "save", "close", "show")
 CHANGES = 0.6  # a reply shows the whole page when more of it than this changed
-USER_HAS_IT = ("The user has your browser open on their screen (to sign in somewhere for you): it is theirs until "
-               "they close it. Tell them, or try again once they have.")
-SHOWN_ELSEWHERE = ("Your browser is on the user's screen for a sign-in or a check in another conversation: try "
-                   "again in a little while.")
-BUSY_ELSEWHERE = ("Your browser is in use in another conversation right now, so it cannot go to the user's screen: "
-                  "try show again in a moment.")
-SHOWN = ("Your browser is on the user's screen now, as a plain Chrome, at {urls}. Tell them what to do there (sign "
-         "in, the check, the payment) and to tell you when they are done. Then go on with any browser tool: it "
-         "closes there and you go on here, with what they did (a sign-in stays).")
-LEAD_ONLY = ("Only the lead can bring the browser to the user's screen: say in your report what the user should do "
-             "there (sign in at ...), or ask the lead with ask_lead.")
+BUSY_ELSEWHERE = ("Your browser is in use in another conversation right now, so it cannot move to or from the "
+                  "user's screen: try again in a moment.")
+MOVED = ("Your browser moved {where} (it started again there): your pages opened again at their addresses, so what "
+         "was typed and not sent is gone.")
+SHOWN = ("Your browser is on the user's screen at {urls}, and still yours. Tell them what to do there (sign in, the "
+         "check, the payment) and to tell you when they are done; then go on with your browser tools as before, with "
+         "what they did (a sign-in stays). It stays on their screen until browser_open headless=true.")
+LEAD_ONLY = ("Only the lead can hand the browser to the user: say in your report what the user should do there "
+             "(sign in at ...), or ask the lead with ask_lead.")
 GONE = "Your browser closed under the call (it opens again, with your tabs, at your next browser call)."
 MODIFIERS = {"alt": 1, "ctrl": 2, "control": 2, "meta": 4, "cmd": 4, "win": 4, "shift": 8}
 # key name -> (key, code, Windows virtual key, text)
@@ -147,6 +155,53 @@ def _key(app: str, session: str) -> str:
 def _id(target) -> str:
     """An id as the page knows it: "e5" -> "5"."""
     return str(target or "").strip().lower().lstrip("e")
+
+
+def _find(text: str, words: str) -> str:
+    """The lines of a view with ``words``, and the lines they are in (by indentation)."""
+    lines, words, keep = text.splitlines(), words.lower(), set()
+    depth = lambda line: (len(line) - len(line.lstrip(" "))) // 2  # noqa: E731
+    for index, line in enumerate(lines):
+        if words not in line.lower():
+            continue
+        keep.add(index)
+        level = depth(line)
+        for up in range(index - 1, -1, -1):
+            if level <= 0:
+                break
+            if depth(lines[up]) < level:
+                keep.add(up)
+                level = depth(lines[up])
+    return "\n".join(line for index, line in enumerate(lines) if index in keep)
+
+
+def _remote(value: dict) -> str:
+    """A value the console was given, as words."""
+    kind = value.get("type")
+    if kind == "string":
+        return value.get("value", "")
+    if kind in ("number", "boolean", "bigint"):
+        return str(value.get("unserializableValue") or value.get("value", value.get("description", "")))
+    if kind == "undefined" or value.get("subtype") == "null":
+        return kind if kind == "undefined" else "null"
+    preview = value.get("preview")
+    if preview and preview.get("properties") is not None:
+        inner = [(p.get("name"), p.get("value", p.get("type", ""))) for p in preview["properties"]]
+        more = ", …" if preview.get("overflow") else ""
+        if preview.get("subtype") == "array":
+            return "[" + ", ".join(str(v) for _, v in inner) + more + "]"
+        return "{" + ", ".join(f"{k}: {v}" for k, v in inner) + more + "}"
+    return value.get("description") or kind or ""
+
+
+class Frame:
+    """A frame of another site in a tab's page: a target of its own (Chrome runs it in another process), read in
+    a world of the brain's own like the page."""
+
+    def __init__(self, session: str, target: str, parent: str, key: int):
+        self.session, self.target, self.parent, self.key = session, target, parent, key  # parent: a session
+        self.context = None
+        self.marked = None  # the parent world's context in which its iframe element carries ``key``
 
 
 class Wire:
@@ -252,6 +307,12 @@ class Tab:
         self.seen: Optional[tuple] = None  # (document, lines) of the latest view: a reply says what changed
         self.pointer = (WINDOW[0] / 2, WINDOW[1] / 3)
         self.picture: Optional[float] = None  # page pixels per pixel of its latest picture
+        self.remote: Dict[str, Frame] = {}  # session -> a frame of another site on the page
+        self.where: Dict[str, Frame] = {}  # id -> the frame of another site it is in (others: the page's own)
+        self.network: List[dict] = []  # the page's requests since it loaded
+        self._request_at: Dict[str, int] = {}
+        self.console: Optional[list] = None  # console messages while they are read
+        self.mime = ""  # what the page is (application/pdf for a PDF)
 
     def held(self) -> bool:
         """A call to the page will not be answered now: a dialog holds it, or the page closed itself."""
@@ -274,10 +335,32 @@ class Tab:
         elif method == "Page.frameAttached":
             self.frames.add(params["frameId"])
         elif method == "Network.requestWillBeSent":
+            request, number = params.get("request") or {}, params.get("requestId")
             if params.get("type") in BUSY_TYPES:
-                self.requests[params["requestId"]] = time.monotonic()
+                self.requests[number] = time.monotonic()
+            redirect = params.get("redirectResponse")
+            if params.get("type") == "Document" and params.get("frameId") == self.target and not redirect:
+                self.network, self._request_at, self.mime = [], {}, ""  # a new page: its own requests
+            if redirect and number in self._request_at:
+                self.network[self._request_at[number]]["status"] = redirect.get("status")
+            self._request_at[number] = len(self.network)
+            self.network.append({"method": request.get("method", "GET"), "url": request.get("url", ""),
+                                 "type": params.get("type", "Other")})
+        elif method == "Network.responseReceived":
+            response = params.get("response") or {}
+            if params.get("requestId") in self._request_at:
+                self.network[self._request_at[params["requestId"]]].update(status=response.get("status"),
+                                                                            mime=response.get("mimeType", ""))
+            if params.get("type") == "Document" and params.get("frameId") == self.target:
+                self.mime = response.get("mimeType", "")
         elif method in ("Network.loadingFinished", "Network.loadingFailed"):
             self.requests.pop(params.get("requestId"), None)
+            if method == "Network.loadingFailed" and params.get("requestId") in self._request_at:
+                self.network[self._request_at[params["requestId"]]]["error"] = (
+                    "cancelled" if params.get("canceled") else params.get("blockedReason") or params.get("errorText"))
+        elif method in ("Runtime.consoleAPICalled", "Runtime.exceptionThrown"):
+            if self.console is not None:
+                self.console.append((method, params))
         elif method == "Page.javascriptDialogClosed":
             self.dialog = None
         elif method == "Page.fileChooserOpened":
@@ -295,17 +378,18 @@ class Browser:
         self.folder = brain.home / "browser"
         self.profile = self.folder / "profile"
         self.desktop = desktops.DESKTOP if desktops.WINDOWS else None  # where she browses (None: the user's)
-        self.user_desktop: Optional[str] = None  # where the user's windows of it go (tests: a hidden one)
+        self.user_desktop: Optional[str] = None  # the user's screen (tests: a hidden desktop standing in for it)
         self._lock = threading.RLock()
-        self.mode = "off"  # off, hidden (hers, with the protocol), shown (on the user's screen), user (from the panel)
+        self.mode = "off"  # off, hidden (out of the user's sight), shown (on the user's screen)
+        self.wanted: Optional[str] = None  # hidden or shown, as she or the user asked; None: browser_headless
         self.process: Optional[desktops.Process] = None
         self.wire: Optional[Wire] = None
-        self.shown_by: Optional[str] = None
         self.owners: Dict[str, dict] = {}  # "app/session" -> {"next", "current", "tabs": {name: Tab}}
         self._by_target: Dict[str, Tab] = {}
         self._by_session: Dict[str, Tab] = {}
+        self._frame_sessions: Dict[str, Tab] = {}  # a frame of another site's session -> its tab
+        self._frame_keys = itertools.count(1)
         self._downloads: Dict[str, dict] = {}
-        self._first: List[str] = []  # the window Chrome starts with, closed once a tab has its own
         self._events: "queue.Queue" = queue.Queue()  # the browser's own events, handled off the reading thread
         self.calls = 0  # browser calls under way
         self.used = time.monotonic()
@@ -322,8 +406,14 @@ class Browser:
         with self._lock:
             self._check()
             return {"command": command, "version": version_of(command) if command else "", "mode": self.mode,
-                    "profile": str(self.profile), "has_profile": self.profile.exists(),
+                    "shown": self._shown_wanted(), "profile": str(self.profile), "has_profile": self.profile.exists(),
                     "tabs": sum(len(owner["tabs"]) for owner in self.owners.values())}
+
+    def _shown_wanted(self) -> bool:
+        """Where it opens: on the user's screen or out of sight."""
+        if self.wanted:
+            return self.wanted == "shown"
+        return not self.brain.config.values()["browser_headless"]
 
     def _load(self) -> None:
         try:
@@ -354,9 +444,7 @@ class Browser:
 
     def _check(self) -> None:
         """Whether what was started still runs (under the lock)."""
-        if self.mode in ("shown", "user") and (not self.process or self.process.poll() is not None):
-            self.mode, self.process, self.shown_by = "off", None, None
-        elif self.mode == "hidden" and (self.wire.closed.is_set() or self.process.poll() is not None):
+        if self.mode != "off" and (self.wire.closed.is_set() or self.process.poll() is not None):
             self._gone()
 
     def _gone(self) -> None:
@@ -367,25 +455,32 @@ class Browser:
         self.mode, self.process, self.wire = "off", None, None
         for owner in self.owners.values():
             for tab in owner["tabs"].values():
-                tab.restore = tab.restore or (tab.url if tab.url != "about:blank" else None)
+                tab.restore = tab.restore or (tab.url if tab.session and tab.url != "about:blank" else None)
                 tab._reset()
         self._by_target.clear()
         self._by_session.clear()
+        self._frame_sessions.clear()
         self._downloads.clear()
 
-    def _ensure(self, key: str) -> None:
+    def _ensure(self, key: str, shown: Optional[bool] = None) -> List[Tab]:
+        """A running browser, where it is wanted (``shown``: where she asked for it now). The conversation's tabs
+        that had pages when it moved, to open again."""
         self._check()
-        if self.mode == "user":
-            raise ToolError(USER_HAS_IT)
-        if self.mode == "shown":
-            if self.shown_by != key:
-                raise ToolError(SHOWN_ELSEWHERE)
-            desktops.stop(self.process)  # they are done: it closes there (and keeps their sign-in)
-            self.mode, self.process, self.shown_by = "off", None, None
+        if shown is not None:
+            self.wanted = "shown" if shown else "hidden"
         if self.mode == "off":
-            self._launch()
+            self._launch(self._shown_wanted())
+            return []
+        if shown is None or (self.mode == "shown") == shown:
+            return []
+        if self.calls > 1:
+            raise ToolError(BUSY_ELSEWHERE)
+        moved = [tab for tab in self._owner(key)["tabs"].values() if tab.session]
+        self._shut()
+        self._launch(shown)
+        return moved
 
-    def _launch(self) -> None:
+    def _launch(self, shown: bool) -> None:
         command = self.command()
         if not command:
             raise ToolError("There is no Chrome or Edge on this computer, so you have no browser: the user installs "
@@ -394,8 +489,8 @@ class Browser:
         (self.folder / "downloads").mkdir(exist_ok=True)
         port = _free_port()
         args = [command, f"--user-data-dir={self.profile}", f"--remote-debugging-port={port}", *FLAGS,
-                f"--window-size={WINDOW[0]},{WINDOW[1]}", "about:blank"]
-        process = desktops.start(args, desktop=self.desktop, tied=True)
+                f"--window-size={WINDOW[0]},{WINDOW[1]}"]
+        process = desktops.start(args, desktop=self.user_desktop if shown else self.desktop, tied=True)
         deadline, url = time.monotonic() + 30, None
         while url is None:
             if process.poll() is not None:
@@ -413,26 +508,64 @@ class Browser:
             wire.call("Target.setDiscoverTargets", {"discover": True})
             wire.call("Browser.setDownloadBehavior", {"behavior": "allowAndName", "eventsEnabled": True,
                                                      "downloadPath": str(self.folder / "downloads")})
-            self._first = [t["targetId"] for t in wire.call("Target.getTargets")["targetInfos"] if t["type"] == "page"]
+            self._bring_cookies(wire)
         except Exception as exc:
             process.kill()
             raise ToolError(f"Your browser started but could not be reached: {exc}")
-        self.process, self.wire, self.mode = process, wire, "hidden"
+        self.process, self.wire, self.mode = process, wire, "shown" if shown else "hidden"
         if not self._threads:
             self._threads = True
             threading.Thread(target=self._handle_events, name="browser-events", daemon=True).start()
             threading.Thread(target=self._watch, name="browser-idle", daemon=True).start()
 
+    def _keep_cookies(self) -> None:
+        """Session cookies (a sign-in that lasts while the browser is open) wait in the profile while it is closed:
+        for her it is still open, its tabs are."""
+        try:
+            cookies = self.wire.call("Storage.getCookies", timeout=5)["cookies"]
+        except Exception:
+            return
+        kept = []
+        for cookie in cookies:
+            if not cookie.get("session"):
+                continue
+            kept.append({k: v for k, v in cookie.items() if k in COOKIE_FIELDS})
+            if not cookie.get("domain", "").startswith("."):  # a host's own, not its subdomains'
+                scheme = "https" if cookie.get("secure") else "http"
+                kept[-1]["url"] = f"{scheme}://{kept[-1].pop('domain')}{cookie.get('path', '/')}"
+        try:
+            if kept:
+                (self.profile / COOKIES).write_text(json.dumps(kept), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Could not keep the browser's session cookies: %s", exc)
+
+    def _bring_cookies(self, wire: Wire) -> None:
+        path = self.profile / COOKIES
+        try:
+            cookies = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        try:
+            wire.call("Storage.setCookies", {"cookies": cookies}, timeout=10)
+        except CdpError as exc:
+            logger.warning("Could not bring back the browser's session cookies: %s", exc)
+        path.unlink(missing_ok=True)
+
     def _watch(self) -> None:
-        """An idle browser closes: its tabs open again at their addresses when next used."""
+        """An idle browser out of sight closes: its tabs open again at their addresses when next used (one on the
+        user's screen stays, they may be looking at it)."""
         while not self.brain.stopping.wait(15):
             with self._lock:
                 if self.mode == "hidden" and not self.calls and time.monotonic() - self.used > IDLE:
-                    self._close_hidden()
+                    self._shut()
+                    self.wanted = None  # as browser_headless says, when it opens again
 
-    def _close_hidden(self) -> None:
-        if self.mode != "hidden":
+    def _shut(self, keep: bool = True) -> None:
+        """It closes (under the lock); ``keep``: its session cookies come back when it opens again."""
+        if self.mode == "off":
             return
+        if keep:
+            self._keep_cookies()
         try:
             self.wire.call("Browser.close", timeout=5)
         except Exception:
@@ -443,39 +576,53 @@ class Browser:
         self._save()
 
     def close(self) -> None:
-        """The brain stops: her browser closes (a window on the user's screen is theirs and stays)."""
+        """The brain stops: her browser closes."""
         with self._lock:
-            self._close_hidden()
+            self._shut()
 
-    def open_for_user(self) -> dict:
-        """Her profile in a plain Chrome on the user's screen, nothing attached, to sign in to sites for her."""
+    def put(self, shown: bool) -> dict:
+        """The panel's Show and Hide: her browser on the user's screen (to sign in to sites for her, or to watch
+        her) or out of sight, from now on. Her pages there open again, and on a screen with none of hers a
+        window of the user's own opens."""
         with self._lock:
             self._check()
-            if self.mode == "user":
-                return self.status()
             if self.calls:
                 raise BrainError("busy", "She is using her browser right now: try again in a moment", http_status=409)
-            command = self.command()
-            if not command:
+            if not self.command():
                 raise BrainError("no_browser", "There is no Chrome or Edge on this computer", http_status=409)
-            self._close_hidden()
-            if self.mode == "shown":
-                desktops.stop(self.process)
-            self.profile.mkdir(parents=True, exist_ok=True)
-            self.process = desktops.start([command, f"--user-data-dir={self.profile}", "--no-first-run",
-                                           "--no-default-browser-check"], desktop=self.user_desktop)
-            self.mode, self.shown_by = "user", None
+            self.wanted = "shown" if shown else "hidden"
+            if (self.mode == "shown") == shown and self.mode != "off":
+                return self.status()
+            moved = [tab for owner in self.owners.values() for tab in owner["tabs"].values() if tab.session]
+            try:
+                self._shut()
+                if shown:
+                    self._launch(True)
+                    self._reopen(moved)
+                    if not moved:
+                        self.wire.call("Target.createTarget", {"url": "about:blank", "newWindow": True})
+            except ToolError as exc:
+                raise BrainError("no_browser", str(exc), http_status=409)
             return self.status()
+
+    def _reopen(self, tabs) -> None:
+        """Tabs that had pages before it moved get them again, not waited for (under the lock)."""
+        for tab in tabs:
+            try:
+                self._live(tab)
+                if tab.restore:
+                    url, tab.restore = tab.restore, None
+                    self.wire.call("Page.navigate", {"url": url}, tab.session, timeout=30, until=tab.held)
+            except (CdpError, BrowserGone, ToolError) as exc:
+                logger.info("A tab did not open again: %s", exc)
 
     def clear(self) -> dict:
         """Forget what she signed in to: her profile goes (her tabs keep their addresses)."""
         with self._lock:
             self._check()
-            if self.mode in ("shown", "user"):
-                raise BrainError("busy", "Her browser is open on your screen: close it first", http_status=409)
             if self.calls:
                 raise BrainError("busy", "She is using her browser right now: try again in a moment", http_status=409)
-            self._close_hidden()
+            self._shut(keep=False)
             deadline = time.monotonic() + 15
             while True:  # Chrome's helper processes let go of its files a moment after it ends
                 shutil.rmtree(self.profile, ignore_errors=True)
@@ -498,10 +645,22 @@ class Browser:
                     ended.ended = True
             self._events.put((method, params))
             return
-        tab = self._by_session.get(session)
+        tab = self._by_session.get(session) or self._frame_sessions.get(session)
         if tab is None:
             return
-        if method == "Page.javascriptDialogOpening":
+        if method == "Target.attachedToTarget":  # a frame of another site, in a process of its own
+            info = params.get("targetInfo") or {}
+            if info.get("type") == "iframe":
+                frame = Frame(params["sessionId"], info["targetId"], session, next(self._frame_keys))
+                tab.remote[frame.session] = frame
+                self._frame_sessions[frame.session] = tab
+                self._events.put(("frame", {"session": frame.session}))  # its own frames of other sites too
+        elif method == "Target.detachedFromTarget":
+            tab.remote.pop(params.get("sessionId"), None)
+            self._frame_sessions.pop(params.get("sessionId"), None)
+        elif session != tab.session:
+            return
+        elif method == "Page.javascriptDialogOpening":
             kind, message = params.get("type", "alert"), params.get("message", "")
             if kind in ("alert", "beforeunload"):  # nothing to decide: closed, and told
                 tab.news.append(f"The page showed a message: \"{message}\" (closed)." if kind == "alert" else
@@ -527,10 +686,12 @@ class Browser:
                 logger.exception("Browser event %s", method)
 
     def _browser_event(self, method: str, params: dict) -> None:
-        if self.mode != "hidden":
+        if self.mode == "off":
             return
         if method == "answer":
             self._quietly(self.wire.call, "Page.handleJavaScriptDialog", {"accept": True}, params["session"], 5)
+        elif method == "frame":
+            self._quietly(self.wire.call, "Target.setAutoAttach", AUTO_ATTACH, params["session"], 5)
         elif method == "Target.targetCreated":
             info = params["targetInfo"]
             opener = self._by_target.get(info.get("openerId") or "")
@@ -570,8 +731,11 @@ class Browser:
             if owner["current"] == tab.name:
                 owner["current"] = next(reversed(owner["tabs"]), None)
             for other in owner["tabs"].values():
-                other.news.append(f"Tab {tab.name} ({tab.title or tab.url}) closed itself.")
+                other.news.append(f"Tab {tab.name} ({tab.title or tab.url}) {self._closed_words()}.")
             self._save()
+
+    def _closed_words(self) -> str:
+        return "closed itself" if self.mode != "shown" else "was closed (by the page, or by the user on their screen)"
 
     @staticmethod
     def _quietly(work, *args) -> None:
@@ -642,11 +806,13 @@ class Browser:
         wire.call("Page.enable", session=session)
         wire.call("Network.enable", session=session)
         wire.call("Emulation.setFocusEmulationEnabled", {"enabled": True}, session)  # each page is the one in front
+        wire.call("Target.setAutoAttach", AUTO_ATTACH, session)  # its frames of other sites
         tab.window = wire.call("Browser.getWindowForTarget", {"targetId": target})["windowId"]
         if resize:
             wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {"windowState": "normal"}})
+            place = {"left": 0, "top": 0} if self.mode == "hidden" else {}  # on the user's screen: where Chrome puts it
             wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {
-                "left": 0, "top": 0, "width": WINDOW[0], "height": WINDOW[1]}})
+                **place, "width": WINDOW[0], "height": WINDOW[1]}})
 
     def _live(self, tab: Tab) -> None:
         """A page for the tab (under the lock); its address comes back in ``using``, outside the lock."""
@@ -655,18 +821,30 @@ class Browser:
         if tab.target:  # a page that crashed: a new one in its place
             self._by_target.pop(tab.target, None)
             self._by_session.pop(tab.session, None)
+            for session in tab.remote:
+                self._frame_sessions.pop(session, None)
             self._quietly(self.wire.call, "Target.closeTarget", {"targetId": tab.target})
             tab.restore = tab.restore or (tab.url if tab.url != "about:blank" else None)
         tab._reset()
-        target = self.wire.call("Target.createTarget", {"url": "about:blank", "newWindow": True})["targetId"]
+        # on the user's screen a new window stays behind what they are using: it never takes their keys
+        target = self.wire.call("Target.createTarget", {"url": "about:blank", "newWindow": True,
+                                                        "background": self.mode == "shown"})["targetId"]
         self._attach(tab, target)
-        for first in self._first:
-            self._quietly(self.wire.call, "Target.closeTarget", {"targetId": first})
-        self._first = []
+
+    def _shown_window(self, tab: Tab) -> None:
+        """A minimized window on the user's screen paints nothing, so a picture of it waits forever: it comes back
+        (behind what they are using). Reading and acting need none of this."""
+        if self.mode != "shown" or tab.window is None:
+            return
+        state = self.wire.call("Browser.getWindowBounds", {"windowId": tab.window})["bounds"].get("windowState")
+        if state == "minimized":
+            self.wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {"windowState": "normal"}})
+            time.sleep(0.3)  # until it paints
 
     @contextlib.contextmanager
-    def using(self, ctx, name: str = "", create: bool = False, new: bool = False):
-        """The conversation's tab ``name`` (or its current one; ``new``: a new one), live and held for a call."""
+    def using(self, ctx, name: str = "", create: bool = False, new: bool = False, shown: Optional[bool] = None):
+        """The conversation's tab ``name`` (or its current one; ``new``: a new one), live and held for a call;
+        ``shown``: the browser on the user's screen (or out of sight) from now on."""
         from .toolkits.files import cwd
 
         key = _key(ctx.app, ctx.session)
@@ -676,7 +854,7 @@ class Browser:
             self.used = time.monotonic()
         try:
             with self._lock:
-                self._ensure(key)
+                moved = self._ensure(key, shown)
                 owner = self._owner(key)
                 if new:
                     tab = self._new_tab(key)
@@ -692,10 +870,15 @@ class Browser:
                         tab = self._new_tab(key)
                 if tab.ended:  # it closed itself since her last call
                     self._closed_itself(tab)
-                    raise ToolError(f"Tab {tab.name} closed itself. {self._tabs_line(key) or 'You have no tabs.'}")
+                    raise ToolError(f"Tab {tab.name} {self._closed_words()}. "
+                                    f"{self._tabs_line(key) or 'You have no tabs.'}")
                 owner["current"] = tab.name
                 tab.folder = cwd(ctx)
                 self._live(tab)
+                if moved:
+                    tab.news.append(MOVED.format(where="to the user's screen" if self.mode == "shown"
+                                                 else "out of the user's sight"))
+                    self._reopen([t for t in moved if t is not tab])
                 if any(t.window == tab.window for t in self._by_target.values() if t is not tab):
                     self._quietly(self.wire.call, "Target.activateTarget", {"targetId": tab.target})
                 self._save()
@@ -736,14 +919,14 @@ class Browser:
             self._save()
             for tab in owner["tabs"].values():
                 tab.closing = True
-                if tab.target and self.mode == "hidden":
+                if tab.target and self.mode != "off":
                     self._quietly(self.wire.call, "Target.closeTarget", {"targetId": tab.target})
 
     def seen(self, run: dict, arguments: dict) -> dict:
         """A browser call as the rules and the user see it: the site it acts on, and what each id is."""
         owner = self.owners.get(_key(run["app"], run["session"])) or {"tabs": {}, "current": None}
         tab = owner["tabs"].get(self._name(arguments.get("tab")) or owner["current"] or "")
-        if "url" in arguments:
+        if arguments.get("url"):
             site = site_of(arguments.get("url"))
         else:
             site = site_of(tab.restore or tab.url) if tab else ""
@@ -756,52 +939,147 @@ class Browser:
 
     # ============== Pages ==============
 
-    def _eval(self, tab: Tab, expression: str, timeout: float = 30.0, value: bool = True):
-        """``expression`` in the brain's own world of the page (installed there first); None when a dialog of
-        the page opened meanwhile."""
+    def _eval(self, tab: Tab, expression: str, timeout: float = 30.0, value: bool = True,
+              frame: Optional[Frame] = None):
+        """``expression`` in the brain's own world of the page, or of one of its frames of another site
+        (installed there first, giving out ids from where the tab's are, so every world's ids differ); None when a
+        dialog of the page opened meanwhile."""
+        world = frame or tab
         if tab.ended:
-            raise ToolError(f"Tab {tab.name} closed itself.")
+            raise ToolError(f"Tab {tab.name} {self._closed_words()}.")
         if tab.dialog:
             raise ToolError(self._dialog_line(tab))
+        if frame and tab.remote.get(frame.session) is not frame:
+            raise ToolError(FRAME_GONE)
         for _ in range(4):
             try:
-                if tab.context is None:
-                    world = self.wire.call("Page.createIsolatedWorld", {"frameId": tab.target, "worldName": WORLD},
-                                           tab.session)
-                    tab.context = world["executionContextId"]
+                if world.context is None:
+                    made = self.wire.call("Page.createIsolatedWorld", {"frameId": world.target, "worldName": WORLD},
+                                          world.session)
+                    world.context = made["executionContextId"]
                     installed = self.wire.call("Runtime.evaluate", {
-                        "expression": f"({PAGE_JS})({tab.next_id})", "contextId": tab.context,
-                        "returnByValue": True}, tab.session, until=tab.held)
+                        "expression": f"({PAGE_JS})({tab.next_id})", "contextId": world.context,
+                        "returnByValue": True}, world.session, until=tab.held)
                     if installed is None:
                         if tab.ended:
-                            raise ToolError(f"Tab {tab.name} closed itself.")
+                            raise ToolError(f"Tab {tab.name} {self._closed_words()}.")
                         return None
                     tab.next_id = max(tab.next_id, installed.get("result", {}).get("value") or 0)
-                reply = self.wire.call("Runtime.evaluate", {"expression": expression, "contextId": tab.context,
-                                                            "returnByValue": value, "awaitPromise": True},
-                                       tab.session, timeout, until=tab.held)
+                reply = self.wire.call("Runtime.evaluate", {
+                    "expression": f"(__milk.sync({tab.next_id}), {expression})", "contextId": world.context,
+                    "returnByValue": value, "awaitPromise": True}, world.session, timeout, until=tab.held)
             except CdpError as exc:  # the page changed under the call: its new document gets the world again
+                if frame and "session" in str(exc).lower():
+                    tab.remote.pop(frame.session, None)
+                    raise ToolError(FRAME_GONE)
                 if tab.ended or "session" in str(exc).lower():
                     tab.ended = True
-                    raise ToolError(f"Tab {tab.name} closed itself.")
+                    raise ToolError(f"Tab {tab.name} {self._closed_words()}.")
                 if any(word in str(exc).lower() for word in ("context", "frame", "target")):
-                    tab.context = None
+                    world.context = None
                     time.sleep(0.1)
                     continue
                 raise ToolError(f"The page could not be read: {exc}")
             if reply is None:
                 if tab.ended:
-                    raise ToolError(f"Tab {tab.name} closed itself.")
+                    raise ToolError(f"Tab {tab.name} {self._closed_words()}.")
                 return None
             if "exceptionDetails" in reply:
                 details = reply["exceptionDetails"]
                 text = (details.get("exception") or {}).get("description") or details.get("text", "")
                 if "__milk" in text:  # a new document came between the two calls
-                    tab.context = None
+                    world.context = None
                     continue
                 raise ToolError(f"The page could not be read: {text.splitlines()[0] if text else 'an error'}")
             return reply["result"].get("value") if value else reply["result"]
         raise ToolError("The page kept changing while it was read: try again.")
+
+    def _mark(self, tab: Tab, parent: Optional[Frame] = None) -> None:
+        """Each frame of another site in a world gets its key on its iframe element there, so the world's view
+        says where the frame's own view goes."""
+        world = parent or tab
+        for frame in list(tab.remote.values()):
+            if frame.parent != world.session:
+                continue
+            try:
+                if world.context is None:
+                    self._eval(tab, "0", frame=parent)
+                if frame.marked == world.context:
+                    continue
+                owner = self.wire.call("DOM.getFrameOwner", {"frameId": frame.target}, world.session, 5)
+                node = self.wire.call("DOM.resolveNode", {"backendNodeId": owner["backendNodeId"],
+                                                          "executionContextId": world.context}, world.session, 5)
+                handle = node["object"]["objectId"]
+                self.wire.call("Runtime.callFunctionOn", {
+                    "objectId": handle, "functionDeclaration": "function(key) { __milk.mark(this, key) }",
+                    "arguments": [{"value": frame.key}]}, world.session, 5)
+                self._quietly(self.wire.call, "Runtime.releaseObject", {"objectId": handle}, world.session, 5)
+                frame.marked = world.context
+            except (CdpError, ToolError, KeyError, TypeError):
+                continue  # gone, or not loaded yet: the view says it is not readable
+
+    def _frame_of(self, tab: Tab, key: int) -> Optional[Frame]:
+        return next((frame for frame in tab.remote.values() if frame.key == key), None)
+
+    def _in_frames(self, tab: Tab, text: str, kind: str, full: bool) -> str:
+        """Each frame of another site's own view (``kind`` view or read) where it goes in ``text``."""
+        def each(match):
+            indent, frame = match.group(1), self._frame_of(tab, int(match.group(2)))
+            try:
+                inner = self._frame_text(tab, frame, kind, full) if frame else ""
+            except ToolError:
+                inner = ""
+            if not inner.strip():
+                return indent + "(nothing readable in it now: use a picture and point)"
+            return "\n".join(indent + line for line in inner.splitlines())
+        return FRAME.sub(each, text)
+
+    def _frame_text(self, tab: Tab, frame: Frame, kind: str, full: bool, part: str = "") -> str:
+        self._mark(tab, frame)
+        if kind == "read":
+            return self._in_frames(tab, self._eval(tab, "__milk.read()", frame=frame) or "", kind, full)
+        data = self._eval(tab, f"__milk.view({json.dumps({'full': full, 'part': part})})", frame=frame)
+        if not data or data.get("gone"):
+            return ""
+        self._took(tab, data, frame)
+        return self._in_frames(tab, data["text"], kind, full)
+
+    def _took(self, tab: Tab, data: dict, frame: Optional[Frame]) -> None:
+        """What a view in a world gave out: ids, and what each is."""
+        tab.next_id = max(tab.next_id, data["next"])
+        tab.labels.update(data["labels"])
+        for number in data["labels"]:
+            if frame:
+                tab.where[str(number)] = frame
+            else:
+                tab.where.pop(str(number), None)
+
+    def _world_of(self, tab: Tab, target) -> Optional[Frame]:
+        """The frame of another site an id is in (None: the page's own)."""
+        frame = tab.where.get(_id(target))
+        return frame if frame and tab.remote.get(frame.session) is frame else None
+
+    def _offset(self, tab: Tab, frame: Optional[Frame]):
+        """Where a frame of another site's own top left is in the tab's window."""
+        x = y = 0.0
+        while frame:
+            parent = tab.remote.get(frame.parent)  # None: the page's own world
+            here = self._eval(tab, f"__milk.offsetOf({frame.key})", frame=parent)
+            if not here:
+                raise ToolError(FRAME_GONE)
+            x, y, frame = x + here[0], y + here[1], parent
+        return x, y
+
+    def _quiet_for(self, tab: Tab) -> Optional[float]:
+        """Milliseconds since the page (or one of its frames of other sites) last changed."""
+        quiet = self._eval(tab, "__milk.changed()", timeout=3)
+        for frame in list(tab.remote.values()):
+            if quiet is not None and frame.context is not None:
+                try:
+                    quiet = min(quiet, self._eval(tab, "__milk.changed()", timeout=3, frame=frame) or 0)
+                except ToolError:
+                    pass
+        return quiet
 
     def _input(self, tab: Tab, method: str, params: dict) -> None:
         """An event as from the user's own mouse or keyboard; a dialog it opens ends the wait for it."""
@@ -831,7 +1109,7 @@ class Browser:
                 any(now - since < LONG_REQUEST for since in list(tab.requests.values()))
             if not busy and (not after or now - start >= QUIET):
                 try:
-                    quiet = self._eval(tab, "__milk.changed()", timeout=3)
+                    quiet = self._quiet_for(tab)
                     if quiet is None or quiet / 1000 >= QUIET:
                         return True
                 except ToolError:
@@ -856,18 +1134,26 @@ class Browser:
         return "" if self._settle(tab, 30) else "The page is still loading."
 
     def _view(self, tab: Tab, find: str = "", part: str = "") -> dict:
-        data = self._eval(tab, f"__milk.view({json.dumps({'find': find, 'part': _id(part)})})")
+        """The page as text with ids, its frames of other sites in it (only the lines with ``find``; only the
+        part ``part``)."""
+        frame, full = self._world_of(tab, part) if part else None, bool(find or part)
+        self._mark(tab, frame)
+        data = self._eval(tab, f"__milk.view({json.dumps({'full': full, 'part': _id(part)})})", frame=frame)
         if data is None:
             return {"text": "", "labels": {}, "title": tab.title, "url": tab.url, "next": tab.next_id}
         if data.get("gone"):
             raise ToolError(f"{part} is not on the page any more: view it again.")
-        tab.next_id = max(tab.next_id, data["next"])
-        tab.labels.update(data["labels"])
-        tab.title, tab.url = data["title"], data["url"]
+        self._took(tab, data, frame)
+        data["text"] = self._in_frames(tab, data["text"], "view", full)
+        if find:
+            data["text"] = _find(data["text"], find)
+        if not frame:
+            tab.title, tab.url = data["title"], data["url"]
         return data
 
     def _head(self, tab: Tab) -> List[str]:
-        lines = [f"{tab.name} · {tab.title or '(no title)'} · {tab.url}"]
+        lines = [f"{tab.name} · {tab.title or '(no title)'} · {tab.url}" +
+                 (" · on the user's screen" if self.mode == "shown" else "")]
         lines += [f"Meanwhile: {news}" for news in tab.news]
         tab.news = []
         if tab.dialog:
@@ -883,6 +1169,9 @@ class Browser:
     def _whole(self, tab: Tab, data: dict, note: str = "") -> str:
         """The page as a whole, for open and view."""
         tab.seen = (tab.document, data["text"].splitlines())
+        if tab.mime == "application/pdf":
+            note = (note + " " if note else "") + ("This tab shows a PDF: the step save (text: a name ending .pdf) "
+                                                   "keeps the document itself.")
         lines = self._head(tab) + ([note] if note else []) + [data["text"] or "(The page shows nothing.)"]
         other = self._tabs_line(tab.owner, besides=tab)
         return "\n".join(lines + ([other] if other else []))
@@ -906,12 +1195,24 @@ class Browser:
 
     # ============== The tools ==============
 
-    def open(self, ctx, url: str, new_tab: bool = False) -> str:
+    def open(self, ctx, url: str = "", new_tab: bool = False, headless: Optional[bool] = None) -> str:
         url = str(url or "").strip()
+        shown = None if headless is None else not headless
         if not url:
-            raise ToolError("url is empty: give the address to open (https://...).")
-        with self.using(ctx, create=True, new=new_tab) as tab:
-            note = self._navigate(tab, url)
+            if shown is None:
+                raise ToolError("url is empty: give the address to open (https://...).")
+            owner = self.owners.get(_key(ctx.app, ctx.session)) or {"tabs": {}, "current": None}
+            if not owner["tabs"].get(owner["current"] or ""):  # nothing to show yet: it opens there next time
+                with self._lock:
+                    self.wanted = "shown" if shown else "hidden"
+                    busy = self.mode != "off" and (self.mode == "shown") != shown and self.calls
+                    if self.mode != "off" and (self.mode == "shown") != shown and not busy:
+                        self._shut()
+                where = "on the user's screen" if shown else "out of the user's sight"
+                when = "once another conversation is done with it" if busy else "from now on"
+                return f"Your browser opens {where} {when}. You have no tab open: open a page with browser_open."
+        with self.using(ctx, create=True, new=new_tab and bool(url), shown=shown) as tab:
+            note = self._navigate(tab, url) if url else ""
             return self._whole(tab, self._view(tab), note)
 
     def view(self, ctx, tab: str = "", find: str = "", part: str = "", picture: bool = False) -> ToolResult:
@@ -929,6 +1230,7 @@ class Browser:
                                      "has no id with \"x,y\" in its pixels as a step's target.", images=[image])
 
     def _picture(self, tab: Tab):
+        self._shown_window(tab)
         shot = self.wire.call("Page.captureScreenshot", {"format": "jpeg", "quality": 90}, tab.session)
         image = transport.encode_image("data:image/jpeg;base64," + shot["data"],
                                        self.brain.config.values()["image_pixels"])
@@ -941,7 +1243,11 @@ class Browser:
 
     def read(self, ctx, tab: str = "", offset: int = 0) -> str:
         with self.using(ctx, tab) as page:
-            text = self._eval(page, "__milk.read()") or ""
+            self._mark(page)
+            text = self._in_frames(page, self._eval(page, "__milk.read()") or "", "read", True)
+            if not text.strip() and page.mime == "application/pdf":
+                text = ("This tab shows a PDF, which is drawn rather than written into the page: the step save (text: "
+                        "a name ending .pdf) keeps the document itself.")
             start = max(0, int(offset or 0))
             part = text[start:start + READ_CHARS] or "(Nothing to read here.)"
             if start + READ_CHARS < len(text):
@@ -972,6 +1278,58 @@ class Browser:
                 text += f"\n(The page changed: it is {page.url} now. View it before you act.)"
             return "\n".join(self._head(page)[1:] + [text])
 
+    def log(self, ctx, kind: str = "console", tab: str = "", find: str = "") -> str:
+        """The page's console (its messages and errors) or its network requests, since it loaded."""
+        kind = str(kind or "console").strip().lower()
+        if kind not in ("console", "network"):
+            raise ToolError("kind is console (the page's messages and errors) or network (its requests).")
+        with self.using(ctx, tab) as page:
+            if kind == "network":
+                lines = [f"{r['method']} {r.get('error') or r.get('status') or '(waiting)'} {r['type'].lower()} "
+                         f"{r['url']}" + (f" ({r['mime']})" if r.get("mime") else "") for r in list(page.network)]
+            else:
+                # the console keeps what the page said: Runtime tells it all when enabled, for a moment only
+                page.console = []
+                try:
+                    self.wire.call("Runtime.enable", session=page.session, until=page.held)
+                    for _, params in list(page.console):  # objects as JSON while they are still there
+                        for arg in params.get("args", []):
+                            if arg.get("objectId") and arg.get("type") == "object" and \
+                                    arg.get("subtype") in (None, "array") and not arg.get("preview"):
+                                try:
+                                    shown = self.wire.call("Runtime.callFunctionOn", {
+                                        "objectId": arg["objectId"], "returnByValue": True, "functionDeclaration":
+                                        "function() { try { return JSON.stringify(this); } catch (e) { return "
+                                        "String(this); } }"}, page.session, 5)
+                                    arg.update(type="string", value=shown["result"].get("value") or "")
+                                except (CdpError, ToolError):
+                                    pass
+                finally:
+                    self._quietly(self.wire.call, "Runtime.disable", None, page.session, 5)
+                    said, page.console = page.console, None
+                lines = [self._console_line(method, params) for method, params in said]
+            if find:
+                lines = [line for line in lines if find.lower() in line.lower()]
+            empty = (f"Nothing with {find!r}." if find else
+                     "Nothing in the console since the page loaded." if kind == "console" else
+                     "No requests since the page loaded.")
+            return "\n".join(self._head(page) + (lines or [empty]))
+
+    @staticmethod
+    def _console_line(method: str, params: dict) -> str:
+        if method == "Runtime.exceptionThrown":
+            details = params.get("exceptionDetails") or {}
+            text = (details.get("exception") or {}).get("description") or details.get("text", "")
+            where = f" ({details['url']}:{details.get('lineNumber', 0) + 1})" if details.get("url") else ""
+            return f"[uncaught error] {text}{where}"
+        kind = params.get("type", "log")
+        text = " ".join(_remote(arg) for arg in params.get("args", []))
+        frames = (params.get("stackTrace") or {}).get("callFrames") or []
+        where = ""
+        if kind in ("error", "warning", "assert", "trace") and frames and frames[0].get("url"):
+            where = f" ({frames[0]['url']}:{frames[0].get('lineNumber', 0) + 1})"
+        return f"[{kind}] {text}{where}"
+
     def act(self, ctx, steps: list, tab: str = "") -> str:
         if not isinstance(steps, list) or not steps:
             raise ToolError("steps is empty: give the steps to do, e.g. [{\"action\": \"click\", \"target\": \"e5\"}].")
@@ -989,7 +1347,8 @@ class Browser:
                 rest = f"Steps {number + 1}-{len(steps)} did not run" if number < len(steps) else ""
                 try:
                     if action == "show":
-                        return "\n".join(notes + [f"{said}: " + self.show(ctx, page)])
+                        return "\n".join(notes + [f"{said}: " + self.show(ctx, page)] +
+                                         ([rest + ": go on once the user is done."] if rest else []))
                     if action == "close":
                         notes.append(f"{said}: " + self._close_tab(page))
                         return "\n".join(notes + ([rest + "."] if rest else []) + self._after_close(page))
@@ -1014,8 +1373,9 @@ class Browser:
                     break
             if page.ended:
                 with self._lock:
+                    words = self._closed_words()
                     self._closed_itself(page)
-                return "\n".join(notes + [f"Tab {page.name} closed itself."] + self._after_close(page))
+                return "\n".join(notes + [f"Tab {page.name} {words}."] + self._after_close(page))
             if page.dialog:
                 return "\n".join(self._head(page) + notes)
             data = self._view(page)
@@ -1035,27 +1395,26 @@ class Browser:
             if owner["current"] == tab.name:
                 owner["current"] = next(reversed(owner["tabs"]), None)
             self._save()
-            if tab.target and self.mode == "hidden":
+            if tab.target and self.mode != "off":
                 self._quietly(self.wire.call, "Target.closeTarget", {"targetId": tab.target})
         return f"{tab.name} closed"
 
     def show(self, ctx, tab: Tab) -> str:
-        """Her browser on the user's screen (plain, nothing attached) at the conversation's pages."""
+        """Her browser on the user's screen at the tab, in front, for them to do what is theirs (a sign-in, a
+        check, a payment); she goes on there once they are done."""
         if ctx.run["kind"] != "turn":
             raise ToolError(LEAD_ONLY)
         key = _key(ctx.app, ctx.session)
         with self._lock:
-            if self.calls > 1:
-                raise ToolError(BUSY_ELSEWHERE)
-            owner = self._owner(key)
-            urls = [tab.url] + [t.url for t in owner["tabs"].values() if t is not tab]
-            urls = [url for url in urls if url and url != "about:blank"]
-            command = self.command()
-            self._close_hidden()
-            self.process = desktops.start([command, f"--user-data-dir={self.profile}", "--no-first-run",
-                                           "--no-default-browser-check", *urls], desktop=self.user_desktop)
-            self.mode, self.shown_by = "shown", key
-        return SHOWN.format(urls=", ".join(urls) or "a new tab")
+            moved = self._ensure(key, shown=True)
+            if moved:
+                self._live(tab)
+                self._reopen([t for t in moved if t is not tab])
+        if moved and tab.restore:
+            url, tab.restore = tab.restore, None
+            self._navigate(tab, url)
+        self._quietly(self.wire.call, "Target.activateTarget", {"targetId": tab.target})  # in front: theirs to use
+        return SHOWN.format(urls=f"{tab.name} ({tab.url})")
 
     # ============== Steps ==============
 
@@ -1069,18 +1428,28 @@ class Browser:
             if tab.picture is None:
                 raise ToolError("A point is in a picture of the tab: view it with picture=true first, or use an id.")
             x, y = float(point.group(1)) * tab.picture, float(point.group(2)) * tab.picture
-            found = self._eval(tab, f"__milk.at({x}, {y})") or {}
+            found, frame, inner = self._eval(tab, f"__milk.at({x}, {y})") or {}, None, (x, y)
+            while found.get("frame") and self._frame_of(tab, found["frame"]):  # a frame of another site's own
+                frame, inner = self._frame_of(tab, found["frame"]), (found["x"], found["y"])
+                found = self._eval(tab, f"__milk.at({inner[0]}, {inner[1]})", frame=frame) or {}
             tab.next_id = max(tab.next_id, found.get("next", 0))
-            return {"x": x, "y": y, "point": True, "label": found.get("label") or "nothing there"}
+            self._note_ids(tab, found.get("label", ""), frame)
+            return {"x": x, "y": y, "point": True, "label": found.get("label") or "nothing there", "frame": frame}
         if not re.fullmatch(r"e?\d+", target, re.I):
             raise ToolError(f"{target!r} is not an id: ids look like e5 (from the latest view of this tab).")
-        found = self._eval(tab, f"__milk.locate({_id(target)}, {json.dumps(hit_test)})")
+        frame = self._world_of(tab, target)
+        found = self._eval(tab, f"__milk.locate({_id(target)}, {json.dumps(hit_test)})", frame=frame)
         if found is None:
             raise ToolError(self._dialog_line(tab))
         if found.get("gone"):
             raise ToolError(f"{target} is not on the page (any more): the page changed, so use the ids of its latest "
                             "view (browser_view).")
         tab.next_id = max(tab.next_id, found.get("next", 0))
+        self._note_ids(tab, found.get("covered", ""), frame)
+        found["frame"] = frame
+        if frame:  # where it is in the frame, and where the frame is in the window
+            left, top = self._offset(tab, frame)
+            found["x"], found["y"] = found["x"] + left, found["y"] + top
         if shown and found.get("hidden"):
             raise ToolError(f"{target} ({found['label']}) has no size on the page: it is not shown now.")
         if found.get("covered"):
@@ -1102,17 +1471,29 @@ class Browser:
                 "buttons": buttons, **({"button": "left"} if buttons else {})})
         tab.pointer = (x, y)
 
+    def _note_ids(self, tab: Tab, words: str, frame: Optional[Frame]) -> None:
+        """Ids a reply names (what covers a target, what is at a point) are in the world that gave them."""
+        for number in re.findall(r"\be(\d+)\b", words or ""):
+            if frame:
+                tab.where[number] = frame
+
     def _click(self, tab: Tab, place: dict, button: str = "left", count: int = 1) -> None:
         x, y = place["x"], place["y"]
         self._move(tab, x, y)
         mask = {"left": 1, "right": 2, "middle": 4}[button]
-        for clicks in range(1, count + 1):
-            for kind in ("mousePressed", "mouseReleased"):
-                self._input(tab, "Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": button,
-                                                              "buttons": mask if kind == "mousePressed" else 0,
-                                                              "clickCount": clicks})
-                if tab.dialog:
-                    return
+        if button == "right":  # the page's own menu opens, Chrome's would stay open on the screen and do nothing
+            self._eval(tab, "__milk.menu(false)", frame=place.get("frame"))
+        try:
+            for clicks in range(1, count + 1):
+                for kind in ("mousePressed", "mouseReleased"):
+                    self._input(tab, "Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": button,
+                                                                  "buttons": mask if kind == "mousePressed" else 0,
+                                                                  "clickCount": clicks})
+                    if tab.dialog:
+                        return
+        finally:
+            if button == "right" and not tab.dialog and not tab.ended:
+                self._quietly(self._eval, tab, "__milk.menu(true)", 5.0, True, place.get("frame"))
 
     def _type(self, tab: Tab, text: str) -> None:
         for char in text:
@@ -1208,6 +1589,8 @@ class Browser:
                            tab.session)
             tab.dialog = None
             note = "accepted" if accept else "dismissed"
+        elif action == "save":
+            return self._keep(ctx, tab, text or str(target or ""))
         else:
             raise ToolError(f"There is no step {action!r}. Steps: {', '.join(STEPS)}.")
         if not self._settle(tab, after=last or action not in ("fill", "hover", "scroll")):
@@ -1216,9 +1599,52 @@ class Browser:
             note = (note + "; " if note else "") + f"the page went to {tab.url}"
         return note
 
+    def _keep(self, ctx, tab: Tab, name: str) -> str:
+        """The page kept as a file in the working folder: a PDF (a PDF's own document), a picture of all of it,
+        its HTML, or a web archive."""
+        from .toolkits.files import resolve
+
+        suffix = Path(name).suffix.lower()
+        if not name or suffix not in SAVES:
+            raise ToolError("save takes a file name ending .pdf, .png, .jpg, .webp, .html or .mhtml (text: "
+                            "\"receipt.pdf\").")
+        path = resolve(ctx, name, write=True)
+        target, number = path, 1
+        while target.exists():  # never over a file that is there
+            target = path.with_name(f"{path.stem} ({number}){path.suffix}")
+            number += 1
+        if suffix == ".pdf" and tab.mime == "application/pdf":
+            data = base64.b64decode(self._eval(tab, "fetch(location.href).then(r => r.blob()).then(b => new Promise("
+                                                    "done => { const f = new FileReader(); f.onload = () => done("
+                                                    "f.result.split(',')[1]); f.readAsDataURL(b); }))", timeout=120))
+        elif suffix == ".pdf":
+            data = base64.b64decode(self.wire.call("Page.printToPDF", {"printBackground": True}, tab.session,
+                                                   timeout=120)["data"])
+        elif suffix in (".html", ".htm"):
+            data = (self._eval(tab, "(document.doctype ? new XMLSerializer().serializeToString(document.doctype) + "
+                                    "'\\n' : '') + document.documentElement.outerHTML") or "").encode("utf-8")
+        elif suffix == ".mhtml":
+            data = self.wire.call("Page.captureSnapshot", {"format": "mhtml"}, tab.session, timeout=120)["data"]
+            data = data.encode("utf-8")
+        else:
+            self._shown_window(tab)
+            size = self.wire.call("Page.getLayoutMetrics", session=tab.session)["cssContentSize"]
+            kind = {".jpg": "jpeg", ".jpeg": "jpeg"}.get(suffix, suffix[1:])
+            data = base64.b64decode(self.wire.call("Page.captureScreenshot", {
+                "format": kind, "captureBeyondViewport": True,
+                "clip": {"x": 0, "y": 0, "width": size["width"], "height": size["height"], "scale": 1}},
+                tab.session, timeout=120)["data"])
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        except OSError as exc:
+            raise ToolError(f"{target} could not be written: {exc}")
+        return f"saved {SAVES[suffix]} to {target} ({len(data):,} bytes)"
+
     def _fill(self, tab: Tab, element: str, place: dict, text: str) -> str:
+        frame = place.get("frame")
         if place.get("select") or place.get("setter"):
-            chosen = self._eval(tab, f"__milk.choose({element}, {json.dumps(text)})")
+            chosen = self._eval(tab, f"__milk.choose({element}, {json.dumps(text)})", frame=frame)
             if chosen is None:
                 return "a dialog opened"
             if chosen.get("error"):
@@ -1234,13 +1660,13 @@ class Browser:
         if not place.get("editable"):
             raise ToolError(f"It is {place['label']}, not a field to fill: click it, or fill a field.")
         self._click(tab, place)
-        if tab.dialog or not self._eval(tab, f"__milk.focus({element})"):  # its text selected: typing replaces it
+        if tab.dialog or not self._eval(tab, f"__milk.focus({element})", frame=frame):  # selected: typing replaces it
             return ""
         if text:
             self._type(tab, text)
         else:
             self._keys(tab, "Delete")
-        shown = self._eval(tab, f"__milk.value({element})")
+        shown = self._eval(tab, f"__milk.value({element})", frame=frame)
         if shown is not None and shown.replace("\r", "") != text and not (
                 place.get("type") == "password" and len(shown) == len(text)):
             return f"it shows \"{shown[:200]}\" (the page changed what was typed)"
@@ -1249,8 +1675,10 @@ class Browser:
     def _scroll(self, tab: Tab, target, direction: str, amount) -> str:
         direction = direction.strip().lower()
         element = _id(target) if target else ""
+        frame = self._world_of(tab, target) if target else None
         if direction in ("top", "bottom"):
-            moved = self._eval(tab, f"__milk.scrollBy({json.dumps(element)}, {json.dumps(direction)})") or {}
+            moved = self._eval(tab, f"__milk.scrollBy({json.dumps(element)}, {json.dumps(direction)})",
+                               frame=frame) or {}
         elif direction in ("down", "up"):
             try:
                 pages = float(amount or 1) * (1 if direction == "down" else -1)
@@ -1261,7 +1689,7 @@ class Browser:
                 x, y = place["x"], place["y"]
             else:
                 x, y = self._eval(tab, "[innerWidth / 2, innerHeight / 2]") or (WINDOW[0] / 2, WINDOW[1] / 2)
-            before = self._eval(tab, f"__milk.scrollBy({json.dumps(element)}, 0)") or {}
+            before = self._eval(tab, f"__milk.scrollBy({json.dumps(element)}, 0)", frame=frame) or {}
             height = self._eval(tab, "innerHeight") or WINDOW[1]
             self._move(tab, x, y)
             self._input(tab, "Input.dispatchMouseEvent", {"type": "mouseWheel", "x": x, "y": y, "deltaX": 0,
@@ -1269,7 +1697,7 @@ class Browser:
             after, still = before, 0
             for _ in range(30):  # until it stops moving (smooth scrolling takes a moment)
                 time.sleep(0.05)
-                now = self._eval(tab, f"__milk.scrollBy({json.dumps(element)}, 0)") or after
+                now = self._eval(tab, f"__milk.scrollBy({json.dumps(element)}, 0)", frame=frame) or after
                 still = still + 1 if now.get("at") == after.get("at") else 0
                 after = now
                 if still >= 3:
@@ -1318,11 +1746,12 @@ class Browser:
             raise ToolError(f"No such file: {', '.join(missing)}")
         place = self._point(tab, target, hit_test=False, shown=False)
         if place.get("file"):
-            handle = self._eval(tab, f"__milk.element({_id(target)})", value=False) or {}
+            frame = place.get("frame")
+            handle = self._eval(tab, f"__milk.element({_id(target)})", value=False, frame=frame) or {}
             if not handle.get("objectId"):
                 raise ToolError(f"{target} is not on the page any more: view it again.")
             self.wire.call("DOM.setFileInputFiles", {"files": [str(p) for p in paths], "objectId": handle["objectId"]},
-                           tab.session)
+                           (frame or tab).session)
         else:  # a button of the page's that opens the file picker: the picker is answered instead of shown
             tab.chooser.clear()
             self.wire.call("Page.setInterceptFileChooserDialog", {"enabled": True}, tab.session)
@@ -1336,6 +1765,19 @@ class Browser:
             finally:
                 self._quietly(self.wire.call, "Page.setInterceptFileChooserDialog", {"enabled": False}, tab.session)
         return "gave it " + ", ".join(path.name for path in paths)
+
+    def _has(self, tab: Tab, text: str) -> bool:
+        """Whether the page (or a frame of another site in it) shows ``text``."""
+        expression = f"__milk.has({json.dumps(text)})"
+        if self._eval(tab, expression, timeout=5):
+            return True
+        for frame in list(tab.remote.values()):
+            try:
+                if self._eval(tab, expression, timeout=5, frame=frame):
+                    return True
+            except ToolError:
+                pass
+        return False
 
     def _wait(self, ctx, tab: Tab, text: str, amount) -> str:
         try:
@@ -1351,7 +1793,7 @@ class Browser:
         while time.monotonic() < deadline:
             if tab.dialog:
                 return "a dialog opened"
-            if self._eval(tab, f"__milk.has({json.dumps(text)})", timeout=5):
+            if self._has(tab, text):
                 self._settle(tab, 3)
                 return f"\"{text}\" shows"
             if ctx.pause(0.25):

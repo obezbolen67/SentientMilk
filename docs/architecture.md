@@ -396,7 +396,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `files` | `files_read(path, offset, limit)`, `files_search(pattern, path, glob)`, `files_find(glob)`, `files_edit(path, old, new, all)`, `files_write(path, content)` | Read gives numbered lines in windows: 500 lines by default, whole lines, with a footer "lines 1-500 of 1,834". Images come back as images. Search uses ripgrep if it is installed, otherwise Python, and returns `path:line: text` for every match; only the user's stop ends a search. A result over 30,000 characters goes to a file with both ends shown. Edit is an exact, unique string replace. It fails if the file was not read in this session or changed on disk since. Paths are confined to the app's roots; what the user attached in the session (`mentions.attachment`) can be read wherever it is. |
 | `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits as long as asked for a job to end when the model needs the result, and says when a job has written nothing for 10 s or more, so the model can tell a slow job from a stuck one. MCP calls go the same way (section 8.3). |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
-| `browser` | `browser_open(url, new_tab)`, `browser_view(tab, find, part, picture)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)` | Her own Chrome, out of sight: section 6.7. |
+| `browser` | `browser_open(url, new_tab, headless)`, `browser_view(tab, find, part, picture)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)` | Her own Chrome, out of sight or on the user's screen: section 6.7. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save(key, value, category, scope)`, `memory_forget(key, category, scope)`; scope `everywhere` or, in turns, `session` | Every app has it (section 10). |
 | `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
@@ -560,8 +560,9 @@ project-level skill folders, and `!command` expansion.
 ### 6.7 Her browser
 
 `browser.py`, `browser_page.js`, `desktops.py`; the `browser` toolkit: `browser_open(url,
-new_tab)`, `browser_view(tab, find, part, picture)`, `browser_act(steps, tab)`,
-`browser_read(tab, offset)`, `browser_script(code, tab)`. It is for the web as a person uses
+new_tab, headless)`, `browser_view(tab, find, part, picture)`, `browser_act(steps, tab)`,
+`browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`.
+It is for the web as a person uses
 it: pages that need scripts, clicks, forms and accounts. `web_fetch` stays the quick way to
 read a public page once; computer use stays for the user's own windows.
 
@@ -572,10 +573,23 @@ profile anyway). Claude in Chrome drives the user's real Chrome through an exten
 native messaging host; that needs an extension installed and trusted, and puts her in the
 user's own sessions, which is not what a desktop character should have by default.
 
-**Out of sight.** On Windows it starts (`CreateProcessW` with `lpDesktop`) on the brain's
-hidden desktop, in a job that ends with the brain. Windows there are real: pages lay out,
-paint and run their timers as on the screen, WebGL uses the GPU and screenshots work, and
-nothing takes the user's focus. Measured on Chrome 157 (2026-11-12) against a local page
+**Out of sight, or on the user's screen.** On Windows it starts (`CreateProcessW` with
+`lpDesktop`) on the brain's hidden desktop, in a job that ends with the brain. Windows
+there are real: pages lay out, paint and run their timers as on the screen, WebGL uses the
+GPU and screenshots work, and nothing takes the user's focus. When the user wants to watch
+her ("don't run it headless"), it runs on their desktop instead, driven the same way:
+`browser_headless` (the panel's Out of sight) says where it opens, `browser_open
+headless=false|true` (and the panel's Show and Hide) move it now. A Chrome process cannot
+change desktops, so moving starts it again on the other one: the session cookies come along
+(`Storage.getCookies`, and back with `Storage.setCookies`; they also wait in the profile
+while it is closed, since for her it is still open), and the conversation's pages open
+again at their addresses. On the user's screen nothing needs its focus: new windows open
+behind what they use (`createTarget` with `background`), focus is emulated, covered windows
+paint (`--disable-backgrounding-occluded-windows`). A minimized window still reads, clicks
+and types (measured), but paints nothing, so a picture of it would wait forever: the window
+comes back first. It never closes while idle there (they may be looking at it), and the
+user closing her window is told to her as such. Chrome starts with `--no-startup-window`,
+so no window is there but hers. Measured on Chrome 157 (2026-11-12) against a local page
 that reports what it sees, each launch compared with the same Chrome started plainly:
 
 | How it is driven | `navigator.webdriver` | What else gives it away |
@@ -612,12 +626,22 @@ id that shows them all (`part`); `find` keeps the lines with some words and what
 in. A view over 12,000 characters keeps its shape and everything that can be used, but each
 run of prose shows its first two lines and how many more there are (and their links):
 reading is `browser_read`'s, 20,000 characters at a time. A page of 1,000 paragraphs and a
-3,000-row table came to 3 KB this way instead of 100 KB. Same-site frames and open shadow roots are read; another site's frame is named, and
-what has no id (a canvas, a map) is pointed at as "x,y" in the tab's latest picture
-(`picture=true`).
+3,000-row table came to 3 KB this way instead of 100 KB. Same-site frames and open shadow
+roots are read in the page's world. A frame of another site (a payment form, an embedded
+sign-in, a cookie banner) runs in a process of its own: auto-attach (`Target.setAutoAttach`,
+iframes only, nested ones too) gives it a session, it is read in a world of the brain's own
+like the page, and its iframe element in the parent's world is marked with its key
+(`DOM.getFrameOwner`, `DOM.resolveNode`), so the parent's view says where the frame's view
+goes. Every world gives out ids from the tab's latest (`__milk.sync`), so ids never repeat
+across them and each id is acted on in its own world, at its place in the frame plus the
+frame's place in the window. What has no id (a canvas, a map) is pointed at as "x,y" in the
+tab's latest picture (`picture=true`), through frames of other sites too.
 
 **Acting.** `browser_act` takes steps (click, fill, type, key, hover, scroll, drag,
-upload, wait, open, back, forward, reload, dialog, close, show). A target is brought into
+upload, wait, open, back, forward, reload, dialog, save, close, show). A right click opens
+the page's own menu only: Chrome's would stay open on the screen, out of her reach. `save`
+keeps the page in the working folder as a PDF (a PDF tab's own document), a picture of all
+of it, its HTML or a web archive, never over a file that is there. A target is brought into
 view and hit-tested first: a covered one names what covers it, a disabled or hidden one
 says so. After each step the brain waits for the page to settle: the load, pending
 requests (documents, fetches, scripts; not streams), and 350 ms without DOM changes,
@@ -634,11 +658,17 @@ what each step's target is (`about`). Its tools have `rule_arg="site"`: "allow a
 an act saves `browser_act(github.com)`, a rule can deny `browser_*(*.bank.com)`. Opening,
 viewing and reading run without asking; acting and scripts ask.
 
-**The user's screen.** The step `show` (the lead's only) closes her browser and opens the
-same profile as a plain Chrome on the user's screen, nothing attached, at the
-conversation's pages: they sign in, pass the check, or pay. Her next browser call closes it
-there and she goes on out of sight with what they did. The panel's Open to sign in does
-the same from the user's side, and Forget sign-ins deletes the profile.
+**Console and network.** `browser_log` reads a tab's console or its requests since the page
+loaded. Requests come from the `Network` events the brain has on anyway (method, status or
+error, type, address). The console needs `Runtime`, which stays off: it is enabled for the
+moment of the call, when V8 tells every message it kept (logs, warnings, errors, uncaught
+exceptions), objects are taken as JSON while they are still there, and it is disabled again.
+
+**The user's screen.** The step `show` (the lead's only) moves her browser to the user's
+screen if it is not there and brings the tab in front: they sign in, pass the check, or
+pay, and she goes on there with what they did. The panel's Show on my screen does the same
+from the user's side (with a window of their own when she has no page), Hide takes it back,
+and Forget sign-ins deletes the profile.
 
 ## 7. Context management
 

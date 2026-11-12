@@ -59,11 +59,28 @@ PAGES = {
 setTimeout(() => s.textContent = JSON.stringify({webdriver: navigator.webdriver, inner: [innerWidth, innerHeight],
   outer: [outerWidth, outerHeight], visibility: document.visibilityState, focus: document.hasFocus()}), 100)</script>""",
     "/terms": "<!doctype html><title>Terms</title><h1>Terms</h1><p>Be kind to milk.</p>",
+    "/shop": """<!doctype html><title>Shop</title><h1>Checkout</h1><p>Pay below.</p><div style="height:1400px"></div>
+<iframe src="http://localhost:{port}/pay" title="Payment" style="width:500px;height:200px;padding:9px"></iframe>""",
+    "/pay": """<!doctype html><title>Pay</title><label>Card <input id=c></label>
+<button onclick="out.textContent = 'paid with ' + c.value">Pay now</button><p id=out>unpaid</p>""",
+    "/cookie": """<!doctype html><title>Cookie</title><p id=out></p><script>
+if (!document.cookie.includes('milk=')) document.cookie = 'milk=fresh; path=/';
+out.textContent = document.cookie</script>""",
+    "/console": """<!doctype html><title>Console</title><p>Logs</p><script>
+console.log('hello', {cups: 2}); console.warn('low milk'); console.error('spilled');
+fetch('/api'); fetch('/missing'); setTimeout(() => { throw new Error('boom') }, 50)</script>""",
+    "/menu": """<!doctype html><title>Menu</title><div id=box tabindex=0 style="width:400px;height:300px;background:#ccc"
+ oncontextmenu="out.textContent = 'its own menu'">Right click here</div><p id=out>none</p>""",
+    "/doc.pdf": "",
     "/article": "<!doctype html><title>Article</title><nav><a href=/terms>Terms</a></nav>" + "".join(
         f"<h2>Part {part}</h2>" + "".join(f"<p>Milk fact {part}.{n} is told here, see <a href=/f{part}{n}>source "
                                           f"{part}.{n}</a> for more words about it.</p>" for n in range(60))
         for part in range(5)) + "<form><input aria-label=Comment><button>Send</button></form>",
 }
+
+
+PDF = (b"%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+       b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
 
 
 class Site(BaseHTTPRequestHandler):
@@ -84,6 +101,8 @@ class Site(BaseHTTPRequestHandler):
         if path == "/api":
             time.sleep(0.5)
             return self._send("loaded data", "text/plain")
+        if path == "/doc.pdf":
+            return self._send(PDF.decode(), "application/pdf")
         if path not in PAGES:
             self.send_response(404)
             return self.end_headers()
@@ -323,19 +342,114 @@ def test_tabs_open_again_where_they_were_after_the_browser_closed(web, site):
     assert kit.browser_view.func(ctx).text.startswith("t1 · Terms") and web.brain.browser.process is not crashed
 
 
-def test_only_the_lead_shows_the_browser_and_then_it_is_closed_there(web, site):
+def where(web):
+    """The desktop her browser's windows are on."""
+    browser_ = web.brain.browser
+    return {browser_.desktop: "hidden", browser_.user_desktop: "shown"}[browser_.process.desktop]
+
+
+def test_only_the_lead_hands_the_browser_to_the_user_and_everyone_goes_on_there(web, site):
     agent = context(web, "agent-1", kind="agent")
     kit.browser_open.func(agent, site + "/terms")
     assert "Only the lead" in kit.browser_act.func(agent, [{"action": "show"}])
     lead = context(web, "lead")
     kit.browser_open.func(lead, site + "/form")
-    shown = kit.browser_act.func(lead, [{"action": "show"}])
-    assert "on the user's screen now" in shown and site + "/form" in shown
-    assert web.brain.browser.mode == "shown"
-    with pytest.raises(ToolError, match="another conversation"):
-        kit.browser_view.func(agent)
-    assert kit.browser_view.func(lead).text.startswith("t1 · Sign up")  # closed there, on here
-    assert web.brain.browser.mode == "hidden"
+    shown = kit.browser_act.func(lead, [{"action": "show"}, {"action": "click", "target": "e1"}])
+    assert "on the user's screen at t1 (" + site + "/form)" in shown and "Steps 2-2 did not run" in shown
+    assert web.brain.browser.mode == "shown" and where(web) == "shown"
+    seen = kit.browser_view.func(lead).text  # still hers, on their screen
+    assert seen.startswith("t1 · Sign up") and "on the user's screen" in seen.splitlines()[0]
+    assert kit.browser_view.func(agent).text.startswith("t1 · Terms")  # its page came back there too
+    kit.browser_open.func(lead, headless=True)
+    assert web.brain.browser.mode == "hidden" and where(web) == "hidden"
+
+
+def test_headless_or_not_she_works_the_same_and_keeps_her_session(web, site):
+    ctx = context(web, "watched")
+    page = kit.browser_open.func(ctx, site + "/cookie")
+    assert "milk=fresh" in page and where(web) == "hidden"
+    moved = kit.browser_open.func(ctx, headless=False)  # "don't run it headless, I want to see"
+    assert moved.startswith("t1 · Cookie") and "moved to the user's screen" in moved and where(web) == "shown"
+    assert kit.browser_script.func(ctx, "document.cookie") == "milk=fresh"  # a session cookie came along
+    page = kit.browser_open.func(ctx, site + "/form")
+    done = kit.browser_act.func(ctx, [{"action": "fill", "target": ids(page, '"Name"'), "text": "Milk"},
+                                      {"action": "click", "target": ids(page, '"Create account"')}])
+    assert "Hello Milk" in done  # its window never had the focus
+    browser_ = web.brain.browser
+    tab = browser_.owners["cli/watched"]["tabs"]["t1"]
+    browser_.wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {"windowState": "minimized"}})
+    assert "Hello Milk" in kit.browser_read.func(ctx)  # minimized: read...
+    pictured = kit.browser_view.func(ctx, picture=True)  # ...and pictured, its window back first
+    assert len(pictured.images) == 1
+    state = browser_.wire.call("Browser.getWindowBounds", {"windowId": tab.window})["bounds"]["windowState"]
+    assert state == "normal"
+    hidden = kit.browser_open.func(ctx, headless=True)
+    assert "out of the user's sight" in hidden and where(web) == "hidden"
+    assert web.brain.browser.status()["shown"] is False
+
+
+def test_a_right_click_opens_the_page_s_menu_and_never_chrome_s(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/menu")
+    windows = len(desktops.windows_of(web.brain.browser.process))
+    box = ids(page, "Right click here")
+    result = kit.browser_act.func(ctx, [{"action": "click", "target": box, "button": "right"}])
+    assert "its own menu" in result
+    time.sleep(0.5)
+    assert len(desktops.windows_of(web.brain.browser.process)) == windows  # no menu window of Chrome's
+
+
+def test_a_frame_of_another_site_is_read_and_used_like_the_page(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/shop")
+    assert 'frame "Payment" (another site: localhost' in page and "not readable" not in page
+    assert re.search(r'^  textbox e\d+ "Card"', page, re.M) and re.search(r'button e\d+ "Pay now"', page)
+    result = kit.browser_act.func(ctx, [{"action": "fill", "target": ids(page, '"Card"'), "text": "4242"},
+                                        {"action": "click", "target": ids(page, '"Pay now"')}])
+    assert "paid with 4242" in result
+    found = kit.browser_view.func(ctx, find="Pay now").text
+    assert 'frame "Payment"' in found and '"Pay now"' in found
+    assert "paid with 4242" in kit.browser_read.func(ctx)
+    assert '"paid with 4242" shows' in kit.browser_act.func(ctx, [{"action": "wait", "text": "paid with 4242"}])
+    browser_ = web.brain.browser
+    tab = browser_.owners["cli/main"]["tabs"]["t1"]
+    kit.browser_view.func(ctx, picture=True)
+    with tab.lock:
+        place = browser_._point(tab, ids(page, '"Pay now"'), hit_test=False)  # in the window, the frame in view
+    kit.browser_view.func(ctx, picture=True)
+    x, y = round(place["x"] / tab.picture), round(place["y"] / tab.picture)
+    pointed = kit.browser_act.func(ctx, [{"action": "click", "target": f"{x},{y}"}])
+    assert 'at button e' in pointed and '"Pay now"' in pointed  # what is there, from the frame's own world
+
+
+def test_the_console_and_the_network_are_read(web, site):
+    ctx = context(web)
+    kit.browser_open.func(ctx, site + "/console")
+    time.sleep(0.6)  # the error is thrown a moment after it loads, /api answers in half a second
+    console = kit.browser_log.func(ctx)
+    assert '[log] hello {"cups":2}' in console and "[warning] low milk" in console and "[error] spilled" in console
+    assert "[uncaught error] Error: boom" in console
+    assert kit.browser_log.func(ctx, find="spilled").splitlines()[1:] == [
+        next(line for line in console.splitlines() if "spilled" in line)]
+    network = kit.browser_log.func(ctx, "network")
+    assert re.search(r"GET 200 document .*/console \(text/html\)", network)
+    assert re.search(r"GET 200 fetch .*/api", network) and re.search(r"GET 404 fetch .*/missing", network)
+
+
+def test_a_page_is_saved_as_a_file(web, site):
+    ctx = context(web)
+    kit.browser_open.func(ctx, site + "/form")
+    result = kit.browser_act.func(ctx, [{"action": "save", "text": "form.pdf"}, {"action": "save", "text": "form.png"},
+                                        {"action": "save", "text": "form.html"}, {"action": "save", "text": "form.pdf"}])
+    assert (web.work / "form.pdf").read_bytes().startswith(b"%PDF")
+    assert (web.work / "form (1).pdf").exists()  # never over a file that is there
+    assert (web.work / "form.png").read_bytes().startswith(b"\x89PNG")
+    assert "<h1>Sign up</h1>" in (web.work / "form.html").read_text(encoding="utf-8")
+    assert "saved a PDF to" in result and "Nothing changed" in result
+    page = kit.browser_open.func(ctx, site + "/doc.pdf")
+    assert "This tab shows a PDF" in page
+    kit.browser_act.func(ctx, [{"action": "save", "text": "doc.pdf"}])
+    assert (web.work / "doc.pdf").read_bytes() == PDF  # the document itself, not a print of the viewer
 
 
 def test_approvals_are_per_site(tmp_path, monkeypatch, site):
@@ -369,14 +483,14 @@ def test_approvals_are_per_site(tmp_path, monkeypatch, site):
         server.close()
 
 
-def test_open_for_the_user_and_clear(web, site):
+def test_show_and_hide_from_the_panel_and_clear(web, site):
     status = web.client.browser()
-    assert status["command"] and status["has_profile"]
+    assert status["command"] and status["has_profile"] and status["shown"] is False
+    kit.browser_open.func(context(web), site + "/terms")
     opened = web.client.open_browser()
-    assert opened["mode"] == "user"
-    with pytest.raises(ToolError, match="open on their screen"):
-        kit.browser_view.func(context(web))
-    desktops.stop(web.brain.browser.process)
-    assert web.client.browser()["mode"] == "off"
+    assert opened["mode"] == "shown" and where(web) == "shown"
+    assert kit.browser_view.func(context(web)).text.startswith("t1 · Terms")  # she goes on there
+    hidden = web.client.open_browser(headless=True)
+    assert hidden["mode"] == "off" and hidden["shown"] is False  # out of sight from her next call on
     cleared = web.client.clear_browser()
     assert not cleared["has_profile"]

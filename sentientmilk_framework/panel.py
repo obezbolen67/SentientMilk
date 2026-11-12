@@ -531,16 +531,20 @@ class Panel(App):
                         yield Label("Always allow")
                         yield Input(placeholder="shell_run(git status*), …", id="t-allow")
             with Vertical(classes="card", id="browser-card"):
-                yield Static("A Chrome of her own, out of your sight, for the web. Sign in to sites for her with "
-                             "Open (she cannot use it while it is open); Forget sign-ins deletes its profile. Rules "
-                             "name sites: browser_act(github.com), browser_*(*.bank.com).",
+                yield Static("A Chrome of her own for the web, out of your sight unless you want to watch her. Show "
+                             "puts it on your screen to sign in to sites for her or to watch (she goes on using it), "
+                             "Hide takes it back; Forget sign-ins deletes its profile. Rules name sites: "
+                             "browser_act(github.com), browser_*(*.bank.com).",
                              classes="hint")
                 with Grid(classes="form"):
                     yield Label("Browser")
                     yield Input(placeholder="found by itself (Chrome, else Edge) · or its path", id="t-browser")
+                    yield Label("Out of sight")
+                    yield Switch(id="t-browser-headless")
                 yield Static(id="t-browser-status")
                 with Horizontal(classes="buttons"):
-                    yield FlatButton("Open to sign in", id="browser-open")
+                    yield FlatButton("Show on my screen", id="browser-open")
+                    yield FlatButton("Hide", id="browser-hide")
                     yield FlatButton("Forget sign-ins", id="browser-clear", variant="error")
             with Horizontal(classes="buttons"):
                 yield FlatButton("Save", id="t-save", variant="primary")
@@ -993,6 +997,7 @@ class Panel(App):
         for kind in ("deny", "ask", "allow"):
             self.main.query_one(f"#t-{kind}", Input).value = ", ".join(settings["rules"].get(kind, []))
         self.main.query_one("#t-browser", Input).value = settings["browser_command"]
+        self.main.query_one("#t-browser-headless", Switch).value = settings["browser_headless"]
         self.load_browser()
         self.load_mcp()
 
@@ -1004,9 +1009,9 @@ class Panel(App):
             line = f"[{WARN}]No Chrome or Edge found: install one, or give its path.[/]"
         else:
             line = escape(f"{Path(status['command']).name} {status['version']}".strip()) + " · " + {
-                "off": "closed", "hidden": f"[{OK}]in use, out of sight[/]",
-                "shown": f"[{WARN}]on your screen for a sign-in she asked for[/]",
-                "user": f"[{WARN}]open on your screen: she uses it once you close it[/]"}[status["mode"]]
+                "off": "closed" + (", opens on your screen" if status["shown"] else ""),
+                "hidden": f"[{OK}]in use, out of sight[/]",
+                "shown": f"[{WARN}]on your screen[/]"}[status["mode"]]
             line += f" · {status['tabs']} tab{'s' if status['tabs'] != 1 else ''}"
         self.main.query_one("#t-browser-status", Static).update(line)
 
@@ -1018,6 +1023,7 @@ class Panel(App):
                        "shell": self.main.query_one("#t-shell", Select).value,
                        "task_workers": number(self.main.query_one("#t-workers", Input), "Background workers"),
                        "browser_command": self.main.query_one("#t-browser", Input).value.strip(),
+                       "browser_headless": self.main.query_one("#t-browser-headless", Switch).value,
                        "rules": {kind: items(self.main.query_one(f"#t-{kind}", Input).value)
                                  for kind in ("deny", "ask", "allow")}}
         except ValueError as exc:
@@ -1315,7 +1321,9 @@ class Panel(App):
             self.save_tools()
         elif button == "browser-open":
             self.load_browser(self.call(lambda c: c.open_browser(),
-                                        done="Her browser is open on your screen: sign in, then close it."))
+                                        done="Her browser is on your screen: sign in there, or watch her use it."))
+        elif button == "browser-hide":
+            self.load_browser(self.call(lambda c: c.open_browser(headless=True), done="Her browser is out of sight."))
         elif button == "browser-clear":
             self.push_screen(Confirm("Forget every site she signed in to? Her browser's profile (sign-ins, cookies, "
                                      "history) is deleted.", "Forget"),

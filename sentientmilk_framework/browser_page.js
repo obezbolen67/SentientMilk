@@ -3,8 +3,12 @@
 // browser.py evaluates this function once per document with the first id to give out, then calls __milk.
 (function install(base) {
   if (globalThis.__milk) return globalThis.__milk.next();
-  let next = base;
+  let next = base, menus = true;
   const ids = new WeakMap(), byId = new Map();
+  // frames of another site run in processes of their own, read in worlds of their own: browser.py gives each
+  // frame's iframe element here its key, and a view says where that frame's own view goes
+  const marks = new WeakMap(), marked = new Map();
+  addEventListener('contextmenu', e => { if (!menus) e.preventDefault(); });  // her right clicks: the page's menu only
   let lastChange = performance.now();
   const observer = new MutationObserver(() => { lastChange = performance.now(); });
   const watched = new WeakSet();
@@ -250,6 +254,11 @@
         if (!doc || !doc.body) {
           let host = '';
           try { host = new URL(el.src, location.href).host; } catch (e) {}
+          if (marks.has(el)) {
+            head(`frame${title ? ' ' + quote(title) : ''} (another site${host ? ': ' + host : ''})`, depth);
+            head(`⟦frame ${marks.get(el)}⟧`, depth + 1);
+            return;
+          }
           head(`frame${title ? ' ' + quote(title) : ''} (another site${host ? ': ' + host : ''}; not readable here: ` +
                `use a picture and point)`, depth);
           return;
@@ -402,28 +411,25 @@
 
   const api = {
     next: () => next,
+    sync: n => { next = Math.max(next, n); },  // ids go on from the tab's latest, whichever world gave it
+    menu: on => { menus = on; },
+    mark(el, key) { marks.set(el, key); marked.set(key, new WeakRef(el)); },
+    offsetOf(key) {  // where a marked frame's own top left is, in this world's window
+      const el = marked.get(key)?.deref();
+      if (!el || !el.isConnected) return null;
+      const r = el.getBoundingClientRect(), s = style(el), [ox, oy] = frameOffset(el);
+      return [ox + r.left + el.clientLeft + parseFloat(s.paddingLeft || 0),
+              oy + r.top + el.clientTop + parseFloat(s.paddingTop || 0)];
+    },
     changed: () => document.readyState === 'loading' ? 0 : performance.now() - lastChange,
-    view(options) {
+    view(options) {  // options.find is browser.py's, over every world's lines
       let root = document.body;
       if (options.part) {
         root = get(options.part);
         if (!root) return {gone: true};
       }
-      const built = build(root || document.documentElement, {full: !!options.part || !!options.find});
-      let lines = built.lines;
-      if (options.find) {
-        const words = options.find.toLowerCase();
-        const keep = new Set();
-        lines.forEach((item, index) => {
-          if (!item.text.toLowerCase().includes(words)) return;
-          keep.add(index);
-          let depth = item.depth;
-          for (let up = index - 1; up >= 0 && depth > 0; up--) {
-            if (lines[up].depth < depth) { keep.add(up); depth = lines[up].depth; }
-          }
-        });
-        lines = lines.filter((_, index) => keep.has(index));
-      }
+      const built = build(root || document.documentElement, {full: !!options.full});
+      const lines = built.lines;
       const doc = document.documentElement;
       return {text: lines.map(item => '  '.repeat(item.depth) + item.text).join('\n'), labels: built.labels,
               next, title: document.title, url: location.href,
@@ -470,6 +476,10 @@
         x -= r.left + hit.clientLeft;
         y -= r.top + hit.clientTop;
         hit = safeDoc(hit).elementFromPoint(x, y);
+      }
+      if (hit && hit.tagName === 'IFRAME' && marks.has(hit)) {  // a frame of another site: its own world says
+        const r = hit.getBoundingClientRect();
+        return {frame: marks.get(hit), x: x - r.left - hit.clientLeft, y: y - r.top - hit.clientTop, next};
       }
       while (hit && hit.shadowRoot) {
         const inner = hit.shadowRoot.elementFromPoint(x, y);
@@ -546,7 +556,12 @@
           if (child.nodeType !== 1) continue;
           const tag = child.tagName.toLowerCase();
           if (SKIPPED.has(tag) || !shown(child)) continue;
-          if (tag === 'iframe') { const doc = safeDoc(child); if (doc?.body) { flush(); each(doc.body); flush(); } continue; }
+          if (tag === 'iframe') {
+            const doc = safeDoc(child);
+            if (doc?.body) { flush(); each(doc.body); flush(); }
+            else if (marks.has(child)) { flush(); out.push(`⟦frame ${marks.get(child)}⟧`); }
+            continue;
+          }
           const block = !INLINE.has(style(child).display);
           if (block) flush();
           if (/^h[1-6]$/.test(tag)) { line += '#'.repeat(Number(tag[1])) + ' '; each(child); flush(); out.push(''); continue; }
