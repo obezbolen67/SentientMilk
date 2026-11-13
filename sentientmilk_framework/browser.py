@@ -78,14 +78,17 @@ GONE = ("The user's Chrome let go of you under the call (it closed, or SentientM
 CLOSED = "was closed (by the page, or by the user in their Chrome)"
 LEAD_ASKS = ("Only the lead puts a panel in front of the user: say in your report what the user should type or check "
              "(and where), or ask the lead with ask_lead.")
-# What pays (or orders to pay): her browser never presses it; the user does (Mode B's panel ends at their yes)
+# What pays (or orders to pay): her browser presses it only for an order the user approved (artifacts.py, review)
 PAYS = re.compile(r"\b(pay( now| securely| with| \d)?|buy( it)? now|place( your)? order|complete (your )?(purchase|order|"
                   r"payment)|confirm (and pay|payment|purchase|(the |your )?order)|submit (order|payment)|order and pay|"
                   r"checkout and pay|kup teraz|kupuj[eę]|zap[lł]a[cć]|płac[eę]|zamawiam|z[lł][oó][zż] zam[oó]wienie|"
                   r"potwierd[zź] (i zap[lł]a[cć]|zakup|zam[oó]wienie|p[lł]atno[sś][cć])|zahlungspflichtig|jetzt kaufen|"
                   r"bezahlen|payer|acheter)\b", re.I)
-PAYING = ("{what} pays: paying is the user's own, never yours. Tell them the order is ready, and if they want to pay "
-          "in your tab put it in front of them (the step show).")
+PAYING = ("{what} pays: you press it only for an order the user approved in this turn, on its page. Show them the "
+          "order first with browser_review (its lines, charges and total, as this page says them); once they approve, "
+          "press it.")
+UNAPPROVED = ("{what} pays, but this page does not show the order the user approved (it changed, or it is another "
+              "page): show them the order on this page with browser_review again.")
 HOLDS = ("not while this page holds what the user typed for you ({names}): a {what} could show it. Go on with "
          "browser_view (text), or once the page moved on.")
 SECRET_NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
@@ -394,6 +397,7 @@ class Tab:
         self.requests: Dict[str, float] = {}
         self.frames: set = set()
         self.dialog: Optional[dict] = None
+        self.paying: Optional[int] = None  # the document where she pressed an approved pay (its dialog may pay)
         self.chooser = threading.Event()
         self.chooser_node: Optional[int] = None
         self.drag: Optional[dict] = None
@@ -1414,10 +1418,18 @@ class Browser:
 
     # ============== What the user types for her, and the orders they check (artifacts.py) ==============
 
-    @staticmethod
-    def _not_paying(label: str, what: str = "") -> None:
-        if pays(label):
-            raise ToolError(PAYING.format(what=f"{what} {label}".strip() if what else label))
+    def _paying(self, ctx, tab: Tab, label: str, what: str = "") -> None:
+        """What pays is pressed only for the order the user approved in this turn on this tab, while the page still
+        shows exactly that order (read again now, as the panel read it)."""
+        if not pays(label):
+            return
+        said = f"{what} {label}".strip() if what else label
+        approval = self.brain.artifacts.approved(ctx, tab.name)
+        if approval is None:
+            raise ToolError(PAYING.format(what=said))
+        if not self.brain.artifacts.unchanged(approval, approval.read_on(tab)):
+            raise ToolError(UNAPPROVED.format(what=said))
+        tab.paying = tab.document  # the dialog this press opens ("Confirm payment of ...?") may be accepted
 
     def _page_call(self, tab: Tab, frame: Optional[Frame], method: str, *args):
         """__milk.<method>(*args) with the arguments as values, never written into the code sent (a value the user
@@ -1534,14 +1546,15 @@ class Browser:
             name, url, title, document = page.name, page.url, page.title, page.document
             paths = [part["path"] for part in read]
 
-        def again() -> tuple:  # the same parts, read from the page as it is now: by id, or by path once it loaded anew
+        def read_on(live: Tab) -> List[dict]:  # the same parts as the page has them now: by id, or by path anew
+            same = live.document == document
+            return self._read_parts(live, [(_id(target) if same else "", path) for (_, target), path in zip(wanted, paths)])
+
+        def again() -> tuple:
             try:
                 with self.using(ctx, name) as live:
                     self._settle(live, 5, after=False)
-                    same = live.document == document
-                    parts = self._read_parts(live, [(_id(target) if same else "", path)
-                                                    for (_, target), path in zip(wanted, paths)])
-                    return parts, self._full_picture(live), live.url
+                    return read_on(live), self._full_picture(live), live.url
             except ToolError as exc:
                 raise BrainError("artifact", f"Her tab with the order could not be read: {exc}")
 
@@ -1556,7 +1569,7 @@ class Browser:
             except ToolError as exc:
                 raise BrainError("artifact", f"Her tab with the order could not be shown: {exc}")
 
-        return self.brain.artifacts.review(ctx, name, url, title, order, wanted, read, picture, again, look)
+        return self.brain.artifacts.review(ctx, name, url, title, order, wanted, read, picture, again, look, read_on)
 
     def _read_parts(self, tab: Tab, wanted: list) -> List[dict]:
         parts = self._eval(tab, f"__milk.parts({json.dumps(wanted)})")
@@ -1710,7 +1723,7 @@ class Browser:
             note = self._fill_secret(ctx, tab, target, step["secret"])
         elif action == "click":
             place = self._point(tab, target)
-            self._not_paying(place["label"])
+            self._paying(ctx, tab, place["label"])
             button = str(step.get("button") or "left").lower()
             self._click(tab, place, button if button in ("left", "right", "middle") else "left",
                         2 if step.get("double") else 1)
@@ -1720,15 +1733,15 @@ class Browser:
         elif action in ("type", "key"):
             if target:
                 place = self._point(tab, target)
-                self._not_paying(place["label"])
+                self._paying(ctx, tab, place["label"])
                 self._click(tab, place)
             presses = "\n" in text if action == "type" else \
                 any(chord.split("+")[-1].lower() in ("enter", "return", "space") for chord in text.split())
             if presses:  # Enter or Space presses what has the focus, and Enter in a field sends its form
                 focused = self._eval(tab, "__milk.focused()") or {}
-                self._not_paying(focused.get("label", ""))
+                self._paying(ctx, tab, focused.get("label", ""))
                 if "\n" in text or "enter" in text.lower() or "return" in text.lower():
-                    self._not_paying(focused.get("submit", ""), "Enter here sends a form: its")
+                    self._paying(ctx, tab, focused.get("submit", ""), "Enter here sends a form: its")
             if action == "type":
                 self._type(tab, text)
             else:
@@ -1762,8 +1775,9 @@ class Browser:
             accept = step.get("accept", True) not in (False, "false", "no", 0)
             if accept:
                 message = tab.dialog.get("message", "")
-                if pays(message):
+                if pays(message) and tab.paying != tab.document:  # only the one an approved pay opened
                     raise ToolError(PAYING.format(what=f"The page's dialog \"{message[:200]}\""))
+                tab.paying = None
             tab.wire.call("Page.handleJavaScriptDialog", {"accept": accept, **({"promptText": text} if text else {})},
                            tab.session)
             tab.dialog = None

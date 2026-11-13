@@ -172,10 +172,12 @@ CHARGE = {"type": "object", "properties": {
     "tab": TAB})
 def browser_review(ctx: ToolContext, lines: list, total: str, charges: Optional[list] = None, shortfall: str = "",
                    slot: str = "", address: str = "", unverified: str = "", tab: str = ""):
-    """Before the user pays for an order you put together (a basket, a booking, a form you filled), show it to
-    them in a panel in their chat as the page says it: you point at the page's parts, the brain reads each from the
-    page with a picture of it, and your why beside each choice. Waits for their yes or no; a yes is for exactly
-    what they saw (an order that changes asks again). They pay themselves: there is no paying for you."""
+    """Before anything is paid for an order you put together (a basket, a booking, a form you filled), show it to
+    the user in a panel in their chat as the page says it, from the page with its pay button: you point at the
+    page's parts, the brain reads each from the page with a picture of it, and your why beside each choice. Waits
+    for their yes or no; a yes is for exactly what they saw (an order that changes asks again). After a yes you may
+    press its pay (place order, zapłać...) in this turn, while the page still shows that order; without one your
+    browser refuses to."""
     order = {"lines": lines, "charges": charges or [], "total": total, "shortfall": shortfall, "slot": slot,
              "address": address, "unverified": unverified}
     return ctx.brain.browser.review(ctx, order, tab)

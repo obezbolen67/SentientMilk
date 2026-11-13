@@ -13,7 +13,8 @@ name, size, quantity, price and total, the charges, the total, the delivery slot
 chose what she chose; the brain reads every part from the page, with a picture of the whole page, so the user checks
 the page and her choices, never her memory of them. A yes is for the order with the fingerprint the user saw, read
 again as they press it: an order that changed meanwhile is shown again with what changed, and waits for a new yes.
-Nothing here pays: the panel ends at the user's yes, and they pay themselves.
+The panel itself never pays. The yes lets her browser press what pays for that order, in that turn, on its tab,
+while the page still shows exactly that order (read again as she presses: ``approved``, ``unchanged``).
 
 Apps hear ``artifact.requested``, ``artifact.updated`` and ``artifact.closed`` on the turn, list what is open with
 ``GET /v1/artifacts`` and answer with ``POST /v1/artifacts/<id>`` (client.artifact).
@@ -72,6 +73,7 @@ class Artifact:
         self.seen: Dict[str, Dict[str, dict]] = {}
         self.again: Optional[Callable[[], tuple]] = None
         self.look: Optional[Callable[[dict], None]] = None
+        self.read_on: Optional[Callable] = None  # its parts read from a tab in hand (as she presses pay)
 
 
 def fingerprint(parts: Dict[str, dict]) -> str:
@@ -94,6 +96,7 @@ class Artifacts:
     def __init__(self, brain):
         self.brain = brain
         self._open: Dict[str, Artifact] = {}
+        self._approved: Dict[str, Artifact] = {}  # orders the user said yes to, until her turn ends
         self._lock = threading.Lock()
 
     def shown(self, app: str, session: str) -> List[dict]:
@@ -136,9 +139,12 @@ class Artifacts:
                 self._close(artifact, "message")
 
     def finished(self, run_id: int) -> None:
-        """Her turn ended: what it asked for goes (values unused are zeroed), so no old panel types later."""
+        """Her turn ended: what it asked for goes (values unused are zeroed), so no old panel types later, and
+        no old yes pays later."""
         with self._lock:
             ending = [a for a in self._open.values() if a.run == run_id]
+            for ident in [ident for ident, a in self._approved.items() if a.run == run_id]:
+                del self._approved[ident]
         for artifact in ending:
             self._close(artifact, "ended")
 
@@ -204,7 +210,7 @@ class Artifacts:
     # ============== Reviews ==============
 
     def review(self, ctx, tab: str, url: str, title: str, order: dict, wanted: List[tuple], parts: List[dict],
-               picture: str, again: Callable[[], tuple], look: Callable[[dict], None]) -> str:
+               picture: str, again: Callable[[], tuple], look: Callable[[dict], None], read_on: Callable) -> str:
         from .browser import site_of
 
         lines = order["lines"]
@@ -213,21 +219,34 @@ class Artifacts:
                 "charges": [{"label": str(charge["label"]).strip()[:60]} for charge in order.get("charges") or []],
                 "unverified": str(order.get("unverified") or "").strip()[:1000], "changes": []}
         artifact = Artifact("review", ctx, view)
-        artifact.wanted, artifact.again, artifact.look = wanted, again, look
+        artifact.wanted, artifact.again, artifact.look, artifact.read_on = wanted, again, look, read_on
         self._show(artifact, dict(zip([key for key, _ in wanted], parts)), picture, url)
         self._start(artifact)
         answer = self._wait(ctx, artifact)
         if answer["action"] == "approve":
             total = artifact.view["total"]["text"]
             return (f"The user approved the order as the page shows it now ({len(lines)} lines, total \"{total}\"; "
-                    f"fingerprint {answer['fingerprint']}). Paying is theirs, never yours: tell them it is ready to "
-                    "pay, and put the page in front of them (browser_act, the step show) if they want to pay in your "
-                    "browser.")
+                    f"fingerprint {answer['fingerprint']}). You may press its pay button now, in this turn, in "
+                    f"{tab}: your browser lets you while the page still shows exactly this order (it reads it again "
+                    "as you press). If the shop then asks for more (a code from their bank, a sign-in), that is the "
+                    "user's: put the page in front of them (browser_act, the step show). Say what went through.")
         if answer["action"] == "rejected":
             reason = artifact.view.get("reason")
             return (f"The user rejected the order{': ' + reason if reason else ''}. Change what they want, then ask "
                     "again with browser_review.")
         return self._unanswered(answer, "Nothing was approved")
+
+    def approved(self, ctx, tab: str) -> Optional[Artifact]:
+        """The newest order the user approved in this turn for this tab: her browser may press its pay."""
+        mine = (ctx.app, ctx.session, ctx.run["id"], tab)
+        with self._lock:
+            return next((a for a in reversed(list(self._approved.values()))
+                         if (a.app, a.session, a.run, a.view["tab"]) == mine), None)
+
+    @staticmethod
+    def unchanged(artifact: Artifact, parts: List[dict]) -> bool:
+        """The page still says exactly what the user approved (every part's words, as the panel read them)."""
+        return fingerprint(dict(zip([key for key, _ in artifact.wanted], parts))) == artifact.view["fingerprint"]
 
     def _show(self, artifact: Artifact, parts: Dict[str, dict], picture: str, url: str) -> None:
         """The order as just read into the view: its parts where the panel shows them, fingerprinted."""
@@ -290,6 +309,8 @@ class Artifacts:
                     if artifact.done.done():  # stopped meanwhile
                         raise BrainError("artifact", "That panel closed: she asks again if she still needs it.",
                                          http_status=409)
+                    with self._lock:  # before she hears the yes: her next step may be the pay
+                        self._approved[artifact.id] = artifact
                     artifact.done.set_result({"action": "approve", "fingerprint": now})
                 self._close(artifact, "approved")
         else:

@@ -730,11 +730,16 @@ when her turn ends (a stop or a message from the user closes them too).
   fingerprint is a hash of every part's words. Refresh and approve read the page again:
   a fingerprint that changed makes the panel `changed`, with what changed (`line 1 price:
   8,39 zł → 9,49 zł`, a part gone from the page), and a yes counts only with the
-  fingerprint of what the panel shows now. Nothing in it pays.
-- Her browser refuses to press what pays, whoever asks: a click or a point on a control
-  whose words pay (`PAYS`: pay now, place order, buy now, zapłać, złóż zamówienie, kaufen,
-  payer...), Enter or Space on one, Enter in a field whose form's button pays, and a dialog
-  whose message does. Paying is the user's, in front of them (`show`).
+  fingerprint of what the panel shows now. Nothing in the panel pays.
+- Her browser presses what pays only for an order the user approved: a click or a point on a
+  control whose words pay (`PAYS`: pay now, place order, buy now, zapłać, złóż zamówienie,
+  kaufen, payer...), Enter or Space on one, or Enter in a field whose form's button pays goes
+  through only in the turn of the yes, in the review's tab, when the order's parts read from
+  the page now (by id, or by path after a reload) have the approved fingerprint
+  (`Artifacts.approved`, `unchanged`). A dialog whose message pays is accepted only on the
+  page where such a press was just made. Otherwise the step is refused and she is told to
+  show the order with `browser_review`. A turn's yes ends with the turn. What the shop asks
+  after (a bank's code, a sign-in) is the user's, in front of them (`show`).
 
 Apps hear `artifact.requested`, `artifact.updated` and `artifact.closed` on the turn's
 stream, list a session's open panels with `GET /v1/artifacts` and answer with `POST

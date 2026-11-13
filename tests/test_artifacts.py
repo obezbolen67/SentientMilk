@@ -50,7 +50,8 @@ def cart_page() -> str:
 <p>Dostawa: <span id=fee>9,99 zł</span></p><p>Brakuje <span id=short>12,00 zł</span> do darmowej dostawy</p>
 <p>Termin: <span id=slot>wt 14.11, 18:00–20:00</span></p><p>Adres: <span id=addr>ul. Mleczna 5/2, 00-001 Warszawa</span></p>
 <p>Razem: <strong id=total>{CART['total']}</strong></p>
-<button onclick="paid.textContent = 'paid'">Zapłać</button><p id=paid>unpaid</p>"""
+<button onclick="paid.textContent = confirm('Confirm payment of ' + total.textContent + '?') ? 'paid' : 'kept'">Zapłać</button>
+<p id=paid>unpaid</p>"""
 
 
 class Shop(BaseHTTPRequestHandler):
@@ -299,16 +300,21 @@ def test_an_order_is_shown_as_the_page_says_it_and_a_changed_one_asks_again(web,
     approved = web.client.artifact(panel["id"], "approve", fingerprint=gone["fingerprint"])
     assert approved["state"] == "approved"
     said = answered(out)
-    assert "approved the order" in said and gone["fingerprint"] in said and "never yours" in said
-    assert page_says(web, "order", "document.getElementById('paid').textContent") == "unpaid"
+    assert "approved the order" in said and gone["fingerprint"] in said and "may press its pay" in said
+    assert page_says(web, "order", "document.getElementById('paid').textContent") == "unpaid"  # a yes pays nothing
 
 
-def test_nothing_pays_neither_the_panel_nor_her_browser(web, site):
-    """6. The panel has no pay; her browser refuses to press what pays, by click, by Enter in its form, by
-    pointing at it, and a dialog that pays."""
+def test_she_pays_only_for_the_order_the_user_approved(web, site):
+    """6. The panel has no pay. Her browser presses what pays only once the user approved the order, in that turn,
+    on its page while the page still shows that order (and accepts the dialog that press opens): never before the
+    yes, never in another turn, never once the order changed, never on another page (by click, by Enter in its
+    form, by pointing at it, or a dialog that pays)."""
     CART.update(milk="8,39 zł", milk_total="50,34 zł", butter=True, total="68,32 zł")
     ctx = context(web, "pay")
     page = kit.browser_open.func(ctx, site + "/cart")
+    paid = "document.getElementById('paid').textContent"
+    refused = kit.browser_act.func(ctx, [{"action": "click", "target": ids(page, '"Zapłać"')}])
+    assert "pays: you press it only for an order the user approved" in refused and "browser_review" in refused
     view = kit.browser_view.func(ctx, texts=True).text
     panel, out = asking(web, "pay", lambda: kit.browser_review.func(
         ctx, lines=[{"name": at(view, "Masło Ekstra"), "total": at(view, "7,99 zł")}], total=at(view, "68,32 zł")))
@@ -316,17 +322,30 @@ def test_nothing_pays_neither_the_panel_nor_her_browser(web, site):
         with pytest.raises(BrainError, match="approve"):
             web.client.artifact(panel["id"], action)
     web.client.artifact(panel["id"], "approve", fingerprint=panel["fingerprint"])
-    assert "approved" in answered(out)
-    assert page_says(web, "pay", "document.getElementById('paid').textContent") == "unpaid"
+    assert "may press its pay" in answered(out)
+    assert page_says(web, "pay", paid) == "unpaid"
 
-    refused = kit.browser_act.func(ctx, [{"action": "click", "target": ids(page, '"Zapłać"')}])
-    assert "pays: paying is the user's own" in refused
-    page = kit.browser_open.func(ctx, site + "/checkout")
+    def press(context_):
+        pay = ids(kit.browser_view.func(context_).text, '"Zapłać"')
+        return kit.browser_act.func(context_, [{"action": "click", "target": pay}])
+
+    assert "pays: you press it only" in press(context(web, "pay"))  # another turn: its yes is not this one's
+    CART.update(total="70,00 zł")  # the shop changed the order after the yes
+    kit.browser_act.func(ctx, [{"action": "reload"}])
+    assert "does not show the order the user approved" in press(ctx)
+    CART.update(total="68,32 zł")
+    kit.browser_act.func(ctx, [{"action": "reload"}])  # as approved again (read by path: a new page)
+    pressed = press(ctx)
+    assert "pays" not in pressed and '"Confirm payment of 68,32 zł?"' in pressed  # the shop's own confirm
+    assert "accepted" in kit.browser_act.func(ctx, [{"action": "dialog", "accept": True}])
+    assert page_says(web, "pay", paid) == "paid"
+
+    page = kit.browser_open.func(ctx, site + "/checkout")  # another page: not the order she showed
     note = ids(page, '"Note"')
     for steps in ([{"action": "click", "target": ids(page, '"Pay now"')}],
                   [{"action": "type", "target": note, "text": "hi\n"}],
                   [{"action": "key", "target": note, "text": "Enter"}]):
-        assert "pays: paying is the user's own" in kit.browser_act.func(ctx, steps)
+        assert " pays" in kit.browser_act.func(ctx, steps)
     kit.browser_view.func(ctx, picture=True)
     tab = tab_of(web, "pay")
     with tab.lock:
