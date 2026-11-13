@@ -610,7 +610,11 @@ or `!` when something needs the user. The connection is then a DevTools protocol
 (`Wire` over the server's socket): a page's commands (and its frames' of other sites, by
 their session ids) go to `chrome.debugger` as they are, and what a browser does it answers
 with the extension APIs and tells as the protocol's events: `Target.createTarget` is a
-window of its own behind what the user uses, attach is `chrome.debugger.attach`, windows
+tab in her one window, behind her other tabs (the window is made behind what the user uses
+when she has none, and found again as the window holding only her group's tabs; it is never
+one of the user's). Focus emulation keeps a tab behind awake for reading, but it gets about a
+frame a second, and each click or key waits for one: `Extension.front` puts the tab she acts
+in or pictures in front in her window, never focusing it. Attach is `chrome.debugger.attach`, windows
 are `chrome.windows`, a tab or window her tab opens is hers too (`Target.targetCreated`
 with its opener: `tabs.onCreated` has it for a link's new tab, `webNavigation`'s
 `onCreatedNavigationTarget` for a `window.open` popup), and a download from her tab (the
@@ -723,6 +727,19 @@ when her turn ends (a stop or a message from the user closes them too).
   keyed hash of windows of its letters and digits (the value itself is not kept), and what
   matches becomes `[the user's card_number]`. The sockets that carry values (the browser's,
   the extension's) log at INFO at most, never their frames.
+- Chrome's own sign-in box (HTTP basic, digest or NTLM auth, a site's or a proxy's) is outside
+  the page, where the debugger never sees it: the page only waits. The extension holds it in
+  her tabs (`webRequest.onAuthRequired`, async) and sends `Extension.authRequired`. The tab
+  is held, as by a dialog: every reply says who asks (host, port, realm, `refused` when it
+  was asked again after an answer) and how to answer. The targets `auth.username` and
+  `auth.password` in `browser_secrets` bind a value to that box (tab, host, port, realm,
+  proxy). The step `auth` (`secret`: the password; `user`: the username's name, or `text`: a
+  username she knows) checks the bindings and answers with `Extension.answerAuth`. The
+  values go to the extension only, never to a page, and are marked like a fill's. `accept:
+  false` cancels it (the site's 401 page), and `show` gives it to the user: Chrome's box,
+  in that tab, until her next call there (`Extension.ownAuth`). The user's own tabs and any
+  box while the brain is away get Chrome's box as always. A box she leaves stays hers
+  across turns.
 - `browser_review(lines, charges, total, shortfall, slot, address, unverified)`: every part
   is an id (`browser_view texts=true` gives each piece of text one). The brain reads each
   from the page (`__milk.parts`: its words, where it is, a CSS path to find it again after a

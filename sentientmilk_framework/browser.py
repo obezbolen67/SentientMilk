@@ -57,7 +57,8 @@ CONNECT_WAIT = 30.0  # s her call waits for the user's Chrome to connect once it
 READ_CHARS = 20_000
 TAB_IDS = 10_000  # ids each tab of a conversation has before it could reach the next tab's
 STEPS = ("click", "fill", "type", "key", "hover", "scroll", "drag", "upload", "wait", "open", "back", "forward",
-         "reload", "dialog", "save", "close", "show")
+         "reload", "dialog", "auth", "save", "close", "show")
+SIGN_IN = {"auth.username": "username", "auth.password": "password"}  # browser_secrets' targets in a sign-in box
 CHANGES = 0.6  # a reply shows the whole page when more of it than this changed
 NOT_LINKED = ("The user's Chrome did not connect to you: SentientMilk opened it, but its extension did not answer in "
               f"{CONNECT_WAIT:.0f} s (it may not be added to that Chrome yet, or it holds another code). Tell the user: "
@@ -71,6 +72,8 @@ CANCELED = ("The user pressed Cancel on their Chrome's bar, which stopped you th
 SHOWN = ("Your tab {urls} is in front of the user in their Chrome, and still yours. Tell them what to do there (sign "
          "in, the check, the payment) and to tell you when they are done; then go on with your browser tools as "
          "before, with what they did (a sign-in stays).")
+HANDED = ("Chrome's sign-in box in {name} is the user's to answer (you gave it to them with show): Chrome does "
+          "nothing else in that tab until they signed in or cancelled it. Ask them when they are done, then go on.")
 LEAD_ONLY = ("Only the lead can put a tab in front of the user: say in your report what the user should do there "
              "(sign in at ...), or ask the lead with ask_lead.")
 GONE = ("The user's Chrome let go of you under the call (it closed, or SentientMilk's extension stopped): your next "
@@ -241,6 +244,16 @@ def _key(app: str, session: str) -> str:
     return f"{app}/{session}"
 
 
+def _host(box: dict) -> str:
+    """Who asks for a sign-in, as the user knows it: www.example.com, with its port when it is not the usual one."""
+    return box["host"] + (f":{box['port']}" if box["port"] and box["port"] not in (80, 443) else "")
+
+
+def _box_key(box: dict) -> tuple:
+    """Which sign-in box: who asks (a site or a proxy) and for which realm."""
+    return box["host"], box["port"], box["realm"], box["proxy"]
+
+
 def _id(target) -> str:
     """An id as the page knows it: "e5" -> "5"."""
     return str(target or "").strip().lower().lstrip("e")
@@ -397,6 +410,10 @@ class Tab:
         self.requests: Dict[str, float] = {}
         self.frames: set = set()
         self.dialog: Optional[dict] = None
+        # Chrome's own sign-in boxes (HTTP auth) waiting: one for each site or proxy and realm, with its requests
+        self.auth: List[dict] = []
+        self.signed: set = set()  # requests answered with a username and password: asked again, they were refused
+        self.handed = False  # its sign-in boxes are the user's (show), until her next call there
         self.paying: Optional[int] = None  # the document where she pressed an approved pay (its dialog may pay)
         self.chooser = threading.Event()
         self.chooser_node: Optional[int] = None
@@ -425,8 +442,9 @@ class Tab:
         return text
 
     def held(self) -> bool:
-        """A call to the page will not be answered now: a dialog holds it, or the page closed itself."""
-        return self.dialog is not None or self.ended
+        """A call to the page will not be answered now: a dialog or a sign-in box holds it, or the page closed
+        itself."""
+        return self.dialog is not None or bool(self.auth) or self.ended
 
     def event(self, method: str, params: dict) -> None:
         """On the reading thread: what the page did."""
@@ -473,6 +491,27 @@ class Tab:
                 self.console.append((method, params))
         elif method == "Page.javascriptDialogClosed":
             self.dialog = None
+        elif method == "Extension.authRequired":  # Chrome's sign-in box, held by the extension for her
+            number = params.get("requestId")
+            box = {"host": str(params.get("host") or ""), "port": params.get("port") or 0,
+                   "realm": str(params.get("realm") or ""), "proxy": bool(params.get("proxy"))}
+            refused = number in self.signed
+            self.signed.discard(number)
+            found = next((b for b in self.auth if all(b[key] == value for key, value in box.items())), None)
+            if found is None:
+                found = {**box, "url": str(params.get("url") or ""), "scheme": str(params.get("scheme") or ""),
+                         "ids": [], "refused": False}
+                self.auth.append(found)
+            found["ids"].append(number)
+            found["refused"] = found["refused"] or refused
+        elif method == "Extension.authEnded":  # its request went (the page moved on)
+            number = params.get("requestId")
+            self.signed.discard(number)
+            for box in list(self.auth):
+                if number in box["ids"]:
+                    box["ids"].remove(number)
+                    if not box["ids"]:
+                        self.auth.remove(box)
         elif method == "Page.fileChooserOpened":
             self.chooser_node = params.get("backendNodeId")
             self.chooser.set()
@@ -840,16 +879,23 @@ class Browser:
             self._quietly(wire.call, "Target.closeTarget", {"targetId": tab.target})
             tab.restore = tab.restore or (tab.url if tab.url != "about:blank" else None)
         tab._reset()
-        # a new window stays behind what the user is using: it never takes their keys
-        target = wire.call("Target.createTarget", {"url": "about:blank", "newWindow": True,
-                                                   "background": True})["targetId"]
+        # a tab in her one window, which stays behind what the user is using: it never takes their keys
+        target = wire.call("Target.createTarget", {"url": "about:blank", "background": True})["targetId"]
         self._attach(tab, target)
+
+    def _front(self, tab: Tab) -> None:
+        """The tab she acts in or pictures is the one in front in her window: one behind gets about a frame a
+        second, each click or key waits for one, and a picture for many (40 s measured). Reading needs none of this
+        (focus emulation keeps it awake). Her window stays behind what the user is using."""
+        # shortcut: her call in another of her tabs at the same moment may put it behind again; a lock if agents clash
+        self._quietly(tab.wire.call, "Extension.front", {"targetId": tab.target}, None, 10)
 
     def _shown_window(self, tab: Tab) -> None:
         """A minimized window paints nothing, so a picture of it waits forever: it comes back (behind what the user
-        is using). Reading and acting need none of this."""
+        is using), with the tab in front in it. Reading and acting need none of this."""
         if tab.window is None:
             return
+        self._front(tab)
         state = tab.wire.call("Browser.getWindowBounds", {"windowId": tab.window})["bounds"].get("windowState")
         if state == "minimized":
             tab.wire.call("Browser.setWindowBounds", {"windowId": tab.window, "bounds": {"windowState": "normal"}})
@@ -863,6 +909,8 @@ class Browser:
 
         key = _key(ctx.app, ctx.session)
         name = self._name(name)
+        tab: Optional[Tab] = None
+        handed = False
         try:
             with self._lock:  # which tab, before Chrome is opened for it
                 owner = self._owner(key)
@@ -883,10 +931,11 @@ class Browser:
                 owner["current"] = tab.name
                 tab.folder = cwd(ctx)
                 self._live(tab)
-                if any(t.window == tab.window for t in self._by_target.values() if t is not tab):
-                    self._quietly(tab.wire.call, "Target.activateTarget", {"targetId": tab.target})
                 self._save()
             with tab.lock:
+                if tab.handed:  # she acts there again: its next sign-in boxes are hers (the user's may be open)
+                    handed, tab.handed = True, False
+                    self._quietly(tab.wire.call, "Extension.ownAuth", {"targetId": tab.target}, None, 10)
                 if tab.restore:
                     url, tab.restore = tab.restore, None
                     self._navigate(tab, url)
@@ -894,6 +943,8 @@ class Browser:
         except BrowserGone:
             raise ToolError(GONE)
         except CdpError as exc:
+            if handed:  # Chrome takes no command for a page under its own sign-in box
+                raise ToolError(HANDED.format(name=tab.name))
             raise ToolError(f"The browser refused: {exc}")
 
     @staticmethod
@@ -945,8 +996,8 @@ class Browser:
         world = frame or tab
         if tab.ended:
             raise ToolError(f"Tab {tab.name} {CLOSED}.")
-        if tab.dialog:
-            raise ToolError(self._dialog_line(tab))
+        if tab.dialog or tab.auth:
+            raise ToolError(self._held_line(tab))
         if frame and tab.remote.get(frame.session) is not frame:
             raise ToolError(FRAME_GONE)
         for _ in range(4):
@@ -1109,7 +1160,7 @@ class Browser:
         time.sleep(GRACE)
         while True:
             now = time.monotonic()
-            if tab.dialog or tab.crashed or tab.ended or not tab.session:
+            if tab.dialog or tab.auth or tab.crashed or tab.ended or not tab.session:
                 return True
             if not self._busy(tab) and (not after or now - start >= QUIET):
                 try:
@@ -1162,15 +1213,28 @@ class Browser:
         lines = [f"{tab.name} · {tab.title or '(no title)'} · {tab.url}"]
         lines += [f"Meanwhile: {news}" for news in tab.news]
         tab.news = []
-        if tab.dialog:
-            lines.append(self._dialog_line(tab))
+        if tab.dialog or tab.auth:
+            lines.append(self._held_line(tab))
         return lines
 
     @staticmethod
-    def _dialog_line(tab: Tab) -> str:
-        dialog = tab.dialog or {}
-        return (f"A dialog of the page waits ({dialog.get('type')}): \"{dialog.get('message', '')}\". Answer it with "
-                "the step dialog (accept: true or false; text: a prompt's answer): the page does nothing until then.")
+    def _held_line(tab: Tab) -> str:
+        """What holds the page: a dialog of the page, or Chrome's own sign-in box (HTTP auth)."""
+        if tab.dialog or not tab.auth:
+            dialog = tab.dialog or {}
+            return (f"A dialog of the page waits ({dialog.get('type')}): \"{dialog.get('message', '')}\". Answer it "
+                    "with the step dialog (accept: true or false; text: a prompt's answer): the page does nothing "
+                    "until then.")
+        box = tab.auth[0]
+        who = f"The proxy {_host(box)}" if box["proxy"] else _host(box)
+        realm = f", \"{box['realm']}\"" if box["realm"] else ""
+        again = "It refused the username and password it was given. " if box["refused"] else ""
+        return (f"{again}{who} asks for a sign-in in Chrome's own box ({box['scheme'] or 'HTTP'} auth{realm}), not on "
+                "the page: the page waits until it is answered. Ask the user for them with browser_secrets (targets "
+                "auth.username and auth.password), then sign in with the step auth ({\"action\": \"auth\", \"user\": "
+                "\"<the username's name>\", \"secret\": \"<the password's name>\"}; text in place of user: a username "
+                "you know); {\"action\": \"auth\", \"accept\": false} cancels it (the site gets no sign-in); the step "
+                "show gives it to the user, to sign in in Chrome's box themselves.")
 
     def _whole(self, tab: Tab, data: dict, note: str = "") -> str:
         """The page as a whole, for open and view."""
@@ -1207,11 +1271,15 @@ class Browser:
             raise ToolError("url is empty: give the address to open (https://...).")
         with self.using(ctx, create=True, new=new_tab) as tab:
             note = self._navigate(tab, url)
+            if tab.dialog or tab.auth:  # the page waits for it: what holds it, and how to answer
+                return tab.scrub("\n".join(self._head(tab)))
             return self._whole(tab, self._view(tab), note)
 
     def view(self, ctx, tab: str = "", find: str = "", part: str = "", picture: bool = False,
              texts: bool = False) -> ToolResult:
         with self.using(ctx, tab) as page:
+            if page.dialog or page.auth:
+                return ToolResult(page.scrub("\n".join(self._head(page))))
             data = self._view(page, find=find, part=part, texts=texts)
             if find or part or texts:
                 text = data["text"] or (f"Nothing on the page has {find!r}." if find else "(It shows nothing.)")
@@ -1339,7 +1407,8 @@ class Browser:
             raise ToolError("steps is empty: give the steps to do, e.g. [{\"action\": \"click\", \"target\": \"e5\"}].")
         notes: List[str] = []
         with self.using(ctx, tab) as page:
-            if page.seen is None and not page.dialog:  # nothing to compare with yet: what it shows now
+            self._front(page)
+            if page.seen is None and not (page.dialog or page.auth):  # nothing to compare with yet: what it shows now
                 page.seen = (page.document, self._view(page)["text"].splitlines())
             document, site = page.document, site_of(page.url)
             for number, step in enumerate(steps, 1):
@@ -1351,6 +1420,8 @@ class Browser:
                 secret = step.get("secret") if action == "fill" else None
                 if secret is not None:  # what it typed is never said: only where, and whose name
                     said = f"{number}. fill {target} (secret {str(secret).strip().lower()})"
+                if action == "auth":  # nor what it signed in with
+                    said = f"{number}. auth"
                 rest = f"Steps {number + 1}-{len(steps)} did not run" if number < len(steps) else ""
                 try:
                     if action == "show":
@@ -1374,6 +1445,10 @@ class Browser:
                     if rest:
                         notes.append(rest + ": the dialog waits.")
                     break
+                if page.auth and str(coming.get("action", "")).strip().lower() != "auth":
+                    if rest:
+                        notes.append(rest + ": Chrome's sign-in box waits.")
+                    break
                 if page.ended:
                     if rest:
                         notes.append(rest + ".")
@@ -1385,7 +1460,7 @@ class Browser:
                 with self._lock:
                     self._closed_itself(page)
                 return "\n".join(notes + [f"Tab {page.name} {CLOSED}."] + self._after_close(page))
-            if page.dialog:
+            if page.dialog or page.auth:
                 return page.scrub("\n".join(self._head(page) + notes))
             data = self._view(page)
             return page.scrub("\n".join(self._head(page) + notes + [self._changes(page, document, data)]))
@@ -1413,8 +1488,73 @@ class Browser:
         she goes on there once they are done."""
         if ctx.run["kind"] != "turn":
             raise ToolError(LEAD_ONLY)
+        boxes = self._hand_sign_ins(tab)
         self._quietly(tab.wire.call, "Target.activateTarget", {"targetId": tab.target})
-        return SHOWN.format(urls=f"{tab.name} ({tab.url})")
+        return SHOWN.format(urls=f"{tab.name} ({tab.url})") + (
+            f" Chrome's sign-in box for {', '.join(_host(box) for box in boxes)} is theirs to answer there." if boxes
+            else "")
+
+    # ============== Chrome's own sign-in boxes (HTTP auth), which the extension holds for her ==============
+
+    def _hand_sign_ins(self, tab: Tab) -> List[dict]:
+        """The tab's waiting sign-in boxes to the user (the step show): Chrome shows them as it would, and its
+        next ones too until her next call there. Chrome may take no command for the page under its box (her calls
+        say whose it is). A box nobody gave the user stays hers, across turns: the tab stays hers. The boxes."""
+        boxes, tab.auth = tab.auth, []
+        ids = [number for box in boxes for number in box["ids"]]
+        if ids and tab.wire:
+            self._quietly(tab.wire.call, "Extension.answerAuth", {"requestIds": ids, "theirs": True}, None, 10)
+            tab.handed = True
+        return boxes
+
+    def _sign_in(self, ctx, tab: Tab, step: dict) -> str:
+        """Chrome's sign-in box answered: with the username and password the user typed for her (browser_secrets,
+        the targets auth.username and auth.password; a username she knows may be text), or cancelled. Each value
+        is checked to be for this box of this tab, and goes once."""
+        if not tab.auth:
+            raise ToolError("No sign-in box waits in this tab.")
+        box = tab.auth[0]
+        if step.get("accept", True) in (False, "false", "no", 0):
+            tab.auth.remove(box)
+            tab.wire.call("Extension.answerAuth", {"requestIds": box["ids"], "cancel": True}, None, 10)
+            return f"cancelled: {_host(box)} gets no sign-in"
+        names = [str(step.get(key) or "").strip().lower() for key in ("secret", "user")]
+        if not names[0] or (not names[1] and step.get("text") is None):
+            raise ToolError("auth needs the password the user typed (secret: its name in browser_secrets), and the "
+                            "username: user (its name, if they typed it) or text (one you know).")
+        taken: list = []  # artifacts.Secret
+        try:
+            for name, part in zip(names, ("password", "username")):
+                if not name:
+                    continue
+                secret = self.brain.artifacts.take(ctx.app, ctx.session, name)
+                taken.append(secret)
+                bound = secret.binding
+                if bound.get("sign_in") != part:
+                    raise ToolError(f"not signed in: {name} is for {bound['label']}, not the {part} of a sign-in box")
+                if (tab.owner, tab.name) != (bound["owner"], bound["tab"]):
+                    raise ToolError(f"not signed in: {name} is for tab {bound['tab']}")
+                if bound["box"] != _box_key(box):
+                    raise ToolError(f"not signed in: {name} is for the sign-in box of {bound['site']}, and this one is "
+                                    f"{_host(box)}'s")
+            password = taken[0].reveal()
+            username = taken[1].reveal() if len(taken) > 1 else str(step.get("text"))
+            tab.auth.remove(box)  # before the answer: a refusal asks again at once, and is a box of its own
+            tab.signed.update(box["ids"])
+            tab.wire.call("Extension.answerAuth", {"requestIds": box["ids"], "username": username,
+                                                   "password": password}, None, 10)
+            for secret in taken:
+                value = password if secret is taken[0] else username
+                if len(_plain(value)[0]) >= SCRUBBED:
+                    tab.marks[secret.name] = Mark(value)  # a page that echoes it shows dots
+            del password, username
+        except (ToolError, CdpError, BrowserGone) as exc:
+            for secret in taken:
+                self.brain.artifacts.used(secret, str(exc))
+            raise
+        for secret in taken:
+            self.brain.artifacts.used(secret)  # gone: zeroed
+        return f"signed in to {_host(box)} with what the user typed"
 
     # ============== What the user types for her, and the orders they check (artifacts.py) ==============
 
@@ -1449,7 +1589,7 @@ class Browser:
         except (CdpError, KeyError, TypeError):
             raise ToolError("the page changed under it")
         if reply is None:
-            raise ToolError(self._dialog_line(tab))
+            raise ToolError(self._held_line(tab))
         if "exceptionDetails" in reply:  # never its words: they could quote what was passed
             raise ToolError("the page refused it")
         return reply["result"].get("value")
@@ -1471,6 +1611,18 @@ class Browser:
                                     "(card_number, password).")
                 names.add(name)
                 target = str(field.get("target") or "").strip()
+                part = SIGN_IN.get(target.lower())
+                if part:  # Chrome's sign-in box: bound to it (who asks, the realm), not to a field of the page
+                    if not page.auth:
+                        raise ToolError(f"{target} is the {part} of Chrome's sign-in box, and none waits in this tab.")
+                    box = page.auth[0]
+                    label = f"the {part} in Chrome's sign-in box" + (f" (\"{box['realm']}\")" if box["realm"] else "")
+                    asked.append({
+                        "name": name, "purpose": str(field.get("purpose") or "").strip()[:300], "target": target.lower(),
+                        "label": label, "site": _host(box), "frame_site": "",
+                        "binding": {"owner": page.owner, "tab": page.name, "sign_in": part, "box": _box_key(box),
+                                    "site": _host(box), "label": label}})
+                    continue
                 place = self._point(page, target)
                 if place.get("point") or not place.get("editable"):
                     raise ToolError(f"{target} ({place['label']}) is not a field to type into: name the field.")
@@ -1496,6 +1648,8 @@ class Browser:
         secret = self.brain.artifacts.take(ctx.app, ctx.session, name)
         try:
             bound = secret.binding
+            if bound.get("sign_in"):
+                raise ToolError(f"not typed: {name} is for Chrome's sign-in box: answer it with the step auth")
             element = _id(target)
             if not element or element != bound["target"]:
                 raise ToolError(f"not typed: {name} is for e{bound['target']} ({bound['label']}), not {target}")
@@ -1574,7 +1728,7 @@ class Browser:
     def _read_parts(self, tab: Tab, wanted: list) -> List[dict]:
         parts = self._eval(tab, f"__milk.parts({json.dumps(wanted)})")
         if parts is None:
-            raise ToolError(self._dialog_line(tab))
+            raise ToolError(self._held_line(tab))
         tab.next_id = max(tab.next_id, *[part.get("id", 0) for part in parts], 0)
         return parts
 
@@ -1613,7 +1767,7 @@ class Browser:
         frame = self._world_of(tab, target)
         found = self._eval(tab, f"__milk.locate({_id(target)}, {json.dumps(hit_test)})", frame=frame)
         if found is None:
-            raise ToolError(self._dialog_line(tab))
+            raise ToolError(self._held_line(tab))
         if found.get("gone"):
             raise ToolError(f"{target} is not on the page (any more): the page changed, so use the ids of its latest "
                             "view (browser_view).")
@@ -1662,15 +1816,15 @@ class Browser:
                     self._input(tab, "Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": button,
                                                                   "buttons": mask if kind == "mousePressed" else 0,
                                                                   "clickCount": clicks})
-                    if tab.dialog:
+                    if tab.held():
                         return
         finally:
-            if button == "right" and not tab.dialog and not tab.ended:
+            if button == "right" and not tab.held():
                 self._quietly(self._eval, tab, "__milk.menu(true)", 5.0, True, place.get("frame"))
 
     def _type(self, tab: Tab, text: str) -> None:
         for char in text:
-            if tab.dialog:
+            if tab.held():
                 return
             if char == "\n":
                 self._keys(tab, "enter")
@@ -1713,13 +1867,15 @@ class Browser:
 
     def _step(self, ctx, tab: Tab, action: str, step: dict, last: bool = True) -> str:
         target, text = step.get("target"), step.get("text")
-        if step.get("secret") is not None and (action != "fill" or text is not None):
+        if step.get("secret") is not None and action != "auth" and (action != "fill" or text is not None):
             raise ToolError("secret goes with fill only, in place of text: {\"action\": \"fill\", \"target\": \"e14\", "
-                            "\"secret\": \"card_number\"}.")
+                            "\"secret\": \"card_number\"} (and with auth, for Chrome's sign-in box).")
         text = "" if text is None else str(text)
         document = tab.document
         note = ""
-        if action == "fill" and step.get("secret") is not None:
+        if action == "auth":
+            note = self._sign_in(ctx, tab, step)
+        elif action == "fill" and step.get("secret") is not None:
             note = self._fill_secret(ctx, tab, target, step["secret"])
         elif action == "click":
             place = self._point(tab, target)
@@ -1991,6 +2147,8 @@ class Browser:
         while time.monotonic() < deadline:
             if tab.dialog:
                 return "a dialog opened"
+            if tab.auth:
+                return "a sign-in box opened"
             if self._has(tab, text):
                 self._settle(tab, 3)
                 return f"\"{text}\" shows"

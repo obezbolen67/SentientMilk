@@ -170,12 +170,20 @@ class Artifacts:
         answer = self._wait(ctx, artifact)
         if answer["action"] != "fill":
             return self._unanswered(answer, "Nothing was typed")
-        first = fields[0]
-        return (f"The user typed {', '.join(artifact.secrets)} in the panel: they wait for you, unseen. Type each "
-                f"into its field with a fill step in browser_act, {{\"action\": \"fill\", \"target\": "
-                f"\"{first['target']}\", \"secret\": \"{first['name']}\"}}: once each, into the field it was asked for "
-                "(ask again to type one again). They are gone once typed, when the user takes them back, and when "
-                "your turn ends.")
+        boxed = {field["target"]: field["name"] for field in fields if field["target"].startswith("auth.")}
+        page = [field for field in fields if not field["target"].startswith("auth.")]
+        said = [f"The user typed {', '.join(artifact.secrets)} in the panel: they wait for you, unseen."]
+        if page:
+            said.append(f"Type each into its field with a fill step in browser_act, {{\"action\": \"fill\", \"target\": "
+                        f"\"{page[0]['target']}\", \"secret\": \"{page[0]['name']}\"}}: once each, into the field it "
+                        "was asked for.")
+        if boxed:
+            step = {"action": "auth", "secret": boxed.get("auth.password", "<the password's name>"),
+                    **({"user": boxed["auth.username"]} if "auth.username" in boxed else {"text": "<the username>"})}
+            said.append(f"Sign in to Chrome's box with the step auth in browser_act, {json.dumps(step)}: once.")
+        said.append("Ask again to use one again. They are gone once used, when the user takes them back, and when "
+                    "your turn ends.")
+        return " ".join(said)
 
     def take(self, app: str, session: str, name: str) -> Secret:
         """The value the user typed for ``name``, to type now (the browser calls used() after, whatever happened)."""

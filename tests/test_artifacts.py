@@ -1,6 +1,7 @@
 """Artifacts (artifacts.py) in the stand-in for the user's Chrome (test_browser.py), against a shop of its own on
 127.0.0.1: what the user types for her goes into the page and nowhere else, and an order is shown as the page says it."""
 
+import base64
 import json
 import logging
 import re
@@ -54,10 +55,23 @@ def cart_page() -> str:
 <p id=paid>unpaid</p>"""
 
 
+OFFICE = ("milkman", "Pa55-milk-office")  # the one sign-in /private takes (HTTP basic auth)
+REALMS = {"/private": "Milk office", "/staff": "Staff only", "/vault": "Vault"}  # the others take none
+
+
 class Shop(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.partition("?")[0]
-        body = {"/checkout": CHECKOUT, "/other": OTHER}.get(path) or (cart_page() if path == "/cart" else None)
+        if path in REALMS:  # Chrome's own sign-in box, outside the page
+            given = self.headers.get("Authorization", "")
+            if path != "/private" or given != "Basic " + base64.b64encode(":".join(OFFICE).encode()).decode():
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", f'Basic realm="{REALMS[path]}"')
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                return self.wfile.write(b"<!doctype html><title>No</title><h1>Not signed in</h1>")
+        body = {"/checkout": CHECKOUT, "/other": OTHER, "/private": f"<!doctype html><title>Office</title>"
+                f"<h1>Welcome, {OFFICE[0]}</h1>"}.get(path) or (cart_page() if path == "/cart" else None)
         if body is None:
             self.send_response(404)
             return self.end_headers()
@@ -360,3 +374,60 @@ def test_she_pays_only_for_the_order_the_user_approved(web, site):
     kit.browser_act.func(ctx, [{"action": "dialog", "accept": False}])
     assert page_says(web, "pay", "document.getElementById('paid').textContent") == "kept"
     assert "Show card" in kit.browser_act.func(ctx, [{"action": "click", "target": ids(page, '"Show card"')}])
+
+
+def test_chrome_sign_in_box_is_answered_with_what_the_user_typed(web, site, caplog):
+    """7. Chrome's own sign-in box (HTTP basic auth) is not on the page: she hears that a site asks for a sign-in
+    (not a page that never loads), the user types the username and password in a panel, and she signs in with them
+    unseen, each once; a refused one is said, cancel gives the site's refusal, and a box she leaves when her turn
+    ends, or gives the user with show, is Chrome's to ask."""
+    caplog.set_level(logging.DEBUG)
+    ctx = context(web, "box")
+    opened = kit.browser_open.func(ctx, site + "/private")
+    assert "127.0.0.1:" in opened and "asks for a sign-in in Chrome's own box (basic auth, \"Milk office\")" in opened
+    assert "asks for a sign-in" in kit.browser_view.func(ctx).text  # the page waits: nothing to read
+    assert "auth.password" in kit.browser_act.func(ctx, [{"action": "click", "target": "e1"}])
+
+    def ask(fields, values):
+        panel, out = asking(web, "box", lambda: kit.browser_secrets.func(ctx, fields))
+        for shown, field in zip(panel["fields"], fields):
+            part = field["target"].split(".")[1]
+            assert shown["label"] == f"the {part} in Chrome's sign-in box (\"Milk office\")"
+            assert shown["site"] == site.split("//")[1]
+        web.client.artifact(panel["id"], "fill", values=values)
+        return answered(out)
+
+    password = {"name": "office_password", "target": "auth.password", "purpose": "your office password"}
+    said = ask([password], {"office_password": "not-the-password"})
+    assert '{"action": "auth", "secret": "office_password", "text": "<the username>"}' in said
+    refused = kit.browser_act.func(ctx, [{"action": "auth", "text": OFFICE[0], "secret": "office_password"}])
+    assert "1. auth: signed in to 127.0.0.1" in refused and "It refused the username and password" in refused
+    again = kit.browser_act.func(ctx, [{"action": "auth", "text": OFFICE[0], "secret": "office_password"}])
+    assert "No value named office_password" in again  # once each
+
+    user = {"name": "office_user", "target": "auth.username", "purpose": "your office username"}
+    ask([user], {"office_user": OFFICE[0]})
+    assert "not typed: office_user is for Chrome's sign-in box" in kit.browser_act.func(
+        ctx, [{"action": "fill", "target": "e1", "secret": "office_user"}])  # a box's value goes into no page
+    said = ask([user, password], {"office_user": OFFICE[0], "office_password": OFFICE[1]})
+    assert '{"action": "auth", "secret": "office_password", "user": "office_user"}' in said
+    signed = kit.browser_act.func(ctx, [{"action": "auth", "user": "office_user", "secret": "office_password"}])
+    assert "signed in to 127.0.0.1" in signed and "Welcome," in signed and "asks for a sign-in" not in signed
+    assert OFFICE[0] not in signed  # it typed the username for her: the page's echo of it is not hers to read
+    assert OFFICE[1] not in caplog.text and "not-the-password" not in caplog.text
+
+    staff = kit.browser_open.func(ctx, site + "/staff")
+    assert "\"Staff only\"" in staff
+    cancelled = kit.browser_act.func(ctx, [{"action": "auth", "accept": False}])
+    assert "cancelled: 127.0.0.1" in cancelled and "Not signed in" in cancelled
+
+    kit.browser_open.func(ctx, site + "/vault")
+    tab = tab_of(web, "box")
+    assert tab.auth and tab.held()
+    later = context(web, "box")  # her next turn: the box waits for her still, and the tab is hers to use
+    assert "\"Vault\"" in kit.browser_view.func(later).text
+    assert "asks for a sign-in" in kit.browser_act.func(later, [{"action": "reload"}])  # a new request, held too
+    shown = kit.browser_act.func(later, [{"action": "show"}])
+    assert "Chrome's sign-in box for 127.0.0.1:" in shown and "is theirs to answer there" in shown
+    assert not tab.auth and tab.handed  # Chrome's own box now, until the tab's next page
+    assert "closed" in kit.browser_act.func(later, [{"action": "close"}])

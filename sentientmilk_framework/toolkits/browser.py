@@ -9,8 +9,8 @@ STEP = {
     "type": "object",
     "properties": {
         "action": {"type": "string", "enum": ["click", "fill", "type", "key", "hover", "scroll", "drag", "upload",
-                                              "wait", "open", "back", "forward", "reload", "dialog", "save", "close",
-                                              "show"]},  # browser.STEPS
+                                              "wait", "open", "back", "forward", "reload", "dialog", "auth", "save",
+                                              "close", "show"]},  # browser.STEPS
         "target": {"type": "string", "description": "An id from the latest view (e5), or \"x,y\" in the tab's "
                                                     "latest picture."},
         "text": {"type": "string", "description": "fill: what the field holds after (an option's text for a "
@@ -18,15 +18,20 @@ STEP = {
                                                   "(Enter, Tab, Escape, ctrl+a, shift+Tab, several with spaces); "
                                                   "scroll: down, up, top or bottom; wait: words to wait for (none: "
                                                   "until the page has loaded); "
-                                                  "open: the address; dialog: a prompt's answer; save: a file name "
-                                                  "in the working folder (.pdf, .png, .jpg, .html, .mhtml)."},
+                                                  "open: the address; dialog: a prompt's answer; auth: a username you "
+                                                  "know; save: a file name in the working folder (.pdf, .png, .jpg, "
+                                                  ".html, .mhtml)."},
         "secret": {"type": "string", "description": "fill, in place of text: the name of a value the user typed for "
                                                     "this field in browser_secrets. It goes into the field unseen; "
-                                                    "each value types once."},
+                                                    "each value types once. auth: the password the user typed for "
+                                                    "Chrome's sign-in box."},
+        "user": {"type": "string", "description": "auth: the name of the username the user typed for Chrome's sign-in "
+                                                  "box (browser_secrets, target auth.username)."},
         "to": {"type": "string", "description": "drag: where it ends (an id or \"x,y\")."},
         "files": {"type": "array", "items": {"type": "string"}, "description": "upload: the files' paths."},
         "amount": {"type": "number", "description": "scroll: screens (1 if not given); wait: seconds at most."},
-        "accept": {"type": "boolean", "description": "dialog: true to accept (OK), false to dismiss (Cancel)."},
+        "accept": {"type": "boolean", "description": "dialog: true to accept (OK), false to dismiss (Cancel); auth: false "
+                                                    "cancels Chrome's sign-in box."},
         "double": {"type": "boolean", "description": "click: a double click."},
         "button": {"type": "string", "enum": ["left", "right", "middle"]},
     },
@@ -83,13 +88,15 @@ def browser_view(ctx: ToolContext, tab: str = "", find: str = "", part: str = ""
     "steps": {"type": "array", "items": STEP, "description":
               "The steps in order, e.g. [{\"action\": \"fill\", \"target\": \"e3\", \"text\": \"milk\"}, "
               "{\"action\": \"click\", \"target\": \"e4\"}]. They stop at the first that fails, at a dialog of the "
-              "page, and when the tab goes to another site. Each waits for the page to load and settle. show: "
-              "your tab in front of the user (they sign in or pass a check there); save: the page as a file; "
-              "close: closes the tab."},
+              "page or Chrome's sign-in box, and when the tab goes to another site. Each waits for the page to load "
+              "and settle. auth: answers Chrome's own sign-in box (a site's or a proxy's HTTP auth, outside the page): "
+              "the username and password the user typed for it in browser_secrets, or accept false to cancel it. "
+              "show: your tab in front of the user (they sign in or pass a check there, Chrome's sign-in box too); "
+              "save: the page as a file; close: closes the tab."},
     "tab": TAB})
 def browser_act(ctx: ToolContext, steps: list, tab: str = ""):
     """Use a page as the user would: click, fill fields, type, press keys, scroll, drag, upload files, answer
-    the page's dialogs, go back. Says how each step went and what changed on the page once it settled."""
+    the page's dialogs and Chrome's sign-in box, go back. Says how each step went and what changed on the page once it settled."""
     return cap(ctx, ctx.brain.browser.act(ctx, steps, tab), "page")
 
 
@@ -125,7 +132,8 @@ FIELD = {"type": "object", "properties": {
     "name": {"type": "string", "description": "What it is, in letters, digits and _ (card_number, password): the "
                                               "name a fill step types it by."},
     "target": {"type": "string", "description": "The field's id in the latest view (e14): where it goes, and nowhere "
-                                                "else."},
+                                                "else. Chrome's own sign-in box (outside the page): auth.username or "
+                                                "auth.password."},
     "purpose": {"type": "string", "description": "What it is for, in a few words the user reads beside it (\"your "
                                                  "card number, to pay for the order\")."}},
     "required": ["name", "target", "purpose"]}

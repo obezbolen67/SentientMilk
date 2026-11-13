@@ -28,7 +28,7 @@ WIRE_LOG.setLevel(logging.INFO)  # never their frames, at any level: what the us
 
 EXTENSION_ID = "nchdmjacdboinhpkleiaehgiiopnjeba"  # fixed by the key in its manifest
 FOLDER = Path(__file__).with_name("extension")
-PROTOCOL = 1  # how the extension and the brain talk: a mismatch stops with what to update
+PROTOCOL = 2  # how the extension and the brain talk: a mismatch stops with what to update (2: sign-in boxes)
 # close codes, the extension's to show: the code, the protocol, another browser has it, another took it, Disconnect
 WRONG_CODE, OUTDATED, BUSY, REPLACED, DISCONNECTED = 4001, 4002, 4003, 4004, 4100
 RETRY = 10  # s between tries for the port while another program has it

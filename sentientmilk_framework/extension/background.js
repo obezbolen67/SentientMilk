@@ -12,7 +12,7 @@
 // minute. Disconnect stops all of it until the user connects again.
 
 const VERSION = chrome.runtime.getManifest().version;
-const PROTOCOL = 1;  // extension.py's PROTOCOL
+const PROTOCOL = 2;  // extension.py's PROTOCOL
 const PAGE = chrome.runtime.getURL('popup.html');
 const RETRY = [1, 2, 4, 8, 15];  // s between tries while this worker lives; after them, the half-minute alarm
 const CLOSES = {4001: 'wrong-code', 4002: 'old-extension', 4003: 'busy', 4004: 'replaced'};
@@ -34,6 +34,8 @@ const children = new Map();   // session id of a frame of another site -> tabId
 const loads = new Map();      // download id -> {target, told}
 const reloaded = new Set();   // connect pages reloaded once already
 const adopted = new Set();    // tabs told as hers (a new one is told once, whichever event came first)
+const signIns = new Map();    // request id -> {tabId, answer}: Chrome's sign-in boxes in her tabs, held for the brain
+const theirs = new Set();     // her tabs whose sign-in boxes the user answers (show), until she acts there again
 
 function send(message) {
   if (socket && socket.welcomed && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -143,6 +145,15 @@ function letGo() {  // her tabs stay open, without the debugger (and Chrome's ba
   for (const tabId of [...attached.keys()]) chrome.debugger.detach({tabId}).catch(() => {});
   attached.clear();
   children.clear();
+  release(() => true);  // no brain to answer them: Chrome's own boxes, for the user
+}
+
+function release(which, answer = {}) {  // held sign-in boxes, answered ({}: Chrome asks the user, as it would)
+  for (const [requestId, held] of [...signIns]) {
+    if (!which(held, requestId)) continue;
+    signIns.delete(requestId);
+    held.answer(answer);
+  }
 }
 
 function closed(ws, event) {
@@ -214,6 +225,28 @@ async function group(tabId) {  // her tabs wear SentientMilk's colour, so the us
   } catch (error) {}  // a popup window has no groups
 }
 
+let windowId = null;  // her window; once this worker starts again, the window holding only her tabs
+let opening = Promise.resolve();
+
+async function herWindow() {
+  if (windowId !== null && await chrome.windows.get(windowId).catch(() => null)) return windowId;
+  windowId = null;
+  for (const mine of await chrome.tabGroups.query({title: 'SentientMilk'})) {
+    const tabs = await chrome.tabs.query({windowId: mine.windowId});
+    if (tabs.every(tab => tab.groupId === mine.id)) return (windowId = mine.windowId);  // never one of the user's
+  }
+  return null;
+}
+
+async function newTab(url, focused) {  // the new tab's id: behind her others (the user may be looking at one of
+  // them), or in a new window of hers behind the user's
+  const id = await herWindow();
+  if (id !== null) return (await chrome.tabs.create({windowId: id, url, active: false})).id;
+  const made = await chrome.windows.create({url, focused, width: 1280, height: 900, type: 'normal'});
+  windowId = made.id;
+  return made.tabs[0].id;
+}
+
 async function targetOf(tabId) {  // the tab's DevTools target id (its main frame's id too)
   for (let tries = 0; tries < 100; tries++) {
     const found = (await chrome.debugger.getTargets()).find(t => t.tabId === tabId && t.type === 'page');
@@ -243,10 +276,15 @@ async function run(method, params, sessionId) {
     case 'Target.setDiscoverTargets':
     case 'Browser.setDownloadBehavior':
       return {};
-    case 'Target.createTarget': {  // in a window of its own, behind what the user is using unless asked
-      const made = await chrome.windows.create({url: params.url || 'about:blank', focused: !params.background,
-                                                width: 1280, height: 900, type: 'normal'});
-      return {targetId: await targetOf(made.tabs[0].id)};
+    case 'Target.createTarget': {  // a tab in her window: one window for all her tabs, made when she has none
+      const made = opening.then(() => newTab(params.url || 'about:blank', !params.background));
+      opening = made.catch(() => {});  // one at a time: two first tabs make one window
+      return {targetId: await targetOf(await made)};
+    }
+    case 'Extension.front': {  // the tab she pictures in front in her window (one behind paints late), without
+      const tab = await chrome.tabs.get(await tabOf(params.targetId));  // taking the user's keys
+      if (!tab.active && tab.windowId === await herWindow()) await chrome.tabs.update(tab.id, {active: true});
+      return {};
     }
     case 'Target.attachToTarget': {
       const tabId = await tabOf(params.targetId);
@@ -284,6 +322,17 @@ async function run(method, params, sessionId) {
       await chrome.windows.update(params.windowId, change);
       return {};
     }
+    case 'Extension.answerAuth': {  // a username and password the user typed for her, cancel, or Chrome's box
+      const ids = new Set(params.requestIds || []);
+      const answer = params.cancel ? {cancel: true} : params.password !== undefined ?
+        {authCredentials: {username: String(params.username || ''), password: String(params.password)}} : {};
+      if (params.theirs) for (const [id, held] of signIns) if (ids.has(id)) theirs.add(held.tabId);
+      release((held, id) => ids.has(id), answer);
+      return {};
+    }
+    case 'Extension.ownAuth':  // she acts in the tab again: its next sign-in boxes are hers to answer
+      theirs.delete(await tabOf(params.targetId));
+      return {};
     default:
       throw new Error(`${method} is not there in the user's Chrome`);
   }
@@ -300,6 +349,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   const target = attached.get(source.tabId);
   if (target === undefined) return;
   attached.delete(source.tabId);
+  release(held => held.tabId === source.tabId);  // not hers now: Chrome asks the user
   for (const [session, tabId] of [...children]) if (tabId === source.tabId) children.delete(session);
   show();
   // the user pressed Cancel on Chrome's bar: she lets go of every tab there, which stay open
@@ -322,9 +372,29 @@ chrome.tabs.onCreated.addListener(tab => {
 // a window.open popup has no openerTabId: the navigation that made it says where it came from
 chrome.webNavigation.onCreatedNavigationTarget.addListener(made => adopt(made.tabId, made.sourceTabId, made.url));
 
+// HTTP sign-ins (basic, digest, NTLM; a proxy's) show Chrome's own box, outside the page, where the brain cannot
+// see it. In her tabs it is held and the brain hears of it: she answers with a username and password the user typed
+// for her (in the brain's memory only), cancels it, or gives it to the user (Chrome's box). The user's own tabs, a
+// tab of hers they answer themselves (until she acts there again: Chrome puts the site's 401 page behind its box, a
+// new page that is no end of theirs), and any while the brain is away: Chrome asks the user.
+chrome.webRequest.onAuthRequired.addListener((details, answer) => {
+  if (!attached.has(details.tabId) || theirs.has(details.tabId) || !socket || !socket.welcomed) return answer({});
+  signIns.set(details.requestId, {tabId: details.tabId, answer});
+  const challenger = details.challenger || {};
+  send({method: 'Extension.authRequired', sessionId: 'tab:' + details.tabId, params: {
+    requestId: details.requestId, url: details.url, scheme: details.scheme || '', realm: details.realm || '',
+    proxy: !!details.isProxy, host: challenger.host || '', port: challenger.port || 0, type: details.type}});
+}, {urls: ['<all_urls>']}, ['asyncBlocking']);
+chrome.webRequest.onErrorOccurred.addListener(details => {  // a held one went (the page moved on, or closed)
+  if (!signIns.delete(details.requestId)) return;
+  send({method: 'Extension.authEnded', sessionId: 'tab:' + details.tabId, params: {requestId: details.requestId}});
+}, {urls: ['<all_urls>']});
+
 chrome.tabs.onRemoved.addListener(tabId => {
   reloaded.delete(tabId);
   adopted.delete(tabId);
+  theirs.delete(tabId);
+  for (const [requestId, held] of [...signIns]) if (held.tabId === tabId) signIns.delete(requestId);
   for (const [targetId, id] of [...targets]) {
     if (id !== tabId) continue;
     targets.delete(targetId);

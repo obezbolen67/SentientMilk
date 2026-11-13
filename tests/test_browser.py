@@ -465,6 +465,29 @@ def test_a_minimized_window_of_hers_is_read_and_pictured(web, site):
     assert tab.wire.call("Browser.getWindowBounds", {"windowId": tab.window})["bounds"]["windowState"] == "normal"
 
 
+def test_her_tabs_share_one_window_and_a_tab_behind_works(web, site):
+    """Each new tab of hers (another conversation's, or a new_tab) is a tab in her one window, behind the others;
+    one behind is read as it is, and comes in front to act in (behind, each click waited a second) or for a
+    picture (40 s)."""
+    first, second = context(web, "window-a"), context(web, "window-b")
+    kit.browser_open.func(first, site + "/terms")
+    chrome = next(process for process in web.chrome.processes if process.poll() is None)
+    windows = len(desktops.windows_of(chrome))
+    page = kit.browser_open.func(second, site + "/form")  # another conversation's tab
+    kit.browser_open.func(first, site + "/menu", new_tab=True)  # and a second one of the first
+    tabs = [web.brain.browser.owners[f"cli/{key}"]["tabs"][name]
+            for key, name in (("window-a", "t1"), ("window-b", "t1"), ("window-a", "t2"))]
+    assert len({tab.window for tab in tabs}) == 1 and len(desktops.windows_of(chrome)) == windows
+    started = time.monotonic()
+    done = kit.browser_act.func(second, [{"action": "fill", "target": ids(page, '"Name"'), "text": "Milk"},
+                                         {"action": "click", "target": ids(page, '"Create account"')}])
+    assert "Hello Milk" in done and time.monotonic() - started < 4  # 8.9 s behind t1 of the first
+    for ctx, name in ((second, "t1"), (first, "t2"), (first, "t1")):
+        started = time.monotonic()
+        assert len(kit.browser_view.func(ctx, tab=name, picture=True).images) == 1
+        assert time.monotonic() - started < 5, name
+
+
 def test_a_right_click_opens_the_page_s_menu_and_never_chrome_s(web, site):
     ctx = context(web)
     page = kit.browser_open.func(ctx, site + "/menu")
