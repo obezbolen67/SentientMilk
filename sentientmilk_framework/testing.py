@@ -6,7 +6,9 @@
 A reply is text, an assistant message dict, an HTTP status (int) to fail with, or a function
 of the request payload returning one of those. Streaming requests get a real SSE stream.
 Journal notes are written in the background at unpredictable moments, so they are answered
-with ``journal_note`` and recorded in ``journal_requests``, never taken from ``replies``.
+with ``journal_note`` and recorded in ``journal_requests``, never taken from ``replies``. Her mind's
+calls (mind/prompts.py) are answered from ``mind_replies`` (by kind: birth, imagine, think, sleep), else
+with ``MIND_ANSWERS``: one option, doing it, so a turn goes as it would without her mind.
 """
 
 import json
@@ -16,6 +18,12 @@ from typing import Any, List, Sequence
 import requests
 
 PROVIDER_URL = "https://provider.invalid/v1"
+MIND_ANSWERS = {
+    "birth": '{"traits": {}}',
+    "imagine": '[0.2, 0.2, 0.3, 0.5, "request", "work", "fine", ["do", "it", 0.2, 0.9, 0.1, 1]]',
+    "think": '{"thought": "I wonder how the user is doing.", "feeling": "calm", "want": "nothing"}',
+    "sleep": '{"insights": [], "story": "", "dream": ""}',
+}
 
 
 def tool_call(name: str, arguments: dict, call_id: str = "", content: str = "") -> dict:
@@ -82,6 +90,8 @@ class FakeProvider:
         self.journal_requests: List[dict] = []
         self.title = "A chat"
         self.title_requests: List[dict] = []
+        self.mind_replies: dict = {}  # kind -> list of replies, as ``replies``
+        self.mind_requests: List[dict] = []
 
     def install(self, monkeypatch, claude_code: Sequence[str] = ()) -> "FakeProvider":
         """``claude_code``: the command line of a stand-in Claude Code; empty: the brain finds none (a test
@@ -111,8 +121,15 @@ class FakeProvider:
             self.journal_requests.append(payload)
             return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {
                 "choices": [{"message": {"role": "assistant", "content": self.journal_note}}]})
-        self.sent.append(payload)
-        reply = self.replies.pop(0) if self.replies else "OK"
+        first = payload["messages"][0].get("content")
+        kind = first[len("[mind:"):].split("]")[0] if isinstance(first, str) and first.startswith("[mind:") else ""
+        if kind:
+            self.mind_requests.append(payload)
+            queued = self.mind_replies.get(kind) or []
+            reply = queued.pop(0) if queued else MIND_ANSWERS.get(kind, "{}")
+        else:
+            self.sent.append(payload)
+            reply = self.replies.pop(0) if self.replies else "OK"
         if callable(reply):
             reply = reply(payload)
         if isinstance(reply, int):

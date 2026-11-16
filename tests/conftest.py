@@ -48,7 +48,7 @@ def brain(tmp_path, monkeypatch):
     work.mkdir()
     server = start(home)
     client = BrainClient(server.url, server.token)
-    client.update_config(api_key="sk-test-secret", base_url=PROVIDER_URL)
+    client.update_config(api_key="sk-test-secret", base_url=PROVIDER_URL, mind=False)  # tests of her mind turn it on
     client.declare_app("milk", **MILK)
     client.declare_app("cli", name="CLI", environment="A terminal.",
                        toolkits=["files", "shell", "web", "todo", "memory", "journal", "agents", "tasks", "schedule"])

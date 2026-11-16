@@ -156,6 +156,8 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
     if computer:
         parts.append(computer)
     parts.append(RULES)
+    if profile.get("inner"):
+        parts.append(profile["inner"])
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
     if snapshot.get("memory"):

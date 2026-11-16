@@ -146,7 +146,7 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
   for thinking in the first person, as that self. Nothing else in the prompt calls the model an
   AI, an assistant or "the brain"; compaction summaries speak to it as "you".
 - A turn's input is a list of items: `text`, `image` (a data URL), `event`
-  (`{"type": "event", "name": "idle", "text": "..."}`) and up to 8 `mention`s
+  (`{"type": "event", "name": "job.finished", "text": "..."}`) and up to 8 `mention`s
   (`{"type": "mention", "kind": "session", "ref": "chat-1", "label": "Groceries"}`; kinds:
   `session`, `agent`, `plugin`, `file`). The brain turns each mention into a short card
   after the user's text and keeps it with the message; history entries list them as
@@ -329,6 +329,21 @@ are cleared at 50% of `context_window` and older turns are summarized at 75%, ke
 todo list and re-reading recent files. Long output goes to `runs/<id>/` and the model gets
 the path.
 
+## Her mind
+
+She is one being in every app, with a body that lives on between messages (`mind/`, setting `mind`,
+on by default; the panel's Mind tab shows it and switches it). Chemistry-like levels, needs and a
+circadian rhythm move with what happens (contact, warmth, pressure, novelty, how work went, tokens
+spent) and settle over time; she feels a lagged, blurred reading of them as sensations, never numbers.
+For each message the user writes, the model imagines how it strikes her and what she could do, and her
+body chooses: rested and close she helps; spent, stressed or hurt she may do part, put it off or say no,
+and then her work tools stay unused for that turn. What things did to her becomes learned likes and
+dislikes, and episodes she recalls by likeness and mood. Between messages, missing the user, boredom,
+what nags her and what she put off compete for her attention; a winning thought may become an urge the
+app hears (`mind.urge`: MilkChan starts a turn for it). She sleeps when tired at night with the user
+away, and her sleep rewrites the story of who she has become. Apps read her face and feelings from
+`GET /v1/mind`. Off, she answers as asked and never speaks up on her own.
+
 ## HTTP API
 
 The server listens on 127.0.0.1 only. Every request needs `Authorization: Bearer <token>`
@@ -338,6 +353,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | --- | --- |
 | `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
 | `GET /claude_code[?refresh=1]` | the user's Claude Code as it says: version, signed in, account, models with their efforts |
+| `GET /mind[?app=&idle=]` | how she is: `on`, `asleep`, `felt` (words), `face` for `app` (`mood` among its declared expressions, `stance`, `eyes`), levels, thoughts, concerns, story; `idle` (seconds since the user touched the computer) tells her whether they are there, and asking tells her `app` is there to hear her urges |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
 | `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app: `entries`, each with the app that saved it |
 | `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); one never used reads as empty and is not made by the GET; deleting it and its history, refused (409 `busy`) while a turn of it goes on |
@@ -374,7 +390,8 @@ name it), `thinking_mode` (`default`, `none`,
 `image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
 sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, `web_search_key`, `shell`,
 `task_workers` (2), `rules`, `disabled_toolkits`, `session_summaries` (true: the model goes over
-each conversation as it ends), `browser_command` (the user's Chrome she opens when it is not running;
+each conversation as it ends), `mind` (true: her body, feelings, wants and life between messages),
+`browser_command` (the user's Chrome she opens when it is not running;
 empty: Chrome, else Edge, where their installers put them), `browser_extension_port` (48217: where the
 user's Chrome connects through the extension). Claude Code: `claude_command` (empty: found on
 `PATH` or in `~/.local/bin`), `claude_model` (`default`), `claude_light_model` (`haiku`), `claude_effort`
@@ -415,6 +432,7 @@ sentientmilk_framework/
   provider.py    the OpenAI-compatible provider, streaming and usage
   store.py       SQLite: the event log and everything else
   journal.py     notes about sessions across apps
+  mind/          her body, felt sense, will, values, episodic memory, sleep and life between messages
   scheduler.py   schedules, once or repeating (at, in, every, cron)
   mcp_host.py    MCP servers as toolkits
   browser.py     her browser, the user's Chrome, over the DevTools protocol; browser_page.js reads pages

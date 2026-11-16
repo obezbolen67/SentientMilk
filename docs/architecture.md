@@ -1211,6 +1211,41 @@ morning.
 Sources: [Claude Code memory](https://code.claude.com/docs/en/memory),
 [Codex memories](https://developers.openai.com/codex/memories), and the AGENTS.md guide of the Codex docs.
 
+### 10.6 Her mind (0.20)
+
+The why and the research are in `docs/superpowers/specs/2026-11-16-digital-being-design.md`. One being per
+brain (`Brain.mind`, `mind/`), kept in `home/mind.sqlite3` beside the brain's store: her state as JSON rows
+and her episodes with an FTS5 index. The model stays her cortex; the rest is code with real dynamics.
+
+| Part | What it is |
+|---|---|
+| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, habituating receptors, a circadian rhythm that follows the user's hours, sleep physiology, and a catch-up that lives through time the brain was off |
+| `feel.py` | interoception: a lagged, noisy reading (less noisy with more insight) into valence, arousal and sensations in words; the face an app shows; the names she gave her states |
+| `will.py`, `values.py` | options the model imagined, scored by care, craft, fun, curiosity, learned value, reactance, letdown and effort cost, chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and how the user took them |
+| `memory.py` | episodes with feeling, salience and a power-law strength; recall by bm25, mood, strength and recency, with noise; recall strengthens and recolors; sleep softens; faint ones go |
+| `life.py` | the Mind: before and after each turn with the user's words, the gate on tools after a refusal, the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
+| `prompts.py` | birth (temperament from the persona), imagine, think and sleep, each JSON, each marked `[mind:<kind>]` |
+
+A turn with the user's words: `Runs.log_input` asks `Mind.before`, which wakes her if asleep, counts the
+contact, recalls three episodes, makes one imagine call on the light model (appraisal and 2 to 4
+options), applies the appraisal to her body, credits her last decision with the warmth of this message,
+chooses, and returns the note `[Inside you: ...]` that goes into the stored input content (never into
+`display`). The decision is kept in the run's options (`mind`); `later` keeps a concern. `Loop._settle`
+refuses every tool but memory and journal after `later` or `decline`. `Runs.finished` calls
+`Mind.after`: energy spent (reply tokens plus 2000 a tool call, for every run), and for a decided turn
+the prediction error against the chance she gave it, values learned, an exchange episode stored.
+
+Between messages: her needs drift, adenosine builds. Every 30 s the bids (reach out, wonder, ruminate,
+resume, sleep) get noise and meet a threshold that rises with fatigue, each with its refractory period.
+A thought is a light-model call; `tell`, `ask` and `do` become `mind.urge` notifications to the app last
+talked with, only while that app polls `/v1/mind` (it is there) and the session is free; `look_up`
+starts a background task with web and memory. An urge nobody answers within 30 min stings. Sleep comes
+with sleep pressure, her night and the user away, and is gone over once (insights, a dream, her story
+rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**). Time away longer than
+6 h counts as sleep. `mind` off: none of this runs and the prompt has no inner life.
+
+Measured on the user's provider (2026-11-16): see the commit that brought it.
+
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**

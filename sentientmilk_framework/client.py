@@ -146,6 +146,15 @@ class BrainClient:
     def stats(self) -> dict:
         return self._call("GET", "/stats")
 
+    def mind(self, app: Optional[str] = None, idle: Optional[float] = None) -> dict:
+        """How she is now (mind/): ``on``, ``asleep``, ``felt`` (in words), ``face`` for ``app`` (``mood`` of its
+        declared ones, ``stance``, ``eyes``, ``asleep``; None when her mind is off), ``levels``, ``thoughts``,
+        ``concerns``, ``story``. ``idle``: seconds since the user last touched the computer (whether they are
+        there, for her); asking also tells her ``app`` is there to hear her."""
+        query = "&".join(part for part in (f"app={app}" if app else "",
+                                          f"idle={idle:.0f}" if idle is not None else "") if part)
+        return self._call("GET", "/mind" + (f"?{query}" if query else ""))
+
     # ============== Apps and sessions ==============
 
     def declare_app(self, app: str, **declaration: Any) -> dict:

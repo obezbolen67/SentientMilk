@@ -196,6 +196,10 @@ class _Handler(BaseHTTPRequestHandler):
             if not all(isinstance(body.get(key, ""), str) for key in ("base_url", "api_key")):
                 raise ValueError("base_url and api_key must be strings")
             self._send(200, {"models": brain.models(body.get("base_url"), body.get("api_key"))})
+        elif route == ["mind"] and method == "GET":  # how she is: her face for an app, feelings, thoughts (mind/)
+            app = validate_name(query["app"], "app") if query.get("app") else None
+            idle = float(query["idle"]) if query.get("idle") not in (None, "") else None
+            self._send(200, brain.mind.state(app, idle))
         elif route == ["stats"] and method == "GET":
             self._send(200, brain.stats())
         elif route == ["apps"] and method == "GET":

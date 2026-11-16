@@ -39,6 +39,7 @@ DEFAULTS = {
     "task_workers": 2,
     "rules": {"allow": [], "ask": [], "deny": []},
     "disabled_toolkits": [],
+    "mind": True,  # her body, feelings, wants and life between messages (mind/); off: she answers as asked
     "session_summaries": True,  # she goes over each conversation as it ends and keeps what matters (summaries.py)
     # The user's own Claude Code (claudecode.py): models are its names ("default", "opus", "haiku") or full ids
     "claude_command": "",  # empty: claude, found on PATH or where its installer puts it

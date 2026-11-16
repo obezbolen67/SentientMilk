@@ -260,3 +260,21 @@ def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
     panel.show_plugin()
     panel.show_skill()
     panel.show_task()
+
+
+def test_her_mind_shows_in_its_tab_and_is_switched_there(brain):
+    brain.client.update_config(mind=True)
+    brain.brain.mind.self["thoughts"] = [{"at": time.time(), "kind": "wonder", "thought": "Clouds are odd.",
+                                          "want": "nothing"}]
+
+    async def scenario(panel, pilot):
+        panel.action_tab("mind")
+        await until(pilot, lambda: "You feel" in str(panel.query_one("#mind-now").render())
+                    or "Nothing stands out" in str(panel.query_one("#mind-now").render()))
+        assert "energy" in str(panel.query_one("#mind-body").render())
+        assert "Clouds are odd." in str(panel.query_one("#mind-thoughts").render())
+        assert "story is written in her sleep" in str(panel.query_one("#mind-self").render())
+        panel.query_one("#mind-on", Switch).value = False
+        await until(pilot, lambda: not brain.client.config()["mind"])
+        await until(pilot, lambda: "Her mind is off." in str(panel.query_one("#mind-now").render()))
+    run(brain, scenario)

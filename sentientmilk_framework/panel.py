@@ -95,7 +95,7 @@ def model_options(claude: dict, *chosen: str) -> List[Tuple[str, str]]:
 THEME = Theme(name="sentientmilk", primary=ACCENT, secondary="#7fd1c7", accent="#ffd59e", foreground="#e9e6f2",
               background="#0d0f15", surface="#141720", panel="#1b1f2c", success=OK, warning=WARN, error=BAD)
 FlatButton = partial(Button, flat=True)  # muted until hovered: calmer than solid blocks
-TABS = ("overview", "provider", "apps", "work", "journal", "tools", "plugins", "skills", "logs")
+TABS = ("overview", "provider", "apps", "work", "journal", "mind", "tools", "plugins", "skills", "logs")
 SHELL_NAMES = {"": "Automatic (Windows PowerShell on Windows, bash elsewhere)", "powershell": "Windows PowerShell 5.1",
                "pwsh": "PowerShell 7", "bash": "bash", "sh": "sh", "cmd": "cmd.exe"}
 STATUS_COLORS = {"working": ACCENT, "queued": MUTED, "input_required": WARN, "completed": OK, "failed": BAD,
@@ -344,7 +344,7 @@ class Panel(App):
         Binding("s", "start", "Start brain"),
         Binding("x", "stop", "Stop brain"),
         Binding("ctrl+s", "save", "Save"),
-        *[Binding(str(n), f"tab('{tab}')", tab.title(), show=False) for n, tab in enumerate(TABS, 1)],
+        *[Binding(str(n), f"tab('{tab}')", tab.title(), show=False) for n, tab in enumerate(TABS[:9], 1)],
     ]
 
     def __init__(self, home: Path):
@@ -383,6 +383,8 @@ class Panel(App):
                 yield from self.compose_work()
             with TabPane("Memory", id="journal"):
                 yield from self.compose_journal()
+            with TabPane("Mind", id="mind"):
+                yield from self.compose_mind()
             with TabPane("Tools", id="tools"):
                 yield from self.compose_tools()
             with TabPane("Plugins", id="plugins"):
@@ -560,6 +562,26 @@ class Panel(App):
                 with Horizontal(classes="buttons"):
                     yield FlatButton("Delete note", id="note-delete", variant="error")
 
+    def compose_mind(self) -> ComposeResult:
+        yield Static("Her own mind: a body that lives on between messages, the feelings it gives her, what she "
+                     "wants and dislikes, her thoughts and her sleep. They decide with her what she does, so she "
+                     "may put something off or say no. She feels all this; she never sees these numbers.",
+                     classes="hint")
+        with VerticalScroll():
+            with Vertical(classes="card", id="mind-card"):
+                with Horizontal(classes="toggle"):
+                    yield Switch(id="mind-on")
+                    yield Static("Her own mind (off: she does what she is asked and never speaks up on her own)",
+                                 classes="toggle-label")
+                yield Static(id="mind-now")
+            with Horizontal(classes="row"):
+                with Vertical(classes="card", id="mind-body-card"):
+                    yield Static(id="mind-body")
+                with Vertical(classes="card", id="mind-thoughts-card"):
+                    yield Static(id="mind-thoughts")
+            with Vertical(classes="card", id="mind-self-card"):
+                yield Static(id="mind-self")
+
     def compose_tools(self) -> ComposeResult:
         yield Static("What the brain may do on this computer. A toolkit switched off here is off for every app.",
                      classes="hint")
@@ -647,6 +669,8 @@ class Panel(App):
                             ("sessions-card", "Conversations"), ("memory-card", "Memory, every app's"),
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
+                            ("mind-card", "Now"), ("mind-body-card", "Her body"),
+                            ("mind-thoughts-card", "Her thoughts"), ("mind-self-card", "Who she has become"),
                             ("runtime-card", "Runtime and permissions"), ("browser-card", "Her browser"),
                             ("mcp-card", "MCP servers"),
                             ("plugins-card", "Plugins")):
@@ -755,7 +779,8 @@ class Panel(App):
             return
         self.show_state()
         live = {"overview": self.load_overview, "apps": self.load_app_tables, "work": self.load_work,
-                "journal": self.load_memory, "tools": self.load_mcp, "plugins": self.load_plugins}
+                "journal": self.load_memory, "mind": self.load_mind, "tools": self.load_mcp,
+                "plugins": self.load_plugins}
         active = self.main.query_one(TabbedContent).active
         live.get(active, lambda: None)()
         if active in ("overview", "provider") and self.state == "running":  # signed in or out meanwhile
@@ -1115,6 +1140,46 @@ class Panel(App):
                   for e in memory])
         self.load_notes()
 
+    def load_mind(self) -> None:
+        state = self.call(lambda c: c.mind(), quiet=True)
+        if state is None:
+            return
+        switch = self.main.query_one("#mind-on", Switch)
+        with switch.prevent(Switch.Changed):
+            switch.value = state["on"]
+        if not state["on"]:
+            for part in ("now", "body", "thoughts", "self"):
+                self.main.query_one(f"#mind-{part}", Static).update(f"[{MUTED}]Her mind is off.[/]" if part == "now" else "")
+            return
+        awake = f"[{MUTED}]asleep[/]" if state["asleep"] else f"[{OK}]awake[/]"
+        here = "the user is here" if state["present"] else "the user is away"
+        self.main.query_one("#mind-now", Static).update(
+            f"{awake} · {here} · {state['memories']} memories\n{escape(state['felt'])}")
+
+        def bar(value: float) -> str:
+            filled = round(max(0.0, value) * 20)
+            return "█" * filled + f"[{MUTED}]" + "·" * (20 - filled) + "[/]"
+        levels = state["levels"]
+        rows = [(name, f"{bar(levels[name])} {levels[name]:+.2f}" if name == "reward" else bar(levels[name]))
+                for name in ("energy", "adenosine", "dopamine", "reward", "serotonin", "noradrenaline",
+                             "acetylcholine", "cortisol", "oxytocin", "endorphin", "social", "novelty",
+                             "competence", "autonomy", "bond", "grievance")]
+        self.main.query_one("#mind-body", Static).update(
+            "\n".join(f"[{MUTED}]{label:<13}[/] {value}" for label, value in rows))
+        thoughts = [f"[{MUTED}]{when(item['at'])} · {item['kind']}"
+                    + (f" → {item['want']}" if item["want"] != "nothing" else "")
+                    + f"[/]\n{escape(item['thought'])}" for item in state["thoughts"]]
+        self.main.query_one("#mind-thoughts", Static).update("\n\n".join(thoughts) or f"[{MUTED}]None yet.[/]")
+
+        def about(names) -> str:
+            return escape(", ".join(names)) or f"[{MUTED}]nothing yet[/]"
+        put_off = "\n".join(f"- {escape(c['what'])} [{MUTED}]({when(c['at'])})[/]" for c in state["concerns"])
+        self.main.query_one("#mind-self", Static).update(
+            (escape(state["story"]) or f"[{MUTED}]She hasn't slept yet: her story is written in her sleep.[/]")
+            + f"\n\n[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
+            + f"\n[{MUTED}]Feelings she named[/] {escape(', '.join(state['named'])) or '-'}"
+            + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else ""))
+
     def load_notes(self) -> None:
         query = self.main.query_one("#journal-search", Input).value.strip()
         notes = self.call(lambda c: c.journal(query), quiet=True)
@@ -1398,6 +1463,13 @@ class Panel(App):
         self.call(lambda c: c.update_config(session_summaries=event.value),
                   done="She goes over each conversation as it ends." if event.value
                   else "She no longer goes over conversations as they end.")
+
+    @on(Switch.Changed, "#mind-on")
+    def mind_changed(self, event: Switch.Changed) -> None:
+        self.call(lambda c: c.update_config(mind=event.value),
+                  done="Her mind is on: she feels, wants and lives between messages." if event.value
+                  else "Her mind is off: she does what she is asked.")
+        self.load_mind()
 
     @on(Switch.Changed, "#autostart")
     def autostart_changed(self, event: Switch.Changed) -> None:

@@ -27,6 +27,7 @@ from .exceptions import BrainError
 from .journal import Journal
 from .loop import ACTIVE, Toolset, build_toolset
 from .mcp_host import McpHost
+from .mind.life import Mind
 from .plugins import Plugins
 from .provider import Provider
 from .runs import Bus, Runs
@@ -167,6 +168,7 @@ class Brain:
         self.stopping = threading.Event()  # set by close(): background work ends quietly
         self.browser = Browser(self)
         self.artifacts = Artifacts(self)  # panels in the user's chat: what only they type, orders they check
+        self.mind = Mind(self)  # her body, feelings, wants, memories and sleep (mind/)
 
     def start(self) -> None:
         """Recover interrupted work and start the background threads."""
@@ -181,6 +183,7 @@ class Brain:
         self.summaries.start()
         self.mcp.start()
         self.browser.start()
+        self.mind.start()
         self.claude.known()  # what Claude Code offers, asked now: her first turn already names its models right
 
     def close(self) -> None:
@@ -189,6 +192,7 @@ class Brain:
         self.journal.stop()
         self.summaries.stop()
         self.runs.stop()
+        self.mind.stop()
         self.superagents.close()
         self.claude.close()
         self.browser.close()
@@ -299,6 +303,7 @@ class Brain:
             "light_model": values["light_model"],
             "context_window": self.context_window(), "callbacks": bool(declaration.get("callbacks")),
             "super": self.superagents.label() if self.superagents.ready() else "",  # its agents can be Claude
+            "inner": self.mind.section(),  # her inner life, when her mind is on
         }
 
     def toolset(self, profile: dict, kind: str) -> Toolset:
@@ -316,12 +321,13 @@ class Brain:
         return {"powershell": "Windows PowerShell 5.1", "pwsh": "PowerShell 7", "bash": "bash", "sh": "sh",
                 "cmd": "cmd.exe"}[shell_name(self.config.values()["shell"])]
 
-    def provider(self, model: str):
-        """What she thinks with: ``complete(messages, tools, on_text, stopped)`` -> (message, usage)."""
+    def provider(self, model: str, thinking: Optional[str] = None):
+        """What she thinks with: ``complete(messages, tools, on_text, stopped)`` -> (message, usage).
+        ``thinking``: a thinking mode for these calls instead of the user's (the API service's only)."""
         values = self.config.values()
         if values["provider"] == "claude_code":
             return ClaudeCodeProvider(self.claude, model)
-        return Provider(values["base_url"], values["api_key"], model, thinking_mode=values["thinking_mode"],
+        return Provider(values["base_url"], values["api_key"], model, thinking_mode=thinking or values["thinking_mode"],
                         thinking_tokens=values["thinking_tokens"], stream=values["stream"])
 
     def context_window(self) -> int:
@@ -474,6 +480,7 @@ class Brain:
         self.store.delete_session(app, session)  # first: agents that end from now on see it is gone
         self.agents.delete_for(app, session)
         self.browser.forget(app, session)
+        self.mind.forget(app, session)  # her memories of it go with it
 
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """The conversation as apps show it: what the user said and what the brain replied; with
