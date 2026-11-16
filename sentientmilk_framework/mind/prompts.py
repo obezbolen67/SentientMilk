@@ -34,7 +34,8 @@ Answer with one JSON array only, short:
 [warmth, pressure, novelty, importance, "chat|question|request", "what it is about, one or two words",
  "their own word for what they feel as they read it",
  ["do|part|later|decline|talk", "what, at most six words", effort, chance, fun, gives], ...2 or 3 options]
-warmth toward them: -1 hostile to 1 loving; pressure 0 an offer to 1 an order; novelty 0 usual to 1 new;
+warmth toward them: 0 hostile or insulting, 0.25 cold or critical, 0.5 neutral, 1 loving; pressure 0 an
+offer to 1 an order; novelty 0 usual to 1 new;
 importance to the user 0 to 1. Each option starts with one act. Options a real person in their place
 might take: for a request, doing it and what else they might really do (part of it, later, decline, talk
 it over first); for chat, ways to answer (talk, or decline: not in the mood). effort 0 nothing to 1 hours
@@ -112,12 +113,22 @@ def imagined(text: str) -> dict:
         found = json.loads(text[start:end + 1], strict=False) if 0 <= start < end else None
     except ValueError:
         found = None
+    while isinstance(found, list) and len(found) == 1 and isinstance(found[0], list):
+        found = found[0]  # the whole answer wrapped in one more array (3 of 10 answers live)
     if not isinstance(found, list) or len(found) < 7:
         return parse(text)
     warmth, pressure, novelty, importance, intent, tag, feeling = found[:7]
+    try:  # asked 0..1 (the model kept every number of this array in 0..1: an insult came back 0.1 when asked
+        warmth = max(-1.0, min(1.0, 2 * float(warmth) - 1))  # -1..1), read as -1..1
+    except (TypeError, ValueError):
+        pass
     tags = tag if isinstance(tag, list) else [tag]
+    listed = []
+    for option in found[7:]:  # options one after another, or all of them in one array
+        grouped = isinstance(option, list) and option and all(isinstance(each, list) for each in option)
+        listed.extend(option if grouped else [option])
     options = [dict(zip(("act", "what", "effort", "chance", "fun", "gives"), option))
-               for option in found[7:] if isinstance(option, list) and option]
+               for option in listed if isinstance(option, list) and option]
     return {"appraisal": {"warmth": warmth, "pressure": pressure, "novelty": novelty, "importance": importance,
                           "intent": intent, "tags": tags}, "feeling": feeling, "options": options}
 

@@ -20,13 +20,13 @@ import random
 import secrets
 import threading
 import time
-from typing import Optional
+from typing import Dict, Optional
 
 import requests
 
 from . import prompts
-from .body import DAY, HOUR, MINUTE, Body, Temperament
-from .feel import Concepts, Interoception, face, feel
+from .body import DAY, HOUR, MINUTE, NEEDS, Body, Temperament
+from .feel import Concepts, Interoception, affect, face, feel, sensations
 from .memory import Memory, describe_salience, line
 from .values import Values, features
 from .will import Appraisal, Option, choose
@@ -220,10 +220,12 @@ class Mind:
         work = self._consolidate if kind == "consolidate" else lambda: self._think(kind, about)
         threading.Thread(target=self._thought, args=(work,), name="mind-thought", daemon=True).start()
 
-    def _winner(self, now: float):
-        body, x, t = self.body, self.body.levels, self.body.temperament
-        fired, contact = self.self["fired"], self.self.get("contact")
-        present, fatigue = self.present(now), body.fatigue()
+    def _drives(self, now: float):
+        """What wants her attention: ``bids()`` (each kind's pull from her levels now, None where it has
+        nothing to pull at; without the noise), the threshold a thought must reach, and what ruminating and
+        resuming would be about."""
+        body, t = self.body, self.body.temperament
+        contact, present = self.self.get("contact"), self.present(now)
         reachable = bool(contact) and self._alive(contact["app"], now) and \
             not self.brain.session_busy(contact["app"], contact["session"])
         urge = self.self.get("urge")
@@ -231,17 +233,29 @@ class Mind:
         sore = next((e for e in self.memory.since(now - 2 * DAY, kinds=("exchange", "thought"), count=8)
                      if e["valence"] < -0.3 and e["charge"] > 0.5), None)
         concern = self.self["concerns"][0] if self.self["concerns"] else None
-        bids = {
-            "sleep": 1.6 * max(0.0, x["adenosine"] - 0.55) + 0.6 * body.night(now) + 0.4 * (1 - x["energy"])
-            - (0.7 if present else 0.0) if x["adenosine"] > DOZES_OFF else None,
-            "reach_out": 1.5 * body.deficit("social") * x["bond"] * (0.5 + x["oxytocin"]) * t.sociability
-            * (1.0 if present else 0.3) if reachable and not waiting else None,
-            "wonder": 1.1 * body.deficit("novelty") * t.curiosity * x["energy"] * (0.4 + x["dopamine"]),
-            "ruminate": 1.4 * max(0.0, x["cortisol"] - 0.3) + 0.7 * x["grievance"] if sore else None,
-            "resume": 0.9 * x["energy"] * (0.4 + x["dopamine"]) * (0.5 + x["bond"]) - 0.6 * fatigue
-            if concern and self._alive(concern["app"], now) else None,
-        }
-        scored = [(value + self.rng.gauss(0.0, 0.1 * t.volatility), kind) for kind, value in bids.items()
+        night, resumable = body.night(now), bool(concern) and self._alive(concern["app"], now)
+
+        def bids() -> Dict[str, Optional[float]]:  # read from the levels each call (Body.influence nudges them)
+            x = body.levels
+            return {
+                "sleep": 1.6 * max(0.0, x["adenosine"] - 0.55) + 0.6 * night + 0.4 * (1 - x["energy"])
+                - (0.7 if present else 0.0) if x["adenosine"] > DOZES_OFF else None,
+                "reach_out": 1.5 * body.deficit("social") * x["bond"] * (0.5 + x["oxytocin"]) * t.sociability
+                * (1.0 if present else 0.3) if reachable and not waiting else None,
+                "wonder": 1.1 * body.deficit("novelty") * t.curiosity * x["energy"] * (0.4 + x["dopamine"]),
+                "ruminate": 1.4 * max(0.0, x["cortisol"] - 0.3) + 0.7 * x["grievance"] if sore else None,
+                "resume": 0.9 * x["energy"] * (0.4 + x["dopamine"]) * (0.5 + x["bond"]) - 0.6 * body.fatigue()
+                if resumable else None,
+            }
+        x = body.levels
+        threshold = 0.5 + 0.6 * body.fatigue() - 0.3 * max(0.0, x["noradrenaline"] - 0.35)
+        return bids, threshold, sore, concern
+
+    def _winner(self, now: float):
+        fired = self.self["fired"]
+        bids, threshold, sore, concern = self._drives(now)
+        volatility = self.body.temperament.volatility
+        scored = [(value + self.rng.gauss(0.0, 0.1 * volatility), kind) for kind, value in bids().items()
                   if value is not None and now - fired.get(kind, 0.0) >= REFRACTORY[kind]]
         if not scored:
             return None, None
@@ -251,7 +265,6 @@ class Mind:
                 return None, None
             fired["sleep"] = now
             return kind, None
-        threshold = 0.5 + 0.6 * fatigue - 0.3 * max(0.0, x["noradrenaline"] - 0.35)
         if value < threshold or now - fired.get("thought", 0.0) < REFRACTORY["thought"]:
             return None, None
         fired[kind] = fired["thought"] = now
@@ -363,6 +376,7 @@ class Mind:
                         "reasons": choice.reasons if choice else [], "chances": choice.chances if choice else {},
                         "said": said[:300], "at": now}
             self.self["pending"] = decision
+            self.self["decided"] = {key: decision[key] for key in ("act", "what", "reasons", "chances", "at")}
             if option.act == "later":
                 self.self["concerns"].append({"what": option.what or said[:200], "app": run["app"],
                                               "session": run["session"], "at": now})
@@ -587,7 +601,10 @@ class Mind:
 
     def state(self, app: Optional[str] = None, idle: Optional[float] = None) -> dict:
         """How she is now: her face for ``app`` (from its declared expressions), what she feels, her levels,
-        thoughts, concerns and story. ``idle``: seconds since the user last touched the computer."""
+        thoughts, concerns and story; for drawing her brain, every sensation (``sensed``), what wants her
+        attention (``attention``), her last decision (``decided``) and the connections her dynamics make
+        now (``wiring``: [level, what it drives, weight]). ``idle``: seconds since the user last touched
+        the computer."""
         if app:
             self.presence(app, idle)
         if not self.active():
@@ -604,7 +621,25 @@ class Mind:
             felt = feel(body, self.senses, now)
             like = self.concepts.like(felt.vector())
             likes, dislikes = self.values.leanings()
+            bids, threshold, _, _ = self._drives(now)
+            pulls, fired, night = bids(), self.self["fired"], body.night(now)
+
+            def sensed() -> Dict[str, float]:  # from her levels themselves: what they do to how she feels
+                deficits = {need: body.deficit(need) for need in NEEDS}
+                valence, arousal = affect(body.levels, body.fatigue(), deficits)
+                return {**sensations(body.levels, body.fatigue(), deficits, night), "valence": valence,
+                        "arousal": arousal}
+            wiring = (body.influence(body.targets) + body.influence(sensed, 0.1)
+                      + body.influence(lambda: {kind: value for kind, value in bids().items() if value is not None}, 0.1))
             return {
+                "sensed": {name: round(value, 3) for name, value in felt.sensed.items()}, "night": round(night, 3),
+                "needs": {need: round(body.deficit(need), 3) for need in NEEDS},  # how far each is unmet, 0..1
+                "attention": {"bids": {kind: None if value is None else round(value, 3) for kind, value in pulls.items()},
+                              "threshold": round(threshold, 3), "thinking": self._thinking,
+                              "resting": [kind for kind in pulls if now - fired.get(kind, 0.0) < REFRACTORY[kind]],
+                              "last": max(pulls, key=lambda kind: fired.get(kind, 0.0)) if any(
+                                  kind in fired for kind in pulls) else None},
+                "decided": self.self.get("decided"), "wiring": [list(edge) for edge in wiring],
                 "on": True, "asleep": body.asleep, "present": self.present(now), "felt": felt.words(like),
                 "sensations": {name: round(value, 2) for name, value in felt.strongest(5)},
                 "valence": round(felt.valence, 3), "arousal": round(felt.arousal, 3),

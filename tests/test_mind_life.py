@@ -9,8 +9,8 @@ from conftest import turn, wait_for
 from sentientmilk_framework.mind.life import SLEPT_IF_OFF
 from sentientmilk_framework.testing import tool_call
 
-DECLINE = '[0.1, 0.2, 0.2, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0, 0]]'
-LATER = '[0.1, 0.2, 0.2, 0.5, "request", "report", "tired", ["later", "the weekly report", 0.8, 0.7, -0.2, 0]]'
+DECLINE = '[0.55, 0.2, 0.2, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0, 0]]'
+LATER = '[0.55, 0.2, 0.2, 0.5, "request", "report", "tired", ["later", "the weekly report", 0.8, 0.7, -0.2, 0]]'
 
 
 def mind_on(brain):
@@ -60,7 +60,7 @@ def test_what_she_puts_off_she_keeps_in_mind(brain):
 
 def test_the_next_message_tells_her_how_her_decision_was_taken(brain):
     mind = mind_on(brain)
-    brain.provider.mind_replies["imagine"] = [DECLINE, '[-0.9, 0.5, 0.1, 0.5, "chat", "insult", "hurt"]']
+    brain.provider.mind_replies["imagine"] = [DECLINE, '[0.05, 0.5, 0.1, 0.5, "chat", "insult", "hurt"]']
     brain.provider.replies += ["No.", "Sorry."]
     turn(brain, "cli", "Read a.txt for me")
     before = mind.values.predict(["act:decline", "tag:files"])
@@ -205,3 +205,22 @@ def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain):
     assert "tomato cold tolerance" in json.dumps(task)
     told = [n["type"] for n in brain.store.notifications("milk", 0)]
     assert not {"task.completed", "task.failed", "mind.urge"} & set(told)  # MilkChan would start a turn
+
+
+def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
+    mind = mind_on(brain)
+    with mind._lock:
+        mind.body.levels.update(energy=0.5, cortisol=0.5, oxytocin=0.6, reward_rate=0.2)
+    seen = brain.client.mind("milk", idle=5)
+    edges = {(source, output): weight for source, output, weight in seen["wiring"]}
+    assert abs(edges[("reward_rate", "dopamine")] - 0.45) < 0.01  # dopamine's target: +0.45 per unit
+    assert edges[("cortisol", "serotonin")] < 0 and edges[("oxytocin", "cortisol")] < 0  # stress and its brakes
+    assert edges[("energy", "drained")] < 0 and edges[("cortisol", "tense")] > 0 and edges[("oxytocin", "valence")] > 0
+    assert abs(mind.body.levels["energy"] - 0.5) < 0.01 and abs(mind.body.levels["cortisol"] - 0.5) < 0.01
+    assert len(seen["sensed"]) == 17 and set(seen["attention"]["bids"]) == {"sleep", "reach_out", "wonder",
+                                                                           "ruminate", "resume"}
+    assert 0 < seen["attention"]["threshold"] and seen["decided"] is None
+    brain.provider.replies += ["Sure."]
+    turn(brain, "milk", "Could you tidy my notes?")
+    decided = brain.client.mind("milk", idle=5)["decided"]
+    assert decided["act"] == "do" and decided["at"] > 0

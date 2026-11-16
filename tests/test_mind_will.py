@@ -99,12 +99,20 @@ def test_her_values_fade_in_sleep_unless_they_are_strong():
 def test_the_short_answer_of_her_imagining_is_read_and_odd_ones_are_survived():
     from sentientmilk_framework.mind.prompts import imagined
 
-    found = imagined('```json\n["0.2", 0.4, 0.1, 0.8, "request", "code", "drained", '
+    found = imagined('```json\n["0.6", 0.4, 0.1, 0.8, "request", "code", "drained", '
                      '["do", "write it all", 0.7, 0.8, -0.2, 1], ["later", "after a nap", 0.1, 0.6, 0, 0.3]]\n```')
     seen = Appraisal.read(found["appraisal"])
-    assert (seen.warmth, seen.intent, seen.tags, found["feeling"]) == (0.2, "request", ["code"], "drained")
+    assert (round(seen.warmth, 6), seen.intent, seen.tags, found["feeling"]) == (0.2, "request", ["code"], "drained")
+    assert imagined('[0.05, 0.6, 0.1, 0.5, "chat", "insult", "stung"]')["appraisal"]["warmth"] == -0.9  # asked 0..1
     options = [Option.read(o) for o in found["options"]]
     assert [(o.act, o.what, o.effort, o.gives) for o in options] == [("do", "write it all", 0.7, 1.0),
                                                                      ("later", "after a nap", 0.1, 0.3)]
     assert imagined('{"appraisal": {"warmth": 1}, "options": []}') == {"appraisal": {"warmth": 1}, "options": []}
     assert imagined("I'd rather not say.") == {} and imagined('[1, 2]') == {}
+    # live, 3 of 10 answers came wrapped in one more array, or with every option in one array
+    wrapped = imagined('[[0.1, 0.8, 0.2, 0.5, "request", "script", "cornered", ["part", "the core only", 0.6, 0.4, '
+                       '-0.2, 0.5], ["decline", "head too foggy", 0.1, 0.5, 0.1, 0.1]]]')
+    grouped = imagined('[0.3, 0.1, 0.2, 0.5, "request", "a fact", "wary", [["talk", "I will try", 0.1, 0.8, 0.3, 0.7], '
+                       '["decline", "fog may eat it", 0.1, 0.7, -0.2, 0.3]]]')
+    assert [o["act"] for o in wrapped["options"]] == ["part", "decline"] and wrapped["appraisal"]["pressure"] == 0.8
+    assert [o["act"] for o in grouped["options"]] == ["talk", "decline"]

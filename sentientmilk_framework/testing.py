@@ -20,7 +20,7 @@ import requests
 PROVIDER_URL = "https://provider.invalid/v1"
 MIND_ANSWERS = {
     "birth": '{"traits": {}}',
-    "imagine": '[0.2, 0.2, 0.3, 0.5, "request", "work", "fine", ["do", "it", 0.2, 0.9, 0.1, 1]]',
+    "imagine": '[0.6, 0.2, 0.3, 0.5, "request", "work", "fine", ["do", "it", 0.2, 0.9, 0.1, 1]]',
     "think": '{"thought": "I wonder how the user is doing.", "feeling": "calm", "want": "nothing"}',
     "sleep": '{"insights": [], "story": "", "dream": ""}',
 }

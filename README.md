@@ -342,7 +342,10 @@ dislikes, and episodes she recalls by likeness and mood. Between messages, missi
 what nags her and what she put off compete for her attention; a winning thought may become an urge the
 app hears (`mind.urge`: MilkChan starts a turn for it). She sleeps when tired at night with the user
 away, and her sleep rewrites the story of who she has become. Apps read her face and feelings from
-`GET /v1/mind`. Off, she answers as asked and never speaks up on her own.
+`GET /v1/mind`, with what an app needs to draw her brain: every sensation, how unmet each need is, what
+pulls at her attention against the threshold a thought must reach, her last decision, and `wiring`, the
+connections her dynamics make at that moment (each level nudged in turn: how far it moves the others).
+Off, she answers as asked and never speaks up on her own.
 
 ## HTTP API
 

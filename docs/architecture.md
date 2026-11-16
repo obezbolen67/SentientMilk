@@ -1246,6 +1246,14 @@ again), her night and the user away; she wakes when it is cleared (~7 h), and th
 rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**). Time away longer than
 6 h counts as sleep. `mind` off: none of this runs and the prompt has no inner life.
 
+`GET /v1/mind?app=&idle=` (`Mind.state`): her face for the app, felt words, levels, every sensation
+(`sensed`), `needs` (how unmet, 0..1), `attention` (each bid without noise, the threshold, the kinds
+resting after they won, the last winner, whether she is thinking), `decided` (her last decision with its
+odds) and `wiring`: [level, output, weight] from `Body.influence`, which nudges each level by 0.05 and
+measures how far the chemistry's targets, the sensations and core affect, and the bids move (weights
+under 0.05 or 0.1 left out). It is the real coupling at that moment, not a fixed diagram: a need only
+drives anything while it is unmet. MilkChan draws it (Inside her head).
+
 Measured on the user's provider (2026-11-16): see the commit that brought it.
 
 ## 11. Models and providers

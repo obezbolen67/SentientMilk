@@ -19,7 +19,7 @@ import math
 import random
 import time
 from dataclasses import asdict, dataclass, field, fields
-from typing import Dict, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 MINUTE, HOUR, DAY = 60.0, 3600.0, 86400.0
 
@@ -162,14 +162,15 @@ class Body:
             self._step(dt, present)
             self.at += dt
 
-    def _step(self, dt: float, present: bool) -> None:
+    def targets(self) -> Dict[str, float]:
+        """Where each chemical is heading now: what the other levels make of it (the couplings)."""
         t, x = self.temperament, self.levels
         c = circadian(self.hour(), self.peak)
         morning = circadian(self.hour(), self.peak - 8.0)  # cortisol rises as she wakes
         d = {need: self.deficit(need) for need in NEEDS}
         spent = 1.0 - x["energy"]
         sleep = self.asleep
-        targets = {
+        return {
             "dopamine": 0.5 * t.vigor + 0.45 * x["reward_rate"] - 0.35 * max(0.0, x["adenosine"] - 0.5)
             - 0.3 * max(0.0, x["cortisol"] - 0.35) - 0.25 * spent + 0.08 * c - (0.15 if sleep else 0.0),
             "serotonin": 0.6 * t.patience + 0.25 * (x["oxytocin"] - 0.4) - 0.4 * max(0.0, x["cortisol"] - 0.3)
@@ -187,6 +188,29 @@ class Body:
             "endorphin": 0.1 * t.playfulness,
             "reward": 0.0,
         }
+
+    def influence(self, outputs: Callable[[], Dict[str, float]], floor: float = 0.05) -> List[Tuple[str, str, float]]:
+        """What drives what now: (level, output, weight), how far ``outputs`` moves per unit rise of the level,
+        measured by nudging each level in turn (the levels come back as they were); weights below ``floor``
+        are left out. For drawing her brain: the connections her own dynamics make at this moment."""
+        base, found = outputs(), []
+        for name, saved in list(self.levels.items()):
+            step = 0.05 if saved < 0.95 else -0.05
+            self.levels[name] = saved + step
+            try:
+                moved = outputs()
+            finally:
+                self.levels[name] = saved
+            for output, value in moved.items():
+                weight = (value - base.get(output, value)) / step
+                if output != name and abs(weight) >= floor:
+                    found.append((name, output, round(weight, 3)))
+        return found
+
+    def _step(self, dt: float, present: bool) -> None:
+        t, x = self.temperament, self.levels
+        sleep = self.asleep
+        targets = self.targets()
         for name, level in CHEMICALS.items():
             value = _toward(x[name], targets[name], dt, level.tau)
             if level.noise:

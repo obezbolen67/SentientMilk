@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from sentientmilk_framework.mind import life
 from sentientmilk_framework.mind.body import HOUR, MINUTE
 
-REQUEST = ('[0.3, 0.4, 0.3, 0.6, "request", "code", "fine", ["do", "fix it", 0.5, 0.8, 0.1, 1], '
+REQUEST = ('[0.65, 0.4, 0.3, 0.6, "request", "code", "fine", ["do", "fix it", 0.5, 0.8, 0.1, 1], '
            '["part", "the main bug", 0.3, 0.85, 0, 0.5], ["later", "tomorrow", 0.5, 0.8, -0.1, 0], '
            '["decline", "not now", 0.5, 0.8, 0, 0]]')
 MORNING = time.mktime((2026, 11, 16, 9, 0, 0, 0, 0, -1))
