@@ -389,7 +389,7 @@ class Loop:
             except ToolError as exc:
                 self._result(run, call, call["function"]["name"], {}, ToolResult(f"Error: {exc}"), "error", emit)
                 continue
-            barred = self.brain.mind.barred(run, tool_.toolkit)
+            barred = self.brain.mind.barred(run, tool_)
             if barred:  # she decided not to do it now
                 self._result(run, call, name, arguments, ToolResult(barred), "error", emit)
                 continue

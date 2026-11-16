@@ -56,6 +56,20 @@ def test_when_she_declines_her_work_tools_stay_unused_for_that_turn(brain):
     assert "You decided not to do this now" in after and "secret plans" not in after
 
 
+def test_when_she_would_rather_talk_first_she_may_look_but_changes_nothing(brain):
+    mind_on(brain)  # live, "talk first" wrote all three files 2 times in 3 when nothing kept her from it
+    brain.provider.mind_replies["imagine"] = ['["asked for poems", "same", "same", "same", "request", "poems", "unsure",'
+                                              ' ["talk", "ask what they should be about", 0.2, 0.9, 0.1]]']
+    (brain.work / "a.txt").write_text("rain and tea", encoding="utf-8")
+    brain.provider.replies += [tool_call("files_read", {"path": str(brain.work / "a.txt")}),
+                               tool_call("files_write", {"path": str(brain.work / "b.txt"), "content": "a poem"}),
+                               "What should they be about?"]
+    turn(brain, "cli", "Write a poem in b.txt, like the ones in a.txt")
+    after = json.dumps(brain.provider.sent[-1]["messages"])
+    assert "rain and tea" in after and "You decided not to do this now" in after
+    assert not (brain.work / "b.txt").exists()
+
+
 def test_what_she_puts_off_she_keeps_in_mind(brain):
     mind = mind_on(brain)
     brain.provider.mind_replies["imagine"] = [LATER]

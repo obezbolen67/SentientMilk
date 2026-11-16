@@ -1259,7 +1259,9 @@ oxytocin and endorphin. She chooses, then `_threat`: cortisol from what was take
 capability (and half her freedom) less what her chosen option wins back, and a grievance from a hard
 blow. The note `[Inside you: ...]` goes into the stored input content (never into `display`). The
 decision is kept in the run's options (`mind`, with `foreseen` and `novelty`); `later` keeps a concern.
-`Loop._settle` refuses every tool but memory and journal after `later` or `decline`. `Runs.finished`
+`Loop._settle` refuses every tool but memory and journal after `later` or `decline`, and after `talk` every
+tool that changes something (she may look first: told to talk, the model did the whole job 2 times in 3
+live, 2026-11-16; held, 4 of 4; `do`, `part`, `later` and `decline` were kept 3 of 3 each). `Runs.finished`
 calls `Mind.after`: energy spent (reply tokens plus 600 a tool call, for every run), and for a decided
 turn the prediction error against the chance she gave it, values learned, an exchange episode stored.
 

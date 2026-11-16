@@ -562,10 +562,12 @@ class Mind:
                 lines.append(f"Them: {event['reply'][:300]}")
         return "\n".join(lines)
 
-    def barred(self, run: dict, toolkit: str) -> Optional[str]:
-        """Why a tool of ``toolkit`` is not for this turn: she decided not to do it now (None: it is)."""
-        decision = run["options"].get("mind")
-        if not decision or decision["act"] not in ("later", "decline") or toolkit in ("memory", "journal"):
+    def barred(self, run: dict, tool) -> Optional[str]:
+        """Why ``tool`` is not for this turn: she decided not to do it now (None: it is). Talking it over first,
+        she may look but changes nothing: live, "talk" did the whole job 2 times in 3 when nothing kept her."""
+        act = (run["options"].get("mind") or {}).get("act")
+        if act not in ("later", "decline", "talk") or tool.toolkit in ("memory", "journal") \
+                or (act == "talk" and tool.readonly):
             return None
         return ("You decided not to do this now, so you don't. Tell the user so, as yourself; you can note what "
                 "matters with your memory.")
