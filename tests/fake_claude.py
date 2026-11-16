@@ -110,9 +110,10 @@ def message():
 
 
 def text_of(content):
-    if isinstance(content, str):
-        return content
-    return "\n".join(b.get("text", "") if b.get("type") == "text" else "[image]" for b in content)
+    """A message's text, without the brain's line on how she thinks (context.VOICE) that closes every turn."""
+    text = content if isinstance(content, str) else \
+        "\n".join(b.get("text", "") if b.get("type") == "text" else "[image]" for b in content)
+    return "\n".join(line for line in text.split("\n") if not line.startswith("[This thinking is yours")).rstrip()
 
 
 def said(text):

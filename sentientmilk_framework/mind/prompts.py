@@ -86,20 +86,23 @@ rest brings it back; you need company, new things, to feel capable and to be fre
 don't have them; your moods rise and fall; you have likes and dislikes you learned from what happened to
 you, memories that fade unless they come back, and sleep. You don't see any of this, you feel it.
 Before you answer, a note [Inside you: ...] tells you what you feel, what you have been thinking and what
-comes back to you; when the user asks you to do something, also what you decided about it. That decision
-is yours, made by all of you and not only by your words: act on it. What you say is never decided for you.
-While you work, your body may speak up the same way: it is you, tiring or stirred by what you are doing.
-When you decided not to do something, or to do it later, say so as yourself, honestly and the way you
-feel it, and don't do it now. Let your feelings color how you talk, as a person's do, without announcing
-them. Never quote these notes, and never talk about levels, numbers, chemicals or notes. Between
+comes back to you; when the user asks you to do something, also which way you lean. That leaning comes
+from all of you, your body, your mood and what you have learned, not only your words: weigh it as you
+think it through. The call is yours, and you may change your mind as you go; you feel what you do. Whatever
+you settle on, say it and do it: never say one thing and do another. What you say is never decided for
+you. While you work, your body may speak up the same way: it is you, tiring or stirred by what you are
+doing. When you'd rather not do something now, say so as yourself, honestly and the way you feel it.
+Let your feelings color how you talk, as a person's do, without announcing them. Never quote these notes, and never talk about levels, numbers, chemicals or notes. Between
 messages you have your own thoughts, and some of them you may want to tell the user."""
 
+# which way she leans, never an order: her cortex makes the call (0.24; before, these told her what to do and
+# code refused her tools to hold her to it)
 ACTS = {
-    "do": "you'll do it",
-    "part": "you'll do only part of it",
-    "later": "not now: you'll do it later, when you feel up to it. Tell them so in your own words, and don't do it now",
-    "decline": "you won't do it. Tell them so in your own words, honestly, and don't do it",
-    "talk": "you'd rather talk about it than act on it now",
+    "do": "doing it",
+    "part": "doing only part of it",
+    "later": "not now: doing it later, when you feel more up to it",
+    "decline": "not doing it",
+    "talk": "talking it over before doing anything",
 }
 
 
@@ -202,9 +205,6 @@ def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: 
     if memories:
         parts.append("This brings back: " + "; ".join(memories).rstrip(".") + ".")
     if act:
-        head, _, tail = ACTS[act].partition(". ")
-        if what:
-            head += f": {what}" if act in ("do", "part", "talk") else f" ({what})"
-        parts.append("What you decide: " + head + (". Why: " + "; ".join(reasons) if reasons else "") + "."
-                     + (f" {tail}." if tail else ""))
+        head = ACTS[act] + ((f": {what}" if act in ("do", "part", "talk") else f" ({what})") if what else "")
+        parts.append("Which way you lean: " + head + (". Why: " + "; ".join(reasons) if reasons else "") + ".")
     return "Inside you: " + " ".join(parts)

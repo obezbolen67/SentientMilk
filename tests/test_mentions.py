@@ -191,7 +191,7 @@ def test_an_attached_picture_comes_inline_or_as_its_path(brain, tmp_path):
     turn(brain, "cli", "and these", items=[attached(fake), attached(picture(tmp_path / "dog.jpg"))])
     content = brain.provider.sent[-1]["messages"][-1]["content"]
     assert "broken.png" in content[0]["text"] and "only its path, as it does not read as a picture]" in content[0]["text"]
-    assert "picture 1 with this message]" in content[0]["text"] and len(content) == 2  # the second is picture 1
+    assert "picture 1 with this message]" in content[0]["text"] and [b["type"] for b in content].count("image_url") == 1
 
     brain.client.update_config(vision=False)
     turn(brain, "cli", "now?", items=[attached(photo)])

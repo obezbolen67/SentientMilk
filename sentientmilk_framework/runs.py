@@ -383,7 +383,7 @@ class Runs:
         options = run["options"]
         if options.get("input") is None or any(e["type"] == "input" for e in self.store.run_events(run["id"])):
             return
-        reminders = []
+        reminders = [context.VOICE] if run["kind"] == "turn" else []
         if profile["signals"] and run["kind"] == "turn":
             reminders.append(signal_format.FORMAT_REMINDER)
         if options.get("reply") == "optional":

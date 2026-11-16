@@ -1270,12 +1270,20 @@ good", `Appraisal.theirs`), and that happens to her as far as she is bonded and 
 as much, cortisol by 0.2 of their trouble, oxytocin by 0.15 either way (0.24; weighed a quarter of hers,
 a friend's bad day still felt like company gained). She chooses, then `_threat`: cortisol from what was taken of her company and
 capability (and half her freedom) less what her chosen option wins back, and a grievance from a hard
-blow. The note `[Inside you: ...]` goes into the stored input content (never into `display`). The
-decision is kept in the run's options (`mind`, with `foreseen`, `novelty` and `gated`: she chose among
-options); `later` keeps a concern. `Loop._settle` refuses, in a gated turn, every tool but memory and
-journal after `later` or `decline`, and after `talk` every tool that changes something (she may look
-first: told to talk, the model did the whole job 2 times in 3 live, 2026-11-16; held, 4 of 4; `do`, `part`,
-`later` and `decline` were kept 3 of 3 each). A turn that was not gated holds nothing back. `Loop._think`
+blow. The note `[Inside you: ...]` goes into the stored input content (never into `display`); for a
+request it says which way she leans ("Which way you lean: not now: doing it later ... Why: ..."), never
+what to do. The leaning is kept in the run's options (`mind`, with `foreseen`, `novelty` and `gated`: she
+weighed options); `later` keeps a concern. Nothing in code holds her to it (0.24): her cortex weighs it as
+it thinks and makes the call, and may change it as it goes. Before 0.24, `Loop._settle` refused every work
+tool after `later`, `decline` or `talk` (`Mind.barred`), so in the user's brain, worn out and leaning to
+put a job off, she offered one small safe step, called the tool and was told "You decided not to do this
+now". `Mind.after` reads what she did (`_did`: a tool that changes something, beyond memory and journal,
+ran, so she did it) and remembers and learns that (`decided.outcome.did`, the episode "I did it, though I
+had leaned toward putting it off", her values and the next message's settling). Every turn's message
+also ends with `context.VOICE` (before the format reminder): her thinking is hers, in the first person,
+never "in character", and where her description says "she" it is "I" in her head (said only in WHO YOU
+ARE, her reasoning planned how "she" would answer on 29 of 35 first messages on the user's model; with
+it, 7 of 24). `Loop._think`
 asks `Mind.reflexive(run)` whether she answers without thinking it through: her clarity (`_clear`) is
 1 - 2.5 x (fatigue over 0.4) - 1.5 x (cortisol over 0.5); under 0.5 she is on reflex, and stays so until
 it is back over 0.6; a run that began on reflex ends on it (`reflex` in its options), for every run but

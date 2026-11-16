@@ -391,10 +391,6 @@ class Loop:
             except ToolError as exc:
                 self._result(run, call, call["function"]["name"], {}, ToolResult(f"Error: {exc}"), "error", emit)
                 continue
-            barred = self.brain.mind.barred(run, tool_)
-            if barred:  # she decided not to do it now
-                self._result(run, call, name, arguments, ToolResult(barred), "error", emit)
-                continue
             if call["id"] in started and not tool_.readonly:
                 self._result(run, call, name, arguments, ToolResult(INTERRUPTED_CALL), "error", emit)
                 continue

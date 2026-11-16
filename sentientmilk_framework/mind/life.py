@@ -12,10 +12,15 @@ from her needs, her state and her history with the user.
 Her felt sense goes with the message as a note only she reads, with what she thought while nobody wrote and
 what comes back to her that her context does not hold already.
 
-The model is her cortex, a part of this loop and not a voice beside it (0.23). Her body gates work, it
-never writes her words: only a request (something that takes work) is decided on, as a basal ganglia gate
-releases or holds an action the cortex proposes (Frank 2004); a refusal or a delay keeps her work tools from
-her for that turn (``barred``), and what she says is always hers to find. Her chemistry sets how her cortex
+The model is her cortex, a part of this loop and not a voice beside it (0.23). Her body never writes her
+words, and code never holds back what she does: a request (something that takes work) leaves her leaning
+one way, weighed from her needs, her state and what she has learned (as the striatum weighs the actions the
+cortex proposes, Frank 2004), and her cortex weighs that leaning as it thinks and makes the call, free to
+change its mind as it goes (people change their minds mid-action as evidence comes in: Resulaj et al.
+2009). What she learns is what she did, not what she leaned toward (``after``: the striatum learns from the
+action taken). Before 0.24 a leaning to put work off was a wall: every tool refused for the turn, so
+when her cortex settled on one small safe step, code refused it and told her she had decided otherwise
+(in the user's brain, 2026-11-16). Her chemistry sets how her cortex
 computes, not only what it is told (``_clear``: fatigue and stress she cannot shake take the prefrontal
 cortex offline, Arnsten 2009): worn out or badly stressed she answers on reflex, without thinking it
 through (``reflexive``: the provider's thinking off, the one step that was measured to change what the
@@ -26,7 +31,7 @@ constructed, is also a command to the body, Barrett & Simmons 2015).
 The loop closes at every step, not once a turn (0.24). Each step of her work tires her as it is done and a
 call that fails stirs her (``during``); what newly stands out in her body reaches her cortex while she works,
 and her cortex is asked again how clearly it can think. A message the user sends while she works is read
-and felt like any other (``heard``); only the decision already made stands. When the turn ends (``after``)
+and felt like any other (``heard``); the leaning already made stands. When the turn ends (``after``)
 its outcome moves her body, teaches her values and becomes a memory. The user's next message settles what
 followed hers (``_settle``): it is kept with that memory, it shows which guide to trust, and it teaches her
 values about her decision.
@@ -96,6 +101,7 @@ THOUGHT_CHARS = 400  # of a memory or a thought, in what she is told of it
 KNOWN_SUBJECTS = 24
 VERBS = {"do": "did it", "part": "did part of it", "later": "put it off", "decline": "said no",
          "talk": "talked it over"}
+LEANINGS = {"later": "putting it off", "decline": "saying no", "talk": "talking it over first"}
 ON_MIND = {
     "reach_out": "You miss the user.{since}",
     "wonder": "You're bored. You want something new to think about.",
@@ -448,7 +454,7 @@ class Mind:
             feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
             foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
             decision = {"act": option.act, "what": option.what, "chance": option.chance, "effort": option.effort,
-                        "gated": bool(choice),  # she chose among options: only then are tools kept from her
+                        "gated": bool(choice),  # she weighed options and leans one way (a request); a chat: no
                         "foreseen": foreseen, "novelty": round(novelty, 3),
                         "stakes": min(1.0, sum(abs(change) for change in foreseen.values()) / 2),
                         "features": found(option), "reasons": choice.reasons if choice else [],
@@ -709,19 +715,17 @@ class Mind:
                 lines.append(f"Them: {event['reply'][:300]}")
         return "\n".join(lines)
 
-    def barred(self, run: dict, tool) -> Optional[str]:
-        """Why ``tool`` is not for this turn: asked to do something, she decided not to do it now (None: it is).
-        Talking it over first, she may look but changes nothing: live, "talk" did the whole job 2 times in 3
-        when nothing kept her. A turn with nothing to decide (a chat) holds nothing back: what she takes up
-        on her own is hers (in the user's brain, 2026-11-16, asked what was on her mind she went to check
-        something that had nagged her all day, and a "talk" she never chose refused her)."""
-        decided = run["options"].get("mind") or {}
-        act = decided.get("act")
-        if not decided.get("gated") or act not in ("later", "decline", "talk") \
-                or tool.toolkit in ("memory", "journal") or (act == "talk" and tool.readonly):
-            return None
-        return ("You decided not to do this now, so you don't. Tell the user so, as yourself; you can note what "
-                "matters with your memory.")
+    def _did(self, run: dict, events: list, leaned: str) -> str:
+        """What she did about a request, whatever she leaned toward: having changed something with her tools
+        (beyond her memory and journal) she did it. shortcut: a "do" she talked her way out of is not told from
+        a job that needed nothing changed; reading her reply would tell them apart."""
+        used = {e["name"] for e in events if e["type"] == "tool" and e.get("status") == "ok"}
+        if leaned in ("do", "part") or not used:
+            return leaned
+        tools = self.brain.toolset(self.brain.profile(run["app"], run["session"]), "turn").by_name
+        changed = any(name in tools and not tools[name].readonly and tools[name].toolkit not in ("memory", "journal")
+                      for name in used)
+        return "do" if changed else leaned
 
     @staticmethod
     def _work(events: list) -> Tuple[int, int, int]:
@@ -781,6 +785,9 @@ class Mind:
         denied = sum(1 for e in events if e["type"] == "approval" and e.get("decision") == "deny")
         steered = max(0, sum(1 for e in events if e["type"] == "input") - 1)
         decision = run["options"].get("mind")
+        # what she did, which her cortex settled on as it went: that is what she learns from and remembers
+        leaned = decision["act"] if decision else None
+        act = self._did(run, events, leaned) if decision and decision.get("gated") else leaned
         with self._lock:
             now = time.time()
             self._live_until(now)
@@ -791,7 +798,7 @@ class Mind:
             expressed = self._express(run) if run["kind"] == "turn" else None
             if not decision:
                 return
-            act, ok, stopped = decision["act"], run["status"] == "completed", run["status"] == "cancelled"
+            ok, stopped = run["status"] == "completed", run["status"] == "cancelled"
             failed = errors / calls if calls else 0.0
             surprise = 0.0
             # how it went for her needs, measured: what follows the user's message (_settle) beside their reply
@@ -814,10 +821,16 @@ class Mind:
                 felt_outcome -= 0.4
             if steered:
                 body.apply({"autonomy": -0.05 * steered})
-            self.values.learn(decision["features"], max(-1.0, min(1.0, felt_outcome)), self._rate())
+            # the act taken is what is learned (an actor learns from the action it took), not the leaning
+            learned = [f"act:{act}" + item[len(f"act:{leaned}"):] if item.startswith(f"act:{leaned}") else item
+                       for item in decision["features"]]
+            self.values.learn(learned, max(-1.0, min(1.0, felt_outcome)), self._rate())
+            if act != leaned and leaned == "later":  # done after all: nothing left to come back to
+                self.self["concerns"] = [c for c in self.self["concerns"] if c.get("at") != decision["at"]]
             felt = feel(body, self.senses, now)
             reply = ((run.get("result") or {}).get("reply") or "")[:300]
             did = f" I {VERBS[act]}" + (f" ({decision['what']})" if decision["what"] else "") \
+                + (f", though I had leaned toward {LEANINGS[leaned]}" if act != leaned else "") \
                 if decision.get("gated", True) else ""  # a chat is what was said, nothing done or put off
             text = (f"The user said: {decision['said']}{did}"
                     + (f". As I worked they said: {'; '.join(heard)}" if heard else "")
@@ -829,10 +842,11 @@ class Mind:
                                       app=run["app"], session=run["session"], at=now)
             pending = self.self["waiting"].get(_chat(run["app"], run["session"]))
             if pending and pending.get("at") == decision["at"]:  # the user has not written again in this chat yet
-                pending.update(episode=episode, measured=measured)
+                pending.update(episode=episode, measured=measured, act=act, features=learned)
             decided = self.self.get("decided")
             if decided and decided.get("at") == decision["at"]:
-                decided["outcome"] = {"status": run["status"], "calls": calls, "errors": errors, "denied": denied,
+                decided["outcome"] = {"did": act, "status": run["status"], "calls": calls, "errors": errors,
+                                      "denied": denied,
                                       "steered": steered, "surprise": round(surprise, 3), "expressed": expressed,
                                       "measured": {name: round(change, 3) for name, change in measured.items()}}
 

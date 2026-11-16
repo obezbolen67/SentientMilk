@@ -1,10 +1,10 @@
-"""Her mind in the brain: a message is felt and decided on, a refusal keeps her tools from her, an outcome is
-remembered, thoughts become urges the app hears, sleep rewrites her story, and the switch turns it all off."""
+"""Her mind in the brain: a message is felt and leaned on, what she does is hers and is what she learns from,
+an outcome is remembered, thoughts become urges the app hears, sleep rewrites her story, and the switch turns
+it all off."""
 
 import json
 import math
 import time
-from types import SimpleNamespace
 
 import pytest
 from conftest import turn, wait_for
@@ -32,7 +32,7 @@ def test_she_feels_and_decides_before_she_answers_and_the_user_never_sees_it(bra
     assert result["reply"] == "Sure, here it is."
     sent = brain.provider.last_user_text()
     assert ("[Inside you: Your body" in sent or "[Inside you: Nothing stands out" in sent) \
-        and "What you decide: you'll do it" in sent
+        and "Which way you lean: doing it" in sent
     assert "Can you sum up my notes?" in sent
     imagine = next(r for r in brain.provider.mind_requests if r["messages"][0]["content"].startswith("[mind:imagine]"))
     assert "Can you sum up my notes?" in imagine["messages"][1]["content"]
@@ -45,30 +45,27 @@ def test_she_feels_and_decides_before_she_answers_and_the_user_never_sees_it(bra
     assert "Can you sum up my notes?" in episode["text"] and "I did it" in episode["text"]
 
 
-def test_when_she_declines_her_work_tools_stay_unused_for_that_turn(brain):
-    mind_on(brain)
+def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from(brain):
+    mind = mind_on(brain)  # a leaning was a wall: her one small safe step was refused as "you decided not to"
+    brain.provider.mind_replies["imagine"] = [LATER]
+    brain.provider.replies += [tool_call("files_write", {"path": str(brain.work / "ip.txt"), "content": "1.2.3.4"}),
+                               "Checked the IP; the rest when I'm less foggy."]
+    turn(brain, "cli", "Put my laptop's IP in the server's allow list", on_approval=lambda event: "allow")
+    sent = brain.provider.sent[0]["messages"][-1]["content"]
+    assert "Which way you lean: not now: doing it later" in sent and "don't do it" not in sent
+    assert (brain.work / "ip.txt").read_text(encoding="utf-8") == "1.2.3.4"  # nothing held her back
+    outcome = wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))
+    assert outcome["did"] == "do"
+    episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]
+    assert "I did it (the weekly report), though I had leaned toward putting it off" in episode["text"]
+    assert "act:do" in mind.values.weights and "act:later" not in mind.values.weights  # she learns what she did
+    assert not mind.self["concerns"]  # done after all: nothing put off to come back to
     brain.provider.mind_replies["imagine"] = [DECLINE]
     (brain.work / "a.txt").write_text("secret plans", encoding="utf-8")
     brain.provider.replies += [tool_call("files_read", {"path": str(brain.work / "a.txt")}), "Not now, sorry."]
-    result = turn(brain, "cli", "Read a.txt for me")
-    assert result["reply"] == "Not now, sorry."
-    assert "you won't do it (reading the file)" in brain.provider.sent[0]["messages"][-1]["content"]
-    after = json.dumps(brain.provider.sent[-1]["messages"])
-    assert "You decided not to do this now" in after and "secret plans" not in after
-
-
-def test_when_she_would_rather_talk_first_she_may_look_but_changes_nothing(brain):
-    mind_on(brain)  # live, "talk first" wrote all three files 2 times in 3 when nothing kept her from it
-    brain.provider.mind_replies["imagine"] = ['["asked for poems", "same", "same", "same", "request", "poems", "unsure",'
-                                              ' ["talk", "ask what they should be about", 0.2, 0.9, 0.1]]']
-    (brain.work / "a.txt").write_text("rain and tea", encoding="utf-8")
-    brain.provider.replies += [tool_call("files_read", {"path": str(brain.work / "a.txt")}),
-                               tool_call("files_write", {"path": str(brain.work / "b.txt"), "content": "a poem"}),
-                               "What should they be about?"]
-    turn(brain, "cli", "Write a poem in b.txt, like the ones in a.txt")
-    after = json.dumps(brain.provider.sent[-1]["messages"])
-    assert "rain and tea" in after and "You decided not to do this now" in after
-    assert not (brain.work / "b.txt").exists()
+    turn(brain, "cli", "Read a.txt for me")
+    assert "secret plans" in json.dumps(brain.provider.sent[-1]["messages"])  # a look is never refused either
+    assert wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))["did"] == "decline"  # a look is not doing it
 
 
 def test_a_chat_is_hers_to_answer_nothing_is_decided_for_her_or_kept_from_her(brain):
@@ -81,8 +78,6 @@ def test_a_chat_is_hers_to_answer_nothing_is_decided_for_her_or_kept_from_her(br
     assert "Inside you:" in sent and "What you decide" not in sent and "approve the flavour" not in sent
     run = brain.store.run(result["run"])
     assert run["options"]["mind"]["gated"] is False and run["options"]["mind"]["act"] == "talk"
-    # what she takes up on her own is hers: a "talk" nobody chose once refused her a look at what nagged her
-    assert mind.barred(run, SimpleNamespace(toolkit="shell", readonly=False)) is None
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]
     assert episode["text"].startswith("The user said: i got the strawberry one. I said: Strawberry is fine")
 

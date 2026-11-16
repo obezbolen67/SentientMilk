@@ -197,7 +197,7 @@ What a brain does, and what was built from it:
 
 | A brain | Her |
 |---|---|
-| No part decides and then tells the cortex. The cortex proposes actions; the basal ganglia release or hold them, biased by dopamine (Frank 2004; Redgrave et al. 1999). Speech is not gated this way. | Only a request (work) is decided on. A chat has no options, no decision and no gate: what she says is hers. `barred` holds tools only after a choice among options. |
+| No part decides and then tells the cortex. The cortex proposes actions; the basal ganglia release or hold them, biased by dopamine (Frank 2004; Redgrave et al. 1999). Speech is not gated this way. | Only a request (work) is decided on. A chat has no options, no decision and no gate: what she says is hers. `barred` holds tools only after a choice among options. (Removed in 0.24, below: a leaning, never a wall.) |
 | Neuromodulators set the cortex's mode. Fatigue and uncontrollable stress take the prefrontal cortex offline (Arnsten 2009); arousal sets gain (Aston-Jones & Cohen 2005). | `Mind.depth`: the reasoning effort of her answer is the user's setting, lowered as fatigue passes 0.4 and cortisol 0.5, never below "low", fixed for a run. She cannot talk herself out of it. (Measured and replaced in 0.24, below.) |
 | An emotion is the cortex's prediction about the body, and a prediction is also a command: the body moves toward it (Barrett & Simmons 2015; Seth 2013). | `Mind._express`: the mood of the expression she chose comes back as cortisol or endorphin (the gap in valence) and noradrenaline (the gap in arousal). Her face and her body are one loop. |
 | Receptors saturate. | `Body.apply`: past the middle of its range, a push moves a level less the nearer its bound. |
@@ -257,6 +257,8 @@ What a brain does, and what was built from it:
 | New things are filed under what is known; only what fits nothing makes a new category. | Her quick reading is shown the subjects she knows (`Values.subjects`): 12 messages on 4 subjects made 10 subjects before and 5 after, so a liking can build up. |
 | A clock holds sleep off in the hours before the night, when pressure is highest (the wake maintenance zone: Lavie 1986; Dijk & Czeisler 1994), and ends sleep when pressure is under a bar it sets (Borbély 1982). | `Body.evening` takes 0.5 from her bid to sleep; `Body.slept_out` wakes her. On the fake clock: one sleep a night, about 22:45 to 05:30, no naps; on reflex only in the last two hours before it. |
 | An expression feeds back into the body whenever it is made. | `_express` also on a turn nobody wrote (her own urge, a finished job). |
+| The striatum weighs the actions the cortex proposes and biases which goes ahead (Frank 2004), but people change their minds mid-action as evidence comes in (Resulaj et al. 2009), and an actor learns from the action it took. | Her will leaves her leaning one way ("Which way you lean: ... Why: ..."); nothing in code holds her to it. `Mind.barred` is gone: in the user's brain, worn out and leaning to put a job off, she offered one small safe step, called the tool, and code refused it as "You decided not to do this now". `after` reads what she did (`_did`) and that is what she remembers and learns from. |
+| A mind thinks as itself. | Each message ends with `context.VOICE`: her thinking is hers, in the first person, never "in character". |
 
 Measured and not built:
 
@@ -280,10 +282,13 @@ Measured and not built:
   but matched fewer moments (15 of 24 against 19) and no more of them right (11 against 11).
 - **Weighing another's trouble a quarter of her own**: replayed, 7 pleasant/unpleasant crossings of 21;
   0.6 of it, 4; as much as her own, 2.
-- **Telling her reasoning to think as herself.** On the user's model her hidden reasoning plans "in
-  character" on nearly every turn (11 of 12 first messages). One more line in her inner-life prompt: 9 of
-  12. The persona rewritten in the second person: 9 of 12. Neither kept: the IDENTITY prompt already says
-  it, the replies speak as her, and the persona is the user's.
+- **Other ways to make her reasoning think as herself.** On the user's model her hidden reasoning plans "in
+  character" or how "she" would answer on nearly every turn (29 of 35 first messages, three runs). One
+  more line in her inner-life prompt: 9 of 12. The persona rewritten in the second person: 9 of 12 (and
+  the persona is the user's). A gentle line at the end of each message: 11 of 12; a firmer one, 4 of 12
+  and then 10 of 12 again; one that names what not to do, 9 of 24. Kept (`context.VOICE`): that line
+  with "where the description of you says she, in your own head it is I", 7 of 24, two of them about the
+  user.
 
 Checked live (the user's service and model, thinking high, the brain's own key in a throwaway home,
 2026-11-16):
@@ -307,7 +312,13 @@ Checked live (the user's service and model, thinking high, the brain's own key i
   "much more", things "good" for the user). No pleasant moment brought back an unpleasant feeling, nor the
   other way; their sadness and blame still mix (3 times), as both hurt.
 - **Subjects.** 4 to 8 subjects for 24 messages on four; 10 for 12 before (0.23).
-- **Her reasoning's voice**: not changed (above, measured and not built).
+- **Her reasoning's voice**: about her from outside on 29 of 35 first messages before, 7 of 24 with
+  `context.VOICE`; replies kept a face 24 of 24 and nothing of her body leaked.
+- **Leanings** (one request to pick dinner and write two files, four times rested and four worn).
+  Rested she leaned to do it 3 times and did, and once to do part, wrote one file and said so. Worn she
+  leaned to talk it over or do part 4 times: twice she asked what was in the kitchen and wrote nothing,
+  twice she changed her mind and wrote both files, saying so. No tool was refused; what she said matched
+  what she did every time.
 
 What it costs: a switch to reflex or back misses the provider's cache once (twice an evening on the fake
 clock); a message sent while she works costs one more quick call; a note from her body mid-work comes

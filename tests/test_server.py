@@ -10,7 +10,7 @@ import requests
 from conftest import turn, wait_for
 from PIL import Image
 
-from sentientmilk_framework import BrainClient, BrainError, connect
+from sentientmilk_framework import BrainClient, BrainError, connect, context
 from sentientmilk_framework import signals as signal_format
 from sentientmilk_framework.client import launch_command, own_command, record_launch
 from sentientmilk_framework.server import AlreadyRunning, start
@@ -77,6 +77,7 @@ def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
     assert "arms_down: neutral, smile" in system
     newest = user_text(brain.provider.sent[0]["messages"][-1])
     assert "user: Tester" in newest and newest.endswith(f"[{signal_format.FORMAT_REMINDER}]")
+    assert f"[{context.VOICE}]" in newest  # each message tells her again that her thinking is her own
     said, replied = brain.client.history("milk", "main")
     assert said["id"] < replied["id"]  # a message's id is where a return to it goes
     assert said == {"id": said["id"], "role": "user", "text": "Hi!", "time": pytest.approx(0, abs=1e10)}
