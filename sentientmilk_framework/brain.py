@@ -323,10 +323,11 @@ class Brain:
 
     def provider(self, model: str, thinking: Optional[str] = None):
         """What she thinks with: ``complete(messages, tools, on_text, stopped)`` -> (message, usage).
-        ``thinking``: a thinking mode for these calls instead of the user's (the API service's only)."""
+        ``thinking``: a thinking mode for these calls instead of the user's; on Claude Code, which has no
+        thinking off, "none" is its lowest effort."""
         values = self.config.values()
         if values["provider"] == "claude_code":
-            return ClaudeCodeProvider(self.claude, model)
+            return ClaudeCodeProvider(self.claude, model, "low" if thinking == "none" else None)
         return Provider(values["base_url"], values["api_key"], model, thinking_mode=thinking or values["thinking_mode"],
                         thinking_tokens=values["thinking_tokens"], stream=values["stream"])
 

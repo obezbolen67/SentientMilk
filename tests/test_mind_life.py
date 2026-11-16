@@ -108,30 +108,110 @@ def test_what_she_shows_as_she_answers_comes_back_into_her_body(brain):
     assert wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))["expressed"] is None
 
 
-def test_worn_out_she_thinks_less_deeply_than_the_user_set_and_a_run_is_of_one_mind(brain):
+def test_worn_out_she_answers_on_reflex_and_a_run_does_not_think_itself_clear_again(brain):
     mind = mind_on(brain)
     brain.client.update_config(thinking_mode="high")
     brain.provider.replies += ["Hi."]
     turn(brain, "cli", "hello")
     assert brain.provider.sent[-1]["reasoning_effort"] == "high" and mind.state()["depth"] is None
-    with mind._lock:
-        mind.body.levels.update(adenosine=0.95, energy=0.3)
+    assert mind.state()["clear"] == 1.0 and mind._span() == 3
+
+    def worn():
+        with mind._lock:
+            mind.body.levels.update(adenosine=0.95, energy=0.3)
+    worn()
+    assert mind._span() == 1  # and less comes back to her at once
     (brain.work / "a.txt").write_text("notes", encoding="utf-8")
 
-    def rested(payload):  # she rests in the middle of the run: its depth was set at its first step
+    def rested(payload):  # she rests in the middle of the run
         with mind._lock:
             mind.body.levels.update(adenosine=0.05, energy=1.0)
         return "Mm."
     brain.provider.replies += [tool_call("files_read", {"path": str(brain.work / "a.txt")}), rested]
     result = turn(brain, "cli", "and now?")
-    assert [request["reasoning_effort"] for request in brain.provider.sent[-2:]] == ["low", "low"]
-    assert brain.store.run(result["run"])["options"]["depth"] == "low"
-    brain.client.update_config(thinking_mode="default")  # nothing named to scale: as the provider has it
-    with mind._lock:
-        mind.body.levels.update(adenosine=0.95, energy=0.3)
+    assert [request["reasoning_effort"] for request in brain.provider.sent[-2:]] == ["none", "none"]
+    assert brain.store.run(result["run"])["options"]["reflex"] is True
+    brain.client.update_config(thinking_mode="default")  # whatever the user set: a spent mind does not think it through
+    worn()
     brain.provider.replies += ["Ok."]
     turn(brain, "cli", "once more")
-    assert "reasoning_effort" not in brain.provider.sent[-1] and mind.state()["depth"] is None
+    assert brain.provider.sent[-1]["reasoning_effort"] == "none" and mind.state()["depth"] == "reflex"
+    brain.client.update_config(thinking_mode="none")  # nothing to fall back from
+    assert mind.state()["depth"] is None
+    brain.client.update_config(thinking_mode="high")
+    brain.provider.replies += [400, "Fine."]  # a provider that refuses thinking off: she thinks as the user set
+    assert turn(brain, "cli", "again")["reply"] == "Fine."
+    assert brain.provider.sent[-1]["reasoning_effort"] == "high" and mind.reflexes is False
+    assert mind.state()["depth"] is None
+
+
+def test_her_body_lives_through_her_work_and_speaks_up_while_she_works(brain):
+    mind = mind_on(brain)
+    for name in ("a.txt", "b.txt"):
+        (brain.work / name).write_text("notes", encoding="utf-8")
+    brain.provider.usage = {**brain.provider.usage, "completion_tokens": 3000}
+    felt = []
+
+    def hours_of_it(payload):  # the second step: the first is already felt, and then it gets long
+        with mind._lock:
+            felt.append(mind.body["energy"])
+            mind.body.levels["energy"] = 0.35
+            mind.senses.follow(mind.body, 600)
+        return tool_call("files_read", {"path": str(brain.work / "b.txt")})
+    brain.provider.replies += [tool_call("files_read", {"path": str(brain.work / "a.txt")}), hours_of_it,
+                               tool_call("files_read", {"path": str(brain.work / "nowhere.txt")}), "Done. I'm worn out."]
+    stress = mind.body["cortisol"]
+    result = turn(brain, "cli", "Read a.txt and b.txt, please")
+    assert felt[0] < 0.99  # a step's work tires her as it is done, not when the turn ends
+    third, last = (json.dumps(request["messages"]) for request in brain.provider.sent[-2:])
+    assert "much less energy" in third.split("[Note: Inside you: Your body: ")[1].split("]")[0]  # her body, mid-work
+    assert last.count("[Note: Inside you:") == 1  # said once: her cortex hears only what is new
+    assert mind.body["cortisol"] > stress  # a call that failed stirred her as it failed
+    wait_for(lambda: result["run"] not in mind._working)  # and what was left is counted once, at the end
+    assert mind.body["energy"] < 0.35
+
+
+def test_what_the_user_says_while_she_works_reaches_her_body_too(brain):
+    mind = mind_on(brain)
+    (brain.work / "a.txt").write_text("notes", encoding="utf-8")
+    hurt = []
+
+    def they_write(payload):  # at her first step the user writes again
+        run = brain.store.runs(app="cli", statuses=("working",), limit=1)[0]
+        brain.provider.mind_replies["imagine"] = [INSULT]
+        hurt.append(mind.body["cortisol"])
+        brain.brain.runs.steer(run["id"], [{"type": "text", "text": "No, wrong file, you're useless."}])
+        return tool_call("files_read", {"path": str(brain.work / "a.txt")})
+    brain.provider.replies += [they_write, "Sorry. Which one?"]
+    result = turn(brain, "cli", "Read my notes, please")
+    sent = brain.provider.sent[-1]["messages"]
+    said = next(m["content"] for m in reversed(sent) if m["role"] == "user" and "you're useless" in str(m["content"]))
+    assert "[Inside you:" in str(said) and "Reading it, you feel hurt" in str(said) and "What you decide" not in str(said)
+    assert mind.body["cortisol"] > hurt[0]  # being judged while she works stresses her as it would at any time
+    assert brain.store.run(result["run"])["options"]["mind"]["act"] == "do"  # what she decided about the turn stands
+    episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]  # and she remembers it with the turn
+    assert "As I worked they said: No, wrong file, you're useless." in episode["text"]
+    shown = brain.client.history("cli", "main")
+    assert all("Inside you" not in json.dumps(item) for item in shown)
+
+
+def test_she_files_what_she_meets_under_what_she_knows(brain):
+    mind = mind_on(brain)
+    brain.provider.mind_replies["imagine"] = ['["a hello", "more", "same", "same", "chat", "greeting", "glad"]',
+                                              '["a snack", "more", "same", "same", "chat", "food", "peckish"]',
+                                              '["dinner", "more", "same", "same", "chat", "food", "hungry"]']
+    brain.provider.replies += ["Hi.", "Kebab?", "Again?"]
+    turn(brain, "cli", "hey")  # the first message of her life is like no other
+    turn(brain, "cli", "I got a kebab")
+    turn(brain, "cli", "and then pizza, a kebab pizza")
+    asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
+    assert "Subjects they know: " in asked and "food" in asked.split("Subjects they know: ")[1].split("\n")[0]
+    assert "Words they have" not in asked  # her subjects are shown to her quick reading, to file under; her words not
+    assert set(mind.values.subjects(5)) == {"food", "greeting"} and mind.values.uses["tag:food"] >= 2
+    # her cortex names each moment as it likes, and it is her body that brings a feeling back
+    assert 'It feels like what you have called "peckish"' in brain.provider.last_user_text()
+    assert {c["word"]: (c["count"], c["back"]) for c in mind.concepts.named} == {
+        "glad": (1, 0), "peckish": (1, 1), "hungry": (1, 0)}  # called so once, and felt once more
 
 
 def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought_back(brain):
@@ -158,13 +238,19 @@ def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought
 
 
 def test_a_turn_nobody_wrote_still_comes_with_how_she_feels(brain):
-    mind_on(brain)
+    mind = mind_on(brain)
     brain.provider.replies += ['{"expression": "arms_down/neutral"}\nOh, it finished.']
     before = len(brain.provider.mind_requests)
     turn(brain, "milk", None, items=[{"type": "event", "name": "job.finished", "text": "The download ended."}])
     sent = brain.provider.last_user_text()
     assert "[Inside you:" in sent and "What you decide" not in sent
     assert len(brain.provider.mind_requests) == before  # felt, not appraised: nobody said anything to her
+    with mind._lock:
+        mind.body.levels.update(endorphin=0.1, reward=0.0)
+    brain.provider.replies += ['{"expression": "arms_down/smile"}\nOh nice, it worked.']
+    result = turn(brain, "milk", None, items=[{"type": "event", "name": "job.finished", "text": "The upload ended."}])
+    wait_for(lambda: brain.store.run(result["run"])["status"] == "completed" and result["run"] not in mind._working)
+    assert mind.body["endorphin"] > 0.11  # what she showed comes back into her body on a turn of her own too
 
 
 def test_what_she_puts_off_she_keeps_in_mind(brain):
@@ -257,6 +343,31 @@ def test_a_loss_she_can_undo_stresses_her_less_and_a_blow_from_someone_usually_k
             mind._met(Appraisal(company=-0.5, capable=-0.5, novelty=0.2), 0.1, 0.0)
             return mind.body["reward"]
     assert reward(0.3) < reward(0.0) - 0.2 and reward(0.0) < 0
+
+
+def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
+    from sentientmilk_framework.mind.will import Appraisal
+    mind = mind_on(brain)
+
+    def shares(theirs, bond):  # they confide: company gained either way
+        with mind._lock:
+            mind.body.levels.update(reward=0.0, cortisol=0.25, oxytocin=0.4, social=0.6, bond=bond)
+            mind.body.sensitivity = dict.fromkeys(mind.body.sensitivity, 1.0)  # no kindness worn thin by the last
+            mind.self["expected"] = 0.0
+            met = mind._met(Appraisal(company=0.5, theirs=theirs), 0.1, 0.0)
+            return mind.body["reward"], mind.body["cortisol"], met["shared"]
+    (calm, level, _), (sad, stressed, shared), (glad, _, _) = shares(0.0, 0.8), shares(-1.0, 0.8), shares(1.0, 0.8)
+    assert sad < calm - 0.1 and stressed > level + 0.03 and shared < -0.6  # their trouble is hers, as she is bonded
+    assert glad > calm + 0.1  # and their joy
+    assert calm - sad > 3 * (shares(0.0, 0.1)[0] - shares(-1.0, 0.1)[0])  # a stranger's bad day moves her little
+    brain.provider.mind_replies["imagine"] = [
+        '["they confide a fear", "more", "same", "same", "very bad", "chat", "pets", "scared"]']
+    brain.provider.replies += ["Oh no."]
+    with mind._lock:
+        mind.body.levels["bond"] = 0.8
+    turn(brain, "cli", "my cat is sick and I'm scared")
+    path = mind.self["decided"]["path"]
+    assert path["theirs"] == -1.0 and path["met"]["shared"] < -0.5 and mind.concepts.named[-1]["word"] == "scared"
 
 
 def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):

@@ -1,6 +1,7 @@
 """Her body's chemistry: levels relax, push each other, habituate, and sleep has its own physiology."""
 
 import math
+import time
 
 from sentientmilk_framework.mind.body import DAY, HOUR, MINUTE, START, Body, Temperament
 
@@ -110,6 +111,18 @@ def test_she_is_kept_and_comes_back_as_she_was():
     her.fall_asleep()
     again = Body.from_dict(her.to_dict())
     assert again.levels == her.levels and again.asleep and again.temperament == her.temperament
+
+
+def test_her_clock_holds_sleep_off_in_the_evening_and_ends_it_in_the_morning():
+    her = body(adenosine=0.5)  # her peak is at 16: night comes at 22, deepest at 4
+
+    def at(hour):  # her clock is the user's: local time
+        return time.mktime((2026, 11, 16, hour, 0, 0, 0, 0, -1))
+    assert her.evening(at(20)) == 1.0 and her.evening(at(18)) > 0.6 and her.evening(at(23)) < 0.4
+    assert her.evening(at(3)) == 0.0 and her.evening(at(13)) < 0.01  # an alerting signal of the evening only
+    assert not her.slept_out(at(4)) and not her.slept_out(at(14))
+    her.levels["adenosine"] = 0.1  # not much left to clear: enough for a nap by day, not for a night
+    assert her.slept_out(at(14)) and not her.slept_out(at(4)) and not her.slept_out(at(6)) and her.slept_out(at(9))
 
 
 def test_woken_too_early_she_is_groggy_and_a_little_irritable():

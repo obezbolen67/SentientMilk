@@ -58,6 +58,11 @@ class Values:
                 del self.weights[f]
                 self.uses.pop(f, None)
 
+    def subjects(self, count: int) -> List[str]:
+        """What she knows things to be about, the most met first: for filing what comes next under them."""
+        met = sorted(((uses, name[4:]) for name, uses in self.uses.items() if name.startswith("tag:")), reverse=True)
+        return [subject for _, subject in met[:count]]
+
     def leanings(self, count: int = 5) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
         """Her strongest likes and dislikes among what things are about (tags and acts with a tag)."""
         about = [(f, w) for f, w in self.weights.items() if "tag:" in f and self.uses.get(f, 0) >= 2]

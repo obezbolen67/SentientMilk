@@ -292,7 +292,9 @@ class Loop:
                 if brain.plugins.version != plugins:  # a plugin came, went or changed: the next step has it
                     profile = brain.profile(run["app"], run["session"], run["options"].get("profile"))
                     toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
-                steps = sum(1 for e in store.run_events(run_id) if e["type"] == "assistant")
+                events = store.run_events(run_id)
+                brain.mind.during(run, events)  # her body lives through her work as it goes
+                steps = sum(1 for e in events if e["type"] == "assistant")
                 # no step limit unless the caller set one (an eval): a run ends when its work is done or it is stopped
                 budget = run["options"].get("max_steps")
                 if budget and steps >= budget:
@@ -546,8 +548,10 @@ class Loop:
     def _think(self, run: dict, profile: dict, toolset: Toolset, emit):
         brain = self.brain
         settings = brain.config.values()
-        # her body sets how deep she thinks (mind/life.py depth): tired or badly stressed, less than the user set
-        provider = brain.provider(run["options"].get("model") or profile["model"], brain.mind.depth(run))
+        # her body sets whether she thinks it through (mind/life.py reflexive): worn out or badly stressed, she
+        # answers on reflex, the provider's thinking off
+        model, reflex = run["options"].get("model") or profile["model"], brain.mind.reflexive(run)
+        provider = brain.provider(model, "none" if reflex else None)
         def system():
             return context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
                                          toolset.by_name, toolset.toolmap(profile), brain.skills.prompt())
@@ -588,6 +592,10 @@ class Loop:
                 error = classify(exc)
                 too_long = error.type == "payload_too_large" or (
                     error.http_status == 400 and "context" in (error.details or "").lower())
+                if reflex and error.http_status == 400 and not too_long:  # it will not answer without thinking:
+                    brain.mind.reflexes, reflex = False, False  # she thinks as the user set, from now on
+                    provider = brain.provider(model)
+                    continue
                 if too_long and not compacted:
                     self.compact(run, profile, force=True)
                     compacted = True

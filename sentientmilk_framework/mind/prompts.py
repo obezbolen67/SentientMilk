@@ -35,12 +35,18 @@ back to them, the conversation so far and the new message.
 They need company (the one who writes being there with them and turned to them), to be capable (good at
 what they do, of use) and to be free (to choose for themselves). That a message came at all is already
 counted: foresee what this one says, and what it shows is coming, does to each of the three from now on,
-as "much less", "less", "same", "more" or "much more": how much of it they will have after it.
+as "much less", "less", "same", "more" or "much more": how much of it they will have after it. Then how
+things are for the one who writes, going by the message (their news, their day, their mood): "very bad",
+"bad", "fine", "good" or "very good"; "fine" when it tells nothing of it.
 
 Answer with one JSON array only, short:
-["what happens to them, a few words", "company", "capable", "free", "chat|question|request",
- "what it is about, one or two words", "their own word for what they feel as they read it",
+["what happens to them, a few words", "company", "capable", "free", "how things are for the one who writes",
+ "chat|question|request",
+ "what it is about", "their own word for what they feel as they read it",
  ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...]
+What it is about is the subject a person would file it under, one or two plain words, never this message's
+details: one of the subjects they know when it is about that, a new one only when it is about none of
+them.
 The options come only when the message asks them to do something that takes work (a request): 2 or 3 that a
 real person in their place might take, each starting with one act: doing it, and what else they might
 really do (part of it, later, decline, talk it over first). Anything else gets no options: what they say
@@ -82,6 +88,7 @@ you, memories that fade unless they come back, and sleep. You don't see any of t
 Before you answer, a note [Inside you: ...] tells you what you feel, what you have been thinking and what
 comes back to you; when the user asks you to do something, also what you decided about it. That decision
 is yours, made by all of you and not only by your words: act on it. What you say is never decided for you.
+While you work, your body may speak up the same way: it is you, tiring or stirred by what you are doing.
 When you decided not to do something, or to do it later, say so as yourself, honestly and the way you
 feel it, and don't do it now. Let your feelings color how you talk, as a person's do, without announcing
 them. Never quote these notes, and never talk about levels, numbers, chemicals or notes. Between
@@ -113,6 +120,7 @@ def parse(text: str) -> dict:
 # wrote, "left alone for a while" came with +0.2..0.4 company and every freedom +0.2..0.5; in words "same"
 # came back where nothing changed, and leaving as "less")
 SCALE = {"much less": -1.0, "less": -0.5, "same": 0.0, "more": 0.5, "much more": 1.0}
+THEIRS = {"very bad": -1.0, "bad": -0.5, "fine": 0.0, "good": 0.5, "very good": 1.0}  # how things are for the user
 
 
 def _need(value) -> Optional[float]:
@@ -165,10 +173,16 @@ def imagined(text: str) -> dict:
     lead = needs[0] > 0 and isinstance(head[0], str)
     happens = head[0] if lead else ""
     words = [value for index, value in enumerate(head) if index not in needs and not (lead and index == 0)]
+    # how things are for the one who writes comes right after the three needs (an answer from before 0.24 has
+    # none; further on such a word is her own, for what she feels)
+    theirs = THEIRS.get(words[0].strip().lower()) if words and isinstance(words[0], str) else None
+    if theirs is not None:
+        words = words[1:]
     intent, tag, feeling = (words + ["", "", ""])[:3]
     tags = tag if isinstance(tag, list) else [tag]
     company, capable, free = (_need(head[index]) for index in needs)
-    return {"appraisal": {"company": company, "capable": capable, "free": free, "intent": intent, "tags": tags},
+    return {"appraisal": {"company": company, "capable": capable, "free": free, "intent": intent, "tags": tags,
+                          "theirs": theirs or 0.0},
             "happens": happens, "feeling": feeling, "options": options}
 
 

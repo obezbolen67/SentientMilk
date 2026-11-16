@@ -79,6 +79,7 @@ class Appraisal:
     novelty: float = 0.3
     intent: str = "chat"  # chat, question or request
     tags: List[str] = field(default_factory=list)
+    theirs: float = 0.0  # how things are for the one who writes, going by the message: -1 very bad .. 1 very good
 
     def effects(self) -> Dict[str, float]:
         return {name: getattr(self, name) for name in FORESEEN}
@@ -89,7 +90,8 @@ class Appraisal:
         intent = str(data.get("intent", "chat")).lower()
         return cls(*(_number(data.get(name), 0.0, -1.0) for name in FORESEEN), 0.3,
                    intent if intent in ("chat", "question", "request") else "chat",
-                   [str(t)[:40] for t in (data.get("tags") or []) if str(t).strip()][:6])
+                   [str(t)[:40] for t in (data.get("tags") or []) if str(t).strip()][:6],
+                   _number(data.get("theirs"), 0.0, -1.0))
 
 
 @dataclass

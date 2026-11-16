@@ -110,6 +110,18 @@ def test_a_conversation_that_cannot_go_on_starts_from_a_record_of_it(brain, clau
     assert result["reply"] == "echo: and now?"  # the new message after the record
 
 
+def test_worn_out_she_answers_at_claude_codes_least_effort(brain, claude):
+    brain.client.update_config(mind=True)  # Claude Code has no thinking off: on reflex she thinks the least it can
+    mind = brain.brain.mind
+    with mind._lock:
+        mind.body.levels.update(adenosine=0.95, energy=0.3)
+    assert brain.client.turn("cli", "main", "hello there")["reply"].startswith("echo: ")
+    args = next(s["args"] for s in claude.starts() if "--no-session-persistence" not in s["args"])
+    assert args[args.index("--effort") + 1] == "low"
+    brain.client.update_config(claude_effort="low")  # already the least: nothing to fall back to
+    assert mind.state()["depth"] is None
+
+
 def test_her_helpers_are_one_off_calls_on_the_helper_model(brain, claude):
     turn(brain, "cli", "name this chat")
     once = wait_for(claude.once)

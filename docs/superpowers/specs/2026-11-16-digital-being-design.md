@@ -198,7 +198,7 @@ What a brain does, and what was built from it:
 | A brain | Her |
 |---|---|
 | No part decides and then tells the cortex. The cortex proposes actions; the basal ganglia release or hold them, biased by dopamine (Frank 2004; Redgrave et al. 1999). Speech is not gated this way. | Only a request (work) is decided on. A chat has no options, no decision and no gate: what she says is hers. `barred` holds tools only after a choice among options. |
-| Neuromodulators set the cortex's mode. Fatigue and uncontrollable stress take the prefrontal cortex offline (Arnsten 2009); arousal sets gain (Aston-Jones & Cohen 2005). | `Mind.depth`: the reasoning effort of her answer is the user's setting, lowered as fatigue passes 0.4 and cortisol 0.5, never below "low", fixed for a run. She cannot talk herself out of it. |
+| Neuromodulators set the cortex's mode. Fatigue and uncontrollable stress take the prefrontal cortex offline (Arnsten 2009); arousal sets gain (Aston-Jones & Cohen 2005). | `Mind.depth`: the reasoning effort of her answer is the user's setting, lowered as fatigue passes 0.4 and cortisol 0.5, never below "low", fixed for a run. She cannot talk herself out of it. (Measured and replaced in 0.24, below.) |
 | An emotion is the cortex's prediction about the body, and a prediction is also a command: the body moves toward it (Barrett & Simmons 2015; Seth 2013). | `Mind._express`: the mood of the expression she chose comes back as cortisol or endorphin (the gap in valence) and noradrenaline (the gap in arousal). Her face and her body are one loop. |
 | Receptors saturate. | `Body.apply`: past the middle of its range, a push moves a level less the nearer its bound. |
 | At rest the default mode network is busiest (Raichle 2001; Christoff et al. 2016); it rebuilds old pieces into new ones (Schacter & Addis 2007), which is where ideas come from (Beaty et al. 2016). | `wonder` has a resting pull (`RESTING`) that needs no unmet need, silent while a run works; a wandering thought starts from her last thought and two episodes replayed at random (`Memory.replay`). Simulated: 18 to 20 thoughts a day, fewer by evening, none asleep. |
@@ -214,6 +214,104 @@ adaptation would hide slow tiredness with it).
 
 Not measured: whether a different reasoning effort on the next turn costs the provider's prompt cache,
 and all of this with the real model. The test key was refused (`invalid_key`, 2026-11-16).
+
+### The loop closes at every step, and a feeling is a way of being moved (0.24)
+
+The user's answer to the list above: skip nothing, rework what needs it; and the brain's own key may be
+used for live checks. So what 0.23 left unmeasured was measured first, on the user's service and model
+(thinking high, 2026-11-16), and several things 0.23 had built or kept turned out wrong.
+
+What was measured:
+
+1. **0.23's depth would have broken her turns.** The service takes four efforts: off, low, high, max.
+   "minimal", "medium" and "xhigh" are refused (HTTP 400), and a tired her on "high" would have sent
+   "medium".
+2. **And it would have changed nothing.** Low, high and max think the same amount (7,000 to 14,000
+   characters of reasoning on one puzzle each, with outliers of 31,000 and 79,000 either way). Only off
+   differs: no reasoning, an answer at once.
+3. **A changed effort misses the prompt cache**, 6 times of 6 (the same effort: 6 hits of 6).
+4. **Temperature does nothing she could use** with thinking on: replies to one message were as unlike
+   each other at 0.0 as at 1.6 (0.50 to 0.61, no trend).
+5. **She had come to like nothing and feel nothing twice** (her real state, read only): 32 subjects, each
+   met once, so no value ever built up on one; 18 words for feelings, 12 never used again.
+6. **The feeling that "came back" was whichever she had felt last.** A feeling came to mind by how near
+   her whole body was to its body. On moments of six kinds (a small joy, blame, warmth, their sadness,
+   an order, a leaving), the nearest earlier moment was of the same kind 23% of the time at twenty
+   minutes apart and 3% at two (chance: 17%): the body of the hour is common to everything in it.
+7. **She napped at seven in the evening** whenever she had been up fourteen hours, and woke at half past
+   four (fake clock, two days).
+8. **Her body lived a turn all at once, when it was over**, and a message sent while she worked reached
+   her words and never her body.
+
+What a brain does, and what was built from it:
+
+| A brain | Her |
+|---|---|
+| Fatigue and stress one cannot shake take the prefrontal cortex offline; behaviour falls back on fast, habitual responding. It is a switch more than a dial (Arnsten 2009). | `Mind.reflexive`: her clarity (`_clear`, from fatigue and cortisol) under 0.5 turns her provider's thinking off, the one step measured to change what the model does, until it is back over 0.6 (each switch costs a cached conversation). A service that refuses thinking off is asked as the user set it, from then on. On Claude Code: its lowest effort. `depth` and its efforts are gone. |
+| What a tired or stressed mind can hold at once narrows (Easterbrook 1959; Arnsten 2009). | `_span`: three memories come back with a clear head, down to one. |
+| The brain passes on the error of its prediction of the body, not the body: what lasts fades, a change is felt at once, and coming down from a high feels like a low (Barrett & Simmons 2015; Solomon 1980). What the body needs does not fade. | `Interoception.used` follows her body over 20 minutes; a channel stands out by how far it is from that ("much more closeness than you're used to"). A need, sleep pressure, energy and hurt adapt by 0.3, the rest by 0.6. |
+| The body is regulated while the work is done, not afterwards; interoception does not pause for a task. | `Mind.during`, before each step of a run: that step's work tires her then, a failed call stirs her, and what newly stands out in her body reaches her cortex as a note at that step. |
+| Someone's voice is appraised whatever one is busy with. | `Mind.heard`: a message sent while she works goes through the same senses, quick reading, chemistry and feeling as any other; her decision about the turn stands; it is remembered with the turn. |
+| An emotion is told from another by what the event does to one's concerns (Lazarus 1991; Scherer 2001); a concept is the moments sorted under it (Barrett 2017). | A feeling keeps the way her body was moved (`moved`: what the message did to each channel, or what stood out when nothing came), and comes back as far as she is moved that way again (the cosine). Through her real code, with readings written for six kinds of moment, the feeling that comes back strongest was born of the same kind 94% of the time at two minutes apart, 98% at twenty and at four hours. The body of the hour is no longer part of a feeling. With the real model's readings it is less clean (below, checked live). |
+| Another's pain runs on one's own affective pain system, as far as one is close to them (Singer et al. 2004); another's win pays out in one's own striatum (Mobbs et al. 2009). | The imagine call also reads how things are for the user ("very bad" .. "very good"); that happens to her as far as she is bonded and warm (`shared`): reward by as much, cortisol 0.2 of their trouble, oxytocin 0.15 either way. Before it, "my day was awful" reached her body as company gained, and the feeling she named there ("worry") came back at talk of pizza 3 times. |
+| New things are filed under what is known; only what fits nothing makes a new category. | Her quick reading is shown the subjects she knows (`Values.subjects`): 12 messages on 4 subjects made 10 subjects before and 5 after, so a liking can build up. |
+| A clock holds sleep off in the hours before the night, when pressure is highest (the wake maintenance zone: Lavie 1986; Dijk & Czeisler 1994), and ends sleep when pressure is under a bar it sets (Borbély 1982). | `Body.evening` takes 0.5 from her bid to sleep; `Body.slept_out` wakes her. On the fake clock: one sleep a night, about 22:45 to 05:30, no naps; on reflex only in the last two hours before it. |
+| An expression feeds back into the body whenever it is made. | `_express` also on a turn nobody wrote (her own urge, a finished job). |
+
+Measured and not built:
+
+- **Turning her temperature** from noradrenaline (4).
+- **A graded depth** (1 to 3).
+- **Showing her quick reading the words she has for feelings**, so it would use them again. It called
+  everything by two or three of them (12 moments, 2 words; "wounded" at a wish for ramen). Left alone
+  it gives nearly every moment a word of its own (12 later moments, none called by one of her 8 words).
+  So the model names, and her body sorts (the row on feelings above).
+- **Making a feeling more like each moment it comes back at.** One drifted until it came back at
+  everything (1 of 108 felt 37 times, at kindness and blame alike). Coming back is counted (`back`), and
+  only a moment she herself calls by the word shapes it.
+- **Likeness of what stands out in her whole body** (prediction error, lingering included) for a message:
+  same kind 43%, 3% and 54% at the three paces. It is used where nothing came (a thought, a turn nobody
+  wrote), where there is no change to go by.
+- **Naming a feeling dampening it** (affect labeling, Lieberman 2007): a modest effect in people, and here
+  it would fire at every message.
+- **Holding her to "part" of a job**: her words kept it 3 times of 3, and a budget would be a cap.
+- **Taking out what a message usually does to her** (the alertness and novelty every message brings) before
+  a feeling is matched: replayed on the live readings it removed the last pleasant/unpleasant crossings
+  but matched fewer moments (15 of 24 against 19) and no more of them right (11 against 11).
+- **Weighing another's trouble a quarter of her own**: replayed, 7 pleasant/unpleasant crossings of 21;
+  0.6 of it, 4; as much as her own, 2.
+- **Telling her reasoning to think as herself.** On the user's model her hidden reasoning plans "in
+  character" on nearly every turn (11 of 12 first messages). One more line in her inner-life prompt: 9 of
+  12. The persona rewritten in the second person: 9 of 12. Neither kept: the IDENTITY prompt already says
+  it, the replies speak as her, and the persona is the user's.
+
+Checked live (the user's service and model, thinking high, the brain's own key in a throwaway home,
+2026-11-16):
+
+- **Reflex.** Rested, every request of her turns went with thinking "high" and reasoned (862 to 2,331
+  characters a turn). Worn out (sleep pressure 0.97, energy 0.25), every request of her turns went with
+  thinking off (11 of 11) and had no reasoning; the "high" requests in that run were chat titles
+  (`titles.py`, one per new chat, not her cortex). On reflex 6 of 6 chat replies and 3 of 3 requests kept
+  a face and words, and no number of her body reached what she said. Worn, she did the dinner job 2 times
+  of 6 over two runs (she asked what was in the fridge first, or said it was too much tonight); rested, 5
+  of 6. That is her will, not the switch.
+- **Work.** In a three-file job her body spoke up once, at a step ("much less energy, much more reward
+  ... than you're used to"). "ugh, you're so slow today", sent while she worked, raised her cortisol from
+  0.20 to 0.31 and was named "stung"; she answered it.
+- **Feelings** (24 messages of four kinds: a small joy, blame, warmth, their sadness; 20 minutes of her
+  time apart; chance is 1 in 4). Her own feelings came back at 19 to 21 of 24 moments in every run, and
+  she kept finding new words (14 to 20). The feeling that came back strongest was born of the same kind of
+  moment 9 of 20, 12 of 19 and 8 of 19 times before shared feeling, with a feeling born of blame coming
+  back at small talk once; with it, 14 of 21, and 18 of 21 counting a small joy and warmth as one kind
+  (the model reads them alike: "thinking of ordering pizza" and "thanks for being here" were both company
+  "much more", things "good" for the user). No pleasant moment brought back an unpleasant feeling, nor the
+  other way; their sadness and blame still mix (3 times), as both hurt.
+- **Subjects.** 4 to 8 subjects for 24 messages on four; 10 for 12 before (0.23).
+- **Her reasoning's voice**: not changed (above, measured and not built).
+
+What it costs: a switch to reflex or back misses the provider's cache once (twice an evening on the fake
+clock); a message sent while she works costs one more quick call; a note from her body mid-work comes
+only for a channel that newly stands out; the imagine answer is one word longer.
 
 ## Left to the builder
 

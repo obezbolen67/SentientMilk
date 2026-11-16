@@ -354,7 +354,9 @@ class Runs:
             run = self.store.run(run_id)
             if not run or run["status"] in TERMINAL or run["options"].get("sealed"):  # sealed: it is ending
                 raise BrainError("ended", "This turn has ended; send the message as a new turn", http_status=409)
-            self.store.update_run_options(run_id, lambda options: {**options, "steer": options.get("steer", []) + items})
+            self.store.update_run_options(run_id, lambda options: {
+                **options, "steer": options.get("steer", []) + items,
+                "steer_user": bool(options.get("steer_user") or refuse_approvals)})  # the user's own words
         self.attention(run_id).message()
         if run["status"] == "input_required" and refuse_approvals:
             for request in self.waiting(run_id):
@@ -402,14 +404,21 @@ class Runs:
         """Messages sent while the run worked (steering), logged as its input before it goes on: the input
         events logged (none when nothing came)."""
         with self.steer_lock:
-            items = self.store.run(run["id"])["options"].get("steer") or []
+            options = self.store.run(run["id"])["options"]
+            items, user = options.get("steer") or [], options.get("steer_user")
             if items:
-                self.store.update_run_options(run["id"], lambda options: {**options, "steer": []})
+                self.store.update_run_options(run["id"], lambda now: {**now, "steer": [], "steer_user": False})
             self.attention(run["id"]).settle()
         if not items:
             return []
         items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], items))
         content, display = context.input_content(items, {}, reminders=[])
+        # the user's words reach her body as well as her cortex, as a turn's first message does
+        inner = user and self.brain.mind.heard(
+            run, self.brain.profile(run["app"], run["session"], run["options"].get("profile")), display,
+            sum(item["type"] == "image" for item in items))
+        if inner:
+            content, display = context.input_content(items, {}, reminders=[inner])
         logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
                                       {"content": content, "display": display, **_stored(items)})
         emit({"type": "steered", "text": display or "", "id": logged["id"]})

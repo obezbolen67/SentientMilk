@@ -460,13 +460,14 @@ class Conversations:
 class ClaudeCodeProvider:
     """``complete`` as Provider's, on Claude Code."""
 
-    def __init__(self, claude, model: str):
+    def __init__(self, claude, model: str, effort: Optional[str] = None):
+        """``effort``: for these calls instead of the user's (her quick, wordless parts, and her on reflex)."""
         values = claude.brain.config.values()
         known = model in (values["claude_model"], values["claude_light_model"]) or model.startswith("claude-") \
             or claude.model(model) is not None
         self.claude = claude
         self.model = model if known else values["claude_model"]  # one of an API service's: Claude's own instead
-        self.effort = claude.effort(self.model, values["claude_effort"])
+        self.effort = claude.effort(self.model, effort or values["claude_effort"])
 
     def complete(self, messages: List[dict], tools: Optional[List[dict]] = None,
                  on_text: Optional[Callable[[str], None]] = None, stopped=None) -> Tuple[dict, dict]:

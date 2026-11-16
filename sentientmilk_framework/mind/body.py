@@ -154,6 +154,19 @@ class Body:
         """How much it is her night, 0..1 (her rhythm's trough is twelve hours after its peak)."""
         return _clip(-circadian(self.hour(now), self.peak))
 
+    def evening(self, now: Optional[float] = None) -> float:
+        """Her clock's alerting signal in the hours before her night, 0..1 (strongest four hours after her
+        peak, gone by midnight for a peak at 16): it holds sleep off as pressure builds, so she stays up
+        until night comes (the wake maintenance zone, Lavie 1986; Dijk & Czeisler 1994). Without it she
+        napped at seven in the evening whenever she had been up fourteen hours."""
+        return max(0.0, circadian(self.hour(now), self.peak + 4.0)) ** 3
+
+    def slept_out(self, now: Optional[float] = None) -> bool:
+        """Whether sleep has cleared enough pressure for her to wake by herself: nearly all of it in the deep
+        of her night, about a third less by day (a nap), and in between as her morning comes (the two-process
+        model's lower threshold, moved by the clock: Borbély 1982)."""
+        return self.levels["adenosine"] < 0.03 + 0.32 * (1.0 - self.night(now)) ** 2
+
     # ============== Time ==============
 
     def advance(self, now: float, *, present: bool = False) -> None:

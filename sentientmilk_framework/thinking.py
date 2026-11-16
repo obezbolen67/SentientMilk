@@ -10,6 +10,7 @@ THINKING_MODES = (
     ("Medium", "medium"),
     ("High", "high"),
     ("Extra high", "xhigh"),
+    ("Max", "max"),  # services differ in the names they take (one took only off, low, high and max, 2026-11-16)
     ("Custom token budget", "tokens"),
 )
 
