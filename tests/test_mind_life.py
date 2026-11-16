@@ -4,6 +4,7 @@ remembered, thoughts become urges the app hears, sleep rewrites her story, and t
 import json
 import time
 
+import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework.mind.life import SLEPT_IF_OFF
@@ -273,7 +274,21 @@ def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
     assert len(seen["sensed"]) == 17 and set(seen["attention"]["bids"]) == {"sleep", "reach_out", "wonder",
                                                                            "ruminate", "resume"}
     assert 0 < seen["attention"]["threshold"] and seen["decided"] is None
+    assert set(seen["targets"]) >= {"dopamine", "cortisol"} and seen["set_points"]["social"] == 0.7
+    assert seen["paces"]["serotonin"] > seen["paces"]["reward"] and set(seen["receptors"]) >= {"reward"}
     brain.provider.replies += ["Sure."]
     turn(brain, "milk", "Could you tidy my notes?")
-    decided = brain.client.mind("milk", idle=5)["decided"]
+    seen = wait_for(lambda: (lambda s: s if (s["decided"] or {}).get("outcome") else None)(brain.client.mind("milk", idle=5)))
+    decided = seen["decided"]
     assert decided["act"] == "do" and decided["at"] > 0
+    path = decided["path"]  # the way the message went through her, step by step
+    assert path["said"] == "Could you tidy my notes?" and set(path["senses"]) >= {"contact", "timing", "novelty"}
+    assert set(path["read"]) == {"company", "capable", "free"} and set(path["met"]["pushes"]) >= {"social"}
+    assert path["met"]["gained"] - path["met"]["expected"] == pytest.approx(path["met"]["moved"]["reward"], abs=0.01)
+    assert [o["act"] for o in path["options"] if o["picked"]] == ["do"] and "cost" in path["options"][0]["parts"]
+    assert path["temperature"] > 0 and "lost" in path["threat"] and path["learned"] is None
+    assert decided["outcome"]["status"] == "completed" and "free" in decided["outcome"]["measured"]
+    brain.provider.replies += ["Done again."]
+    turn(brain, "milk", "Thanks, now the other folder too.")
+    learned = wait_for(lambda: brain.client.mind("milk", idle=5)["decided"]["path"]["learned"])
+    assert learned["act"] == "do" and set(learned["followed"]) == {"company", "capable", "free"}

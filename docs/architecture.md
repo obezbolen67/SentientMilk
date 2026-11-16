@@ -1268,7 +1268,15 @@ resting after they won, the last winner, whether she is thinking), `decided` (he
 odds) and `wiring`: [level, output, weight] from `Body.influence`, which nudges each level by 0.05 and
 measures how far the chemistry's targets, the sensations and core affect, and the bids move (weights
 under 0.05 or 0.1 left out). It is the real coupling at that moment, not a fixed diagram: a need only
-drives anything while it is unmet. MilkChan draws it (Inside her head).
+drives anything while it is unmet. Beside it: `targets` (where each chemical is heading), `paces` (its
+time constant), `set_points`, `receptors` (habituation), `expected` (what she expects a message to be
+worth) and `trust` (each guide's running error). `decided.path` is the way the last message went through
+her, step by step, with what each step worked with: `senses`, the model's `read`, her `record` (her own
+forecast and how much it counted), what she `learned` from what followed the message before, `foreseen`,
+`met` (the needs' pushes, its worth against what she expected, what the chemistry moved), every option
+as weighed (`options`: facts, parts, worth, picked) with the `temperature`, and the `threat`;
+`decided.outcome` is how her turn went, once it ended. MilkChan draws all of it (Inside her head: a map
+of her brain with each part where its counterpart sits in a human brain, the path replayed stop by stop).
 
 Measured on the user's provider (2026-11-16): see the commit that brought it.
 

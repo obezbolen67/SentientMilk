@@ -127,6 +127,8 @@ class Choice:
     parts: Dict[str, float]
     chances: Dict[str, float]  # each option's chance to be picked, by act
     reasons: List[str]
+    considered: List[dict] = field(default_factory=list)  # every option as weighed: its facts, parts and worth
+    temperature: float = 0.1
 
 
 def _gains(body: Body) -> Dict[str, float]:
@@ -194,7 +196,11 @@ def choose(options: List[Option], seen: Appraisal, body: Body, values: Values, f
     named = reasons(parts, rival, option.act)
     if x["grievance"] > 0.35 and option.act in ("later", "decline"):
         named.append(REASONS["grievance"])
-    return Choice(option, score, parts, chances, named)
+    considered = [{"act": other.act, "what": other.what[:120], "effort": other.effort, "chance": other.chance,
+                   "gives": other.gives, "parts": {name: round(part, 3) for name, part in other_parts.items()},
+                   "worth": round(other_score, 3), "picked": other is option}
+                  for other, other_score, other_parts in scored]  # worth: the parts plus her noise
+    return Choice(option, score, parts, chances, named, considered, round(temperature, 3))
 
 
 def reasons(parts: Dict[str, float], rival: Optional[Dict[str, float]] = None, act: str = "do") -> List[str]:
