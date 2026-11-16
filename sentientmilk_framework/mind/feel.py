@@ -1,27 +1,41 @@
-"""What she senses of her body: a lagged, blurred reading, never the levels themselves.
+"""What she senses of her body, and the feelings she makes of it.
 
-Interoception reaches her late and imprecise (``Interoception``: each level is followed with a lag, and
-read with noise that her temperament's ``insight`` shrinks). From that reading come her core affect
-(valence: pleasant or not; arousal: keyed up or quiet) and body sensations in words: tense, warm,
-drained, restless... Emotions are not here. Following the theory of constructed emotion, she makes them
-herself from these sensations in context: "annoyed", "homesick", whatever she would call it. The words
-she once gave a state come back when a state is like it again (``Concepts``).
+Interoception reaches her late and imprecise (``Interoception``: each level is followed with a lag, and read
+with a drifting misreading that her temperament's ``insight`` shrinks). Its channels are her body's, fixed as
+a body's are (``CHANNELS``: stress, sleep pressure, closeness...), each felt as how far it is from where it
+usually sits; from them comes her core affect (valence: pleasant or not; arousal: keyed up or quiet).
 
-Her face is the same reading, for apps: a mood from the expressions the app declares, chosen by
-valence and arousal, with a stance (open, closed) and her eyes.
+Feelings are not a list here. Following the theory of constructed emotion (Barrett 2017), she makes them: a
+feeling is a concept, a word she once used for what she felt (homesick, jealous, greedy: any word, as many as
+she comes to use), learned from the moments she used it: its body (how her channels were) and its situations
+(what was happening). A moment is felt as the concepts whose body is like hers now, the more where what is
+happening is like their situations (``Concepts``). The words come from her own cortex, the model, naming what
+it is like in context (life.py), never from a table.
+
+Her face is the same reading, for apps: a mood from the expressions the app declares, chosen by valence and
+arousal, with a stance (open, closed) and her eyes.
 """
 
 import math
 import random
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from .body import NEEDS, Body
+from .body import CHEMICALS, NEEDS, SET_POINTS, START, Body, fatigue
+from .memory import _words
 
 LAG = 90.0  # seconds: how far her sense of her body trails it
 
-# Body sensations, not emotions: what is felt, from which levels (perceived), each 0..1.
-SENSATIONS = ("tense", "jittery", "restless", "flat", "heavy", "drained", "sleepy", "warm", "hollow",
-              "light", "sinking", "clear", "foggy", "prickly", "itchy to do something", "hemmed in", "settled")
+# Her body's channels as she senses them: what each is called, where it usually sits and how far from there
+# is a lot (needs sit at their set points, chemicals at their baselines)
+CHANNELS = {
+    "dopamine": ("drive", 0.2), "reward": ("reward", 0.4), "serotonin": ("calm", 0.2),
+    "noradrenaline": ("alertness", 0.25), "acetylcholine": ("focus", 0.2), "cortisol": ("stress", 0.25),
+    "oxytocin": ("closeness", 0.25), "endorphin": ("comfort", 0.3), "adenosine": ("sleep pressure", 0.3),
+    "energy": ("energy", 0.4), "grievance": ("hurt", 0.3), "social": ("company", 0.35),
+    "novelty": ("new things", 0.3), "competence": ("being of use", 0.3), "autonomy": ("freedom", 0.3),
+}
+USUAL = {**{name: level.baseline for name, level in CHEMICALS.items()}, **SET_POINTS,
+         "adenosine": 0.3, "energy": 1.0, "grievance": 0.0}
 # Where moods sit in valence and arousal: an app's expression names, as far as they are known.
 MOOD_PLACES = {
     "neutral": (0.0, 0.3), "smile": (0.5, 0.45), "happy": (0.6, 0.5), "playful": (0.65, 0.75),
@@ -34,6 +48,11 @@ MOOD_PLACES = {
 
 def _clip(value: float) -> float:
     return 0.0 if value < 0 else 1.0 if value > 1 else value
+
+
+def off(name: str, value: float) -> float:
+    """How far a channel is from where it usually sits, in units of a lot (signed)."""
+    return (value - USUAL[name]) / CHANNELS[name][1]
 
 
 class Interoception:
@@ -61,48 +80,22 @@ class Interoception:
         return {name: value + self.bias.get(name, 0.0) for name, value in self.seen.items()}
 
 
-def affect(levels: Dict[str, float], fatigue: float, deficits: Dict[str, float]) -> Tuple[float, float]:
-    """Core affect: (valence -1..1, arousal 0..1)."""
-    x = levels
-    pull = 0.35 * (deficits["social"] * x["bond"] + 0.6 * deficits["novelty"] + 0.8 * deficits["competence"]
-                   + 0.5 * deficits["autonomy"])
+def core(levels: Dict[str, float]) -> Tuple[float, float]:
+    """Core affect of these levels: (valence -1..1, arousal 0..1)."""
+    x = {**START, **levels}
+    d = {need: max(0.0, SET_POINTS[need] - x[need]) / SET_POINTS[need] for need in NEEDS}
+    tired = fatigue(x)
+    pull = 0.35 * (d["social"] * x["bond"] + 0.6 * d["novelty"] + 0.8 * d["competence"] + 0.5 * d["autonomy"])
     valence = math.tanh(1.3 * (0.9 * x["reward"] + 0.6 * (x["dopamine"] - 0.5) + 0.7 * (x["serotonin"] - 0.6)
                                + 0.6 * (x["oxytocin"] - 0.4) + 0.8 * (x["endorphin"] - 0.1)
-                               - 1.0 * (x["cortisol"] - 0.25) - pull - 0.4 * fatigue - 0.5 * x["grievance"]))
+                               - 1.0 * (x["cortisol"] - 0.25) - pull - 0.4 * tired - 0.5 * x["grievance"]))
     arousal = _clip(0.3 + 0.9 * (x["noradrenaline"] - 0.35) + 0.35 * abs(x["reward"])
-                    + 0.4 * (x["cortisol"] - 0.25) + 0.2 * (x["acetylcholine"] - 0.5) - 0.45 * fatigue)
+                    + 0.4 * (x["cortisol"] - 0.25) + 0.2 * (x["acetylcholine"] - 0.5) - 0.45 * tired)
     return valence, arousal
 
 
-def sensations(levels: Dict[str, float], fatigue: float, deficits: Dict[str, float], night: float = 0.0
-               ) -> Dict[str, float]:
-    """Each body sensation, 0..1."""
-    x = levels
-    energy = x["energy"]
-    return {
-        "tense": _clip(2.0 * (x["cortisol"] - 0.3) + 1.2 * (x["noradrenaline"] - 0.45)),
-        "jittery": _clip(2.5 * (x["noradrenaline"] - 0.55) * energy),
-        "restless": _clip(1.5 * deficits["novelty"] * x["noradrenaline"] * 2 * energy),
-        "flat": _clip(2.0 * (0.45 - x["dopamine"]) + 1.5 * (0.3 - x["noradrenaline"]) + 0.5 * deficits["novelty"]),
-        "heavy": _clip(2.5 * (0.5 - x["serotonin"]) + 1.5 * (0.4 - x["dopamine"])),
-        "drained": _clip(1.4 * (1.0 - energy) - 0.1),
-        "sleepy": _clip(1.6 * (x["adenosine"] - 0.45) + 0.4 * night),
-        "warm": _clip(2.5 * (x["oxytocin"] - 0.45) + 1.5 * x["endorphin"] - 0.2),
-        "hollow": _clip(1.3 * deficits["social"] * (0.4 + x["bond"])),
-        "light": _clip(1.5 * x["reward"] + 1.5 * (x["endorphin"] - 0.15)),
-        "sinking": _clip(-1.6 * x["reward"]),
-        "clear": _clip(2.0 * (x["acetylcholine"] - 0.5) + 0.5 * energy - 0.6 * fatigue),
-        "foggy": _clip(2.0 * (0.4 - x["acetylcholine"]) + 0.8 * fatigue - 0.2),
-        "prickly": _clip(1.6 * (x["cortisol"] - 0.3) + 1.2 * x["grievance"] + 1.0 * (0.5 - x["serotonin"])
-                         + 0.6 * fatigue - 0.1),
-        "itchy to do something": _clip(1.5 * deficits["competence"] + 1.2 * (x["dopamine"] - 0.55) * energy),
-        "hemmed in": _clip(1.6 * deficits["autonomy"]),
-        "settled": _clip(2.0 * (x["serotonin"] - 0.55) + 1.5 * (0.3 - x["cortisol"]) + 0.8 * (0.45 - x["noradrenaline"])),
-    }
-
-
-def _amount(intensity: float) -> str:
-    return "a little " if intensity < 0.4 else "very " if intensity >= 0.75 else ""
+def _amount(far: float) -> str:
+    return "a little " if far < 0.7 else "very " if far >= 1.1 else ""
 
 
 def _join(words: List[str]) -> str:
@@ -110,41 +103,43 @@ def _join(words: List[str]) -> str:
 
 
 class Felt:
-    """One moment of her felt sense."""
+    """One moment of her felt sense: core affect and the reading it comes from."""
 
-    def __init__(self, valence: float, arousal: float, sensed: Dict[str, float], reading: Dict[str, float]):
-        self.valence, self.arousal, self.sensed, self.reading = valence, arousal, sensed, reading
+    def __init__(self, valence: float, arousal: float, reading: Dict[str, float], night: float = 0.0):
+        self.valence, self.arousal, self.reading, self.night = valence, arousal, reading, night
 
-    def strongest(self, count: int = 3, floor: float = 0.25) -> List[Tuple[str, float]]:
-        found = sorted(((word, value) for word, value in self.sensed.items() if value >= floor),
-                       key=lambda item: -item[1])
-        return found[:count]
+    def standing_out(self, count: int = 4, floor: float = 0.4) -> List[Tuple[str, float]]:
+        """The channels furthest from usual (name, how far, signed), at most ``count``."""
+        found = sorted(((name, off(name, self.reading[name])) for name in CHANNELS if name in self.reading),
+                       key=lambda item: -abs(item[1]))
+        return [(name, far) for name, far in found if abs(far) >= floor][:count]
 
-    def words(self, like: Optional[str] = None) -> str:
-        """How it feels, for her: sensations and the overall tone, no numbers ("You feel warm and a little
-        drained: pleasant on the whole, quiet.")."""
-        top = [f"{_amount(value)}{word}" for word, value in self.strongest()]
+    def tone(self) -> Tuple[str, str]:
+        """Core affect in words: ("pleasant", "quiet")."""
         tone = ("pleasant" if self.valence > 0.15 else "unpleasant" if self.valence < -0.15 else "neither good nor bad")
         if abs(self.valence) > 0.65:
             tone = "very " + tone
-        pace = "keyed up" if self.arousal > 0.6 else "quiet" if self.arousal < 0.25 else "steady"
-        said = f"You feel {_join(top)}: {tone} on the whole, {pace}." if top else \
-            f"Nothing stands out in your body: {tone} on the whole, {pace}."
-        if like:
-            said += f" It feels like what you once called \"{like}\"."
-        return said
+        return tone, "keyed up" if self.arousal > 0.6 else "quiet" if self.arousal < 0.25 else "steady"
 
-    def vector(self) -> List[float]:
-        """For likeness between moments (Concepts): tone, pace and each sensation."""
-        return [self.valence, self.arousal] + [self.sensed[word] for word in SENSATIONS]
+    def words(self, feelings: Iterable[Tuple[str, float]] = ()) -> str:
+        """How it feels, for her: what stands out in her body, the overall tone and what it feels like, no
+        numbers ("Your body: stress a little high and closeness very high; pleasant on the whole, quiet. It
+        feels like what you have called "fond".")."""
+        out = [f"{CHANNELS[name][0]} {_amount(abs(far))}{'high' if far > 0 else 'low'}"
+               for name, far in self.standing_out()]
+        tone, pace = self.tone()
+        said = (f"Your body: {_join(out)}; {tone} on the whole, {pace}." if out else
+                f"Nothing stands out in your body: {tone} on the whole, {pace}.")
+        named = [word for word, _ in list(feelings)[:2]]
+        if named:
+            said += " It feels like what you have called " + " and ".join(f'"{word}"' for word in named) + "."
+        return said
 
 
 def feel(body: Body, senses: Interoception, now: Optional[float] = None) -> Felt:
     reading = senses.reading(body)
-    deficits = {need: max(0.0, body.deficit(need)) for need in NEEDS}
-    fatigue = body.fatigue()
-    valence, arousal = affect(reading, fatigue, deficits)
-    return Felt(valence, arousal, sensations(reading, fatigue, deficits, body.night(now)), reading)
+    valence, arousal = core(reading)
+    return Felt(valence, arousal, reading, body.night(now))
 
 
 def face(felt: Felt, options: Dict[str, List[str]], asleep: bool) -> Optional[dict]:
@@ -160,39 +155,94 @@ def face(felt: Felt, options: Dict[str, List[str]], asleep: bool) -> Optional[di
     else:
         mood = min(moods, key=lambda m: (MOOD_PLACES[m][0] - felt.valence) ** 2
                    + 0.6 * (MOOD_PLACES[m][1] - felt.arousal) ** 2)
-    guarded = felt.sensed["prickly"] + felt.sensed["tense"] - felt.sensed["warm"]
-    stance = "closed" if guarded > 0.6 and felt.valence < -0.1 else "open" if felt.valence > 0.25 and \
-        felt.sensed["warm"] > 0.3 else "neutral"
-    eyes = "closed" if asleep else "half" if max(felt.sensed["sleepy"], felt.sensed["foggy"]) > 0.6 else "open"
+    x = felt.reading
+    guarded = off("cortisol", x["cortisol"]) + off("grievance", x["grievance"]) - off("oxytocin", x["oxytocin"])
+    stance = "closed" if guarded > 1.5 and felt.valence < -0.1 else "open" if felt.valence > 0.25 and \
+        off("oxytocin", x["oxytocin"]) > 0.5 else "neutral"
+    heavy_lidded = max(1.6 * (x["adenosine"] - 0.45) + 0.4 * felt.night,
+                       2.0 * (0.4 - x["acetylcholine"]) + 0.8 * fatigue(x) - 0.2)
+    eyes = "closed" if asleep else "half" if heavy_lidded > 0.6 else "open"
     return {"mood": mood, "stance": stance, "eyes": eyes, "asleep": asleep}
 
 
 class Concepts:
-    """The words she gave her states: a state like one she named comes with its name (nearest within reach)."""
+    """The feelings she has named: any word she ever used for what she felt, each the moments she called that.
 
-    REACH = 0.9
+    A concept keeps its body (the running mean of her sensed levels when she used the word: the first few
+    moments shape it most, later ones less) and its situations (the words of what was happening, by weight,
+    older ones fading). It comes to mind as far as her body now is like its body (within ``REACH`` of a lot,
+    over all channels), more where what is happening is like its situations."""
 
-    def __init__(self, named: Iterable[Tuple[str, List[float]]] = ()):
-        self.named = [(word, list(vector)) for word, vector in named]
+    REACH = 1.5
+    FLOOR = 0.5  # how strongly one must come to mind to be felt
 
-    def add(self, word: str, vector: List[float]) -> None:
-        """A state she named: a word she used before moves toward this state (a concept is what its moments
-        share), a new one starts here."""
+    def __init__(self, saved: Iterable = ()):
+        self.named = [self._read(item) for item in saved]
+
+    @staticmethod
+    def _read(item) -> dict:
+        if isinstance(item, dict):
+            return {"word": str(item.get("word", "")), "body": dict(item.get("body") or {}),
+                    "about": dict(item.get("about") or {}), "count": int(item.get("count", 0)),
+                    "at": float(item.get("at", 0.0))}
+        # [word, vector] from before 0.22: the vector was of sensations that are gone; the word stays, and its
+        # body is learned again the next time she uses it
+        return {"word": str(item[0]), "body": {}, "about": {}, "count": 0, "at": 0.0}
+
+    def add(self, word: str, reading: Dict[str, float], situation: str = "", at: float = 0.0) -> None:
+        """She called what she feels ``word`` (in ``situation``, its words)."""
         word = " ".join(str(word).split())[:40].lower()
         if not word:
             return
-        for index, (known, other) in enumerate(self.named):
-            if known == word and len(other) == len(vector):
-                self.named[index] = (word, [a + 0.2 * (b - a) for a, b in zip(other, vector)])
-                return
-        self.named.append((word, list(vector)))
+        found = next((concept for concept in self.named if concept["word"] == word), None)
+        if found is None:
+            found = {"word": word, "body": {}, "about": {}, "count": 0, "at": at}
+            self.named.append(found)
+        share = 1.0 if not found["body"] else max(0.15, 1.0 / (found["count"] + 1))
+        for name, value in reading.items():
+            before = found["body"].get(name, value)
+            found["body"][name] = round(before + share * (value - before), 4)
+        about = {key: weight * 0.9 for key, weight in found["about"].items() if weight * 0.9 >= 0.05}
+        for key in _words(situation):
+            about[key] = about.get(key, 0.0) + 1.0
+        found.update(about=about, count=found["count"] + 1, at=at)
 
-    def like(self, vector: List[float]) -> Optional[str]:
-        best, distance = None, self.REACH
-        for word, other in self.named:
-            if len(other) != len(vector):
-                continue
-            gap = math.dist(vector, other)
-            if gap < distance:
-                best, distance = word, gap
-        return best
+    def strength(self, concept: dict, reading: Dict[str, float], cue: Optional[set] = None) -> float:
+        """How strongly a concept comes to mind, 0..1."""
+        body = concept["body"]
+        if not body:
+            return 0.0
+        far = sum(((reading[name] - body[name]) / CHANNELS[name][1]) ** 2
+                  for name in CHANNELS if name in body and name in reading)
+        near = math.exp(-far / (2 * self.REACH ** 2))
+        about = concept["about"]
+        if cue and about:  # a situation like its own makes it come more readily, an unlike one less
+            share = sum(about.get(key, 0.0) for key in cue) / sum(about.values())
+            near *= 0.75 + 0.5 * min(1.0, 2.0 * share)
+        return min(1.0, near)
+
+    def recognize(self, reading: Dict[str, float], situation: str = "") -> List[Tuple[str, float]]:
+        """What she feels now, strongest first: (word, strength) of the concepts that come to mind."""
+        cue = set(_words(situation))
+        found = ((concept["word"], self.strength(concept, reading, cue)) for concept in self.named)
+        return sorted(((word, value) for word, value in found if value >= self.FLOOR), key=lambda item: -item[1])
+
+    def shown(self, reading: Dict[str, float]) -> List[dict]:
+        """Every feeling she has named, for drawing: how strongly it comes to mind now, how often she felt it,
+        where it sits (``place``: pleasant -1..1, keyed up 0..1, toward the user -1..1, from its body) and the
+        channels that set it apart (name, how far, signed)."""
+        out = []
+        for concept in self.named:
+            body = concept["body"]
+            entry = {"word": concept["word"], "strength": round(self.strength(concept, reading), 3),
+                     "count": concept["count"], "at": concept["at"], "place": None, "channels": []}
+            if body:
+                valence, arousal = core(body)
+                toward = sum(off(name, body[name]) for name in ("oxytocin", "social") if name in body) \
+                    - off("grievance", body.get("grievance", 0.0))
+                entry["place"] = [round(valence, 3), round(arousal, 3), round(max(-1.0, min(1.0, toward / 3)), 3)]
+                apart = sorted(((name, off(name, body[name])) for name in CHANNELS if name in body),
+                               key=lambda item: -abs(item[1]))
+                entry["channels"] = [[name, round(far, 2)] for name, far in apart[:3] if abs(far) >= 0.4]
+            out.append(entry)
+        return out

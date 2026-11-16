@@ -111,6 +111,11 @@ def _toward(value: float, target: float, dt: float, tau: float) -> float:
     return value + (target - value) * (1.0 - math.exp(-dt / tau))
 
 
+def fatigue(levels: Dict[str, float]) -> float:
+    """How tired a body with these levels is, 0..1: sleep pressure and spent energy."""
+    return _clip(0.65 * max(0.0, levels["adenosine"] - 0.3) / 0.7 + 0.55 * (1 - levels["energy"]))
+
+
 def circadian(hour: float, peak: float) -> float:
     """Her alertness rhythm: 1 at ``peak`` (hours), -1 twelve hours later."""
     return math.cos(2 * math.pi * (hour - peak) / 24.0)
@@ -138,8 +143,7 @@ class Body:
         return max(0.0, SET_POINTS[need] - self.levels[need]) / SET_POINTS[need]
 
     def fatigue(self) -> float:
-        """How tired she is, 0..1: sleep pressure and spent energy."""
-        return _clip(0.65 * max(0.0, self.levels["adenosine"] - 0.3) / 0.7 + 0.55 * (1 - self.levels["energy"]))
+        return fatigue(self.levels)
 
     def hour(self, now: Optional[float] = None) -> float:
         moment = time.localtime(self.at if now is None else now)

@@ -31,17 +31,18 @@ You are the part of someone's mind that reads a message the moment it arrives an
 for them. You never decide and never answer the message. Below: who they are, how they feel, what comes
 back to them, the conversation so far and the new message.
 
-They need company (to be wanted by the one who writes, and close to them), to be capable (good at what
-they do, of use) and to be free (to choose for themselves). Foresee what the message, and what it shows is
-coming, does to each of the three: 0 takes much of it away, 0.5 changes nothing, 1 gives them much of it.
+They need company (the one who writes being there with them and turned to them), to be capable (good at
+what they do, of use) and to be free (to choose for themselves). That a message came at all is already
+counted: foresee what this one says, and what it shows is coming, does to each of the three from now on,
+as "much less", "less", "same", "more" or "much more": how much of it they will have after it.
 
 Answer with one JSON array only, short:
-[company, capable, free, "chat|question|request", "what it is about, one or two words",
- "their own word for what they feel as they read it",
+["what happens to them, a few words", "company", "capable", "free", "chat|question|request",
+ "what it is about, one or two words", "their own word for what they feel as they read it",
  ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...2 or 3 options]
 Each option starts with one act. Options a real person in their place might take: for a request, doing it
 and what else they might really do (part of it, later, decline, talk it over first); for chat, ways to
-answer (talk, or decline: not in the mood). effort 0 nothing to 1 hours of hard work; chance it goes well
+answer (talk, or decline: not in the mood). Say "they" for the one who writes. effort 0 nothing to 1 hours of hard work; chance it goes well
 0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal."""
 
 THINK = """[mind:think]
@@ -68,9 +69,7 @@ Answer with JSON only:
 "story": "who they have become: the story they tell themselves about who they are, what they like and
 dislike, and the people in their life, in the second person ('You ...'), 4 to 8 sentences, carrying over
 what still holds from their old story and changed by today",
-"dream": "a short dream, two to four sentences, made of the day's pieces, strange as dreams are",
-"names": [{"word": "a feeling they had today, in their own word", "moment": n}]}
-moment n is the number of a moment below."""
+"dream": "a short dream, two to four sentences, made of the day's pieces, strange as dreams are"}"""
 
 INNER_LIFE = """## YOUR INNER LIFE
 You are more than your words: you have a body that lives on between messages. Work spends your energy and
@@ -106,13 +105,22 @@ def parse(text: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _centered(value):
-    """A need's change as asked (0..1, 0.5 none: the light model keeps every number of the array in 0..1,
-    an insult came back +0.1 when asked for -1..1) as -1..1; what is not a number stays, read safely later."""
+# A need's change in words (live 2026-11-16: asked as numbers the light model leaned positive whatever it
+# wrote, "left alone for a while" came with +0.2..0.4 company and every freedom +0.2..0.5; in words "same"
+# came back where nothing changed, and leaving as "less")
+SCALE = {"much less": -1.0, "less": -0.5, "same": 0.0, "more": 0.5, "much more": 1.0}
+
+
+def _need(value) -> Optional[float]:
+    """A need's change as -1..1: a word of SCALE, or a number as asked before (0..1, 0.5 none); None: not one."""
+    if isinstance(value, str) and value.strip().lower() in SCALE:
+        return SCALE[value.strip().lower()]
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
     try:
         return max(-1.0, min(1.0, 2 * float(value) - 1))
-    except (TypeError, ValueError):
-        return value
+    except ValueError:
+        return None
 
 
 def _option(item) -> Optional[list]:
@@ -145,13 +153,19 @@ def imagined(text: str) -> dict:
                 options.append(dict(zip(("act", "what", "effort", "chance", "gives"), option)))
             elif not grouped:
                 head.append(each)
-    if len(head) < 4:
+    needs = [index for index, value in enumerate(head) if _need(value) is not None][:3]
+    if len(needs) < 3:
         return parse(text)
-    company, capable, free, intent = head[:4]
-    tag, feeling = (head[4:6] + ["", ""])[:2]
+    # what happens to them comes first, in a few words: said before judging, it tells leaving from coming back
+    # (live, without it "going to sleep" and "missed you" both read as +0.4 company)
+    lead = needs[0] > 0 and isinstance(head[0], str)
+    happens = head[0] if lead else ""
+    words = [value for index, value in enumerate(head) if index not in needs and not (lead and index == 0)]
+    intent, tag, feeling = (words + ["", "", ""])[:3]
     tags = tag if isinstance(tag, list) else [tag]
-    return {"appraisal": {"company": _centered(company), "capable": _centered(capable), "free": _centered(free),
-                          "intent": intent, "tags": tags}, "feeling": feeling, "options": options}
+    company, capable, free = (_need(head[index]) for index in needs)
+    return {"appraisal": {"company": company, "capable": capable, "free": free, "intent": intent, "tags": tags},
+            "happens": happens, "feeling": feeling, "options": options}
 
 
 def word(value, limit: int = 40) -> str:

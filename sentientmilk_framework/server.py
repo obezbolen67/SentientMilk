@@ -199,7 +199,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif route == ["mind"] and method == "GET":  # how she is: her face for an app, feelings, thoughts (mind/)
             app = validate_name(query["app"], "app") if query.get("app") else None
             idle = float(query["idle"]) if query.get("idle") not in (None, "") else None
-            self._send(200, brain.mind.state(app, idle))
+            self._send(200, brain.mind.state(app, idle, brief=query.get("brief") == "1"))
         elif route == ["stats"] and method == "GET":
             self._send(200, brain.stats())
         elif route == ["apps"] and method == "GET":

@@ -35,7 +35,7 @@ import requests
 
 from . import prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, SET_POINTS, Body, Temperament
-from .feel import Concepts, Interoception, affect, face, feel, sensations
+from .feel import Concepts, Interoception, core, face, feel
 from .memory import Memory, describe_salience, line
 from .values import Values, features
 from .will import FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
@@ -90,6 +90,11 @@ def _about(leanings) -> list:
     return list(dict.fromkeys(name.split("tag:")[-1] for name, _ in leanings))
 
 
+def _chat(app: str, session: str) -> str:
+    """One chat's key in her state (JSON keys are strings)."""
+    return f"{app}\n{session}"
+
+
 def _ago(seconds: float) -> str:
     return line({"at": 0.0, "text": ""}, seconds).split(")")[0].strip("(")
 
@@ -110,12 +115,17 @@ class Mind:
         self.values = Values.from_dict(self.memory.get("values"))
         self.concepts = Concepts(self.memory.get("concepts") or [])
         # expected: what a message from the user does for her needs, as she has come to expect; gap: the log
-        # of her usual time between messages; trust: each guide's running error (her own record starts unproven)
+        # of her usual time between messages; trust: each guide's running error (her own record starts unproven);
+        # waiting: per chat, her last decision there, until the next message in that chat says what followed;
+        # usual: what follows a message is usually worth (her values learn what goes better or worse than it)
         self.self = {"story": "", "born": False, "expected": 0.1, "gap": None, "contact": None, "concerns": [],
-                     "pending": None, "urge": None, "slept": 0.0, "consolidate": False, "fired": {},
+                     "waiting": {}, "usual": 0.0, "urge": None, "slept": 0.0, "consolidate": False, "fired": {},
                      "thoughts": [], "trust": {"model": dict.fromkeys(FORESEEN, 0.1), "own": dict.fromkeys(FORESEEN, 0.3)},
                      **(self.memory.get("self") or {})}
         self.self.pop("expected_warmth", None)  # a mind from before 0.21
+        pending, contact = self.self.pop("pending", None), self.self.get("contact")
+        if pending and contact:  # a mind from before 0.21.2 kept one for all chats: it was the last contact's
+            self.self["waiting"].setdefault(_chat(contact["app"], contact["session"]), pending)
         self.senses = Interoception(self.body, self.body.temperament.seed)
         self.rng = random.Random(self.body.temperament.seed ^ time.time_ns())
 
@@ -353,19 +363,23 @@ class Mind:
             if answered:  # they answered her
                 body.apply({"reward": 0.1 + 0.3 * x["bond"]})
                 self.self["urge"] = None
-            timing = self._timing(away)
+            timing, apart = self._timing(away)
             likeness, followed, evidence = self.memory.known(said, before=now)
             novelty = 1.0 - likeness if likeness is not None else (0.5 if pictures else 0.0)
             body.learn_rhythm(body.hour(now))
             self.last_active = now
             felt = feel(body, self.senses, now)
-            like = self.concepts.like(felt.vector())
+            feelings = self.concepts.recognize(felt.reading, said)
             memories = [line(e, now) for e in self.memory.recall(said, felt.valence, now, count=3, before=now - 30)]
             born = self.self["born"]
         if not born:
             self._birth(profile["persona"])
         recent = self._recent(run)
-        asked = (f"{self._who(profile['persona'])}\n\nHow they feel right now: {felt.words(like)}\n"
+        # where they are, as the app's environment opens (live: without it, "gotta go to the store, wanna buy
+        # something" read as being invited along, by someone who lives on a screen)
+        place = (profile.get("environment") or "").strip().split("\n")[0][:400]
+        asked = (f"{self._who(profile['persona'])}\n" + (f"\nWhere they are: {place}\n" if place else "")
+                 + f"\nHow they feel right now: {felt.words(feelings)}\n"
                  + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
                  + (f"\nThe conversation so far (newest last):\n{recent}\n" if recent else "")
                  + "\nThe new message, from the user" + (f" (with {pictures} pictures)" if pictures else "")
@@ -384,12 +398,12 @@ class Mind:
             model = seen.effects()  # what the model foresees, before her own record has its say
             own, shares = self._forecast(seen, followed, evidence)
             seen.novelty = novelty
-            pending = self.self.get("pending")
-            learned = self._settle(pending, model) if pending else None
+            chat = _chat(run["app"], run["session"])
+            pending = self.self["waiting"].pop(chat, None)  # her last decision in this chat: now what followed is known
+            learned = self._settle(pending, model, apart) if pending else None
+            levels = dict(self.body.levels)
             met = self._met(seen, company, timing)
             named = prompts.word(answer.get("feeling"))
-            if named:
-                self.concepts.add(named, felt.vector())
             hour = self.body.hour(now)
 
             def found(option):
@@ -397,17 +411,23 @@ class Mind:
             choice = choose(options, seen, self.body, self.values, found, self.rng) if options else None
             option = choice.option if choice else Option("do", chance=0.8)
             threat = self._threat(seen, option)
+            if named:  # what she called it: her body as the message moves it (her sense of it lags; a brain builds
+                # a feeling from the change it predicts, live "small" at a comparison was kept as pleasant without)
+                self.concepts.add(named, {name: value + self.body.levels[name] - levels[name]
+                                          for name, value in felt.reading.items()},
+                                  f"{said} {answer.get('happens') or ''}", now)
             foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
             decision = {"act": option.act, "what": option.what, "chance": option.chance, "effort": option.effort,
                         "foreseen": foreseen, "novelty": round(novelty, 3),
                         "stakes": min(1.0, sum(abs(change) for change in foreseen.values()) / 2),
                         "features": found(option), "reasons": choice.reasons if choice else [],
                         "chances": choice.chances if choice else {}, "said": said[:300], "at": now}
-            # settled by the user's next message: what followed this one (after() adds how her turn went)
-            self.self["pending"] = {"at": now, "act": option.act, "features": decision["features"], "model": model,
-                                    "own": own, "episode": None, "measured": None}
+            # settled by the user's next message in this chat: what followed this one (after() adds how her turn went)
+            self.self["waiting"][chat] = {"at": now, "act": option.act, "features": decision["features"],
+                                          "model": model, "own": own, "episode": None, "measured": None}
             # the way this message went through her, step by step, for drawing her brain
-            path = {"said": said[:160], "intent": seen.intent, "tags": seen.tags,
+            path = {"said": said[:160], "happens": str(answer.get("happens") or "")[:120], "intent": seen.intent,
+                    "tags": seen.tags,
                     "senses": {"contact": round(company, 3), "timing": round(timing, 3), "novelty": round(novelty, 3),
                                "likeness": None if likeness is None else round(likeness, 3), "answered": answered,
                                "away": None if away is None else round(away)},
@@ -423,19 +443,24 @@ class Mind:
                 self.self["concerns"].append({"what": option.what or said[:200], "app": run["app"],
                                               "session": run["session"], "at": now})
             self.self["contact"] = {"app": run["app"], "session": run["session"], "at": now}
-            felt_words = felt.words(like if like != named else None) + (f" Reading it, you feel {named}." if named else "")
+            felt_words = felt.words([found for found in feelings if found[0] != named]) + (
+                f" Reading it, you feel {named}." if named else "")
             note = prompts.inner(felt_words, memories, option.act if choice else None, option.what,
                                  choice.reasons if choice else [])
         self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
         return note
 
-    def _timing(self, away: Optional[float]) -> float:
-        """How unexpected a message is in time, 0..1: its gap from the last one against her usual gaps."""
+    def _timing(self, away: Optional[float]) -> Tuple[float, Optional[float]]:
+        """How unexpected a message is in time, 0..1 (its gap from the last one against her usual gaps), and how
+        much longer than usual they were apart (signed, in thirds of the log gap; None: nothing to go by)."""
         if away is None:
-            return 0.0
+            return 0.0, None
         gap, usual = math.log(max(away, 1.0)), self.self.get("gap")
         self.self["gap"] = gap if usual is None else usual + LEARNS * (gap - usual)
-        return 0.0 if usual is None else min(1.0, abs(gap - usual) / 3.0)
+        if usual is None:
+            return 0.0, None
+        apart = (gap - usual) / 3.0
+        return min(1.0, abs(apart)), apart
 
     def _forecast(self, seen: Appraisal, followed: Dict[str, float], evidence: float
                   ) -> Tuple[Optional[Dict[str, float]], Dict[str, float]]:
@@ -494,15 +519,18 @@ class Mind:
         return {"lost": {name: round(amount, 3) for name, amount in lost.items()}, "back": round(back, 3),
                 "moved": {name: round(change, 3) for name, change in moved.items()}}
 
-    def _settle(self, pending: dict, then: Dict[str, float]) -> Optional[dict]:
-        """The user wrote again: what followed her last message is known (``then``: what this one does to her
-        needs, as the model reads it, and how her turn went, measured). It is kept with that moment for her
-        own record, each guide's error is updated against it, and it teaches her values about her decision.
-        What she learned, for drawing (None: nothing to learn from)."""
-        self.self["pending"] = None
+    def _settle(self, pending: dict, then: Dict[str, float], apart: Optional[float] = None) -> Optional[dict]:
+        """The user wrote again in that chat: what followed her last message there is known (``then``: what this
+        one does to her needs, as the model reads it; how her turn went, measured; and ``apart``: how much
+        longer than usual they were apart since, which is company measured: a long time away takes it, a quick
+        answer gives a little). It is kept with that moment for her own record, each guide's error is updated
+        against it, and it teaches her values whether her decision went better or worse than what usually
+        follows. What she learned, for drawing (None: nothing to learn from)."""
         if "model" not in pending:  # kept by a mind from before 0.21
             return None
-        measured = pending.get("measured") or {}
+        measured = dict(pending.get("measured") or {})
+        if apart is not None:
+            measured["company"] = -math.tanh(apart) if apart > 0 else -0.3 * math.tanh(apart)
         followed = {name: (then[name] + measured[name]) / 2 if name in measured else then[name] for name in FORESEEN}
         trust = self.self["trust"]
         for name, real in followed.items():
@@ -511,9 +539,15 @@ class Mind:
                     trust[guide][name] += LEARNS * ((guessed[name] - real) ** 2 - trust[guide][name])
         if pending.get("episode"):
             self.memory.follow(pending["episode"], {name: round(change, 3) for name, change in followed.items()})
-        felt = math.tanh(3.0 * sum(value(followed, self.body).values()))
+        # values learn what went better or worse than usual (a prediction error), not how good things are: graded
+        # absolutely, whatever she did was credited with how friendly the user is ("decline" learned +0.71 from
+        # a kind chat in the user's brain, 2026-11-16)
+        worth = sum(value(followed, self.body).values())
+        felt = math.tanh(3.0 * (worth - self.self["usual"]))
+        self.self["usual"] += LEARNS * (worth - self.self["usual"])
         self.values.learn(pending["features"], felt, self._rate())
         return {"act": pending["act"], "followed": {name: round(change, 3) for name, change in followed.items()},
+                "measured": {name: round(change, 3) for name, change in measured.items()},
                 "model": pending["model"], "own": pending.get("own"), "felt": round(felt, 3)}
 
     def _rate(self) -> float:
@@ -586,8 +620,8 @@ class Mind:
             episode = self.memory.add("exchange", text, valence, felt.arousal,
                                       describe_salience(abs(surprise), felt.arousal, decision.get("stakes", 0.5)),
                                       app=run["app"], session=run["session"], at=now)
-            pending = self.self.get("pending")
-            if pending and pending.get("at") == decision["at"]:  # the user has not written again yet
+            pending = self.self["waiting"].get(_chat(run["app"], run["session"]))
+            if pending and pending.get("at") == decision["at"]:  # the user has not written again in this chat yet
                 pending.update(episode=episode, measured=measured)
             decided = self.self.get("decided")
             if decided and decided.get("at") == decision["at"]:
@@ -602,14 +636,14 @@ class Mind:
             now = time.time()
             contact = self.self.get("contact") or (about if kind == "resume" else None)
             felt = feel(self.body, self.senses, now)
-            like = self.concepts.like(felt.vector())
             subject = (about or {}).get("text") or (about or {}).get("what") or ""
             on_mind = ON_MIND[kind].format(about=subject, since=f" You last talked {_ago(now - contact['at'])}."
                                            if contact else "")
             cue = subject or (self.memory.recent(1, kinds=("exchange",)) or [{"text": ""}])[0]["text"]
+            feelings = self.concepts.recognize(felt.reading, cue)
             memories = [line(e, now) for e in self.memory.recall(cue, felt.valence, now, count=3)]
         persona = self._persona(contact["app"], contact["session"]) if contact else ""
-        asked = (f"{self._who(persona)}\n\nIt is {time.strftime('%A %H:%M')}. How they feel: {felt.words(like)}\n"
+        asked = (f"{self._who(persona)}\n\nIt is {time.strftime('%A %H:%M')}. How they feel: {felt.words(feelings)}\n"
                  f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}" if memories else ""))
         answer, usage = self._ask(prompts.THINK, asked)
         thought = " ".join(str(answer.get("thought") or "").split())[:600]
@@ -629,7 +663,7 @@ class Mind:
             felt = feel(body, self.senses, now)
             named = prompts.word(answer.get("feeling"))
             if named:
-                self.concepts.add(named, felt.vector())
+                self.concepts.add(named, felt.reading, thought, now)
             self.memory.add("thought", thought, felt.valence, felt.arousal, 0.25 + (0.2 if kind == "ruminate" else 0.0),
                             at=now)
             self.self["thoughts"] = ([{"at": now, "kind": kind, "thought": thought, "want": want}]
@@ -703,6 +737,7 @@ class Mind:
         """A conversation the user deleted: her memories of it, what she put off in it and urges to it go."""
         with self._lock:
             self.memory.forget_session(app, session)
+            self.self["waiting"].pop(_chat(app, session), None)
             self.self["concerns"] = [c for c in self.self["concerns"] if (c["app"], c["session"]) != (app, session)]
             for key in ("contact", "urge"):
                 found = self.self.get(key)
@@ -719,12 +754,14 @@ class Mind:
             story = self.self["story"]
         return prompts.INNER_LIFE + (f"\n\n## WHO YOU HAVE BECOME\n{story}" if story else "")
 
-    def state(self, app: Optional[str] = None, idle: Optional[float] = None) -> dict:
+    def state(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False) -> dict:
         """How she is now: her face for ``app`` (from its declared expressions), what she feels, her levels,
-        thoughts, concerns and story; for drawing her brain, every sensation (``sensed``), what wants her
+        thoughts, concerns and story; for drawing her brain, every feeling she has named (``feelings``), her
+        body's channels as she senses them (``sensed``: how far from usual, in units of a lot), what wants her
         attention (``attention``), her last decision (``decided``) and the connections her dynamics make
         now (``wiring``: [level, what it drives, weight]). ``idle``: seconds since the user last touched
-        the computer."""
+        the computer. ``brief``: only what a face needs (``on``, ``asleep``, ``present``, ``felt``, ``feeling``: a
+        few words for it, ``valence``, ``arousal``, ``face``): an app's frequent look, kept small as she grows."""
         if app:
             self.presence(app, idle)
         if not self.active():
@@ -739,20 +776,29 @@ class Mind:
             self._live_until(now)
             body = self.body
             felt = feel(body, self.senses, now)
-            like = self.concepts.like(felt.vector())
+            felt_now = self.concepts.recognize(felt.reading)
+            seen = {"on": True, "asleep": body.asleep, "present": self.present(now), "felt": felt.words(felt_now),
+                    "feeling": ", ".join(word for word, _ in felt_now[:2]) or ", ".join(felt.tone()),
+                    "valence": round(felt.valence, 3), "arousal": round(felt.arousal, 3),
+                    "face": face(felt, options, body.asleep)}
+            if brief:
+                return seen
+            feelings = self.concepts.shown(felt.reading)
             likes, dislikes = self.values.leanings()
             bids, threshold, _, _ = self._drives(now)
             pulls, fired, night = bids(), self.self["fired"], body.night(now)
 
-            def sensed() -> Dict[str, float]:  # from her levels themselves: what they do to how she feels
-                deficits = {need: body.deficit(need) for need in NEEDS}
-                valence, arousal = affect(body.levels, body.fatigue(), deficits)
-                return {**sensations(body.levels, body.fatigue(), deficits, night), "valence": valence,
-                        "arousal": arousal}
-            wiring = (body.influence(body.targets) + body.influence(sensed, 0.1)
+            def tone() -> Dict[str, float]:  # from her levels themselves: what they do to her core affect
+                valence, arousal = core(body.levels)
+                return {"valence": valence, "arousal": arousal}
+            wiring = (body.influence(body.targets) + body.influence(tone, 0.1)
                       + body.influence(lambda: {kind: value for kind, value in bids().items() if value is not None}, 0.1))
             return {
-                "sensed": {name: round(value, 3) for name, value in felt.sensed.items()}, "night": round(night, 3),
+                **seen,
+                # every feeling she has named (strength now, how often, place, the channels that set it apart)
+                # and her body as she senses it (how far each channel is from usual)
+                "feelings": feelings, "sensed": {name: round(far, 2) for name, far in felt.standing_out(len(felt.reading), 0.0)},
+                "night": round(night, 3),
                 "needs": {need: round(body.deficit(need), 3) for need in NEEDS},  # how far each is unmet, 0..1
                 "attention": {"bids": {kind: None if value is None else round(value, 3) for kind, value in pulls.items()},
                               "threshold": round(threshold, 3), "thinking": self._thinking,
@@ -760,10 +806,6 @@ class Mind:
                               "last": max(pulls, key=lambda kind: fired.get(kind, 0.0)) if any(
                                   kind in fired for kind in pulls) else None},
                 "decided": self.self.get("decided"), "wiring": [list(edge) for edge in wiring],
-                "on": True, "asleep": body.asleep, "present": self.present(now), "felt": felt.words(like),
-                "sensations": {name: round(value, 2) for name, value in felt.strongest(5)},
-                "valence": round(felt.valence, 3), "arousal": round(felt.arousal, 3),
-                "face": face(felt, options, body.asleep),
                 "levels": {name: round(value, 3) for name, value in body.levels.items()},
                 # where each chemical is heading, how fast (seconds to go two thirds of the way), the needs'
                 # set points, how responsive the habituating receptors are, and what she expects of the user
@@ -777,5 +819,4 @@ class Mind:
                 "thoughts": list(self.self["thoughts"]), "concerns": list(self.self["concerns"]),
                 "story": self.self["story"], "likes": _about(likes), "dislikes": _about(dislikes),
                 "memories": self.memory.count(),
-                "named": [word for word, _ in self.concepts.named[-8:]],
             }

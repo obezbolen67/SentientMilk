@@ -1220,7 +1220,7 @@ and her episodes with an FTS5 index. The model stays her cortex; the rest is cod
 | Part | What it is |
 |---|---|
 | `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, habituating receptors, a circadian rhythm that follows the user's hours, sleep physiology, and a catch-up that lives through time the brain was off |
-| `feel.py` | interoception: a lagged, noisy reading (less noisy with more insight) into valence, arousal and sensations in words; the face an app shows; the names she gave her states |
+| `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (stress, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual, and core affect (valence, arousal); feelings as concepts (`Concepts`): any word she ever used for what she felt, each with its body (the running mean of her levels when she used it) and its situations (words by weight, fading), coming to mind by likeness of body (within 1.5 of a lot over all channels) and of situation; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed |
 | `memory.py` | episodes with feeling, salience and a power-law strength; recall by bm25, mood, strength and recency, with noise; recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
 | `life.py` | the Mind: before and after each turn with the user's words, the gate on tools after a refusal, the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
@@ -1231,15 +1231,27 @@ what code can measure: the contact itself, whether it answers her urge, how unex
 (log gap against her usual gaps) and how new it is (`Memory.known`: 1 minus the likeness of the memory
 most like it, the share of the message's words it has, each weighed by log(1 + (N - n + 0.5)/(n + 0.5)),
 which unlike bm25's idf stays above 0 in a young memory; bm25 finds the 40 candidates). It recalls three
-episodes and makes one imagine call on the light model: what the message does to her company, capability
-and freedom (asked 0..1, 0.5 none, read as -1..1), what it is about, and 2 to 4 options with effort,
-chance and how much of what was asked each gives (the model's own guesses of what an option does to her
-needs were noise live, so the will derives that). Her own record (what followed the messages most like
+episodes and makes one imagine call on the light model, with who she is, where she is (the first line of
+the app's environment: without it "gotta go to the store, wanna buy something" read as being invited
+along), how she feels and the chat so far: what happens to her in a few words, said first, then what that
+does to her company, capability and freedom in words ("much less" .. "much more": asked as numbers, the
+light model leaned positive whatever it wrote, leaving read as +0.2..0.4 company), that a message came at
+all being counted already; what it is about, the word she would use for what she feels, and 2 to 4
+options with effort, chance and how much of what was asked each gives (the model's own guesses of what an
+option does to her needs were noise live, so the will derives that). The word becomes a feeling of hers
+(`Concepts.add`) with her body as the message moves it: her sense of her body lags, and a brain builds a
+feeling from the change it predicts. Her own record (what followed the messages most like
 it) outweighs the model's reading by familiarity (summed likeness over 1.5 plus it) times how much
-better a guide it has been (each guide's running squared error). The previous message is settled here
-(`_settle`): what followed it (this message as the model reads it, averaged with how her turn went as
-`after` measured it: freedom from steering, stopping, denials and her own no; capability from success)
-is stored on its episode, updates each guide's error and teaches her values about that decision. Then
+better a guide it has been (each guide's running squared error). Her last decision in the same chat is
+settled here (`_settle`; each chat waits for its own next message, `self["waiting"]`, so another chat's
+message is never taken for what followed, and a deleted chat's goes with it): what followed it (this
+message as the model reads it, averaged with what was measured: how her turn went as `after` saw it,
+freedom from steering, stopping, denials and her own no, capability from success; and company from the
+time apart, longer than her usual gaps taking it, a quick answer giving a little) is stored on its
+episode, updates each guide's error and teaches her values whether that decision went better or worse
+than what usually follows (`usual`, a running mean: graded absolutely, whatever she did was credited with
+how friendly the user is). So a message like "brb, gotta go" comes to forecast company taken from her own
+record of the absences that followed such messages, whatever the model reads into it. Then
 `_met`: her needs move by the contact (0.1, 0.25 after 6 h apart) and the forecast; phasic dopamine is
 what that is worth to her (`will.value` of the pushes, taken before the levels move so a full need still
 counts what lasts) minus what she expects from the user; noradrenaline the surprise; company brings
@@ -1262,21 +1274,32 @@ again), her night and the user away; she wakes when it is cleared (~7 h), and th
 rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**). Time away longer than
 6 h counts as sleep. `mind` off: none of this runs and the prompt has no inner life.
 
-`GET /v1/mind?app=&idle=` (`Mind.state`): her face for the app, felt words, levels, every sensation
-(`sensed`), `needs` (how unmet, 0..1), `attention` (each bid without noise, the threshold, the kinds
+`GET /v1/mind?app=&idle=&brief=` (`Mind.state`): her face for the app, felt words, `feeling` (a few words
+for it), valence and arousal; `brief=1` stops there (an app's frequent look stays small as her vocabulary
+grows: 59 KB in full with 300 feelings). In full also: levels, `feelings` (every one she has named: how
+strongly it comes to mind now, how often she felt it, `place` [pleasant, keyed up, toward the user] from
+its body, and the `channels` that set it apart), `sensed` (each channel as she senses it, how far from
+usual), `needs` (how unmet, 0..1), `attention` (each bid without noise, the threshold, the kinds
 resting after they won, the last winner, whether she is thinking), `decided` (her last decision with its
 odds) and `wiring`: [level, output, weight] from `Body.influence`, which nudges each level by 0.05 and
-measures how far the chemistry's targets, the sensations and core affect, and the bids move (weights
+measures how far the chemistry's targets, core affect and the bids move (weights
 under 0.05 or 0.1 left out). It is the real coupling at that moment, not a fixed diagram: a need only
 drives anything while it is unmet. Beside it: `targets` (where each chemical is heading), `paces` (its
 time constant), `set_points`, `receptors` (habituation), `expected` (what she expects a message to be
 worth) and `trust` (each guide's running error). `decided.path` is the way the last message went through
-her, step by step, with what each step worked with: `senses`, the model's `read`, her `record` (her own
+her, step by step, with what each step worked with: `senses`, what `happens` to her in the model's words, the model's `read`, her `record` (her own
 forecast and how much it counted), what she `learned` from what followed the message before, `foreseen`,
 `met` (the needs' pushes, its worth against what she expected, what the chemistry moved), every option
 as weighed (`options`: facts, parts, worth, picked) with the `temperature`, and the `threat`;
-`decided.outcome` is how her turn went, once it ended. MilkChan draws all of it (Inside her head: a map
-of her brain with each part where its counterpart sits in a human brain, the path replayed stop by stop).
+`decided.outcome` is how her turn went, once it ended. MilkChan draws all of it (Inside her head: her
+brain in 3D with each part where its counterpart sits in a human brain, her feelings on her cortex, the
+path replayed stop by stop).
+
+Cache: her imagine call (~1.9k tokens) is never cached by the user's provider (an identical 1.4k prefix
+missed six times running), and it does not cost the turn its cache: 4 of 4 turns 60 s apart hit with an
+imagine call between them, thinking off or on, 3 of 4 without (2026-11-16). The turn misses seen live
+come back without cache details at all, even inside one turn with no mind call before them: the
+provider's routing, not anything the brain sends (the system prompt and tools stay byte-identical).
 
 Measured on the user's provider (2026-11-16): see the commit that brought it.
 

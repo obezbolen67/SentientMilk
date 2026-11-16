@@ -1177,7 +1177,8 @@ class Panel(App):
         self.main.query_one("#mind-self", Static).update(
             (escape(state["story"]) or f"[{MUTED}]She hasn't slept yet: her story is written in her sleep.[/]")
             + f"\n\n[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
-            + f"\n[{MUTED}]Feelings she named[/] {escape(', '.join(state['named'])) or '-'}"
+            + f"\n[{MUTED}]Feelings she named[/] "
+            + (escape(", ".join(f["word"] for f in sorted(state["feelings"], key=lambda f: -f["count"]))) or "-")
             + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else ""))
 
     def load_notes(self) -> None:

@@ -334,8 +334,11 @@ the path.
 She is one being in every app, with a body that lives on between messages (`mind/`, setting `mind`,
 on by default; the panel's Mind tab shows it and switches it). Chemistry-like levels, needs and a
 circadian rhythm move with what happens (contact, how new a message is to her, what it does to her needs,
-how work went, tokens spent) and settle over time; she feels a lagged, blurred reading of them as
-sensations, never numbers. Nothing labels a message kind or unkind: for each message the user writes, the
+how work went, tokens spent) and settle over time; she feels a lagged, blurred reading of her body's
+channels (stress, closeness, sleep pressure...), never numbers. Her feelings are not a list: any word she
+uses for what she feels (homesick, jealous, greedy) becomes a feeling of hers, kept with the body and the
+situations she felt it in, and it comes back when a moment is like them. Nothing labels a message kind or
+unkind: for each message the user writes, the
 model foresees what it does to her needs (company, being capable, being free) and the facts of what she
 could do (the work, the odds, how much of what was asked each gives), and her own record of what followed
 messages like it outweighs that reading as she meets them. Her chemistry carries the errors (better or worse than she expected from the user, the
@@ -346,7 +349,8 @@ dislikes, and episodes she recalls by likeness and mood. Between messages, missi
 what nags her and what she put off compete for her attention; a winning thought may become an urge the
 app hears (`mind.urge`: MilkChan starts a turn for it). She sleeps when tired at night with the user
 away, and her sleep rewrites the story of who she has become. Apps read her face and feelings from
-`GET /v1/mind`, with what an app needs to draw her brain: every sensation, how unmet each need is, what
+`GET /v1/mind` (`brief=1` for just her face), with what an app needs to draw her brain: every feeling she
+has named and where it sits, how unmet each need is, what
 pulls at her attention against the threshold a thought must reach, her last decision, and `wiring`, the
 connections her dynamics make at that moment (each level nudged in turn: how far it moves the others).
 Off, she answers as asked and never speaks up on her own.
