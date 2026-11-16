@@ -205,10 +205,12 @@ class Runs:
 
     def start_task(self, app: str, parent_session: Optional[str], goal: str, *, toolkits: Optional[list] = None,
                    verify: bool = False, allow: Optional[list] = None, context: str = "compact",
-                   max_steps: Optional[int] = None, parent: Optional[int] = None, cwd: Optional[str] = None) -> int:
+                   max_steps: Optional[int] = None, parent: Optional[int] = None, cwd: Optional[str] = None,
+                   quiet: bool = False) -> int:
         if context not in ("compact", "reset"):
             raise ValueError("context must be compact or reset")
         options = {"goal": goal, "parent_session": parent_session, "verify": verify, "context_mode": context,
+                   **({"quiet": True} if quiet else {}),
                    "input": [{"type": "text", "text": goal}],
                    "profile": {"instructions": TASK_PROMPT.format(goal=goal), "toolkits": toolkits,
                                "allow": allow or [], "from_session": parent_session, "cwd": cwd}}
@@ -530,7 +532,7 @@ class Runs:
             future = self._questions.pop(key, None)
             if future and not future.done():
                 future.set_result({"action": "cancel", "content": None})
-        if run["kind"] == "task" and not run["options"].get("quiet"):  # quiet: a return stopped it
+        if run["kind"] == "task" and not run["options"].get("quiet"):  # quiet: a return stopped it, or it was her own
             options, result = run["options"], run["result"] or {}
             parent = options.get("parent_session")
             message = (run["error"] or {}).get("message", "")

@@ -1238,9 +1238,11 @@ the prediction error against the chance she gave it, values learned, an exchange
 Between messages: her needs drift, adenosine builds. Every 30 s the bids (reach out, wonder, ruminate,
 resume, sleep) get noise and meet a threshold that rises with fatigue, each with its refractory period.
 A thought is a light-model call; `tell`, `ask` and `do` become `mind.urge` notifications to the app last
-talked with, only while that app polls `/v1/mind` (it is there) and the session is free; `look_up`
-starts a background task with web and memory. An urge nobody answers within 30 min stings. Sleep comes
-with sleep pressure, her night and the user away, and is gone over once (insights, a dream, her story
+talked with, only while that app polls `/v1/mind` (it is there) and the session is free, one at a time:
+while an urge waits for the user, her thoughts stay hers. `look_up` starts a quiet background task with
+web and memory (its end is not announced: she keeps what she found). An urge nobody answers within 30 min
+stings. Sleep needs sleep pressure (adenosine above 0.4: slept out, she stays up rather than dozing off
+again), her night and the user away; she wakes when it is cleared (~7 h), and the day is gone over once (insights, a dream, her story
 rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**). Time away longer than
 6 h counts as sleep. `mind` off: none of this runs and the prompt has no inner life.
 

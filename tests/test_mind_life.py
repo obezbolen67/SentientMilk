@@ -144,6 +144,7 @@ def test_what_wins_her_attention_comes_from_how_she_is(brain):
     mind.last_active = 0.0  # the user is away
     mind.body.peak = (mind.body.hour(now) + 12) % 24  # and it is her night
     assert winners(adenosine=0.95, energy=0.3).count("sleep") >= 95
+    assert "sleep" not in winners(adenosine=0.05, energy=0.9)  # slept out at night: she stays up
 
 
 def test_her_quick_parts_think_with_thinking_off_unless_the_provider_refuses(brain):
@@ -188,3 +189,19 @@ def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain):
     brain.client.mind("milk", idle=5)
     mind._think("wonder", None)
     assert len(urges()) == 2
+
+
+def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain):
+    mind = mind_on(brain)
+    brain.provider.replies += ["Hi.", "Tomatoes stop growing below 10 C."]
+    turn(brain, "milk", "hello")
+    wait_for(lambda: not brain.brain.session_busy("milk", "main"))
+    brain.client.mind("milk", idle=5)
+    brain.provider.mind_replies["think"] = [json.dumps({
+        "thought": "Do tomatoes mind the cold?", "feeling": "curious", "want": "look_up",
+        "look_up": "tomato cold tolerance"})]
+    mind._think("wonder", None)
+    task = wait_for(lambda: [t for t in brain.client.tasks("milk") if t["status"] == "completed"])[0]
+    assert "tomato cold tolerance" in json.dumps(task)
+    told = [n["type"] for n in brain.store.notifications("milk", 0)]
+    assert not {"task.completed", "task.failed", "mind.urge"} & set(told)  # MilkChan would start a turn

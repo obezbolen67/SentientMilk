@@ -43,6 +43,9 @@ CAUGHT_UP_AFTER = 10 * MINUTE  # a gap longer than this (the mind was off, the m
 # after a bid wins, it rests this long; a refractory period, as a body has
 REFRACTORY = {"reach_out": 45 * MINUTE, "wonder": 40 * MINUTE, "ruminate": 30 * MINUTE, "resume": HOUR,
               "sleep": 20 * MINUTE, "thought": 10 * MINUTE}
+# sleep pressure she needs to fall asleep: slept out (she wakes below 0.03 at night, 0.35 by day), she stays
+# up, instead of dozing off again and going over the same day every half hour
+DOZES_OFF = 0.4
 STING_AFTER = 30 * MINUTE  # reaching out and hearing nothing back this long stings
 CONCERN_DAYS = 3.0  # what she put off and never came back to fades from her mind
 SAID_CHARS = 1500
@@ -200,7 +203,7 @@ class Mind:
                 fired["consolidate"] = now
                 kind, about = "consolidate", None
             elif body.asleep:
-                if x["adenosine"] < 0.08 or (body.night(now) < 0.3 and x["adenosine"] < 0.35):
+                if x["adenosine"] < 0.03 or (body.night(now) < 0.3 and x["adenosine"] < 0.35):  # ~7 h from a full day
                     body.wake()
                 return
             else:
@@ -230,7 +233,7 @@ class Mind:
         concern = self.self["concerns"][0] if self.self["concerns"] else None
         bids = {
             "sleep": 1.6 * max(0.0, x["adenosine"] - 0.55) + 0.6 * body.night(now) + 0.4 * (1 - x["energy"])
-            - (0.7 if present else 0.0),
+            - (0.7 if present else 0.0) if x["adenosine"] > DOZES_OFF else None,
             "reach_out": 1.5 * body.deficit("social") * x["bond"] * (0.5 + x["oxytocin"]) * t.sociability
             * (1.0 if present else 0.3) if reachable and not waiting else None,
             "wonder": 1.1 * body.deficit("novelty") * t.curiosity * x["energy"] * (0.4 + x["dopamine"]),
@@ -521,7 +524,7 @@ class Mind:
             app, session, query = task
             self.brain.runs.start_task(app, session, f"Out of your own curiosity, look this up for yourself: {query}. "
                                        "Keep it short, and keep what you find worth remembering.",
-                                       toolkits=["web", "memory"])
+                                       toolkits=["web", "memory"], quiet=True)  # hers: nobody is told it ended
 
     def _consolidate(self) -> None:
         """Sleep goes over the day: insights, a dream, her story rewritten; the day's charge softens and faint
