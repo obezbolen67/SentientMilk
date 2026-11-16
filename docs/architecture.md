@@ -1221,19 +1221,35 @@ and her episodes with an FTS5 index. The model stays her cortex; the rest is cod
 |---|---|
 | `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, habituating receptors, a circadian rhythm that follows the user's hours, sleep physiology, and a catch-up that lives through time the brain was off |
 | `feel.py` | interoception: a lagged, noisy reading (less noisy with more insight) into valence, arousal and sensations in words; the face an app shows; the names she gave her states |
-| `will.py`, `values.py` | options the model imagined, scored by care, craft, fun, curiosity, learned value, reactance, letdown and effort cost, chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and how the user took them |
-| `memory.py` | episodes with feeling, salience and a power-law strength; recall by bm25, mood, strength and recency, with noise; recall strengthens and recolors; sleep softens; faint ones go |
+| `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed |
+| `memory.py` | episodes with feeling, salience and a power-law strength; recall by bm25, mood, strength and recency, with noise; recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
 | `life.py` | the Mind: before and after each turn with the user's words, the gate on tools after a refusal, the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
 | `prompts.py` | birth (temperament from the persona), imagine, think and sleep, each JSON, each marked `[mind:<kind>]` |
 
-A turn with the user's words: `Runs.log_input` asks `Mind.before`, which wakes her if asleep, counts the
-contact, recalls three episodes, makes one imagine call on the light model (appraisal and 2 to 4
-options), applies the appraisal to her body, credits her last decision with the warmth of this message,
-chooses, and returns the note `[Inside you: ...]` that goes into the stored input content (never into
-`display`). The decision is kept in the run's options (`mind`); `later` keeps a concern. `Loop._settle`
-refuses every tool but memory and journal after `later` or `decline`. `Runs.finished` calls
-`Mind.after`: energy spent (reply tokens plus 2000 a tool call, for every run), and for a decided turn
-the prediction error against the chance she gave it, values learned, an exchange episode stored.
+A turn with the user's words: `Runs.log_input` asks `Mind.before`, which wakes her if asleep and senses
+what code can measure: the contact itself, whether it answers her urge, how unexpected its timing is
+(log gap against her usual gaps) and how new it is (`Memory.known`: 1 minus the likeness of the memory
+most like it, the share of the message's words it has, each weighed by log(1 + (N - n + 0.5)/(n + 0.5)),
+which unlike bm25's idf stays above 0 in a young memory; bm25 finds the 40 candidates). It recalls three
+episodes and makes one imagine call on the light model: what the message does to her company, capability
+and freedom (asked 0..1, 0.5 none, read as -1..1), what it is about, and 2 to 4 options with effort,
+chance and how much of what was asked each gives (the model's own guesses of what an option does to her
+needs were noise live, so the will derives that). Her own record (what followed the messages most like
+it) outweighs the model's reading by familiarity (summed likeness over 1.5 plus it) times how much
+better a guide it has been (each guide's running squared error). The previous message is settled here
+(`_settle`): what followed it (this message as the model reads it, averaged with how her turn went as
+`after` measured it: freedom from steering, stopping, denials and her own no; capability from success)
+is stored on its episode, updates each guide's error and teaches her values about that decision. Then
+`_met`: her needs move by the contact (0.1, 0.25 after 6 h apart) and the forecast; phasic dopamine is
+what that is worth to her (`will.value` of the pushes, taken before the levels move so a full need still
+counts what lasts) minus what she expects from the user; noradrenaline the surprise; company brings
+oxytocin and endorphin. She chooses, then `_threat`: cortisol from what was taken of her company and
+capability (and half her freedom) less what her chosen option wins back, and a grievance from a hard
+blow. The note `[Inside you: ...]` goes into the stored input content (never into `display`). The
+decision is kept in the run's options (`mind`, with `foreseen` and `novelty`); `later` keeps a concern.
+`Loop._settle` refuses every tool but memory and journal after `later` or `decline`. `Runs.finished`
+calls `Mind.after`: energy spent (reply tokens plus 600 a tool call, for every run), and for a decided
+turn the prediction error against the chance she gave it, values learned, an exchange episode stored.
 
 Between messages: her needs drift, adenosine builds. Every 30 s the bids (reach out, wonder, ruminate,
 resume, sleep) get noise and meet a threshold that rises with fatigue, each with its refractory period.

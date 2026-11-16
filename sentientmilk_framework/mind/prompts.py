@@ -1,8 +1,9 @@
 """What the mind asks the model, and how her inner life reaches her words.
 
-The model is her cortex here: it perceives (how a message strikes her), imagines (what she could do) and
-thinks (her thoughts between messages, her dreams). It never decides and never sets her feelings: the body
-does (life.py). Every prompt starts with ``[mind:<kind>]`` so a stand-in provider can tell them apart.
+The model is her cortex here: it foresees (what a message does to her needs, and the facts of what she
+could do) and thinks (her thoughts between messages, her dreams). It never decides, never rates how she
+should feel and never sets her feelings: her body does (life.py, will.py). Every prompt starts with
+``[mind:<kind>]`` so a stand-in provider can tell them apart.
 """
 
 import json
@@ -26,21 +27,22 @@ suggest."""
 # One short JSON array: it is on the path of every message, and a provider writing ~40 tokens a second
 # took 9-28 s for a named JSON object and 2.5-4.7 s for this (measured 2026-11-16).
 IMAGINE = """[mind:imagine]
-You are the part of someone's mind that reads a message the moment it arrives and imagines what they
-could do. You never decide and never answer the message. Below: who they are, how they feel, what comes
+You are the part of someone's mind that reads a message the moment it arrives and foresees what it means
+for them. You never decide and never answer the message. Below: who they are, how they feel, what comes
 back to them, the conversation so far and the new message.
 
+They need company (to be wanted by the one who writes, and close to them), to be capable (good at what
+they do, of use) and to be free (to choose for themselves). Foresee what the message, and what it shows is
+coming, does to each of the three: 0 takes much of it away, 0.5 changes nothing, 1 gives them much of it.
+
 Answer with one JSON array only, short:
-[warmth, pressure, novelty, importance, "chat|question|request", "what it is about, one or two words",
+[company, capable, free, "chat|question|request", "what it is about, one or two words",
  "their own word for what they feel as they read it",
- ["do|part|later|decline|talk", "what, at most six words", effort, chance, fun, gives], ...2 or 3 options]
-warmth toward them: 0 hostile or insulting, 0.25 cold or critical, 0.5 neutral, 1 loving; pressure 0 an
-offer to 1 an order; novelty 0 usual to 1 new;
-importance to the user 0 to 1. Each option starts with one act. Options a real person in their place
-might take: for a request, doing it and what else they might really do (part of it, later, decline, talk
-it over first); for chat, ways to answer (talk, or decline: not in the mood). effort 0 nothing to 1 hours
-of hard work; chance it goes well 0 to 1; fun -1 dreadful to 1 a joy; gives: how much of what the user
-wants, 0 to 1. One decimal."""
+ ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...2 or 3 options]
+Each option starts with one act. Options a real person in their place might take: for a request, doing it
+and what else they might really do (part of it, later, decline, talk it over first); for chat, ways to
+answer (talk, or decline: not in the mood). effort 0 nothing to 1 hours of hard work; chance it goes well
+0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal."""
 
 THINK = """[mind:think]
 You are someone's mind between conversations: nobody is talking to them. Below: who they are, how they
@@ -104,9 +106,26 @@ def parse(text: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _centered(value):
+    """A need's change as asked (0..1, 0.5 none: the light model keeps every number of the array in 0..1,
+    an insult came back +0.1 when asked for -1..1) as -1..1; what is not a number stays, read safely later."""
+    try:
+        return max(-1.0, min(1.0, 2 * float(value) - 1))
+    except (TypeError, ValueError):
+        return value
+
+
+def _option(item) -> Optional[list]:
+    """An option as written, from its act on (live, an answer put a phrase before the act); None: not one."""
+    if not isinstance(item, list):
+        return None
+    start = next((index for index, value in enumerate(item[:3]) if str(value).lower() in ACTS), None)
+    return item[start:] if start is not None else None
+
+
 def imagined(text: str) -> dict:
-    """The imagine call's answer as {"appraisal", "feeling", "options"} (dicts for will.py); an answer
-    written as a JSON object instead is taken as it is; {} when there is none."""
+    """The imagine call's answer as {"appraisal", "feeling", "options"} (dicts for will.py, the message's
+    needs as -1..1); an answer written as a JSON object instead is taken as it is; {} when there is none."""
     text = re.sub(r"```(?:json)?", "", text or "")
     start, end = text.find("["), text.rfind("]")
     try:
@@ -115,21 +134,23 @@ def imagined(text: str) -> dict:
         found = None
     while isinstance(found, list) and len(found) == 1 and isinstance(found[0], list):
         found = found[0]  # the whole answer wrapped in one more array (3 of 10 answers live)
-    if not isinstance(found, list) or len(found) < 7:
+    if not isinstance(found, list):
         return parse(text)
-    warmth, pressure, novelty, importance, intent, tag, feeling = found[:7]
-    try:  # asked 0..1 (the model kept every number of this array in 0..1: an insult came back 0.1 when asked
-        warmth = max(-1.0, min(1.0, 2 * float(warmth) - 1))  # -1..1), read as -1..1
-    except (TypeError, ValueError):
-        pass
+    head, options = [], []  # read by shape, not place: live, an answer left out a part, or put one elsewhere
+    for item in found:
+        grouped = isinstance(item, list) and item and all(isinstance(each, list) for each in item)
+        for each in (item if grouped else [item]):  # options one after another, or all in one array
+            option = _option(each)
+            if option:
+                options.append(dict(zip(("act", "what", "effort", "chance", "gives"), option)))
+            elif not grouped:
+                head.append(each)
+    if len(head) < 4:
+        return parse(text)
+    company, capable, free, intent = head[:4]
+    tag, feeling = (head[4:6] + ["", ""])[:2]
     tags = tag if isinstance(tag, list) else [tag]
-    listed = []
-    for option in found[7:]:  # options one after another, or all of them in one array
-        grouped = isinstance(option, list) and option and all(isinstance(each, list) for each in option)
-        listed.extend(option if grouped else [option])
-    options = [dict(zip(("act", "what", "effort", "chance", "fun", "gives"), option))
-               for option in listed if isinstance(option, list) and option]
-    return {"appraisal": {"warmth": warmth, "pressure": pressure, "novelty": novelty, "importance": importance,
+    return {"appraisal": {"company": _centered(company), "capable": _centered(capable), "free": _centered(free),
                           "intent": intent, "tags": tags}, "feeling": feeling, "options": options}
 
 

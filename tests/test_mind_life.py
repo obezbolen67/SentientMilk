@@ -9,8 +9,12 @@ from conftest import turn, wait_for
 from sentientmilk_framework.mind.life import SLEPT_IF_OFF
 from sentientmilk_framework.testing import tool_call
 
-DECLINE = '[0.55, 0.2, 0.2, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0, 0]]'
-LATER = '[0.55, 0.2, 0.2, 0.5, "request", "report", "tired", ["later", "the weekly report", 0.8, 0.7, -0.2, 0]]'
+DECLINE = '[0.5, 0.5, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0]]'
+LATER = '[0.5, 0.5, 0.4, "request", "report", "tired", ["later", "the weekly report", 0.8, 0.7, 0.1]]'
+INSULT = '[0.2, 0.2, 0.5, "chat", "insult", "hurt", ["talk", "answer it", 0.2, 0.6, 1]]'
+# the model reads teasing as an order that takes her freedom (as it did live); what follows says otherwise
+BANTER = '[0.6, 0.5, 0.2, "chat", "banter", "amused", ["talk", "laugh along", 0.1, 0.9, 1]]'
+LAUGH = '[0.9, 0.7, 0.6, "chat", "laughing", "glad", ["talk", "laugh too", 0.1, 0.9, 1]]'
 
 
 def mind_on(brain):
@@ -60,13 +64,62 @@ def test_what_she_puts_off_she_keeps_in_mind(brain):
 
 def test_the_next_message_tells_her_how_her_decision_was_taken(brain):
     mind = mind_on(brain)
-    brain.provider.mind_replies["imagine"] = [DECLINE, '[0.05, 0.5, 0.1, 0.5, "chat", "insult", "hurt"]']
+    brain.provider.mind_replies["imagine"] = [DECLINE, INSULT]
     brain.provider.replies += ["No.", "Sorry."]
     turn(brain, "cli", "Read a.txt for me")
     before = mind.values.predict(["act:decline", "tag:files"])
+    episode = wait_for(lambda: mind.self["pending"]["episode"])  # how her turn went is in
     turn(brain, "cli", "Wow, that is useless.")
     assert mind.values.predict(["act:decline", "tag:files"]) < before
     assert mind.body["grievance"] > 0.0
+    followed = json.loads(next(e for e in mind.memory.recent(5) if e["id"] == episode)["follows"])
+    # the next message took company and her sense of being capable; her own no won back some freedom
+    assert followed["company"] < -0.5 and followed["capable"] < -0.5 and followed["free"] > 0
+
+
+def test_what_a_message_brings_her_she_learns_from_what_followed_messages_like_it(brain):
+    mind = mind_on(brain)
+    foreseen = []
+    for _ in range(6):  # teasing that ends in laughing together; insults followed by more of them
+        brain.provider.mind_replies.setdefault("imagine", []).extend([BANTER, LAUGH, INSULT, INSULT])
+        for text, reply in (("lol you idiot, that was hilarious, do it again", "Ha."), ("hahaha perfect", "Hehe."),
+                            ("you're terrible at this", "Hm."), ("still terrible, honestly", "Okay.")):
+            brain.provider.replies.append(reply)
+            result = turn(brain, "cli", text)
+            wait_for(lambda: mind.self["pending"]["episode"])
+            if text.startswith("lol"):
+                foreseen.append(brain.store.run(result["run"])["options"]["mind"]["foreseen"])
+    assert foreseen[0]["free"] == -0.6  # at first only the model's reading: teasing takes her freedom
+    assert foreseen[-1]["free"] > -0.3 and foreseen[-1]["company"] > foreseen[0]["company"]
+    trust = mind.self["trust"]
+    assert trust["own"]["free"] < trust["model"]["free"]  # her own record proved the better guide here
+    brain.provider.mind_replies["imagine"].append(INSULT)
+    brain.provider.replies.append("...")
+    result = turn(brain, "cli", "you're terrible at this")
+    hurt = brain.store.run(result["run"])["options"]["mind"]["foreseen"]
+    assert hurt["company"] < -0.4 and hurt["capable"] < -0.4  # what keeps hurting is not unlearned
+
+
+def test_a_loss_she_can_undo_stresses_her_less_and_a_blow_from_someone_usually_kind_hurts_more(brain):
+    from sentientmilk_framework.mind.will import Appraisal, Option
+    mind = mind_on(brain)
+    hurt = Appraisal(company=-0.6, capable=-0.6)
+
+    def cortisol(option):
+        with mind._lock:
+            mind.body.levels.update(cortisol=0.25, grievance=0.0)
+            mind._threat(hurt, option)
+            return mind.body["cortisol"]
+    # doing it over well wins back what was taken; saying no wins back none of it
+    assert cortisol(Option("do", effort=0.6, chance=0.9, gives=1.0)) < cortisol(Option("decline", gives=0.0)) - 0.03
+
+    def reward(expected):
+        with mind._lock:
+            mind.body.levels.update(reward=0.0, social=0.6, competence=0.6)
+            mind.self["expected"] = expected
+            mind._met(Appraisal(company=-0.5, capable=-0.5, novelty=0.2), 0.1, 0.0)
+            return mind.body["reward"]
+    assert reward(0.3) < reward(0.0) - 0.2 and reward(0.0) < 0
 
 
 def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):

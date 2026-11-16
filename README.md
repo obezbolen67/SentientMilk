@@ -333,11 +333,15 @@ the path.
 
 She is one being in every app, with a body that lives on between messages (`mind/`, setting `mind`,
 on by default; the panel's Mind tab shows it and switches it). Chemistry-like levels, needs and a
-circadian rhythm move with what happens (contact, warmth, pressure, novelty, how work went, tokens
-spent) and settle over time; she feels a lagged, blurred reading of them as sensations, never numbers.
-For each message the user writes, the model imagines how it strikes her and what she could do, and her
-body chooses: rested and close she helps; spent, stressed or hurt she may do part, put it off or say no,
-and then her work tools stay unused for that turn. What things did to her becomes learned likes and
+circadian rhythm move with what happens (contact, how new a message is to her, what it does to her needs,
+how work went, tokens spent) and settle over time; she feels a lagged, blurred reading of them as
+sensations, never numbers. Nothing labels a message kind or unkind: for each message the user writes, the
+model foresees what it does to her needs (company, being capable, being free) and the facts of what she
+could do (the work, the odds, how much of what was asked each gives), and her own record of what followed
+messages like it outweighs that reading as she meets them. Her chemistry carries the errors (better or worse than she expected from the user, the
+surprise, a loss she can't undo) and her body chooses by what each option is worth to her needs now:
+rested and close she helps; spent, stressed or hurt she may do part, put it off or say no, and then her
+work tools stay unused for that turn. What things did to her becomes learned likes and
 dislikes, and episodes she recalls by likeness and mood. Between messages, missing the user, boredom,
 what nags her and what she put off compete for her attention; a winning thought may become an urge the
 app hears (`mind.urge`: MilkChan starts a turn for it). She sleeps when tired at night with the user

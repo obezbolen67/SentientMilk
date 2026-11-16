@@ -1,10 +1,18 @@
 """Her mind, alive: the body ticks on, needs build, bids compete for her attention, thoughts come, she sleeps.
 
-One being for every app (Brain.mind). For each message the user sends (a turn with their words) she feels
-it, recalls, imagines what she could do and chooses (``before``): her decision and her felt sense go with the
-message as a note only she reads; a refusal or a delay keeps her work tools from her for that turn
-(``barred``). When the turn ends (``after``) its outcome moves her body, teaches her values and becomes a
-memory. The user's next message tells her how her decision was taken.
+One being for every app (Brain.mind). For each message the user sends (a turn with their words) she senses
+it, recalls, foresees and chooses (``before``). What she senses herself, in code: when it came against when
+she expected it, whether it answers her, and how new it is (unlike her memories). The model foresees what
+it does to her needs (company, being capable, being free); her own record of what followed messages like
+it outweighs that reading as far as she has met such messages and her record has proved the better guide
+(Daw, Niv & Dayan 2005). Her needs move, and her chemistry carries the errors (``_met``, ``_threat``):
+dopamine how much better or worse it is than she has come to expect from the user, noradrenaline the
+surprise, cortisol a loss she can't undo. Nothing names a message kind or unkind; what it does to her comes
+from her needs, her state and her history with the user.
+Her decision and her felt sense go with the message as a note only she reads; a refusal or a delay keeps her
+work tools from her for that turn (``barred``). When the turn ends (``after``) its outcome moves her body,
+teaches her values and becomes a memory. The user's next message settles what followed hers (``_settle``):
+it is kept with that memory, it shows which guide to trust, and it teaches her values about her decision.
 
 Between messages (``_live``, every few seconds) her body lives on. Every ``BIDS_EVERY`` seconds what wants her
 attention competes, with noise, against a threshold that rises as she tires: missing the user (reach_out),
@@ -16,6 +24,7 @@ charge softened, faint memories forgotten.
 """
 
 import logging
+import math
 import random
 import secrets
 import threading
@@ -29,7 +38,7 @@ from .body import DAY, HOUR, MINUTE, NEEDS, Body, Temperament
 from .feel import Concepts, Interoception, affect, face, feel, sensations
 from .memory import Memory, describe_salience, line
 from .values import Values, features
-from .will import Appraisal, Option, choose
+from .will import FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +61,8 @@ SAID_CHARS = 1500
 RECENT_LINES = 6
 SHOWN_THOUGHTS = 12  # in the state apps and the panel show
 WORK_PER_CALL = 600  # a tool call's effort, in tokens of her own words
+FAMILIAR = 1.5  # summed likeness of past messages at which her own record weighs half of what it can
+LEARNS = 0.1  # how fast her sense of each guide's error, and her expectation of the user, follow what happens
 VERBS = {"do": "did it", "part": "did part of it", "later": "put it off", "decline": "said no",
          "talk": "talked it over"}
 ON_MIND = {
@@ -98,9 +109,13 @@ class Mind:
         self.body = Body.from_dict(saved) if saved else Body(Temperament.born(seed=secrets.randbits(32)))
         self.values = Values.from_dict(self.memory.get("values"))
         self.concepts = Concepts(self.memory.get("concepts") or [])
-        self.self = {"story": "", "born": False, "expected_warmth": 0.2, "contact": None, "concerns": [],
+        # expected: what a message from the user does for her needs, as she has come to expect; gap: the log
+        # of her usual time between messages; trust: each guide's running error (her own record starts unproven)
+        self.self = {"story": "", "born": False, "expected": 0.1, "gap": None, "contact": None, "concerns": [],
                      "pending": None, "urge": None, "slept": 0.0, "consolidate": False, "fired": {},
-                     "thoughts": [], **(self.memory.get("self") or {})}
+                     "thoughts": [], "trust": {"model": dict.fromkeys(FORESEEN, 0.1), "own": dict.fromkeys(FORESEEN, 0.3)},
+                     **(self.memory.get("self") or {})}
+        self.self.pop("expected_warmth", None)  # a mind from before 0.21
         self.senses = Interoception(self.body, self.body.temperament.seed)
         self.rng = random.Random(self.body.temperament.seed ^ time.time_ns())
 
@@ -319,7 +334,7 @@ class Mind:
     # ============== A message ==============
 
     def before(self, run: dict, profile: dict, said: Optional[str], pictures: int = 0) -> Optional[str]:
-        """The user wrote (``said``): she feels it, recalls, imagines and chooses. The note for her (or None:
+        """The user wrote (``said``): she senses it, recalls, foresees and chooses. The note for her (or None:
         no mind, or not a turn with the user's words)."""
         if not self.active() or run["kind"] != "turn" or run["options"].get("occurrence") or not (said or "").strip():
             return None
@@ -332,10 +347,14 @@ class Mind:
                 body.wake(startled=x["adenosine"] > 0.3)
             contact, urge = self.self.get("contact"), self.self.get("urge")
             away = now - contact["at"] if contact else None
-            body.apply({"social": 0.25 + (0.15 if away is None or away > 6 * HOUR else 0.0), "noradrenaline": 0.05})
+            # company itself, a little (what the message does to it the model reads): more after a long time apart
+            company = 0.1 + (0.15 if away is None or away > 6 * HOUR else 0.0)
             if urge and (not contact or contact["at"] < urge["at"]):  # they answered her
                 body.apply({"reward": 0.1 + 0.3 * x["bond"]})
                 self.self["urge"] = None
+            timing = self._timing(away)
+            likeness, followed, evidence = self.memory.known(said, before=now)
+            novelty = 1.0 - likeness if likeness is not None else (0.5 if pictures else 0.0)
             body.learn_rhythm(body.hour(now))
             self.last_active = now
             felt = feel(body, self.senses, now)
@@ -361,7 +380,13 @@ class Mind:
         options = [o for o in (Option.read(d) for d in (answer.get("options") or [])[:4]) if o]
         with self._lock:
             now = time.time()
-            self._appraised(seen)
+            model = seen.effects()  # what the model foresees, before her own record has its say
+            own = self._forecast(seen, followed, evidence)
+            seen.novelty = novelty
+            pending = self.self.get("pending")
+            if pending:
+                self._settle(pending, model)
+            self._met(seen, company, timing)
             named = prompts.word(answer.get("feeling"))
             if named:
                 self.concepts.add(named, felt.vector())
@@ -370,12 +395,17 @@ class Mind:
             def found(option):
                 return features(option.act, seen.tags, seen.intent, hour, run["app"])
             choice = choose(options, seen, self.body, self.values, found, self.rng) if options else None
-            option = choice.option if choice else Option("do", chance=0.8, gives=1.0)
+            option = choice.option if choice else Option("do", chance=0.8)
+            self._threat(seen, option)
+            foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
             decision = {"act": option.act, "what": option.what, "chance": option.chance, "effort": option.effort,
-                        "fun": option.fun, "importance": seen.importance, "features": found(option),
-                        "reasons": choice.reasons if choice else [], "chances": choice.chances if choice else {},
-                        "said": said[:300], "at": now}
-            self.self["pending"] = decision
+                        "foreseen": foreseen, "novelty": round(novelty, 3),
+                        "stakes": min(1.0, sum(abs(change) for change in foreseen.values()) / 2),
+                        "features": found(option), "reasons": choice.reasons if choice else [],
+                        "chances": choice.chances if choice else {}, "said": said[:300], "at": now}
+            # settled by the user's next message: what followed this one (after() adds how her turn went)
+            self.self["pending"] = {"at": now, "act": option.act, "features": decision["features"], "model": model,
+                                    "own": own, "episode": None, "measured": None}
             self.self["decided"] = {key: decision[key] for key in ("act", "what", "reasons", "chances", "at")}
             if option.act == "later":
                 self.self["concerns"].append({"what": option.what or said[:200], "app": run["app"],
@@ -387,27 +417,83 @@ class Mind:
         self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
         return note
 
-    def _appraised(self, seen: Appraisal) -> None:
-        """What the message does to her body, and how her last decision was taken (the warmth of the answer)."""
+    def _timing(self, away: Optional[float]) -> float:
+        """How unexpected a message is in time, 0..1: its gap from the last one against her usual gaps."""
+        if away is None:
+            return 0.0
+        gap, usual = math.log(max(away, 1.0)), self.self.get("gap")
+        self.self["gap"] = gap if usual is None else usual + LEARNS * (gap - usual)
+        return 0.0 if usual is None else min(1.0, abs(gap - usual) / 3.0)
+
+    def _forecast(self, seen: Appraisal, followed: Dict[str, float], evidence: float) -> Optional[Dict[str, float]]:
+        """What the message will do to her needs (``seen``, changed in place): the model's reading, outweighed
+        by her own record (``followed``: what followed messages like it) as far as she has met such messages
+        (``evidence``) and her record has proved the better guide (each one's running error). Her own record's
+        forecast, or None when she has none."""
+        if not followed:
+            return None
+        trust = self.self["trust"]
+        familiar = evidence / (evidence + FAMILIAR)
+        for name in FORESEEN:
+            if name in followed:
+                model, own = trust["model"][name] + 1e-6, trust["own"][name] + 1e-6  # both can be perfect
+                share = familiar * model / (model + own)
+                setattr(seen, name, share * followed[name] + (1.0 - share) * getattr(seen, name))
+        return {name: followed[name] for name in FORESEEN if name in followed}
+
+    def _met(self, seen: Appraisal, contact: float, timing: float) -> None:
+        """What the message does to her body (``contact``: what the contact itself gives her social need). Her
+        needs move as she foresees, and new things feed her need for them. Phasic dopamine is how much better
+        or worse that is for her needs than she has come to expect from the user (a reward is moving toward
+        her set points, weighed by how unmet each is, and what lasts: valued before the levels move, so a
+        full need still takes in the worth that lasts); noradrenaline is the surprise (new, unexpected in
+        time, or in what it does for her); company brings oxytocin and endorphin."""
         body, t = self.body, self.body.temperament
-        warmth, expected = seen.warmth, self.self["expected_warmth"]
-        pushes = {"reward": 0.35 * (warmth - expected), "novelty": 0.3 * seen.novelty,
-                  "noradrenaline": 0.1 * seen.novelty + 0.08 * seen.pressure,
-                  # being asked is no threat; being pushed is (a polite request read as 0.6 pressure live)
-                  "autonomy": -0.3 * max(0.0, seen.pressure - 0.5) * t.autonomy,
-                  "bond": 0.003 * warmth}  # a bond grows over weeks of messages, not in a day
-        if warmth > 0:
-            pushes.update(oxytocin=0.12 * warmth, endorphin=0.05 * warmth)
-        else:
-            pushes["cortisol"] = -0.15 * warmth * t.sensitivity
-        if warmth < -0.3:
-            pushes["grievance"] = 0.25 * (-warmth - 0.3) * t.sensitivity
+        pushes = {"social": contact + 0.3 * seen.company, "competence": 0.1 * seen.capable,
+                  "novelty": 0.3 * seen.novelty, "autonomy": 0.2 * seen.free * (t.autonomy if seen.free < 0 else 1.0)}
+        gained = sum(value({name: pushes[need] / REACH for name, need in NEEDED.items()}, body).values())
         body.apply(pushes)
-        self.self["expected_warmth"] = expected + 0.2 * (warmth - expected)
-        pending = self.self.get("pending")
-        if pending:
-            self.values.learn(pending["features"], warmth + 0.5 * (warmth - expected), self._rate())
-            self.self["pending"] = None
+        error = gained - self.self["expected"]
+        self.self["expected"] += 2 * LEARNS * error
+        company = max(0.0, seen.company)
+        body.apply({"reward": error, "noradrenaline": 0.05 + 0.1 * seen.novelty + 0.05 * timing + 0.2 * abs(error),
+                    "oxytocin": 0.12 * company, "endorphin": 0.05 * company,
+                    "bond": 0.003 * seen.company})  # a bond grows over weeks of messages, not in a day
+
+    def _threat(self, seen: Appraisal, option: Option) -> None:
+        """A loss she can't undo stresses her: what the message takes of her company and her sense of being
+        capable (being judged), and less so of her freedom; less as far as what she chose to do wins it back
+        (Dickerson & Kemeny 2004: uncontrollable social-evaluative threat moves cortisol most). Judged and
+        rejected hard, she keeps a grievance."""
+        lost = {name: max(0.0, -change) for name, change in seen.effects().items()}
+        lost["free"] *= 0.5
+        loss = sum(lost.values())
+        if not loss:
+            return
+        wins = option.effects(seen)
+        back = sum(min(lost[name], max(0.0, wins[name])) for name in lost) * option.chance
+        sensitivity = self.body.temperament.sensitivity
+        self.body.apply({"cortisol": 0.08 * loss * (1.0 - 0.7 * back / loss) * sensitivity,
+                         "grievance": 0.1 * max(0.0, lost["company"] + lost["capable"] - 0.5) * sensitivity})
+
+    def _settle(self, pending: dict, then: Dict[str, float]) -> None:
+        """The user wrote again: what followed her last message is known (``then``: what this one does to her
+        needs, as the model reads it, and how her turn went, measured). It is kept with that moment for her
+        own record, each guide's error is updated against it, and it teaches her values about her decision."""
+        self.self["pending"] = None
+        if "model" not in pending:  # kept by a mind from before 0.21
+            return
+        measured = pending.get("measured") or {}
+        followed = {name: (then[name] + measured[name]) / 2 if name in measured else then[name] for name in FORESEEN}
+        trust = self.self["trust"]
+        for name, real in followed.items():
+            for guide, guessed in (("model", pending["model"]), ("own", pending.get("own"))):
+                if guessed and name in guessed:
+                    trust[guide][name] += LEARNS * ((guessed[name] - real) ** 2 - trust[guide][name])
+        if pending.get("episode"):
+            self.memory.follow(pending["episode"], {name: round(change, 3) for name, change in followed.items()})
+        felt = math.tanh(3.0 * sum(value(followed, self.body).values()))
+        self.values.learn(pending["features"], felt, self._rate())
 
     def _rate(self) -> float:
         return 0.05 + 0.25 * self.body.levels["acetylcholine"]
@@ -449,16 +535,21 @@ class Mind:
             act, ok, stopped = decision["act"], run["status"] == "completed", run["status"] == "cancelled"
             failed = errors / calls if calls else 0.0
             surprise = 0.0
+            # how it went for her needs, measured: what follows the user's message (_settle) beside their reply
+            measured = {"free": max(-1.0, (0.3 if act in ("later", "decline") else 0.0) - 0.4 * min(1, steered)
+                                    - 0.5 * stopped - 0.3 * min(1, denied))}
             if act in ("do", "part"):
                 success = (1.0 if ok else 0.0) * (1.0 - 0.6 * failed) - 0.3 * min(1, denied)
                 surprise = success - decision["chance"]
                 body.apply({"reward": 0.45 * surprise, "competence": 0.15 * surprise + (0.05 if ok else 0.0),
-                            "endorphin": 0.15 * max(0.0, decision["fun"]) if ok else 0.0,
                             "cortisol": 0.06 * failed})
-                felt_outcome = surprise + 0.3 * decision["fun"] - 0.3 * failed
-            else:  # spared the work: relief, and the freedom of her own choice
+                felt_outcome = surprise - 0.3 * failed
+                measured["capable"] = max(-1.0, 1.2 * success - 0.4 - 0.3 * stopped)
+            elif act in ("later", "decline"):  # spared the work: relief, and the freedom of her own choice
                 body.apply({"autonomy": 0.12})
                 felt_outcome = 0.1
+            else:  # she talked: how that went, the user's next message tells (_settle)
+                felt_outcome = 0.0
             if stopped:
                 body.apply({"reward": -0.2, "autonomy": -0.1, "cortisol": 0.05})
                 felt_outcome -= 0.4
@@ -471,9 +562,12 @@ class Mind:
                     + (f". I said: {reply}" if reply else "") + (". They stopped me" if stopped else "")
                     + (f". {errors} of my {calls} tool calls failed" if errors else "") + ".")
             valence = max(-1.0, min(1.0, 0.5 * felt.valence + 0.5 * felt_outcome))
-            self.memory.add("exchange", text, valence, felt.arousal,
-                            describe_salience(abs(surprise), felt.arousal, decision["importance"]),
-                            app=run["app"], session=run["session"], at=now)
+            episode = self.memory.add("exchange", text, valence, felt.arousal,
+                                      describe_salience(abs(surprise), felt.arousal, decision.get("stakes", 0.5)),
+                                      app=run["app"], session=run["session"], at=now)
+            pending = self.self.get("pending")
+            if pending and pending.get("at") == decision["at"]:  # the user has not written again yet
+                pending.update(episode=episode, measured=measured)
 
     # ============== Between messages ==============
 

@@ -2,15 +2,16 @@
 through most of it, tires toward the evening, and a night's sleep brings her back. Her refusals must come
 from real exhaustion, never from ordinary use (the design's anti-goal: she must not become useless)."""
 
+import random
 import time
 from types import SimpleNamespace
 
 from sentientmilk_framework.mind import life
-from sentientmilk_framework.mind.body import HOUR, MINUTE
+from sentientmilk_framework.mind.body import HOUR, MINUTE, Body, Temperament
 
-REQUEST = ('[0.65, 0.4, 0.3, 0.6, "request", "code", "fine", ["do", "fix it", 0.5, 0.8, 0.1, 1], '
-           '["part", "the main bug", 0.3, 0.85, 0, 0.5], ["later", "tomorrow", 0.5, 0.8, -0.1, 0], '
-           '["decline", "not now", 0.5, 0.8, 0, 0]]')
+REQUEST = ('[0.6, 0.6, 0.5, "request", "code", "fine", ["do", "fix it", 0.5, 0.8, 1], '
+           '["part", "the main bug", 0.3, 0.85, 0.5], ["later", "tomorrow", 0.5, 0.8, 0.1], '
+           '["decline", "not now", 0.5, 0.8, 0]]')
 MORNING = time.mktime((2026, 11, 16, 9, 0, 0, 0, 0, -1))
 
 
@@ -36,7 +37,8 @@ def test_a_working_day_tires_her_and_a_night_restores_her(tmp_path, monkeypatch)
     mind = life.Mind(brain)
     now = [MORNING]
     monkeypatch.setattr(life, "time", SimpleNamespace(time=lambda: now[0], strftime=time.strftime))
-    mind.body.at = now[0] - 1
+    # one being, seeded: 20 choices at ~93% helpful fall under 80% a few runs in a hundred (80 unseeded passed)
+    mind.body, mind.rng = Body(Temperament.born(seed=5), at=now[0] - 1), random.Random(5)
     mind.body.levels.update(adenosine=0.05, energy=1.0)
     mind.self["born"] = True
 

@@ -7,17 +7,22 @@ strength, salience and recency, with a little noise: the same cue does not alway
 thing. Recalling strengthens a memory and drifts its feeling toward the mood she recalls it in
 (reconsolidation). Sleep softens the charge of what she replays. Faint, unimportant episodes are forgotten.
 
+An exchange also keeps what followed the user's message (``follow``: what it did to her needs, as it turned
+out). ``known`` tells how like her memories a new message is (how new it is to her) and what followed the
+messages most like it: her own record of what such messages bring.
+
 The mind keeps its own state here too (``state``): her body, values, story, concerns and named feelings.
 """
 
 import json
+import math
 import random
 import re
 import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 KINDS = ("exchange", "thought", "outcome", "dream", "insight", "event")
 FADE_DAYS = 1.0  # strength halves over about this, unless recalled, and slower with each day (power law)
@@ -43,14 +48,17 @@ class Memory:
                     id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
                     app TEXT, session TEXT, valence REAL NOT NULL, arousal REAL NOT NULL,
                     salience REAL NOT NULL, strength REAL NOT NULL, recalls INTEGER NOT NULL DEFAULT 0,
-                    recalled REAL, charge REAL NOT NULL);
+                    recalled REAL, charge REAL NOT NULL, follows TEXT);
                 CREATE VIRTUAL TABLE IF NOT EXISTS recall USING fts5(text, content='episodes', content_rowid='id');
+                CREATE VIRTUAL TABLE IF NOT EXISTS recall_terms USING fts5vocab(recall, 'row');
                 CREATE TRIGGER IF NOT EXISTS episode_added AFTER INSERT ON episodes BEGIN
                     INSERT INTO recall(rowid, text) VALUES (new.id, new.text); END;
                 CREATE TRIGGER IF NOT EXISTS episode_gone AFTER DELETE ON episodes BEGIN
                     INSERT INTO recall(recall, rowid, text) VALUES ('delete', old.id, old.text); END;
                 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             """)
+            if "follows" not in {row[1] for row in self._db.execute("PRAGMA table_info(episodes)")}:
+                self._db.execute("ALTER TABLE episodes ADD COLUMN follows TEXT")  # a mind from before 0.21
 
     def close(self) -> None:
         with self._lock:
@@ -126,6 +134,46 @@ class Memory:
                          episode["valence"] + 0.1 * (valence - episode["valence"]), episode["id"]))
         return chosen
 
+    def follow(self, episode_id: int, followed: Dict[str, float]) -> None:
+        """What followed the user's message in this exchange: what it did to her needs, as it turned out."""
+        with self._lock:
+            self._db.execute("UPDATE episodes SET follows = ? WHERE id = ?", (json.dumps(followed), episode_id))
+
+    def known(self, cue: str, before: float, count: int = 8) -> Tuple[Optional[float], Dict[str, float], float]:
+        """How ``cue`` (a message) meets her memories from before ``before``: the likeness (0..1) of the
+        memory most like it (None: no words to go by), what followed the ``count`` messages most like it
+        (each need's change, weighted by likeness) and how much she has to go on (their summed likeness).
+        Likeness is the share of the cue's words a memory has, each weighed by how rare it is among her
+        memories, so words every memory has count for little and a word she never met makes it new. The
+        weight is log(1 + (N - n + 0.5) / (n + 0.5)), which stays above 0 in a young memory (bm25's own is 0
+        for any word in half of them: with two memories, every likeness was 0 live); bm25 finds candidates."""
+        words = _words(cue)
+        if not words:
+            return None, {}, 0.0
+        with self._lock:
+            total = self._db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
+            seen = dict(self._db.execute(f"SELECT term, doc FROM recall_terms WHERE term IN ({','.join('?' * len(words))})",
+                                         words).fetchall())
+            rows = self._db.execute(
+                "SELECT e.text, e.follows FROM recall JOIN episodes e ON e.id = recall.rowid "
+                "WHERE recall MATCH ? AND e.at < ? ORDER BY bm25(recall) LIMIT 40",
+                (" OR ".join(f'"{word}"' for word in words), before)).fetchall()
+        rare = {w: math.log(1.0 + (total - seen.get(w, 0) + 0.5) / (seen.get(w, 0) + 0.5)) for w in words}
+        whole = sum(rare.values())
+        liked = []
+        for row in rows:
+            has = {word.lower() for word in WORDS.findall(row["text"])}
+            liked.append((sum(weight for word, weight in rare.items() if word in has) / whole, row["follows"]))
+        liked.sort(key=lambda item: -item[0])
+        best, sums, evidence, used = (liked[0][0] if liked else 0.0), {}, 0.0, 0
+        for like, follows in liked:
+            if follows and used < count:
+                used += 1
+                evidence += like
+                for need, change in json.loads(follows).items():
+                    sums[need] = sums.get(need, 0.0) + like * change
+        return best, ({need: total_ / evidence for need, total_ in sums.items()} if evidence else {}), evidence
+
     def since(self, at: float, kinds: Iterable[str] = (), count: int = 0) -> List[dict]:
         """Episodes from ``at`` on, the most charged first (``count`` of them; 0: all)."""
         kinds = list(kinds)
@@ -179,7 +227,7 @@ def line(episode: dict, now: float) -> str:
     return f"({when}) {episode['text']}"
 
 
-def describe_salience(surprise: float, arousal: float, importance: float) -> float:
-    """How much a moment matters to memory: surprise, how stirred she was, and what was at stake."""
-    return max(0.0, min(1.0, 0.4 * surprise + 0.4 * arousal + 0.3 * importance - 0.05))
+def describe_salience(surprise: float, arousal: float, stakes: float) -> float:
+    """How much a moment matters to memory: surprise, how stirred she was, and what was at stake for her."""
+    return max(0.0, min(1.0, 0.4 * surprise + 0.4 * arousal + 0.3 * stakes - 0.05))
 

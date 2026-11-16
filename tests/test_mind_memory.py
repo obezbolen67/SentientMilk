@@ -64,6 +64,36 @@ def test_since_gives_the_most_charged_first_and_words_survive_odd_characters(tmp
     assert "minutes ago" in line(mind.recent(1)[0], NOW + 600)
 
 
+def test_a_message_like_her_memories_is_familiar_and_what_followed_such_messages_comes_back(tmp_path):
+    mind = memory(tmp_path)
+    for text, follows in (("The user said: lol you idiot, do it again. I said: Ha.", {"company": 0.8, "free": 0.1}),
+                          ("The user said: you idiot, again! I said: Hehe.", {"company": 0.6, "free": 0.0}),
+                          ("The user said: fix the parser please. I did it.", {"company": 0.1, "free": 0.0}),
+                          ("I wondered about tomatoes in the cold", None)):
+        episode = mind.add("exchange" if follows else "thought", text, 0.0, 0.3, 0.4, at=NOW - DAY)
+        if follows:
+            mind.follow(episode, follows)
+    likeness, followed, evidence = mind.known("lol you idiot, do it again", before=NOW)
+    assert likeness > 0.6 and evidence > 0.6 and 0.6 < followed["company"] <= 0.8
+    new, _, _ = mind.known("siphonophores are colonies of tiny animals", before=NOW)
+    assert new < 0.2
+    assert mind.known("ok", before=NOW) == (None, {}, 0.0)  # no words to go by
+    assert mind.known("lol you idiot", before=NOW - 2 * DAY)[0] == 0.0  # only what came before
+
+
+def test_a_mind_from_before_gains_what_followed_its_exchanges(tmp_path):
+    import sqlite3
+    old = sqlite3.connect(str(tmp_path / "mind.sqlite3"))
+    old.executescript("CREATE TABLE episodes (id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, "
+                      "text TEXT NOT NULL, app TEXT, session TEXT, valence REAL NOT NULL, arousal REAL NOT NULL, "
+                      "salience REAL NOT NULL, strength REAL NOT NULL, recalls INTEGER NOT NULL DEFAULT 0, "
+                      "recalled REAL, charge REAL NOT NULL);")
+    old.close()
+    mind = memory(tmp_path)
+    mind.follow(mind.add("exchange", "hello there friend", 0.1, 0.2, 0.3, at=NOW), {"company": 0.5})
+    assert mind.known("hello friend", before=NOW + 1)[1] == {"company": 0.5}
+
+
 def test_her_own_state_is_kept_beside_her_memories(tmp_path):
     mind = memory(tmp_path)
     mind.put("body", {"levels": {"cortisol": 0.4}})
