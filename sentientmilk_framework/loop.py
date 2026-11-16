@@ -546,7 +546,8 @@ class Loop:
     def _think(self, run: dict, profile: dict, toolset: Toolset, emit):
         brain = self.brain
         settings = brain.config.values()
-        provider = brain.provider(run["options"].get("model") or profile["model"])
+        # her body sets how deep she thinks (mind/life.py depth): tired or badly stressed, less than the user set
+        provider = brain.provider(run["options"].get("model") or profile["model"], brain.mind.depth(run))
         def system():
             return context.system_prompt(profile, brain.session_snapshot(profile), brain.shell_label(),
                                          toolset.by_name, toolset.toolmap(profile), brain.skills.prompt())

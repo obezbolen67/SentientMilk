@@ -25,7 +25,8 @@ def stand_in(tmp_path):
         home=tmp_path, config=SimpleNamespace(values=lambda: {"mind": True, "light_model": "m"}),
         provider=lambda model, thinking=None: SimpleNamespace(complete=complete),
         store=SimpleNamespace(update_run_options=lambda run, change: runs.__setitem__(run, change(runs.get(run, {}))),
-                              events=lambda *a, **k: [], run_events=lambda run: [
+                              events=lambda *a, **k: [], last_compaction=lambda app, session: None,
+                              run_events=lambda run: [
                                   {"type": "assistant", "message": {"tool_calls": [{}] * 12}}]),
         profile=lambda app, session: {"persona": "You are Milk."}, session_busy=lambda app, session: False,
         notify=lambda *a: None)

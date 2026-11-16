@@ -13,6 +13,14 @@ def body(seed=1, **levels):
     return made
 
 
+def test_the_nearer_a_level_is_to_its_bound_the_less_a_push_moves_it():
+    low, high = body(social=0.5), body(social=0.9)  # a warm chat pegged her at 1.0 when pushes were added and clipped
+    assert low.apply({"social": 0.2})["social"] > 4 * high.apply({"social": 0.2})["social"] > 0
+    assert high["social"] < 0.95
+    down = body(reward=-0.8)
+    assert -0.1 < down.apply({"reward": -0.3})["reward"] < 0 and body().apply({"reward": -0.3})["reward"] < -0.25
+
+
 def test_a_push_fades_back_toward_where_she_rests():
     her = body(cortisol=0.9)
     her.advance(NOON + 6 * HOUR)

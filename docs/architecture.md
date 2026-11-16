@@ -1219,11 +1219,11 @@ and her episodes with an FTS5 index. The model stays her cortex; the rest is cod
 
 | Part | What it is |
 |---|---|
-| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, habituating receptors, a circadian rhythm that follows the user's hours, sleep physiology, and a catch-up that lives through time the brain was off |
+| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology, and a catch-up that lives through time the brain was off |
 | `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (stress, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual, and core affect (valence, arousal); feelings as concepts (`Concepts`): any word she ever used for what she felt, each with its body (the running mean of her levels when she used it) and its situations (words by weight, fading), coming to mind by likeness of body (within 1.5 of a lot over all channels) and of situation; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed |
 | `memory.py` | episodes with feeling, salience and a power-law strength; recall by bm25, mood, strength and recency, with noise; recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
-| `life.py` | the Mind: before and after each turn with the user's words, the gate on tools after a refusal, the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
+| `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, how deep she thinks (`depth`), what she showed coming back into her body (`_express`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
 | `prompts.py` | birth (temperament from the persona), imagine, think and sleep, each JSON, each marked `[mind:<kind>]` |
 
 A turn with the user's words: `Runs.log_input` asks `Mind.before`, which wakes her if asleep and senses
@@ -1236,9 +1236,14 @@ the app's environment: without it "gotta go to the store, wanna buy something" r
 along), how she feels and the chat so far: what happens to her in a few words, said first, then what that
 does to her company, capability and freedom in words ("much less" .. "much more": asked as numbers, the
 light model leaned positive whatever it wrote, leaving read as +0.2..0.4 company), that a message came at
-all being counted already; what it is about, the word she would use for what she feels, and 2 to 4
-options with effort, chance and how much of what was asked each gives (the model's own guesses of what an
-option does to her needs were noise live, so the will derives that). The word becomes a feeling of hers
+all being counted already; what it is about, the word she would use for what she feels, and, for a
+request only, 2 or 3 options with effort, chance and how much of what was asked each gives (the model's
+own guesses of what an option does to her needs were noise live, so the will derives that). Options
+written for anything but a request are dropped (0.23): a chat is not decided on, and what she says is
+never picked from lines written for her. What comes back leaves out the chat she is in since its last
+compaction (`Memory.recall(held=...)`: her context holds it), and the note carries the newest two thoughts
+she had since the user last wrote. A turn nobody wrote (an event, her own urge, a scheduled one) gets her
+felt sense and nothing else: no imagine call, no decision. The word becomes a feeling of hers
 (`Concepts.add`) with her body as the message moves it: her sense of her body lags, and a brain builds a
 feeling from the change it predicts. Her own record (what followed the messages most like
 it) outweighs the model's reading by familiarity (summed likeness over 1.5 plus it) times how much
@@ -1258,15 +1263,27 @@ counts what lasts) minus what she expects from the user; noradrenaline the surpr
 oxytocin and endorphin. She chooses, then `_threat`: cortisol from what was taken of her company and
 capability (and half her freedom) less what her chosen option wins back, and a grievance from a hard
 blow. The note `[Inside you: ...]` goes into the stored input content (never into `display`). The
-decision is kept in the run's options (`mind`, with `foreseen` and `novelty`); `later` keeps a concern.
-`Loop._settle` refuses every tool but memory and journal after `later` or `decline`, and after `talk` every
-tool that changes something (she may look first: told to talk, the model did the whole job 2 times in 3
-live, 2026-11-16; held, 4 of 4; `do`, `part`, `later` and `decline` were kept 3 of 3 each). `Runs.finished`
-calls `Mind.after`: energy spent (reply tokens plus 600 a tool call, for every run), and for a decided
-turn the prediction error against the chance she gave it, values learned, an exchange episode stored.
+decision is kept in the run's options (`mind`, with `foreseen`, `novelty` and `gated`: she chose among
+options); `later` keeps a concern. `Loop._settle` refuses, in a gated turn, every tool but memory and
+journal after `later` or `decline`, and after `talk` every tool that changes something (she may look
+first: told to talk, the model did the whole job 2 times in 3 live, 2026-11-16; held, 4 of 4; `do`, `part`,
+`later` and `decline` were kept 3 of 3 each). A turn that was not gated holds nothing back. `Loop._think`
+asks `Mind.depth(run)` for the reasoning effort of her answer: the user's named effort, times
+1 - 2.5 x (fatigue over 0.4) - 1.5 x (cortisol over 0.5), rounded, never below "low" unless the user set
+less; set at the run's first step and kept in its options (`depth`), for every run but summaries and
+compaction; a token budget, the provider's default and Claude Code are left as set. `Runs.finished`
+calls `Mind.after`: energy spent (reply tokens plus 600 a tool call, for every run), and for a turn with
+the user's words the prediction error against the chance she gave it, values learned, what she showed
+(`_express`: the mood of the expression signal she chose, where the app declares moods she knows a place
+for, moves cortisol or endorphin by 0.05 of the gap between its valence and her body's, and
+noradrenaline by 0.1 of the gap in arousal) and an exchange episode stored.
 
 Between messages: her needs drift, adenosine builds. Every 30 s the bids (reach out, wonder, ruminate,
 resume, sleep) get noise and meet a threshold that rises with fatigue, each with its refractory period.
+`wonder` is her mind wandering: (0.5 + 1.1 x her need for new things x curiosity) x energy x (0.4 +
+dopamine), nothing while a run works. It thinks from her last thought and two episodes drawn at random
+from her whole life, the strong and charged more often (`Memory.replay`). On a fake clock (two days, the
+user at the desk nine to six): 18 to 20 such thoughts a day, fewer by evening, none asleep.
 A thought is a light-model call; `tell`, `ask` and `do` become `mind.urge` notifications to the app last
 talked with, only while that app polls `/v1/mind` (it is there) and the session is free, one at a time:
 while an urge waits for the user, her thoughts stay hers. `look_up` starts a quiet background task with
@@ -1288,12 +1305,14 @@ measures how far the chemistry's targets, core affect and the bids move (weights
 under 0.05 or 0.1 left out). It is the real coupling at that moment, not a fixed diagram: a need only
 drives anything while it is unmet. Beside it: `targets` (where each chemical is heading), `paces` (its
 time constant), `set_points`, `receptors` (habituation), `expected` (what she expects a message to be
-worth) and `trust` (each guide's running error). `decided.path` is the way the last message went through
+worth), `depth` (the effort she would think at now, when less than the user set) and `trust` (each guide's
+running error). `decided.path` is the way the last message went through
 her, step by step, with what each step worked with: `senses`, what `happens` to her in the model's words, the model's `read`, her `record` (her own
 forecast and how much it counted), what she `learned` from what followed the message before, `foreseen`,
 `met` (the needs' pushes, its worth against what she expected, what the chemistry moved), every option
 as weighed (`options`: facts, parts, worth, picked) with the `temperature`, and the `threat`;
-`decided.outcome` is how her turn went, once it ended. MilkChan draws all of it (Inside her head: her
+`decided.outcome` is how her turn went, once it ended, with what she showed and what that moved in her
+(`expressed`); `decided.gated` says whether there was anything to decide. MilkChan draws all of it (Inside her head: her
 brain in 3D with each part where its counterpart sits in a human brain, her feelings on her cortex, the
 path replayed stop by stop).
 

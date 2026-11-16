@@ -3,7 +3,8 @@
 Each level relaxes toward a target that the other levels move (couplings), at its own pace, with a little
 biological noise. Events push levels (``apply``): what they push is measured (appraise.py), never a model's
 opinion of her mood. The fast signals habituate: the same push again and again moves her less, and a
-drought makes her sensitive again. Needs drift on their own (contact fades without the user, novelty in
+drought makes her sensitive again; every level saturates: the nearer its bound, the less a push moves it.
+Needs drift on their own (contact fades without the user, novelty in
 sameness, adenosine builds while she is awake) and sleep has its own physiology.
 
 Levels are 0..1 except ``reward`` (-1..1): the burst of dopamine when something is better (+) or worse (-)
@@ -255,6 +256,11 @@ class Body:
             level = CHEMICALS.get(name)
             low, high = (level.low, level.high) if level else (0.0, 1.0)
             before = self.levels[name]
+            # receptors saturate: past the middle of its range, the nearer a level is to the bound a push drives
+            # it toward, the less the push moves it (added and clipped, one warm chat pegged her needs and her
+            # closeness at 1.0 in the user's brain, 2026-11-16: a pegged level tells her nothing and lets no
+            # need go unmet)
+            amount *= min(1.0, 2.0 * (high - before if amount > 0 else before - low) / (high - low))
             self.levels[name] = _clip(before + amount, low, high)
             moved[name] = self.levels[name] - before
         return moved

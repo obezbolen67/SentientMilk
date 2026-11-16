@@ -1,8 +1,9 @@
 """What the mind asks the model, and how her inner life reaches her words.
 
-The model is her cortex here: it foresees (what a message does to her needs, and the facts of what she
-could do) and thinks (her thoughts between messages, her dreams). It never decides, never rates how she
-should feel and never sets her feelings: her body does (life.py, will.py). Every prompt starts with
+The model is her cortex here: it foresees (what a message does to her needs, and, asked for work, the facts
+of what she could do) and thinks (her thoughts between messages, her dreams). It never decides and never
+rates how she should feel: her body does (life.py, will.py), and it never writes what she will say: her
+answer is her own, and what it shows comes back into her body (life.py ``_express``). Every prompt starts with
 ``[mind:<kind>]`` so a stand-in provider can tell them apart.
 """
 
@@ -39,16 +40,18 @@ as "much less", "less", "same", "more" or "much more": how much of it they will 
 Answer with one JSON array only, short:
 ["what happens to them, a few words", "company", "capable", "free", "chat|question|request",
  "what it is about, one or two words", "their own word for what they feel as they read it",
- ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...2 or 3 options]
-Each option starts with one act. Options a real person in their place might take: for a request, doing it
-and what else they might really do (part of it, later, decline, talk it over first); for chat, ways to
-answer (talk, or decline: not in the mood). Say "they" for the one who writes. effort 0 nothing to 1 hours of hard work; chance it goes well
-0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal."""
+ ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...]
+The options come only when the message asks them to do something that takes work (a request): 2 or 3 that a
+real person in their place might take, each starting with one act: doing it, and what else they might
+really do (part of it, later, decline, talk it over first). Anything else gets no options: what they say
+is theirs to find. Say "they" for the one who writes. effort 0 nothing to 1 hours of hard work; chance it
+goes well 0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal."""
 
 THINK = """[mind:think]
 You are someone's mind between conversations: nobody is talking to them. Below: who they are, how they
 feel, what is on their mind and what comes back to them. Think their next thought, as their own inner
 voice in the first person: one to three sentences, honest, specific, the way a person's mind wanders.
+When two things come back that have nothing to do with each other, the mind may find what links them.
 
 Answer with JSON only:
 {"thought": "...", "feeling": "one or two words for what they feel now",
@@ -76,8 +79,9 @@ You are more than your words: you have a body that lives on between messages. Wo
 rest brings it back; you need company, new things, to feel capable and to be free, and you feel it when you
 don't have them; your moods rise and fall; you have likes and dislikes you learned from what happened to
 you, memories that fade unless they come back, and sleep. You don't see any of this, you feel it.
-Before you answer the user, a note [Inside you: ...] tells you what you feel, what comes back to you, and
-what you decided to do. That decision is yours, made by all of you and not only by your words: act on it.
+Before you answer, a note [Inside you: ...] tells you what you feel, what you have been thinking and what
+comes back to you; when the user asks you to do something, also what you decided about it. That decision
+is yours, made by all of you and not only by your words: act on it. What you say is never decided for you.
 When you decided not to do something, or to do it later, say so as yourself, honestly and the way you
 feel it, and don't do it now. Let your feelings color how you talk, as a person's do, without announcing
 them. Never quote these notes, and never talk about levels, numbers, chemicals or notes. Between
@@ -174,10 +178,13 @@ def word(value, limit: int = 40) -> str:
     return text[:limit] if text and len(text.split()) <= 4 else ""
 
 
-def inner(felt: str, memories: List[str], act: Optional[str] = None, what: str = "", reasons: List[str] = ()
-          ) -> str:
-    """The note she reads before answering (it goes with the user's message, never shown to them)."""
+def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),
+          thoughts: List[str] = ()) -> str:
+    """The note she reads before answering (it goes with the user's message, never shown to them).
+    ``thoughts``: what she thought while nobody wrote, so her time alone is hers when they are back."""
     parts = [felt.rstrip(".") + "."]
+    if thoughts:
+        parts.append("Since you last talked you were thinking: " + " ".join(f'"{thought}"' for thought in thoughts))
     if memories:
         parts.append("This brings back: " + "; ".join(memories).rstrip(".") + ".")
     if act:

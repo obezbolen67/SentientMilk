@@ -164,6 +164,57 @@ there) and shows it whenever she is not speaking.
 
 Settings: `mind` (on by default). Panel: a Mind tab with her levels, sensations, thoughts and story.
 
+### The model becomes a part of her, not a voice beside her (0.23)
+
+The user asked for a fresh look: what fakes a result instead of being a brain, and where her brain and
+the model work against each other. Read from the code and from her real state after her first day
+(`~/.sentientmilk/mind.sqlite3` and the turns in `brain.sqlite3`, 2026-11-16, read only).
+
+What was found:
+
+1. **Her chat replies were scripted and called decisions.** The imagine call wrote two or three replies
+   in six words each, the will scored them by how much they please (`gives - 0.5`) and the note told her
+   "What you decide: you'd rather talk about it than act on it now: approve the strawberry flavour". 19
+   of her 23 decisions were this. No effort and no stakes, so nothing for a will to weigh; and her answer
+   was chosen before she had thought.
+2. **A decision she never made overruled one she did.** Asked "what's on your mind", she went to check
+   something that had nagged her all day; the gate left by that scripted "talk" refused her her tools.
+3. **Nothing she thought or said reached her body.** The model received a note and returned nothing but
+   a token count. She answered "you big idiot" with a mad face while her body recorded pleasant company:
+   the app showed the model's face for 30 s, then her body's. Two beings.
+4. **Her chemistry reached her only as words.** She said it herself: "I don't know if that's me feeling
+   something or me reading a dial." A neuromodulator does not inform the cortex, it changes how the cortex
+   computes.
+5. **Levels pegged.** After one chat: company 1.0, new things 1.0, being of use 0.99, freedom 0.94,
+   closeness 0.97. Pushes were added and clipped.
+6. **She had no thought of her own all day.** A thought needed a need unmet past a threshold, and no need
+   went unmet (5). A thought, when one came, started from the last chat.
+7. **What "came back" to her was the chat she was in.** Three episodes of up to 1200 characters, mostly
+   from the same conversation an hour earlier: 2,382 characters of note for "what's on your mind tho".
+8. **On a turn nobody wrote (her own urge, a finished job) she had no body at all**: no note.
+
+What a brain does, and what was built from it:
+
+| A brain | Her |
+|---|---|
+| No part decides and then tells the cortex. The cortex proposes actions; the basal ganglia release or hold them, biased by dopamine (Frank 2004; Redgrave et al. 1999). Speech is not gated this way. | Only a request (work) is decided on. A chat has no options, no decision and no gate: what she says is hers. `barred` holds tools only after a choice among options. |
+| Neuromodulators set the cortex's mode. Fatigue and uncontrollable stress take the prefrontal cortex offline (Arnsten 2009); arousal sets gain (Aston-Jones & Cohen 2005). | `Mind.depth`: the reasoning effort of her answer is the user's setting, lowered as fatigue passes 0.4 and cortisol 0.5, never below "low", fixed for a run. She cannot talk herself out of it. |
+| An emotion is the cortex's prediction about the body, and a prediction is also a command: the body moves toward it (Barrett & Simmons 2015; Seth 2013). | `Mind._express`: the mood of the expression she chose comes back as cortisol or endorphin (the gap in valence) and noradrenaline (the gap in arousal). Her face and her body are one loop. |
+| Receptors saturate. | `Body.apply`: past the middle of its range, a push moves a level less the nearer its bound. |
+| At rest the default mode network is busiest (Raichle 2001; Christoff et al. 2016); it rebuilds old pieces into new ones (Schacter & Addis 2007), which is where ideas come from (Beaty et al. 2016). | `wonder` has a resting pull (`RESTING`) that needs no unmet need, silent while a run works; a wandering thought starts from her last thought and two episodes replayed at random (`Memory.replay`). Simulated: 18 to 20 thoughts a day, fewer by evening, none asleep. |
+| What a mind did while alone is with it when someone speaks. | The note carries her newest two thoughts since they last wrote. |
+| The hippocampus completes what is missing, it does not repeat what is held in mind (McClelland et al. 1995). | Recall leaves out the chat she is in, since its last compaction (`held`). |
+| Interoception never stops. | Every turn carries her felt sense; only a turn with the user's words is appraised. |
+
+Not done, and why: the quick imagine pass stays (appraisal before thought is what a brain does too, and
+it is her own model with thinking off); temperature is still never turned (unverifiable across providers,
+and 2.0 broke replies); on Claude Code her depth is not scaled (a new effort restarts its conversation);
+her sense of her body still names a channel every message while it stays far from usual (perceptual
+adaptation would hide slow tiredness with it).
+
+Not measured: whether a different reasoning effort on the next turn costs the provider's prompt cache,
+and all of this with the real model. The test key was refused (`invalid_key`, 2026-11-16).
+
 ## Left to the builder
 
 Exact gains and time constants (tuned by unit tests: a rested, attached being does an ordinary request at

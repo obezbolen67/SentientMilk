@@ -9,16 +9,30 @@ it outweighs that reading as far as she has met such messages and her record has
 dopamine how much better or worse it is than she has come to expect from the user, noradrenaline the
 surprise, cortisol a loss she can't undo. Nothing names a message kind or unkind; what it does to her comes
 from her needs, her state and her history with the user.
-Her decision and her felt sense go with the message as a note only she reads; a refusal or a delay keeps her
-work tools from her for that turn (``barred``). When the turn ends (``after``) its outcome moves her body,
-teaches her values and becomes a memory. The user's next message settles what followed hers (``_settle``):
-it is kept with that memory, it shows which guide to trust, and it teaches her values about her decision.
+Her felt sense goes with the message as a note only she reads, with what she thought while nobody wrote and
+what comes back to her that her context does not hold already.
+
+The model is her cortex, a part of this loop and not a voice beside it (0.23). Her body gates work, it
+never writes her words: only a request (something that takes work) is decided on, as a basal ganglia gate
+releases or holds an action the cortex proposes (Frank 2004); a refusal or a delay keeps her work tools from
+her for that turn (``barred``), and what she says is always hers to find. Her chemistry sets how her cortex
+computes, not only what it is told: tired or badly stressed she thinks less deeply (``depth``: the
+provider's reasoning effort; fatigue and uncontrollable stress take the prefrontal cortex offline, Arnsten
+2009). And what her cortex makes comes back into her body: the mood she showed as she answered moves her
+chemistry toward it (``_express``: an emotion, once constructed, is also a command to the body, Barrett &
+Simmons 2015). When the turn ends (``after``) its outcome moves her body, teaches her values and becomes a
+memory. The user's next message settles what followed hers (``_settle``): it is kept with that memory, it
+shows which guide to trust, and it teaches her values about her decision.
 
 Between messages (``_live``, every few seconds) her body lives on. Every ``BIDS_EVERY`` seconds what wants her
 attention competes, with noise, against a threshold that rises as she tires: missing the user (reach_out),
-boredom (wonder), something that nags her (ruminate), what she put off (resume) and sleep. A winner is a
-thought (a model call). A thought may become something she wants to tell or ask the user (the app hears
-``mind.urge`` and starts a turn), doing what she put off, or looking something up herself (a task).
+her mind wandering (wonder: a resting pull that needs no reason, as a brain's default mode network is
+busiest when nothing is asked of it, Raichle 2001, stronger when she is bored), something that nags her
+(ruminate), what she put off (resume) and sleep. A winner is a thought (a model call); a wandering one
+starts from her last thought and two memories replayed at random (``Memory.replay``: new ideas are old
+pieces that never met, Schacter & Addis 2007). A thought may become something she wants to tell or ask the
+user (the app hears ``mind.urge`` and starts a turn), doing what she put off, or looking something up
+herself (a task).
 Asleep, she goes over the day once (``_consolidate``): insights, a dream, her story rewritten, the day's
 charge softened, faint memories forgotten.
 """
@@ -35,7 +49,7 @@ import requests
 
 from . import prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, SET_POINTS, Body, Temperament
-from .feel import Concepts, Interoception, core, face, feel
+from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel
 from .memory import Memory, describe_salience, line
 from .values import Values, features
 from .will import FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
@@ -63,11 +77,15 @@ SHOWN_THOUGHTS = 12  # in the state apps and the panel show
 WORK_PER_CALL = 600  # a tool call's effort, in tokens of her own words
 FAMILIAR = 1.5  # summed likeness of past messages at which her own record weighs half of what it can
 LEARNS = 0.1  # how fast her sense of each guide's error, and her expectation of the user, follow what happens
+RESTING = 0.5  # her mind's pull to wander when nothing is asked of it (a thought about every 40 min, rested)
+DEPTHS = ("minimal", "low", "medium", "high", "xhigh")  # how deep her cortex thinks: the provider's reasoning effort
+THOUGHT_CHARS = 400  # of a memory or a thought, in what she is told of it
 VERBS = {"do": "did it", "part": "did part of it", "later": "put it off", "decline": "said no",
          "talk": "talked it over"}
 ON_MIND = {
     "reach_out": "You miss the user.{since}",
     "wonder": "You're bored. You want something new to think about.",
+    "wander": "Nothing is asked of you right now, and your mind wanders.",
     "ruminate": "Something keeps nagging at you: {about}",
     "resume": "You put this off earlier: {about}",
 }
@@ -259,6 +277,7 @@ class Mind:
                      if e["valence"] < -0.3 and e["charge"] > 0.5), None)
         concern = self.self["concerns"][0] if self.self["concerns"] else None
         night, resumable = body.night(now), bool(concern) and self._alive(concern["app"], now)
+        working = self.brain.runs.busy()  # her cortex is on a task: a mind at work does not wander
 
         def bids() -> Dict[str, Optional[float]]:  # read from the levels each call (Body.influence nudges them)
             x = body.levels
@@ -267,7 +286,10 @@ class Mind:
                 - (0.7 if present else 0.0) if x["adenosine"] > DOZES_OFF else None,
                 "reach_out": 1.5 * body.deficit("social") * x["bond"] * (0.5 + x["oxytocin"]) * t.sociability
                 * (1.0 if present else 0.3) if reachable and not waiting else None,
-                "wonder": 1.1 * body.deficit("novelty") * t.curiosity * x["energy"] * (0.4 + x["dopamine"]),
+                # at rest her mind wanders by itself (needing a need unmet first, she had no thought of her own
+                # in a whole day in the user's brain, 2026-11-16); boredom pulls harder
+                "wonder": (RESTING + 1.1 * body.deficit("novelty") * t.curiosity) * x["energy"] * (0.4 + x["dopamine"])
+                if not working else None,
                 "ruminate": 1.4 * max(0.0, x["cortisol"] - 0.3) + 0.7 * x["grievance"] if sore else None,
                 "resume": 0.9 * x["energy"] * (0.4 + x["dopamine"]) * (0.5 + x["bond"]) - 0.6 * body.fatigue()
                 if resumable else None,
@@ -344,17 +366,21 @@ class Mind:
     # ============== A message ==============
 
     def before(self, run: dict, profile: dict, said: Optional[str], pictures: int = 0) -> Optional[str]:
-        """The user wrote (``said``): she senses it, recalls, foresees and chooses. The note for her (or None:
-        no mind, or not a turn with the user's words)."""
-        if not self.active() or run["kind"] != "turn" or run["options"].get("occurrence") or not (said or "").strip():
+        """A turn of hers begins. The user wrote (``said``): she senses it, recalls, foresees and, asked to do
+        something, chooses. Nobody wrote (an event, her own urge, something scheduled): she still feels her
+        body as she takes it. The note for her (None: no mind, or not a turn)."""
+        if not self.active() or run["kind"] != "turn":
             return None
-        said = said[:SAID_CHARS]
         now = time.time()
         with self._lock:
             self._live_until(now)
             body, x = self.body, self.body.levels
             if body.asleep:
                 body.wake(startled=x["adenosine"] > 0.3)
+            if run["options"].get("occurrence") or not (said or "").strip():
+                felt = feel(body, self.senses, now)
+                return prompts.inner(felt.words(self.concepts.recognize(felt.reading)))
+            said = said[:SAID_CHARS]
             contact, urge = self.self.get("contact"), self.self.get("urge")
             away = now - contact["at"] if contact else None
             # company itself, a little (what the message does to it the model reads): more after a long time apart
@@ -370,7 +396,15 @@ class Mind:
             self.last_active = now
             felt = feel(body, self.senses, now)
             feelings = self.concepts.recognize(felt.reading, said)
-            memories = [line(e, now) for e in self.memory.recall(said, felt.valence, now, count=3, before=now - 30)]
+            # what comes back is what she does not have before her: this chat since it was last summed up is
+            # in her context already (a hippocampus completes what is missing, it does not repeat what is held)
+            summed = self.brain.store.last_compaction(run["app"], run["session"])
+            memories = [line(e, now)[:THOUGHT_CHARS] for e in self.memory.recall(
+                said, felt.valence, now, count=3, before=now - 30,
+                held=(run["app"], run["session"], summed["at"] if summed else 0.0))]
+            # her time alone is hers when they are back: what she thought since they last wrote, the newest two
+            thoughts = [t["thought"][:THOUGHT_CHARS] for t in self.self["thoughts"]
+                        if contact and t["at"] > contact["at"]][:2]
             born = self.self["born"]
         if not born:
             self._birth(profile["persona"])
@@ -392,7 +426,11 @@ class Mind:
         except Exception:
             logger.warning("Her imagining failed; she goes with what comes", exc_info=True)
         seen = Appraisal.read(answer.get("appraisal"))
-        options = [o for o in (Option.read(d) for d in (answer.get("options") or [])[:4]) if o]
+        # only work is decided on: what she says in a chat is her own to find, never picked from lines written
+        # for her (of 23 decisions in the user's brain, 2026-11-16, 19 were "talk": a reply scripted in six words
+        # by this quick pass, the most pleasing one chosen, and called her decision)
+        options = [o for o in (Option.read(d) for d in (answer.get("options") or [])[:4]) if o] \
+            if seen.intent == "request" else []
         with self._lock:
             now = time.time()
             model = seen.effects()  # what the model foresees, before her own record has its say
@@ -409,7 +447,8 @@ class Mind:
             def found(option):
                 return features(option.act, seen.tags, seen.intent, hour, run["app"])
             choice = choose(options, seen, self.body, self.values, found, self.rng) if options else None
-            option = choice.option if choice else Option("do", chance=0.8)
+            # nothing to choose: she talks (or, asked for work her imagining gave no options for, does it)
+            option = choice.option if choice else Option("do" if seen.intent == "request" else "talk", chance=0.8)
             threat = self._threat(seen, option)
             if named:  # what she called it: her body as the message moves it (her sense of it lags; a brain builds
                 # a feeling from the change it predicts, live "small" at a comparison was kept as pleasant without)
@@ -418,6 +457,7 @@ class Mind:
                                   f"{said} {answer.get('happens') or ''}", now)
             foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
             decision = {"act": option.act, "what": option.what, "chance": option.chance, "effort": option.effort,
+                        "gated": bool(choice),  # she chose among options: only then are tools kept from her
                         "foreseen": foreseen, "novelty": round(novelty, 3),
                         "stakes": min(1.0, sum(abs(change) for change in foreseen.values()) / 2),
                         "features": found(option), "reasons": choice.reasons if choice else [],
@@ -437,7 +477,7 @@ class Mind:
                     "learned": learned, "foreseen": foreseen, "met": met,
                     "options": choice.considered if choice else [], "temperature": choice.temperature if choice else None,
                     "threat": threat}
-            self.self["decided"] = {**{key: decision[key] for key in ("act", "what", "reasons", "chances", "at")},
+            self.self["decided"] = {**{key: decision[key] for key in ("act", "what", "gated", "reasons", "chances", "at")},
                                     "path": path, "outcome": None}
             if option.act == "later":
                 self.self["concerns"].append({"what": option.what or said[:200], "app": run["app"],
@@ -446,7 +486,7 @@ class Mind:
             felt_words = felt.words([found for found in feelings if found[0] != named]) + (
                 f" Reading it, you feel {named}." if named else "")
             note = prompts.inner(felt_words, memories, option.act if choice else None, option.what,
-                                 choice.reasons if choice else [])
+                                 choice.reasons if choice else [], thoughts)
         self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
         return note
 
@@ -563,11 +603,15 @@ class Mind:
         return "\n".join(lines)
 
     def barred(self, run: dict, tool) -> Optional[str]:
-        """Why ``tool`` is not for this turn: she decided not to do it now (None: it is). Talking it over first,
-        she may look but changes nothing: live, "talk" did the whole job 2 times in 3 when nothing kept her."""
-        act = (run["options"].get("mind") or {}).get("act")
-        if act not in ("later", "decline", "talk") or tool.toolkit in ("memory", "journal") \
-                or (act == "talk" and tool.readonly):
+        """Why ``tool`` is not for this turn: asked to do something, she decided not to do it now (None: it is).
+        Talking it over first, she may look but changes nothing: live, "talk" did the whole job 2 times in 3
+        when nothing kept her. A turn with nothing to decide (a chat) holds nothing back: what she takes up
+        on her own is hers (in the user's brain, 2026-11-16, asked what was on her mind she went to check
+        something that had nagged her all day, and a "talk" she never chose refused her)."""
+        decided = run["options"].get("mind") or {}
+        act = decided.get("act")
+        if not decided.get("gated") or act not in ("later", "decline", "talk") \
+                or tool.toolkit in ("memory", "journal") or (act == "talk" and tool.readonly):
             return None
         return ("You decided not to do this now, so you don't. Tell the user so, as yourself; you can note what "
                 "matters with your memory.")
@@ -613,9 +657,12 @@ class Mind:
             if steered:
                 body.apply({"autonomy": -0.05 * steered})
             self.values.learn(decision["features"], max(-1.0, min(1.0, felt_outcome)), self._rate())
+            expressed = self._express(run)
             felt = feel(body, self.senses, now)
             reply = ((run.get("result") or {}).get("reply") or "")[:300]
-            text = (f"The user said: {decision['said']} I {VERBS[act]}" + (f" ({decision['what']})" if decision["what"] else "")
+            did = f" I {VERBS[act]}" + (f" ({decision['what']})" if decision["what"] else "") \
+                if decision.get("gated", True) else ""  # a chat is what was said, nothing done or put off
+            text = (f"The user said: {decision['said']}{did}"
                     + (f". I said: {reply}" if reply else "") + (". They stopped me" if stopped else "")
                     + (f". {errors} of my {calls} tool calls failed" if errors else "") + ".")
             valence = max(-1.0, min(1.0, 0.5 * felt.valence + 0.5 * felt_outcome))
@@ -628,8 +675,54 @@ class Mind:
             decided = self.self.get("decided")
             if decided and decided.get("at") == decision["at"]:
                 decided["outcome"] = {"status": run["status"], "calls": calls, "errors": errors, "denied": denied,
-                                      "steered": steered, "surprise": round(surprise, 3),
+                                      "steered": steered, "surprise": round(surprise, 3), "expressed": expressed,
                                       "measured": {name: round(change, 3) for name, change in measured.items()}}
+
+    def _express(self, run: dict) -> Optional[dict]:
+        """What she showed as she answered comes back into her body. The mood of the expression she chose (one
+        the app declares, picked by her cortex in the full light of the conversation) is the feeling her
+        cortex made of the moment, and a feeling, once made, is also a command to the body (interoceptive
+        inference: Barrett & Simmons 2015; Seth 2013): her chemistry moves toward it, by how far it is from
+        what her body felt. Without this her words and her body were two beings: in the user's brain,
+        2026-11-16, she answered "you big idiot" looking mad while her body logged it as pleasant company.
+        What she showed and what it moved, for drawing (None: no expression she knows a place for)."""
+        signals = (run.get("result") or {}).get("signals") or {}
+        mood = next((value.split("/")[-1] for value in signals.values()
+                     if isinstance(value, str) and value.split("/")[-1] in MOOD_PLACES), None)
+        if mood is None:
+            return None
+        valence, arousal = core(self.body.levels)
+        apart, stirred = MOOD_PLACES[mood][0] - valence, MOOD_PLACES[mood][1] - arousal
+        moved = self.body.apply({"cortisol": 0.05 * max(0.0, -apart), "endorphin": 0.05 * max(0.0, apart),
+                                 "noradrenaline": 0.1 * stirred})
+        return {"mood": mood, "valence": round(apart, 3), "arousal": round(stirred, 3),
+                "moved": {name: round(change, 3) for name, change in moved.items()}}
+
+    def depth(self, run: Optional[dict] = None) -> Optional[str]:
+        """How deep her cortex thinks: the user's thinking setting, lowered as she tires or is badly stressed
+        (None: as the user set it). A neuromodulator does not tell the cortex anything, it changes how the
+        cortex computes: fatigue and stress she cannot shake take the prefrontal cortex offline (Arnsten
+        2009), so a spent mind reasons less, and that she can't talk herself out of. Never below "low"
+        unless the user set less. Set at a run's first step and kept for it (``run``; None: as it would be
+        now), so a run is of one mind.
+        shortcut: only the API service's named efforts are scaled, not a token budget or the provider's
+        default, and not Claude Code (a new effort there restarts its conversation); upgrade when the
+        user thinks with one of those."""
+        values = self.brain.config.values()
+        mode = values["thinking_mode"]
+        if not self.active() or mode not in DEPTHS or values["provider"] != "api" \
+                or (run and run["kind"] in ("summary", "compact")):
+            return None
+        kept = (run or {}).get("options", {}).get("depth")
+        if kept is None:
+            with self._lock:
+                self._live_until(time.time())
+                clear = 1.0 - 2.5 * max(0.0, self.body.fatigue() - 0.4) - 1.5 * max(0.0, self.body["cortisol"] - 0.5)
+            top = DEPTHS.index(mode)
+            kept = DEPTHS[max(min(top, 1), round(max(0.0, clear) * top))]
+            if run:
+                self.brain.store.update_run_options(run["id"], lambda options: {**options, "depth": kept})
+        return kept if DEPTHS.index(kept) < DEPTHS.index(mode) else None  # never above what the user has set now
 
     # ============== Between messages ==============
 
@@ -639,11 +732,19 @@ class Mind:
             contact = self.self.get("contact") or (about if kind == "resume" else None)
             felt = feel(self.body, self.senses, now)
             subject = (about or {}).get("text") or (about or {}).get("what") or ""
-            on_mind = ON_MIND[kind].format(about=subject, since=f" You last talked {_ago(now - contact['at'])}."
-                                           if contact else "")
-            cue = subject or (self.memory.recent(1, kinds=("exchange",)) or [{"text": ""}])[0]["text"]
+            wandering = kind == "wonder" and self.body.deficit("novelty") < 0.3  # at rest, not bored
+            on_mind = ON_MIND["wander" if wandering else kind].format(
+                about=subject, since=f" You last talked {_ago(now - contact['at'])}." if contact else "")
+            if kind == "wonder":  # her stream goes on from her last thought, and two memories come up unbidden
+                last = self.self["thoughts"][0]["thought"][:THOUGHT_CHARS] if self.self["thoughts"] else ""
+                on_mind += f' Your last thought was: "{last}"' if last else ""
+                came = self.memory.replay(2)
+                cue = " ".join(e["text"] for e in came)
+            else:
+                cue = subject or (self.memory.recent(1, kinds=("exchange",)) or [{"text": ""}])[0]["text"]
+                came = self.memory.recall(cue, felt.valence, now, count=3)
             feelings = self.concepts.recognize(felt.reading, cue)
-            memories = [line(e, now) for e in self.memory.recall(cue, felt.valence, now, count=3)]
+            memories = [line(e, now)[:THOUGHT_CHARS] for e in came]
         persona = self._persona(contact["app"], contact["session"]) if contact else ""
         asked = (f"{self._who(persona)}\n\nIt is {time.strftime('%A %H:%M')}. How they feel: {felt.words(feelings)}\n"
                  f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}" if memories else ""))
@@ -815,6 +916,7 @@ class Mind:
                 "paces": {name: level.tau for name, level in CHEMICALS.items()},
                 "set_points": dict(SET_POINTS), "receptors": {name: round(value, 3) for name, value in body.sensitivity.items()},
                 "expected": round(self.self["expected"], 3),
+                "depth": self.depth(),  # how deep she would think now, when less than the user set (else None)
                 "trust": {guide: {name: round(error, 3) for name, error in errors.items()}
                           for guide, errors in self.self["trust"].items()},
                 "fatigue": round(body.fatigue(), 3), "temperament": body.temperament.to_dict(),

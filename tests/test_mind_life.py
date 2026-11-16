@@ -4,6 +4,7 @@ remembered, thoughts become urges the app hears, sleep rewrites her story, and t
 import json
 import math
 import time
+from types import SimpleNamespace
 
 import pytest
 from conftest import turn, wait_for
@@ -68,6 +69,102 @@ def test_when_she_would_rather_talk_first_she_may_look_but_changes_nothing(brain
     after = json.dumps(brain.provider.sent[-1]["messages"])
     assert "rain and tea" in after and "You decided not to do this now" in after
     assert not (brain.work / "b.txt").exists()
+
+
+def test_a_chat_is_hers_to_answer_nothing_is_decided_for_her_or_kept_from_her(brain):
+    mind = mind_on(brain)  # in the user's brain 19 of 23 "decisions" were a chat reply scripted in six words
+    brain.provider.mind_replies["imagine"] = ['["teased about a drink", "more", "same", "same", "chat", "banter", '
+                                              '"amused", ["talk", "approve the flavour", 0.1, 0.9, 0.7]]']
+    brain.provider.replies += ["Strawberry is fine."]
+    result = turn(brain, "cli", "i got the strawberry one")
+    sent = brain.provider.last_user_text()
+    assert "Inside you:" in sent and "What you decide" not in sent and "approve the flavour" not in sent
+    run = brain.store.run(result["run"])
+    assert run["options"]["mind"]["gated"] is False and run["options"]["mind"]["act"] == "talk"
+    # what she takes up on her own is hers: a "talk" nobody chose once refused her a look at what nagged her
+    assert mind.barred(run, SimpleNamespace(toolkit="shell", readonly=False)) is None
+    episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]
+    assert episode["text"].startswith("The user said: i got the strawberry one. I said: Strawberry is fine")
+
+
+def test_what_she_shows_as_she_answers_comes_back_into_her_body(brain):
+    mind = mind_on(brain)  # her words and her body were two beings: mad on her face, pleasant in her chemistry
+    brain.client.declare_app("pet", name="Pet", environment="A desk.", toolkits=["memory"], signals={
+        "expression": {"description": "how you look", "options": ["mad", "smile"]}})
+
+    def shown(mood):
+        with mind._lock:
+            mind.body.levels.update(cortisol=0.25, endorphin=0.1, noradrenaline=0.35, reward=0.0)
+        brain.provider.mind_replies["imagine"] = [BANTER]
+        brain.provider.replies += [f'{{"expression": "{mood}"}}\nHm.']
+        turn(brain, "pet", "you big idiot")
+        return wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))["expressed"]
+    mad, glad = shown("mad"), shown("smile")
+    assert mad["mood"] == "mad" and mad["valence"] < -0.5 and mad["moved"]["cortisol"] > 0.02
+    assert mad["moved"]["noradrenaline"] > 0 and "endorphin" not in mad["moved"]
+    assert glad["moved"].get("cortisol", 0.0) < mad["moved"]["cortisol"] / 2
+    brain.provider.replies += ["Plain."]  # an app with no expressions: nothing comes back, nothing breaks
+    turn(brain, "cli", "hello")
+    assert wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))["expressed"] is None
+
+
+def test_worn_out_she_thinks_less_deeply_than_the_user_set_and_a_run_is_of_one_mind(brain):
+    mind = mind_on(brain)
+    brain.client.update_config(thinking_mode="high")
+    brain.provider.replies += ["Hi."]
+    turn(brain, "cli", "hello")
+    assert brain.provider.sent[-1]["reasoning_effort"] == "high" and mind.state()["depth"] is None
+    with mind._lock:
+        mind.body.levels.update(adenosine=0.95, energy=0.3)
+    (brain.work / "a.txt").write_text("notes", encoding="utf-8")
+
+    def rested(payload):  # she rests in the middle of the run: its depth was set at its first step
+        with mind._lock:
+            mind.body.levels.update(adenosine=0.05, energy=1.0)
+        return "Mm."
+    brain.provider.replies += [tool_call("files_read", {"path": str(brain.work / "a.txt")}), rested]
+    result = turn(brain, "cli", "and now?")
+    assert [request["reasoning_effort"] for request in brain.provider.sent[-2:]] == ["low", "low"]
+    assert brain.store.run(result["run"])["options"]["depth"] == "low"
+    brain.client.update_config(thinking_mode="default")  # nothing named to scale: as the provider has it
+    with mind._lock:
+        mind.body.levels.update(adenosine=0.95, energy=0.3)
+    brain.provider.replies += ["Ok."]
+    turn(brain, "cli", "once more")
+    assert "reasoning_effort" not in brain.provider.sent[-1] and mind.state()["depth"] is None
+
+
+def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought_back(brain):
+    mind = mind_on(brain)
+    brain.provider.replies += ["They need sun.", "As I said."]
+    turn(brain, "cli", "how do tomatoes grow?")
+    wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
+    with mind.memory._lock:  # an hour ago: old enough to come back, were it not still before her
+        mind.memory._db.execute("UPDATE episodes SET at = at - 3600")
+    mind.memory.add("exchange", "The user said: my tomatoes died last winter", -0.4, 0.5, 0.8, app="cli",
+                    session="old", at=time.time() - 86400)
+    brain.provider.mind_replies["think"] = [json.dumps({
+        "thought": "Tomatoes mind the cold more than I thought.", "feeling": "curious", "want": "nothing"})]
+    mind._think("wonder", None)
+    asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
+    assert "your mind wanders" in asked and "my tomatoes died last winter" in asked  # replayed, unbidden
+    turn(brain, "cli", "tell me about tomatoes again")
+    note = brain.provider.last_user_text().split("[Inside you:")[1]
+    assert 'Since you last talked you were thinking: "Tomatoes mind the cold more than I thought."' in note
+    assert "my tomatoes died last winter" in note and "how do tomatoes grow" not in note
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "And frost?", "feeling": "idle", "want": "nothing"})]
+    mind._think("wonder", None)  # her stream goes on from her last thought
+    assert 'Your last thought was: "Tomatoes mind the cold' in brain.provider.mind_requests[-1]["messages"][1]["content"]
+
+
+def test_a_turn_nobody_wrote_still_comes_with_how_she_feels(brain):
+    mind_on(brain)
+    brain.provider.replies += ['{"expression": "arms_down/neutral"}\nOh, it finished.']
+    before = len(brain.provider.mind_requests)
+    turn(brain, "milk", None, items=[{"type": "event", "name": "job.finished", "text": "The download ended."}])
+    sent = brain.provider.last_user_text()
+    assert "[Inside you:" in sent and "What you decide" not in sent
+    assert len(brain.provider.mind_requests) == before  # felt, not appraised: nobody said anything to her
 
 
 def test_what_she_puts_off_she_keeps_in_mind(brain):
@@ -214,7 +311,7 @@ def test_with_her_mind_off_she_answers_as_asked_and_nothing_of_it_shows(brain):
     assert brain.client.mind("milk") == {"on": False, "face": None}
 
 
-def test_what_wins_her_attention_comes_from_how_she_is(brain):
+def test_what_wins_her_attention_comes_from_how_she_is(brain, monkeypatch):
     mind = mind_on(brain)
     brain.provider.replies += ["Hi."]
     turn(brain, "milk", "hello")
@@ -233,7 +330,13 @@ def test_what_wins_her_attention_comes_from_how_she_is(brain):
     lonely = winners(social=0.02, bond=0.95, oxytocin=0.7, adenosine=0.2, energy=1.0, novelty=0.6)
     assert lonely.count("reach_out") >= 90
     content = winners(social=0.7, novelty=0.6, cortisol=0.2, grievance=0.0)
-    assert content.count(None) >= 95  # nothing nags a content mind: she thinks rarely, and costs little
+    # nothing nags a content mind, and at rest it wanders by itself (needing a need unmet first, she had no
+    # thought of her own in a whole day in the user's brain); how often is its refractory period's to say
+    assert set(content) <= {"wonder", None} and content.count("wonder") >= 30
+    assert winners(energy=0.25).count("wonder") <= 2  # spent, her mind goes quiet
+    monkeypatch.setattr(mind.brain.runs, "busy", lambda: True)
+    assert "wonder" not in winners(energy=1.0)  # and a mind at work does not wander
+    monkeypatch.undo()
     mind.last_active = 0.0  # the user is away
     mind.body.peak = (mind.body.hour(now) + 12) % 24  # and it is her night
     assert winners(adenosine=0.95, energy=0.3).count("sleep") >= 95

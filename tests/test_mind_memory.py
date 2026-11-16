@@ -21,6 +21,19 @@ def test_a_cue_brings_back_what_is_like_it(tmp_path):
     assert all("taxes" not in episode["text"] for episode in found[:1])
 
 
+def test_what_she_still_has_before_her_is_not_brought_back_and_a_resting_mind_replays_at_random(tmp_path):
+    mind = memory(tmp_path)
+    mind.add("exchange", "we talked about the garden today", 0.2, 0.4, 0.5, app="milk", session="main", at=NOW - 600)
+    mind.add("exchange", "the garden flooded in spring", -0.3, 0.5, 0.6, app="milk", session="main", at=NOW - 9 * DAY)
+    mind.add("exchange", "a garden party with the neighbours", 0.5, 0.5, 0.5, app="milk", session="other", at=NOW - 300)
+    held = ("milk", "main", NOW - DAY)  # her context holds that chat since yesterday
+    texts = [e["text"] for e in mind.recall("the garden", 0.0, NOW, count=5, strengthen=False, held=held)]
+    assert "we talked about the garden today" not in texts and len(texts) == 2
+    assert len(mind.recall("the garden", 0.0, NOW, count=5, strengthen=False)) == 3
+    replayed = mind.replay(2)
+    assert len(replayed) == 2 and replayed[0]["id"] != replayed[1]["id"] and len(mind.replay(9)) == 3
+
+
 def test_a_mood_finds_memories_of_its_own_kind(tmp_path):
     mind = memory(tmp_path)
     mind.add("exchange", "the user and I played chess, I won and they laughed", 0.8, 0.5, 0.5, at=NOW - DAY)

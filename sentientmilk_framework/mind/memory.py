@@ -96,14 +96,18 @@ class Memory:
         return episode["strength"] * (1.0 + since / FADE_DAYS) ** -0.5
 
     def recall(self, cue: str, valence: float, now: float, count: int = 3, kinds: Iterable[str] = (),
-               before: Optional[float] = None, strengthen: bool = True) -> List[dict]:
+               before: Optional[float] = None, strengthen: bool = True,
+               held: Optional[Tuple[str, str, float]] = None) -> List[dict]:
         """What comes back for ``cue`` in a mood of ``valence``: up to ``count`` episodes, best first.
-        ``before``: only what happened before then (not what just happened)."""
+        ``before``: only what happened before then (not what just happened). ``held``: (app, session, since),
+        a chat whose exchanges from then on she still has before her (her context holds them): they are
+        not brought back (in the user's brain, 2026-11-16, what came back was mostly the chat she was in)."""
         words = _words(cue)
         kinds = list(kinds)
         clause = (" AND e.kind IN (" + ",".join("?" * len(kinds)) + ")") if kinds else ""
-        when = " AND e.at < ?" if before is not None else ""
-        args = list(kinds) + ([before] if before is not None else [])
+        when = (" AND e.at < ?" if before is not None else "") + \
+            (" AND NOT (e.app = ? AND e.session = ? AND e.at >= ?)" if held else "")
+        args = list(kinds) + ([before] if before is not None else []) + list(held or ())
         with self._lock:
             found = {}
             if words:
@@ -132,6 +136,17 @@ class Memory:
                         "UPDATE episodes SET recalls = recalls + 1, recalled = ?, strength = ?, valence = ? WHERE id = ?",
                         (now, min(1.0, self.strength_now(episode, now) + 0.25 * (1.0 - self.strength_now(episode, now))),
                          episode["valence"] + 0.1 * (valence - episode["valence"]), episode["id"]))
+        return chosen
+
+    def replay(self, count: int = 2) -> List[dict]:
+        """What a resting mind replays: episodes drawn at random from her whole life, the strong and charged
+        more often, so two that never met can come up together (what a new idea is made of)."""
+        with self._lock:
+            rows = [dict(row) for row in self._db.execute("SELECT * FROM episodes ORDER BY RANDOM() LIMIT 60")]
+        chosen = []
+        while rows and len(chosen) < count:
+            weights = [0.1 + row["salience"] * row["charge"] * row["strength"] for row in rows]
+            chosen.append(rows.pop(self._rng.choices(range(len(rows)), weights)[0]))
         return chosen
 
     def follow(self, episode_id: int, followed: Dict[str, float]) -> None:

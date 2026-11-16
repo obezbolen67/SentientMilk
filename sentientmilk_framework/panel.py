@@ -1153,8 +1153,9 @@ class Panel(App):
             return
         awake = f"[{MUTED}]asleep[/]" if state["asleep"] else f"[{OK}]awake[/]"
         here = "the user is here" if state["present"] else "the user is away"
+        worn = f" · worn out: thinks at {state['depth']}" if state.get("depth") else ""
         self.main.query_one("#mind-now", Static).update(
-            f"{awake} · {here} · {state['memories']} memories\n{escape(state['felt'])}")
+            f"{awake} · {here} · {state['memories']} memories{worn}\n{escape(state['felt'])}")
 
         def bar(value: float) -> str:
             filled = round(max(0.0, value) * 20)
