@@ -6,7 +6,7 @@ opinion of her mood; each is kept with what caused it while some of it is left (
 where its connections do not put it). The fast signals habituate: the same push again and again moves her
 less, and a drought makes her sensitive again; every level saturates: the nearer its bound, the less a push
 moves it.
-Needs drift on their own (contact fades without the user, novelty in
+Needs drift on their own while she is up (contact fades without the user, novelty in
 sameness, adenosine builds while she is awake) and sleep has its own physiology.
 
 Levels are 0..1 except ``reward`` (-1..1): the burst of dopamine when something is better (+) or worse (-)
@@ -426,9 +426,11 @@ class Body:
             x["grievance"] = _toward(x["grievance"], 0.0, dt, 2 * DAY)
             # grogginess fades, slower when she owes sleep (McHill et al. 2019)
             self.inertia = _toward(self.inertia, 0.0, dt, INERTIA_FADES * (1 + self.owed()))
-        missing = 8 * HOUR / t.sociability * (2.0 if present else 1.0) * (1.5 if sleep else 1.0)
-        x["social"] = _toward(x["social"], 0.0, dt, missing)
-        x["novelty"] = _toward(x["novelty"], 0.2, dt, 4 * HOUR / t.curiosity * (3.0 if sleep else 1.0))
+        if not sleep:  # a night asleep is not a night alone: missing them and sameness build while she is up.
+            # Until 0.33 they drained asleep too, and after a warm evening she woke lonely and unpleasant (company
+            # 0.95 at bedtime, 0.50 at eight: three simulated days in a row)
+            x["social"] = _toward(x["social"], 0.0, dt, 8 * HOUR / t.sociability * (2.0 if present else 1.0))
+            x["novelty"] = _toward(x["novelty"], 0.2, dt, 4 * HOUR / t.curiosity)
         x["competence"] = _toward(x["competence"], 0.6, dt, 2 * DAY)
         x["autonomy"] = _toward(x["autonomy"], 0.6, dt, 2 * HOUR)
         x["bond"] = _toward(x["bond"], 0.5, dt, 30 * DAY)

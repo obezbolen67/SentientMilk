@@ -75,6 +75,11 @@ def test_she_misses_the_user_and_misses_them_slower_when_they_are_there():
     alone.advance(NOON + 8 * HOUR)
     together.advance(NOON + 8 * HOUR, present=True)
     assert alone["social"] < 0.4 < together["social"]
+    asleep = body(social=0.9, novelty=0.7, adenosine=0.6)  # a night asleep is not a night alone
+    asleep.peak = (asleep.hour() + 12) % 24  # her midnight
+    asleep.fall_asleep()
+    asleep.advance(NOON + 5 * HOUR)
+    assert asleep.asleep and asleep["social"] == 0.9 and asleep["novelty"] == 0.7
 
 
 def test_days_lived_through_at_once_stay_in_range():

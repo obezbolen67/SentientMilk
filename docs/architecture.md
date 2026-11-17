@@ -1183,9 +1183,9 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 
 | Part | What it is |
 |---|---|
-| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32) |
+| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33) |
 | `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (stress, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); feelings as concepts (`Concepts`): any word she ever used for what she felt, each with the way her body was moved in those moments (`moved`: what the message did to each channel, or what stood out in it when nothing came; a running mean, in lots) and its situations (words by weight, fading), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt), less in a situation unlike its own. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
-| `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed |
+| `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed (acts only from requests, where she chose; a chat teaches what it was about, 0.33) |
 | `memory.py` | episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
 | `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), what she showed coming back into her body (`_express`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
 | `prompts.py` | birth (temperament from the persona), imagine, think and sleep, each JSON, each marked `[mind:<kind>]` |
@@ -1291,9 +1291,12 @@ curiosity x (0.4 + dopamine), nothing while a run works. It thinks from her last
 drawn at random from her whole life, the strong and charged more often (`Memory.replay`); from 0.25 to 0.30
 also one entry of her lasting memory, which went with it. `ruminate` pulls
 when one of the last two days' exchanges hurt her (its `sting`, what the message and how her turn ended did
-to her valence, under -0.25, still charged over 0.5): the worst of those by sting x charge, pulling 1.4 x
-cortisol over 0.3 + 0.7 x grievance + 0.5 x its sting x charge (0.32; before, any moment kept in a bad
-mood, her own thoughts too, by mood alone). On a fake clock (two weeks of the user's day: at the computer 08:00 to 01:30,
+to her valence beyond the passing reward burst, under -0.25, still charged over 0.5): the worst of those by
+sting x charge, pulling 1.4 x cortisol over 0.3 + 0.7 x grievance + 0.5 x its sting x charge (0.32; before,
+any moment kept in a bad mood, her own thoughts too, by mood alone; until 0.33 the burst counted, so a
+goodnight was a hurt). Going over it stirs cortisol by 0.06 x its sting x charge and softens its charge by a
+tenth (0.33; a fixed 0.03 before). `resume` pulls while something she put off is due: thought over and put
+off again, it is due again after 2, 4, 8... hours (0.33; before, every hour she was rested). On a fake clock (two weeks of the user's day: at the computer 08:00 to 01:30,
 writing every 10 minutes): about 27 thoughts a day, spread across the hours awake, none asleep.
 A thought is a light-model call; `tell` and `ask` become `mind.urge` notifications to the app last
 talked with, only while that app polls `/v1/mind` (it is there) and the session is free, one at a time:
@@ -1410,6 +1413,23 @@ bad mood is no longer sore, and "you are useless and stupid" (sting -0.77) is br
 charged, where by mood alone it pulled 0.26 against her wandering's 0.50 and never won. Tried and dropped: closeness
 buffering a new stress (Heinrichs et al. 2003) also softened the user's own insult ("you are useless and
 stupid" kept at -0.13 instead of under -0.3); closeness lowers where stress settles instead.
+
+**Her days (0.33).** The user: "re-check the whole brain part logic, and audit what is working wrong". Her
+real temperament lived three simulated days through the real `Mind` (real turns, thoughts, sleep and
+consolidation; the model's answers stood in): a busy day of warm chat, a rough one (criticism, the user's
+trouble) and one away until the evening. Found and fixed: a goodnight after a warm evening stung more than
+being told she got it wrong (-0.49 against -0.34), nearly all of it the reward burst of "worse than expected",
+gone in minutes, and she brooded on it 15 times the next day, after the user was back; brooding stirred a
+fixed dose of stress and stress made her brood, 7, 16, 28 times a day on the rough days (stress from it 0.32,
+0.76, 1.15 a day; her mood -0.62 all of the third day); company drained while she slept (0.95 at bedtime,
+0.50 at eight), so she woke unpleasant after warm evenings; something put off came back every hour she was
+rested (14 times a day); and each chat taught "talking" by what came next against likings learned on the
+same weights, so a chat left a gut feeling against talking a request over ("talk" -0.13 over 171 chats in
+the user's brain). After (same days and seeds): no brooding on a goodnight; the busy days +0.11, +0.17, +0.19
+with 1 unpleasant hour a day (were 1-3); the rough third day -0.30, not -0.62, without the spiral; mornings
+-0.18, not -0.33 (what is left is drive low from sleep, as people's pleasant mood is lowest on waking);
+away, -0.02 to -0.12 after the first day, where it was down to -0.41; "talk" no longer learned from chats,
+likes plainer (0.64 against 0.58). The insult still stings and is brooded on.
 
 ### 10.7 Long-term memory by meaning (0.29; her memory, always on, from 0.30)
 

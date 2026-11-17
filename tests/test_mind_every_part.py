@@ -42,9 +42,12 @@ def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
         wait_for(lambda: not brain.brain.session_busy("milk", "main") and not mind._thinking)
         note()
     remembered = {e["text"].split(" I ")[0].rstrip("."): e["valence"] for e in mind.memory.recent(5, kinds=("exchange",))}
-    # a moment is kept with how it felt (her sense lags her body by 90 s, and kept a tenth of it)
+    # a moment is kept with how it felt (her sense lags her body by 90 s, and kept a tenth of it): the insult, felt at
+    # about -0.76, is kept as her mood after it, -0.28 to -0.6 by where her random temperament had her after the praise
+    # (a fixed -0.3 failed 5 runs of 10)
     assert remembered["The user said: Thank you so much, that was perfect!"] > 0.3, remembered
-    assert remembered["The user said: You are useless and stupid"] < -0.3, remembered
+    insult = remembered["The user said: You are useless and stupid"]
+    assert insult < -0.2 and insult == min(remembered.values()), remembered
     pushing = {(level, out): effect for level, out, effect in mind.state()["pushing"]}
     assert pushing[("grievance", "cortisol")] > 0  # the insult stings, and the sting stresses her now
     assert mind.self["concerns"] and mind.self["concerns"][0]["what"] == "the weekly report"

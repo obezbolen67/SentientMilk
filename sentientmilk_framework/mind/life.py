@@ -166,6 +166,14 @@ def _quote(said: str) -> str:
     return f'"{said[:QUOTED]}..."' if len(said) > QUOTED else f'"{said}"'
 
 
+def _lasting(before: Dict[str, float], after: Dict[str, float]) -> float:
+    """What a moment did to how she feels beyond its passing surprise: the change of her valence with the reward
+    burst (better or worse than expected, gone in minutes) left as it was. What lasts is what can hurt: stress, a
+    grievance, her needs. Until 0.33 the burst counted too, and a goodnight after a warm evening stung more than
+    being told she got it wrong (-0.49 against -0.34, simulated): she brooded on it all the next day."""
+    return core({**after, "reward": before["reward"]})[0] - core(before)[0]
+
+
 def _ago(seconds: float) -> str:
     return line({"at": 0.0, "text": ""}, seconds).split(")")[0].strip("(")
 
@@ -361,7 +369,7 @@ class Mind:
         # twice by way of her own thought about them (the user's brain, 2026-11-17)
         sore = min((e for e in self.memory.since(now - 2 * DAY, kinds=("exchange",))
                     if e["sting"] < -SORE and e["charge"] > 0.5), key=lambda e: e["sting"] * e["charge"], default=None)
-        concern = self.self["concerns"][0] if self.self["concerns"] else None
+        concern = next((c for c in self.self["concerns"] if now >= c.get("again", 0.0)), None)
         # being talked to keeps her up; the user merely at the computer does not (they were there 08:00 to past
         # one, and she never slept: the user's brain, 2026-11-16)
         talking = bool(contact) and now - contact["at"] < TALKING
@@ -541,6 +549,7 @@ class Mind:
             option = choice.option if choice else Option("do" if seen.intent == "request" else "talk", chance=0.8)
             threat = self._threat(seen, option, why)
             impact = core(self.body.levels)[0] - core(levels)[0]  # how the message felt to her, in her body
+            lasting = _lasting(levels, self.body.levels)  # and of that, what outlasts its passing surprise
             feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
             foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
             decision = {"act": option.act, "what": option.what, "chance": option.chance, "effort": option.effort,
@@ -549,10 +558,12 @@ class Mind:
                         "stakes": min(1.0, sum(abs(change) for change in foreseen.values()) / 2),
                         "features": found(option), "reasons": choice.reasons if choice else [],
                         "chances": choice.chances if choice else {}, "said": said[:300], "felt": round(impact, 3),
+                        "lasting": round(lasting, 3),
                         "at": now, "with": came["with"]["name"] if came["with"] else None}
             # settled by the user's next message in this chat: what followed this one (after() adds how her turn went)
             self.self["waiting"][chat] = {"at": now, "act": option.act, "features": decision["features"],
-                                          "model": model, "own": own, "episode": None, "measured": None}
+                                          "model": model, "own": own, "episode": None, "measured": None,
+                                          "gated": bool(choice)}
             # the way this message went through her, step by step, for drawing her brain
             likeness = came["likeness"]
             path = {"said": said[:160], "happens": str(answer.get("happens") or "")[:120], "intent": seen.intent,
@@ -809,7 +820,12 @@ class Mind:
         worth = sum(value(followed, self.body).values())
         felt = math.tanh(3.0 * (worth - self.self["usual"]))
         self.self["usual"] += LEARNS * (worth - self.self["usual"])
-        self.values.learn(pending["features"], felt, self._rate())
+        # a chat decided nothing: what follows it teaches no act (what it was about takes on how it felt as it
+        # happened, in after). Until 0.33 each chat taught "talking" by what came next, against likings learned
+        # on the same weights, and "talk" sank to -0.13 over 171 chats in the user's brain: a gut feeling against
+        # talking a request over that came from chatting
+        if pending.get("gated", True):
+            self.values.learn(pending["features"], felt, self._rate())
         return {"act": pending["act"], "followed": {name: round(change, 3) for name, change in followed.items()},
                 "measured": {name: round(change, 3) for name, change in measured.items()},
                 "model": pending["model"], "own": pending.get("own"), "felt": round(felt, 3)}
@@ -903,7 +919,7 @@ class Mind:
             now = time.time()
             self._live_until(now)
             body = self.body
-            ending = core(body.levels)[0]  # how she felt as the run ended, before how it ended moved her
+            ending = dict(body.levels)  # how she was as the run ended, before how it ended moved her
             # a run that is not the loop's (a super agent's) is counted here whole, from what it used
             self._lived(run["id"], (run.get("usage") or {}).get("completion_tokens") or 0, calls, errors)
             heard = self._working.pop(run["id"]).get("heard") or []  # what the user said while she worked
@@ -951,7 +967,9 @@ class Mind:
             # the act taken is what is learned (an actor learns from the action it took), not the leaning
             learned = [f"act:{act}" + item[len(f"act:{leaned}"):] if item.startswith(f"act:{leaned}") else item
                        for item in decision["features"]]
-            self.values.learn(learned, max(-1.0, min(1.0, felt_outcome or 0.0)), self._rate())
+            # talking, the next message tells (_settle): until 0.33 it was also taught here that it felt like nothing
+            if felt_outcome is not None:
+                self.values.learn(learned, max(-1.0, min(1.0, felt_outcome)), self._rate())
             if act != leaned and leaned == "later":  # done after all: nothing left to come back to
                 self.self["concerns"] = [c for c in self.self["concerns"] if c.get("at") != decision["at"]]
             reply = ((run.get("result") or {}).get("reply") or "")[:300]
@@ -968,9 +986,10 @@ class Mind:
             then, aroused = core(body.levels)
             # a chat is remembered as it felt (halved by an outcome of 0 that only work has, it was kept at half)
             valence = max(-1.0, min(1.0, then if felt_outcome is None else 0.5 * then + 0.5 * felt_outcome))
-            # what the moment itself did to how she felt: the message as it came, and how her turn ended (what
-            # she showed, being stopped, failing); what hurt is what she may brood on (_drives), whatever her mood
-            sting = decision.get("felt", 0.0) + then - ending
+            # what the moment itself did to how she felt, beyond its passing surprise (_lasting): the message as it
+            # came, and how her turn ended (what she showed, being stopped, failing); what hurt is what she may
+            # brood on (_drives), whatever her mood
+            sting = decision.get("lasting", decision.get("felt", 0.0)) + _lasting(ending, body.levels)
             episode = self.memory.add("exchange", text, valence, aroused,
                                       describe_salience(abs(surprise), aroused, decision.get("stakes", 0.5)),
                                       app=run["app"], session=run["session"], at=now, sting=round(sting, 3))
@@ -1089,8 +1108,10 @@ class Mind:
             body.exert(usage.get("completion_tokens") or 0)
             if kind == "wonder":
                 body.apply({"novelty": 0.15, "dopamine": 0.03}, "her mind wandered")
-            elif kind == "ruminate":  # going over it stirs it up again, and wears it down a little
-                body.apply({"cortisol": 0.03}, "brooding on what hurt")
+            elif kind == "ruminate":  # going over it stirs it up again, as much as it still hurts, and wears it
+                # down a little. A fixed stir fed itself until 0.33: brooding kept her stressed, stress made her
+                # brood, and on a third rough day she brooded every 30 minutes (stress from it 0.32, 0.76, 1.15 a day)
+                body.apply({"cortisol": 0.06 * max(0.0, -about["sting"]) * about["charge"]}, "brooding on what hurt")
                 self.memory.soften([about["id"]], 0.1)
             felt = feel(body, self.senses, now)
             named = prompts.word(answer.get("feeling"))
@@ -1126,6 +1147,12 @@ class Mind:
                 # what she finds stays with her as the task's end does (_remember_task)
                 task = (*where, f"Out of your own curiosity, look this up for yourself: {str(answer['look_up'])[:300]}.",
                         True)  # hers: nobody is told it ended
+            if kind == "resume" and about in self.self["concerns"]:
+                # thought over and put off again, it waits twice as long each time before it nags (a plan for an
+                # unfinished goal stops it intruding: Masicampo & Baumeister 2011). Until 0.33 it came back every
+                # hour she was rested, 14 times in a simulated day
+                about["put_off"] = about.get("put_off", 0) + 1
+                about["again"] = now + HOUR * 2 ** about["put_off"]
             if urge:
                 self.self["urge"] = urge
         if urge:

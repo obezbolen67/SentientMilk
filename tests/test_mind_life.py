@@ -203,7 +203,9 @@ def test_she_files_what_she_meets_under_what_she_knows(brain):
     asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
     assert "Subjects they know: " in asked and "food" in asked.split("Subjects they know: ")[1].split("\n")[0]
     assert "Words they have" not in asked  # her subjects are shown to her quick reading, to file under; her words not
-    assert set(mind.values.subjects(5)) == {"food", "greeting"} and mind.values.uses["tag:food"] >= 2
+    wait_for(lambda: mind.values.uses.get("tag:food", 0) >= 2)  # each moment about food, once she has lived it
+    assert set(mind.values.subjects(5)) == {"food", "greeting"}
+    assert not any(f.startswith("act:talk") for f in mind.values.weights)  # chats decided nothing: no act learned
     # her cortex names each moment as it likes, and it is her body that brings a feeling back
     assert 'It feels like what you have called "peckish"' in brain.provider.last_user_text()
     assert {c["word"]: (c["count"], c["back"]) for c in mind.concepts.named} == {
@@ -258,6 +260,17 @@ def test_what_she_puts_off_she_keeps_in_mind(brain):
     turn(brain, "cli", "Write the weekly report")
     concern = mind.state()["concerns"][0]
     assert concern["what"] == "the weekly report" and concern["app"] == "cli"
+    # thought over and put off again, it waits twice as long each time before it nags
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Not yet.", "want": "nothing"})] * 2
+    for waits in (2, 4):
+        with mind._lock:
+            due = mind.self["concerns"][0]
+            due["again"] = 0.0  # its time has come
+        now = time.time()
+        mind._think("resume", due)
+        with mind._lock:
+            assert mind._drives(now + (waits - 0.1) * life.HOUR)[3] is None
+            assert mind._drives(now + (waits + 0.1) * life.HOUR)[3] is due
 
 
 def test_the_next_message_tells_her_how_her_decision_was_taken(brain):
@@ -396,6 +409,34 @@ def test_she_broods_on_what_hurt_her_and_what_moved_her_is_kept_with_why(brain):
     state = mind.state()
     assert state["rest"]["cortisol"] == 0.25
     assert any(why == 'The user said "you are useless"' for at, why, then, left in state["pushed"]["cortisol"])
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Why would they say that?", "want": "nothing"})] * 2
+    stirred = []
+    for charge in (1.0, 0.55):  # going over it stirs it up as much as it still hurts (a fixed stir fed itself)
+        with mind._lock:
+            mind.body.levels["cortisol"] = 0.25
+        mind._think("ruminate", {**hurt, "charge": charge})
+        stirred.append(mind.body["cortisol"] - 0.25)
+    assert stirred[0] > stirred[1] > 0
+
+
+def test_a_goodnight_disappoints_her_and_is_not_a_hurt_to_brood_on(brain):
+    """Until 0.33 the passing dip of a goodnight after a warm chat counted as a hurt: it stung more than being told
+    she got it wrong, and she brooded on it all the next day (simulated)."""
+    mind = mind_on(brain)
+    warm = '["they are sweet to me", "more", "same", "same", "good", "chat", "affection", "warm"]'
+    brain.provider.mind_replies["imagine"] = [warm, warm, warm, '["they leave for the night", "less", "same", "same", '
+                                              '"fine", "chat", "leaving", "wistful"]']
+    brain.provider.replies += ["Aw.", "Hehe.", "You too.", "Night!"]
+    for said in ("you're sweet", "I love talking to you", "you're the best", "good night, talk tomorrow"):
+        turn(brain, "cli", said)
+    night = wait_for(lambda: next((e for e in mind.memory.recent(1, kinds=("exchange",))
+                                   if e["text"].startswith("The user said: good night")), None))
+    decided = next(r["options"]["mind"] for r in brain.store.runs(kind="turn", limit=-1)
+                   if r["options"].get("mind", {}).get("said", "").startswith("good night"))
+    assert decided["felt"] < decided["lasting"] < 0  # worse than the evening had her expect, and that passes
+    assert night["sting"] > -life.SORE
+    with mind._lock:
+        assert mind._drives(time.time())[2] is None
 
 
 def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):
@@ -557,7 +598,7 @@ def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain):
     brain.provider.mind_replies["think"] = [tell, tell, tell, tell]
     mind.self["contact"]["at"] -= 20 * 60  # they last wrote a while ago
     for kind in ("reach_out", "ruminate", "wonder"):
-        mind._think(kind, {"id": 0, "text": "the bug"} if kind == "ruminate" else None)
+        mind._think(kind, {"id": 0, "text": "the bug", "sting": -0.5, "charge": 1.0} if kind == "ruminate" else None)
 
     def urges():
         return [n for n in brain.store.notifications("milk", 0) if n["type"] == "mind.urge"]
