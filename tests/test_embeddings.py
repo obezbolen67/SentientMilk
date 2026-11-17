@@ -83,7 +83,6 @@ def test_without_a_key_nothing_is_sent_and_it_says_why(monkeypatch):
     same = embeddings.make({"embeddings": "api", "embeddings_base_url": "https://openrouter.ai/api/v1",
                             "base_url": "https://openrouter.ai/api/v1/", "api_key": "chat-key"})
     assert same.api_key == "chat-key" and same.model == embeddings.DEFAULT_MODEL  # her chat model's key, same place
-    assert embeddings.make({"embeddings": "off"}) is None
 
 
 def test_embeddings_settings_are_checked_and_the_key_stays_secret(brain):

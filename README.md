@@ -55,9 +55,8 @@ none runs and shows it live:
   card shows its version, sign-in and plan, and is shared with super agents. Both: the picture size the
   model sees and the Brave search key.
 - **Apps**: each connected app's persona, model, toolkits and conversations.
-- **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: what the brain remembers for
-  every app (with the app that saved each entry), where single entries can be forgotten, and the
-  journal, to search and delete notes.
+- **Work**: tasks (cancel) and schedules (pause, delete). **Memory**: her long-term memory: the
+  embeddings service it uses, how far it has got and what she let go of in her sleep.
 - **Tools**: toolkits on or off for every app, approval rules, her browser (your Chrome: which one she
   opens when it is not running, the extension's folder, its code, Connect my Chrome), MCP servers.
 - **Plugins**: install (a folder or a git URL), turn on or off, settings (secrets
@@ -86,7 +85,7 @@ the brain the recorded way and exits. Without it, a schedule that came due fires
 brain next starts.
 
 Other commands: `serve` (run in the foreground), `tasks [show|cancel ID]`,
-`schedules [delete ID]`, `journal [QUERY] [--delete ID]`,
+`schedules [delete ID]`,
 `mcp [add NAME (--url URL | -- COMMAND ...)|remove NAME]`,
 `plugins [show NAME|install FOLDER_OR_GIT_URL|reload NAME|remove NAME|on NAME|off NAME|trust NAME|distrust NAME|set NAME KEY[=VALUE]...]`,
 `stats`, `eval`.
@@ -95,7 +94,8 @@ The brain keeps its files in `~/.sentientmilk` (`--home` or `SENTIENTMILK_HOME` 
 
 - `config.json`: settings, including the API key; `mcp.json`: MCP servers; `plugins.json`:
   plugins turned off and their settings. All readable by the user only.
-- `brain.sqlite3`: apps, sessions, the event log of every run, memory, journal, schedules.
+- `brain.sqlite3`: apps, sessions, the event log of every run, schedules (and the facts and journal notes
+  kept until 0.30). `recall.sqlite3`: her long-term memory; `mind.sqlite3`: her mind.
 - `server.json`: the running brain's address and token; `launch.json`: how apps start it;
   `brain.lock`, `brain.log`.
 - `browser/`: her tabs in your Chrome (`tabs.json`) and the extension's code (`extension.json`),
@@ -128,19 +128,11 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
   toolkits, permission rules and allowed folders (`roots`), and with `callbacks: true` that
   it starts a turn when a job or agent of a turn ends: its turns then wait at most 10 s for
   them and are told to end instead (MilkChan does). A **session** is one
-  conversation in an app. **Memory** (lasting facts about the user and their world) is shared by
-  every app and always whole in context, no app has to ask for it; each session also has its own
-  **session memory** (instructions and facts for that conversation only, kept through compaction),
-  and the **journal** holds short, dated notes about what happened in sessions across all apps.
-- When a conversation ends, the app says so and the model **goes over it** as itself: its own
-  model, persona and memory, in a run of its own (kind `summary`, a `summary-<run>` session no
-  conversation list shows) with `memory_save` alone. It keeps what it settled on, facts about the
-  user, decisions and where projects stand, and leaves out what memory already holds, moods and
-  one-off things. Nothing shows in the conversation, whose next turn takes the memory afresh. The
-  session's state keeps how far it went (`summarized`: the newest event's id and time); with fewer
-  than 4 of the user's messages since, it waits for more. One at a time, after the turns going on.
-  At an app's start it asks for all of its conversations: some ended with a crash. The panel's
-  Memory tab switches it off (`session_summaries`).
+  conversation in an app. Her memory is her **mind**'s and her **long-term memory**'s, shared by every
+  app and always on: every past chat comes back by meaning (below). Each session also has its own
+  **session memory** (instructions and facts for that conversation only, whole in its context and
+  kept through compaction). Until 0.30 there were also lasting facts for every app, a journal of
+  notes and a pass over each conversation as it ended; what they kept is in her long-term memory.
 - The persona is who the model is in that app, not a role it plays: the prompt opens with it
   under **WHO YOU ARE**, says a description written as "she" or by name means "you", and asks
   for thinking in the first person, as that self. Nothing else in the prompt calls the model an
@@ -222,8 +214,7 @@ for notification in client.events("jarvis"):  # finished tasks and jobs, due sch
 | `web` | `web_search` (Brave, needs `web_search_key`), `web_fetch` |
 | `browser` | `browser_open`, `browser_view`, `browser_act`, `browser_read`, `browser_script`, `browser_log`, `browser_secrets`, `browser_review`: the user's own Chrome (else Edge), signed in as they are, through SentientMilk's extension (`extension/`, added once with Load unpacked, connected with the panel's code): she works in tabs of her own there, all in one window of hers behind the user's, in a purple SentientMilk group, and the extension's Disconnect stops her until the user connects again. When it is not connected (Chrome is not running), her call opens it with the extension's page, as the panel's Connect does, and goes on once it connected. Pages (their frames too, of the site and of other sites) come as text with an id on each thing she can use; she acts by ids, several steps a call, each returning once the page has loaded and stopped changing (an app that draws itself late is waited for), is told what changed, saves pages as PDF, picture or HTML, and reads the console and the requests. Acting asks per site ("allow always" saves `browser_act(<site>)`); a sign-in or a human check goes in front of the user (step `show` brings her tab to the front). What she must not see (a card number, a password) the user types in a panel of their app (`browser_secrets`): it goes into the one field it was asked for, once, after the brain checks it is still that field on that page, and she hears only `filled e14 (secret card_number)`. Chrome's own sign-in box (a site's or a proxy's HTTP auth) is answered the same way: the user types the username and password in the panel, and they go to Chrome only, for that box. Before anything is paid, `browser_review` shows them the order as the page says it (each part read from the page, a picture of it, her reasons) for a yes bound to what they saw; her browser presses pay only after that yes, in that turn, while the page still shows exactly that order |
 | `todo` | `todo_write` |
-| `memory` (every app) | `memory_save`, `memory_forget`, each with `scope` everywhere (lasting) or session (this session only) |
-| `journal` | `journal_search` |
+| `memory` (every app) | `memory_save`, `memory_forget`: this session's memory, in its own turns |
 | `agents` | `agent_start`, `agent_message`, `agents_wait`, `agents_status`, `agent_stop` |
 | `schedule` | `schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete` |
 | `mcp:<server>` | the server's tools, as `mcp__<server>__<tool>` |
@@ -331,12 +322,14 @@ the path.
 
 ## Long-term memory
 
-Since 0.29, every past chat, journal note and lasting fact comes back to her by meaning, not
-only by the same words. Each message brings back the rounds of other chats that are about it (in the turn
-she reads, with when and where); her searches and her mind's recall go by meaning too. Embeddings come from
-any OpenAI-compatible service, OpenRouter by default, only to providers that keep nothing; set the key in
-the control panel's Memory tab (without one, by words as before). The context window is her short-term
-memory: what compaction sums up becomes long-term memory.
+Since 0.29, every past chat comes back to her by meaning, not only by the same words; since 0.30 it is
+her memory, always on, and goes by meaning alone (the facts and journal notes kept before come back the
+same way). Each message brings back what of other chats is about it (in the turn she reads, with when and
+where); `sessions_search` and her mind's recall go by meaning too, and in her sleep she lets go of what she
+no longer needs. Embeddings come from any OpenAI-compatible service, OpenRouter by default, only to
+providers that keep nothing; set the key in the control panel's Memory tab (without one, nothing comes
+back, and a search says why). The context window is her short-term memory: what compaction sums up stays
+in her long-term memory.
 
 ## Her mind
 
@@ -378,10 +371,8 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET /claude_code[?refresh=1]` | the user's Claude Code as it says: version, signed in, account, models with their efforts |
 | `GET /mind[?app=&idle=]` | how she is: `on`, `asleep`, `felt` (words), `face` for `app` (`mood` among its declared expressions, `stance`, `eyes`), levels, thoughts, concerns, story; `idle` (seconds since the user touched the computer), `locked` and `busy` (1/0: screen locked, something fullscreen) tell her whether they are there and free, and asking tells her `app` is there to hear her urges |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
-| `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app: `entries`, each with the app that saved it |
+| `GET /apps/{app}/sessions` | sessions (each with `title`, `preview`: the start of its first message, `last_active`) |
 | `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); one never used reads as empty and is not made by the GET; deleting it and its history, refused (409 `busy`) while a turn of it goes on |
-| `POST /apps/{app}/sessions/{id}/summary` | the session ended: the model goes over what is new in it in the background and keeps what matters with `memory_save`; `queued` (enough new for that) and `messages` (the user's since the last time) |
-| `POST /apps/{app}/summaries` | at an app's start: the same for each of its conversations with enough new in it; `queued`: their ids |
 | `POST /apps/{app}/sessions/{id}/compact` | sum up the whole session now (a model call): `compacted`, and the context in tokens `before` and `after` |
 | `GET`/`DELETE /apps/{app}/sessions/{id}/history`, `POST .../import` | the shown history (`?tools=1` adds each tool call: name, arguments, status, output, seconds); each entry's `id` is its event's; history an app kept before |
 | `GET`/`POST /apps/{app}/sessions/{id}/rewind` (`?to=` / `{"to"}`: a user message's `id`) | go back to just before that message (GET: what it would do). Undone: what came after it, files changed since with `files_write`/`files_edit` (also by agents started since), the todo list and the session's own memory, work started since (jobs, agents' runs, runs of new schedules: stopped quietly), new agents and schedules (deleted). Answers `text` and `mentions` (the message), `messages`, `files` ({path, change}), `todo` and `session_memory` (whether each goes back), `agents`, `stopped`, `schedules`, `kept` (calls whose effects stay: {name, count}) and, after a POST, `problems`; refused (409 `busy`) while a run of the session goes on |
@@ -397,8 +388,8 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | `GET /browser`, `POST /browser/connect` | her browser, the user's Chrome (`command`: the one she opens when it is not running, `version`, `chrome`: its connection through the extension, `connected`, `browser`, `extension`, `disconnected`, `code`, `folder`, `error`, `tabs`); the extension's page in the user's Chrome with the code, answered once that Chrome connected or after 15 s (`chrome.took`) |
 | `GET`/`POST /plugins`, `PATCH`/`DELETE /plugins/{name}`, `POST /plugins/{name}/reload` | plugins: list (secrets only as `set`), install (`source`: a folder or git URL), `enabled`, `settings` and `trusted`, reload from its source, remove |
 | `GET /skills`, `DELETE /skills/{name}` | skills (`name`, `description`, `argument_hint`, `model_invocable`, `user_invocable`, `builtin`, `path`, `error`); removing one of the user's |
-| `GET /apps`, `DELETE /memory/{category}/{key}`, `DELETE /apps/{app}/sessions/{id}/memory/{key}`, `POST /shutdown` | apps, forgetting a memory or one thing of a session's memory, stopping the brain |
-| `GET /journal?q=`, `DELETE /journal/{id}`, `GET /jobs/{id}` | the journal; background shell jobs |
+| `GET /apps`, `DELETE /apps/{app}/sessions/{id}/memory/{key}`, `POST /shutdown` | apps, taking one thing out of a session's memory, stopping the brain |
+| `GET /jobs/{id}` | a background shell job |
 | `GET /apps/{app}/jobs?since=`, `POST /jobs/{id}/stop` | an app's running jobs and those that ended after `since`, each with its newest output line (`last`); stopping one and everything it started |
 
 Errors answer `{"error": {"type", "message", "details", "http_status"}}`. The stored API
@@ -406,20 +397,20 @@ key is only ever sent to the stored `base_url`.
 
 ## Settings
 
-`provider` (`api`: the service below; `claude_code`: the user's Claude Code), `api_key`, `base_url`, `model`, `light_model` (compaction summaries, titles, journal notes, reviewers; empty:
+`provider` (`api`: the service below; `claude_code`: the user's Claude Code), `api_key`, `base_url`, `model`, `light_model` (compaction summaries, titles, reviewers; empty:
 the same as `model`), `context_window` (128000; on Claude Code the model's own, as Claude Code's replies
 name it), `thinking_mode` (`default`, `none`,
 `minimal`, `low`, `medium`, `high`, `xhigh` or `tokens`), `thinking_tokens`, `vision`,
 `image_pixels` (the most of a picture the model sees: pictures go fitted to it, 1,600,000; 0
 sends them as they are), `request_budget` (bytes per request, 8 MiB), `stream`, `web_search_key`, `shell`,
-`task_workers` (2), `rules`, `disabled_toolkits`, `session_summaries` (true: the model goes over
-each conversation as it ends), `mind` (true: her body, feelings, wants and life between messages),
-`browser_command` (the user's Chrome she opens when it is not running;
+`task_workers` (2), `rules`, `disabled_toolkits`, `browser_command` (the user's Chrome she opens when it is not running;
 empty: Chrome, else Edge, where their installers put them), `browser_extension_port` (48217: where the
 user's Chrome connects through the extension). Claude Code: `claude_command` (empty: found on
 `PATH` or in `~/.local/bin`), `claude_model` (`default`), `claude_light_model` (`haiku`), `claude_effort`
 (`medium`), `super_model` (`opus`; empty: no super agents), `super_effort` (`high`); models are Claude Code's
-names or full ids.
+names or full ids. Her long-term memory: `embeddings_base_url` (empty: OpenRouter), `embeddings_api_key`
+(empty: the chat model's key, for a service at its address), `embeddings_model`, `embeddings_dimensions`
+(0: the model's own). Her mind and her long-term memory have no off switch (0.30).
 
 ## Development
 
@@ -454,7 +445,7 @@ sentientmilk_framework/
   permissions.py rules and policies
   provider.py    the OpenAI-compatible provider, streaming and usage
   store.py       SQLite: the event log and everything else
-  journal.py     notes about sessions across apps
+  recall.py      her long-term memory: units, by meaning (embeddings.py, vectors.py); letting go in sleep
   mind/          her body, felt sense, will, values, episodic memory, sleep and life between messages
   scheduler.py   schedules, once or repeating (at, in, every, cron)
   mcp_host.py    MCP servers as toolkits

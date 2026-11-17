@@ -88,13 +88,13 @@ def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
 def test_history_can_include_tool_calls(brain):
     from sentientmilk_framework.testing import tool_call
 
-    brain.client.declare_app("milk", name="Milk", toolkits=["journal"])
-    brain.provider.replies += [tool_call("journal_search", {}, "m1"), "Nothing yet."]
+    brain.client.declare_app("milk", name="Milk", toolkits=["sessions"])
+    brain.provider.replies += [tool_call("sessions_list", {}, "m1"), "Nothing yet."]
     turn(brain, "milk", "What do you remember?")
     shown = brain.client.history("milk", "main", tools=True)
     assert [entry["role"] for entry in shown] == ["user", "tool", "assistant"]
     tool = shown[1]
-    assert tool["name"] == "journal_search" and tool["call_id"] == "m1" and tool["arguments"] == {}
+    assert tool["name"] == "sessions_list" and tool["call_id"] == "m1" and tool["arguments"] == {}
     assert tool["status"] == "ok" and tool["text"] and tool["seconds"] >= 0
     assert [entry["role"] for entry in brain.client.history("milk", "main")] == ["user", "assistant"]
 
@@ -183,7 +183,7 @@ def test_app_settings_override_the_declared_persona(brain):
         brain.client.declare_app("bad", signals={"expression": {"options": []}})
 
 
-def test_imported_history_fills_only_an_empty_session_and_memory_is_shared(brain):
+def test_imported_history_fills_only_an_empty_session_and_its_memory_is_kept(brain):
     messages = [{"role": "user", "content": "I am Tester"},
                 {"role": "assistant", "content": '{"expression": "arms_down/smile"}\nHi Tester!'}]
     brain.client.import_history("milk", "main", messages, {"user": {"name": "Tester"}})
@@ -191,8 +191,8 @@ def test_imported_history_fills_only_an_empty_session_and_memory_is_shared(brain
     with pytest.raises(BrainError) as caught:
         brain.client.import_history("milk", "main", messages, {})
     assert caught.value.type == "bad_request"
-    assert brain.client.memory() == {"user": {"name": "Tester"}}  # every app's
-    assert brain.client.memory_entries()[0]["app"] == "milk"
+    kept = brain.store.memory_entries()  # her long-term memory takes them in as facts
+    assert [(e["category"], e["key"], e["value"], e["app"]) for e in kept] == [("user", "name", "Tester", "milk")]
     brain.client.import_history("milk", "old", messages, {}, transcript=[{"role": "user", "text": "I am Tester"}])
     assert brain.client.history("milk", "old") == [  # what the app showed is no place to return to: no id
         {"role": "user", "text": "I am Tester", "time": pytest.approx(0, abs=1e10)}]

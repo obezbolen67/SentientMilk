@@ -9,7 +9,7 @@ from ..mind.memory import line
 from . import ToolContext, ToolError, Toolkit, cap, tool
 
 PAGE = 40  # turns a page; offset reads on
-SNIPPET = 160  # of a match, around it; sessions_read shows the turn
+SNIPPET = 320  # of a turn found; sessions_read shows the whole of it
 
 
 def _find(ctx: ToolContext, session: str) -> dict:
@@ -42,7 +42,7 @@ def sessions_list(ctx: ToolContext, query: str = ""):
 
 @tool(readonly=True, rule_arg="session", args={
     "session": "Its id or exact title.",
-    "part": "summary (its card and every journal note about it) or turns (what was said, without tool calls).",
+    "part": "summary (its card) or turns (what was said, without tool calls).",
     "offset": "For turns: skip this many turns, to read on."})
 def sessions_read(ctx: ToolContext, session: str, part: str = "summary", offset: int = 0):
     """Read one of your conversations, including this one: its summary, or its plain turns (user messages and
@@ -51,11 +51,7 @@ def sessions_read(ctx: ToolContext, session: str, part: str = "summary", offset:
         raise ToolError("part must be summary or turns.")
     found = _find(ctx, session)
     if part == "summary":
-        text = mentions.card(ctx.brain, ctx.app, ctx.session, "session", found["id"])
-        notes = mentions.journal_notes(ctx.brain, ctx.app, found["id"])
-        if notes:
-            text += "\n\nJournal notes:\n" + "\n".join(f"- {mentions.stamp(n['at'])}: {n['note']}" for n in notes)
-        return text
+        return mentions.card(ctx.brain, ctx.app, ctx.session, "session", found["id"])
     grouped = mentions.turns(ctx.brain, ctx.app, found["id"])
     start = max(0, int(offset or 0))
     page, lines = grouped[start:start + PAGE], []
@@ -79,46 +75,34 @@ def _date(value: str, name: str):
         raise ToolError(f"{name}: after and before are dates, like 2026-11-03.") from None
 
 
-@tool(readonly=True, args={"query": "Words to find, e.g. 'oat milk' (any case), or what it was about.",
+@tool(readonly=True, args={"query": "What to find, in any words: what it was about (e.g. 'oat milk', 'that game idea').",
                            "after": "Only from this date on, like 2026-11-03 (optional).",
                            "before": "Only before this date, like 2026-11-10 (optional)."})
 def sessions_search(ctx: ToolContext, query: str, after: str = "", before: str = ""):
-    """Find what was said in your conversations, including this one: first each turn that has the words
-    (session, turn and the line around it), then the turns that are about it in other words (by meaning).
-    Read more of one with sessions_read(part="turns", offset=...)."""
-    needle = query.strip().casefold()
-    if not needle:
-        raise ToolError("Give words to search for, e.g. query='oat milk'.")
+    """Find what was said in your conversations, including this one, by meaning: the turns about it, in any
+    words, best first (session, turn number and when). Read more of one with sessions_read(part="turns",
+    offset=...)."""
+    if not query.strip():
+        raise ToolError("Say what to find, e.g. query='oat milk'.")
     since, until = _date(after, "after"), _date(before, "before")
-    found, listed = [], set()
-    for chat in mentions.chats(ctx.brain, ctx.app):
-        for number, entries in enumerate(mentions.turns(ctx.brain, ctx.app, chat["id"]), 1):
-            first = next((entry["id"] for entry in entries if "id" in entry), None)
-            when = entries[0]["time"]
-            if (since is not None and when < since) or (until is not None and when >= until):
-                continue
-            for entry in entries:
-                text = " ".join(entry["text"].split())
-                at = text.casefold().find(needle)
-                if at < 0:
-                    continue
-                if len(text) > SNIPPET:
-                    begin = max(0, at - SNIPPET // 3)
-                    text = ("…" if begin else "") + text[begin:begin + SNIPPET] + "…"
-                found.append(f"{_name(chat)} #{number} {mentions.speaker(entry)}: {text}")
-                listed.add((chat["id"], str(first)))
     chats = {chat["id"]: chat for chat in mentions.chats(ctx.brain, ctx.app)}
-    about = [hit for hit in ctx.brain.recall.search(query, count=10 + len(listed), sources=("turn",), app=ctx.app,
-                                                    after=since, before=until)
-             if hit["session"] in chats and (hit["session"], hit["ref"].rsplit("#", 1)[0]) not in listed][:10]
-    if about:
-        now = time.time()
-        found.append("About this (by meaning):" if found else "No turn has those words; about this (by meaning):")
-        found += [f"{_name(chats[hit['session']])} ({line({'at': hit['at'], 'text': ''}, now).strip()[1:-1]}): "
-                  f"{hit['text'][:SNIPPET * 2]}" for hit in about]
-    if not found:
-        return f"No turn of your conversations has {query!r}, or is about it."
-    return cap(ctx, "\n".join(found), "search")
+    try:
+        hits = ctx.brain.recall.search(query, count=10, sources=("turn",), app=ctx.app, after=since, before=until)
+    except Exception as exc:  # no key, the service down: nothing is found by meaning now
+        raise ToolError(f"Your long-term memory cannot be searched now: {exc}") from None
+    found, numbers, now = [], {}, time.time()
+    for hit in hits:
+        if hit["session"] not in chats:
+            continue
+        if hit["session"] not in numbers:  # each round's turn number, for sessions_read's offset
+            numbers[hit["session"]] = {str(next((e["id"] for e in entries if "id" in e), "")): number
+                                       for number, entries in enumerate(mentions.turns(ctx.brain, ctx.app,
+                                                                                       hit["session"]), 1)}
+        number = numbers[hit["session"]].get(hit["ref"].rsplit("#", 1)[0])
+        when = line({"at": hit["at"], "text": ""}, now).strip()[1:-1]
+        found.append(f"{_name(chats[hit['session']])}{f' #{number}' if number else ''} ({when}): "
+                     f"{hit['text'][:SNIPPET]}")
+    return cap(ctx, "\n".join(found), "search") if found else f"Nothing in your conversations is about {query!r}."
 
 
 @tool(policy="auto", rule_arg="session", args={"session": "Its id or exact title.", "title": "The new title."})

@@ -27,7 +27,6 @@ SHORT_RESULT = 1000
 INTERRUPTED = "[No result: the call was interrupted.]"
 KEPT_RESULTS = 5  # tool results never cleared
 CLEAR_AT, CLEAR_STEP, COMPACT_AT, KEEP_RECENT = 0.5, 0.1, 0.75, 0.1  # fractions of the context window
-JOURNAL_CHARS = 6_000
 
 IDENTITY = """## WHO YOU ARE
 {called}The description below is you. Read it as "you", even where it says "she" or "he" or uses
@@ -166,12 +165,8 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
         parts.append(profile["inner"])
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
-    if snapshot.get("memory"):
-        parts.append("## YOUR MEMORY\n" + snapshot["memory"])
     if snapshot.get("session_memory"):
         parts.append("## THIS SESSION'S MEMORY\n" + snapshot["session_memory"])
-    if snapshot.get("journal"):
-        parts.append("## RECENT NOTES FROM YOUR OTHER SESSIONS (oldest first)\n" + snapshot["journal"])
     section = tools_section(toolmap)
     if section:
         parts.append(section)
@@ -187,60 +182,19 @@ def _value(value) -> str:
     return text.strip().replace("\n", "\n  ")
 
 
-def memory_changes(seen: List[list], entries: List[dict], app: str) -> List[str]:
-    """What changed in memory since ``seen`` ([category, key, value]): one line a change, [app] as in YOUR MEMORY."""
-    before = {(c, k): v for c, k, v in seen}
-    now = {(e["category"], e["key"]): e for e in entries}
-    lines = [f"- {c}/{k}: {_value(e['value'])}" + (f" [{e['app']}]" if e["app"] != app else "")
-             for (c, k), e in now.items() if (c, k) not in before or before[(c, k)] != e["value"]]
-    return lines + [f"- forgotten: {c}/{k}" for (c, k) in before if (c, k) not in now]
-
-
-def render_memory(entries: List[dict], app: str) -> str:
-    """Memory, whole, by category; [app] marks an entry another app saved."""
-    lines, category = [], None
-    for entry in entries:
-        if entry["category"] != category:
-            category = entry["category"]
-            lines.append(f"{category}:")
-        origin = f" [{entry['app']}]" if entry["app"] != app else ""
-        lines.append(f"- {entry['key']}: {_value(entry['value'])}{origin}")
-    return "\n".join(lines)
-
-
 def snapshot(store, profile: dict) -> dict:
-    """Memory, the session's memory and the journal as of now: refreshed only at session start, at compaction
-    and when the user changes memory (Store.drop_snapshots); what the model saves meanwhile it sees in the
-    result of its call, and what other sessions change reaches it as a note (Brain.memory_news). Memory is
-    whole, in every app and run: no app has to ask for it."""
-    from .toolkits.journal import line
+    """The session's memory as of now: taken again only at session start, at compaction and when the user
+    changes it (Store.drop_snapshots), so the cached prefix holds; what the model saves meanwhile it sees in
+    the result of its call, and what works for the chat hears it as a note (Brain.chat_memory_changed)."""
     from .toolkits.memory import session_memory
 
-    entries = store.memory_entries()
-    # seen: the memory this session knows, so a later turn hears only what changed since (Brain.memory_news)
-    result = {"at": time.time(), "memory": "", "session_memory": "", "journal": "",
-              "seen": [[e["category"], e["key"], e["value"]] for e in entries]}
-    if entries:
-        result["memory"] = ("Lasting facts you keep for every app and chat (memory_save); [app] marks one another "
-                            "app saved.\n" + render_memory(entries, profile["app"]))
+    result = {"at": time.time(), "session_memory": ""}
     chat = profile.get("base_session") or profile["session"]
     found = session_memory((store.find_session(profile["app"], chat) or {}).get("state") or {})
     if found:
-        whose = ("This session only (memory_save with scope session): follow it here; where it differs from YOUR MEMORY, it "
-                 "wins here." if chat == profile["session"] else
+        whose = ("This chat only (memory_save): follow it here." if chat == profile["session"] else
                  "The memory of the session you work for: follow it in your work too.")
         result["session_memory"] = whose + "\n" + "\n".join(f"- {k}: {_value(v)}" for k, v in found.items())
-    if profile["journal"]["read"]:
-        lines, size = [], 0
-        for note in store.notes(limit=200):
-            if note["app"] == profile["app"] and note["session"] == profile["session"]:
-                continue  # this session's own history is in context already
-            entry = line(note)
-            if size + len(entry) > JOURNAL_CHARS:
-                break
-            lines.append(entry)
-            size += len(entry)
-        result["journal"] = "\n".join(reversed(lines))
     return result
 
 

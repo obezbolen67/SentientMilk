@@ -49,6 +49,7 @@ herself (a task). Being talked to keeps her up; sleep pressure and her clock put
 Asleep, she goes over the day once (``_consolidate``): insights, a dream, the day's charge softened, and
 what she no longer needs forgotten (faint episodes, and long-term memory she has not used that other memories
 hold: ``Recall.forget``). Until 0.30 she also wrote a story of who she had become; it went (see ``section``).
+From 0.30 her mind is always on: there is no switch, and no turn goes without her.
 
 What a moment is about takes on how it felt (``after``: in her body as the message came, and in what she
 showed as she answered): that is where her likes and dislikes come from, a chat as much as a job. And what
@@ -56,7 +57,6 @@ she likes is used: a liked subject is a reward in itself (``_met``), her note sa
 thoughts know it.
 """
 
-import json
 import logging
 import math
 import random
@@ -113,8 +113,6 @@ RESTING = 0.5  # her mind's pull to wander when nothing is asked of it (a though
 REFLEX, CLEAR_AGAIN = 0.5, 0.6
 TOLD_AGAIN = 0.4  # how much more a channel must stand out than when she last heard of it, to hear of it again
 THOUGHT_CHARS = 400  # of a memory or a thought, in what she is told of it
-GIST_CHARS = 240  # of something she knows, as it comes to mind
-GIST = 0.35  # how much the gist of a stretch of a conversation matters to memory, at least: it is kept
 LOGIC = 1  # the logic her saved state follows (_bring_up_to_date sets right what an older one left)
 # shortcut: her quick reading is shown her 24 most met subjects, any other still counts when it is named again;
 # show them by likeness to the message once she knows hundreds
@@ -188,7 +186,8 @@ class Mind:
                      "thoughts": [], "trust": {"model": dict.fromkeys(FORESEEN, 0.1), "own": dict.fromkeys(FORESEEN, 0.3)},
                      **(self.memory.get("self") or {})}
         self.self.pop("expected_warmth", None)  # a mind from before 0.21
-        self.self.pop("story", None)  # a mind from before 0.30 wrote a story of herself (see ``section``)
+        for gone in ("story", "past", "tidied"):  # before 0.30: her story, her journal's catch-up, her tidying
+            self.self.pop(gone, None)
         pending, contact = self.self.pop("pending", None), self.self.get("contact")
         if pending and contact:  # a mind from before 0.21.2 kept one for all chats: it was the last contact's
             self.self["waiting"].setdefault(_chat(contact["app"], contact["session"]), pending)
@@ -197,9 +196,6 @@ class Mind:
         # the clock of time the user could answer goes on from where it was (an urge or her last message is
         # measured on it)
         self.presence.clock = max(self.presence.clock, self.self.get("clock") or 0.0)
-
-    def active(self) -> bool:
-        return bool(self.brain.config.values().get("mind"))
 
     # ============== Living ==============
 
@@ -247,8 +243,6 @@ class Mind:
         while not self._stop.wait(TICK):
             try:
                 now = time.time()
-                if not self.active():
-                    continue
                 with self._lock:
                     self._live_until(now)
                     self._sting(now)
@@ -454,8 +448,8 @@ class Mind:
     def before(self, run: dict, profile: dict, said: Optional[str], pictures: int = 0) -> Optional[str]:
         """A turn of hers begins. The user wrote (``said``): she senses it, recalls, foresees and, asked to do
         something, chooses. Nobody wrote (an event, her own urge, something scheduled): she still feels her
-        body as she takes it. The note for her (None: no mind, or not a turn)."""
-        if not self.active() or run["kind"] != "turn":
+        body as she takes it. The note for her (None: not a turn)."""
+        if run["kind"] != "turn":
             return None
         now = time.time()
         with self._lock:
@@ -564,9 +558,9 @@ class Mind:
         """The user wrote while she works on their turn (a steering message): it reaches her as any message
         does. She senses it, foresees what it does to her needs and her chemistry carries it; what she decided
         about the turn stands, and what follows that decision is told by the next turn. The note for her
-        (None: no mind, not a turn, or no words). Before this a message sent mid-work reached her words and
+        (None: not a turn, or no words). Before this a message sent mid-work reached her words and
         never her body: "stop, that's wrong, you idiot" left her as she was."""
-        if not self.active() or run["kind"] != "turn" or not (said or "").strip():
+        if run["kind"] != "turn" or not (said or "").strip():
             return None
         said = said[:SAID_CHARS]
         with self._lock:
@@ -794,13 +788,13 @@ class Mind:
 
     def _did(self, run: dict, events: list, leaned: str) -> str:
         """What she did about a request, whatever she leaned toward: having changed something with her tools
-        (beyond her memory and journal) she did it. shortcut: a "do" she talked her way out of is not told from
+        (beyond the chat's memory) she did it. shortcut: a "do" she talked her way out of is not told from
         a job that needed nothing changed; reading her reply would tell them apart."""
         used = {e["name"] for e in events if e["type"] == "tool" and e.get("status") == "ok"}
         if leaned in ("do", "part") or not used:
             return leaned
         tools = self.brain.toolset(self.brain.profile(run["app"], run["session"]), "turn").by_name
-        changed = any(name in tools and not tools[name].readonly and tools[name].toolkit not in ("memory", "journal")
+        changed = any(name in tools and not tools[name].readonly and tools[name].toolkit != "memory"
                       for name in used)
         return "do" if changed else leaned
 
@@ -830,7 +824,7 @@ class Mind:
         she works). So a long job is felt while it can still change what she does, and her cortex is asked
         again how clearly it can think (``reflexive``). Before this the loop closed once a turn: she could
         work for hours and feel none of it until she had answered."""
-        if not self.active() or run["kind"] in ("summary", "compact"):
+        if run["kind"] == "compact":
             return
         tokens, calls, errors = self._work(events)
         if not calls:
@@ -855,7 +849,7 @@ class Mind:
     def after(self, run: dict) -> None:
         """A run ended: what is left of its work tires her; in a turn, what she showed comes back into her body;
         a turn with the user's words moves her, teaches her and is remembered."""
-        if not self.active() or run["kind"] in ("summary", "compact"):
+        if run["kind"] == "compact":
             return
         events = self.brain.store.run_events(run["id"])
         _, calls, errors = self._work(events)
@@ -984,7 +978,7 @@ class Mind:
         values = self.brain.config.values()
         least = values["claude_effort"] == "low" if values["provider"] == "claude_code" \
             else values["thinking_mode"] == "none"
-        if not self.active() or not self.reflexes or least or (run and run["kind"] in ("summary", "compact")):
+        if not self.reflexes or least or (run and run["kind"] == "compact"):
             return False
         if run and run["options"].get("reflex"):
             return True
@@ -1019,10 +1013,8 @@ class Mind:
             memories = [line(e, now)[:THOUGHT_CHARS] for e in came]
             liked, disliked = (", ".join(_about(found)) for found in self.values.leanings())
         persona = self._persona(contact["app"], contact["session"]) if contact else ""
-        known = self._something_known() if kind == "wonder" else ""  # what she knows comes up as her mind wanders
         asked = (f"{self._who(persona)}\n\nIt is {time.strftime('%A %H:%M')}. How they feel: {felt.words(feelings)}\n"
                  f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
-                 + (f"Something they know comes to mind: {known}\n" if known else "")
                  + (f"What they've come to like: {liked}.\n" if liked else "")
                  + (f"What they've come to dislike: {disliked}.\n" if disliked else ""))
         answer, usage = self._ask(prompts.THINK, asked)
@@ -1094,11 +1086,7 @@ class Mind:
             persona = self._persona(contact["app"], contact["session"]) if contact else ""
             listed = "\n".join(f"{index + 1}. {line(m, now)} (it felt {_tone(m['valence'])})"
                                for index, m in enumerate(moments))
-            from ..context import render_memory  # what she knows and keeps: the day is gone over with it
-            kept = render_memory(self.brain.store.memory_entries(), contact["app"] if contact else "")
-            asked = (f"Who they are:\n{persona[:6000]}\n\n"
-                     + (f"What they know and keep (their lasting memory):\n{kept}\n\n" if kept else "")
-                     + f"The moments:\n{listed}")
+            asked = f"Who they are:\n{persona[:6000]}\n\nThe moments:\n{listed}"
             answer, _ = self._ask(prompts.SLEEP, asked)
         else:
             answer = {}
@@ -1117,35 +1105,12 @@ class Mind:
             self.memory.forget_faint(now)
             self.self["slept"], self.self["consolidate"] = now, False
         self.save()
-        try:  # and what she keeps is fitted in with what changed in it today
-            self.tidy()
-        except Exception:
-            logger.exception("Could not go over her lasting memory")
         try:  # and her long-term memory lets go of what she no longer needs
             recall = getattr(self.brain, "recall", None)
             if recall is not None:
                 recall.forget()
         except Exception:
             logger.exception("Could not go over her long-term memory")
-
-    def tidy(self, since: Optional[float] = None) -> Optional[list]:
-        """She goes over her lasting memory (lasting.tidy): what changed since she last did (``since``: from
-        then; 0: all of it), and remembers doing it. None: she could not now (it is asked again)."""
-        from .. import lasting
-        with self._lock:
-            start = self.self.get("tidied", 0.0) if since is None else since
-            contact = self.self.get("contact")
-        now = time.time()
-        done = lasting.tidy(self.brain, start, contact["app"] if contact else None)
-        if done is None:
-            return None
-        with self._lock:
-            self.self["tidied"] = now
-            if done:
-                self.memory.add("event", "I went over what I keep and set it right: " + "; ".join(done),
-                                0.1, 0.2, GIST, at=now)
-        self.save()
-        return done
 
     def forget(self, app: str, session: str) -> None:
         """A conversation the user deleted: her memories of it, what she put off in it and urges to it go."""
@@ -1200,50 +1165,13 @@ class Mind:
         self.self["logic"] = LOGIC
         self.save()
 
-    def remember(self, app: str, session: str, note: str, start: float, end: float) -> None:
-        """A stretch of a conversation in her own words (her journal note), kept as an event of her life:
-        with the feeling of what she lived in it, where her mind was there for it, else none left (an old
-        memory keeps what happened, and its feeling fades). The gist outlives the details: they fade and go,
-        it is kept (salience at least GIST; Memory.forget_faint takes only what mattered less than 0.3)."""
-        if not self.active() or not note:
-            return
-        with self._lock:
-            lived = self.memory.lived(app, session, start, end + MINUTE)  # her last answer is kept just after it
-            valence = sum(e["valence"] for e in lived) / len(lived) if lived else 0.0
-            arousal = sum(e["arousal"] for e in lived) / len(lived) if lived else 0.2
-            self.memory.add("event", note, valence, arousal, max([GIST] + [e["salience"] for e in lived]),
-                            app=app, session=session, at=end)
-
-    def look_back(self, query: str, count: int = 8) -> list:
-        """What comes back as she searches her memory for ``query`` (journal_search): her own memories of what
-        happened, of any time, that have its words; searching for them makes them stronger, as recalling does."""
-        if not self.active() or not query.strip():
-            return []
-        with self._lock:
-            now = time.time()
-            found = self.memory.recall(query, core(self.body.levels)[0], now, count=count)
-        return [line(e, now) for e in found if e["relevance"]]
-
-    def _something_known(self) -> str:
-        """Something she knows (her lasting memory) that comes to mind as her mind wanders, what mattered most
-        recently the most readily: a wandering mind goes to what one is busy with (Klinger 2009)."""
-        entries = self.brain.store.memory_entries()
-        if not entries:
-            return ""
-        now = time.time()
-        entry = self.rng.choices(entries, [1.0 / (1.0 + max(0.0, now - (e["updated"] or 0.0)) / DAY) for e in entries])[0]
-        value = " ".join((entry["value"] if isinstance(entry["value"], str)
-                          else json.dumps(entry["value"], ensure_ascii=False)).split()).strip('"')
-        gist = re.split(r"(?<=[.!?])\s", value, maxsplit=1)[0][:GIST_CHARS]  # what comes back is its gist
-        return f"{entry['key'].replace('_', ' ')}: {gist}"
-
     def section(self) -> str:
-        """Her inner life in the system prompt (empty when the mind is off). Her story is not in it: measured
+        """Her inner life in the system prompt. Her story is not in it: measured
         live (2026-11-17, 12 messages, a blind judge on her persona), with it 7 replies brought in its details
         (a jar of crickets, a watcher's pid) and none without, the judge took the reply without it 7 to 5, and
         it cost 245 tokens a request. So it went altogether (0.30): her persona is who she is, what she
         learned is in her likes, her memories and what she keeps."""
-        return prompts.INNER_LIFE if self.active() else ""
+        return prompts.INNER_LIFE
 
     def state(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False,
               locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
@@ -1252,12 +1180,10 @@ class Mind:
         body's channels as she senses them (``sensed``: how far from usual, in units of a lot), what wants her
         attention (``attention``), her last decision (``decided``) and the connections her dynamics make
         now (``wiring``: [level, what it drives, weight]). ``idle``: seconds since the user last touched
-        the computer. ``brief``: only what a face needs (``on``, ``asleep``, ``present``, ``felt``, ``feeling``: a
+        the computer. ``brief``: only what a face needs (``asleep``, ``present``, ``felt``, ``feeling``: a
         few words for it, ``valence``, ``arousal``, ``face``): an app's frequent look, kept small as she grows."""
         if app:
             self.seen(app, idle, locked, busy)
-        if not self.active():
-            return {"on": False, "face": None}
         options = {}
         if app:
             signals = ((self.brain.store.app(app) or {}).get("declaration") or {}).get("signals") or {}
@@ -1269,7 +1195,7 @@ class Mind:
             body = self.body
             felt = feel(body, self.senses, now)
             felt_now = self.concepts.recognize(felt.noticed())
-            seen = {"on": True, "asleep": body.asleep, "present": self.present(now), "felt": felt.words(felt_now),
+            seen = {"asleep": body.asleep, "present": self.present(now), "felt": felt.words(felt_now),
                     "feeling": ", ".join(word for word, _ in felt_now[:2]) or ", ".join(felt.tone()),
                     "valence": round(felt.valence, 3), "arousal": round(felt.arousal, 3),
                     "face": face(felt, options, body.asleep)}

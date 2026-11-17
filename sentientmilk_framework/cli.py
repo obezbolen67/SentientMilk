@@ -7,7 +7,6 @@
     sentientmilk chat [--session ID]         talk to the brain here, with this folder open to it
     sentientmilk tasks [show|cancel ID]      background tasks
     sentientmilk schedules [delete ID]       schedules
-    sentientmilk journal [QUERY] [--delete ID]
     sentientmilk mcp [add NAME --url URL | add NAME -- COMMAND ARGS... | remove NAME]
     sentientmilk plugins [install FOLDER|GIT_URL | reload NAME | remove NAME | on NAME | off NAME | trust NAME |
                           distrust NAME | set NAME KEY[=VALUE]...]
@@ -36,7 +35,7 @@ CLI_DECLARATION = {
     "name": "SentientMilk",
     "environment": "You are talking with the user in a text terminal on their computer. Format replies as short "
                    "Markdown; show commands and code in fenced blocks.",
-    "toolkits": ["files", "shell", "web", "todo", "journal", "agents", "schedule", "skills", "mcp:*"],
+    "toolkits": ["files", "shell", "web", "todo", "agents", "schedule", "skills", "mcp:*"],
 }
 
 
@@ -264,9 +263,6 @@ def main(argv=None) -> None:
     schedules = commands.add_parser("schedules", help="schedules")
     schedules.add_argument("action", nargs="?", choices=("list", "delete"), default="list")
     schedules.add_argument("id", nargs="?", type=int)
-    journal = commands.add_parser("journal", help="the brain's notes about sessions")
-    journal.add_argument("query", nargs="?", default="")
-    journal.add_argument("--delete", type=int, metavar="ID")
     mcp = commands.add_parser("mcp", help="MCP servers")
     mcp.add_argument("action", nargs="?", choices=("list", "add", "remove"), default="list")
     mcp.add_argument("name", nargs="?")
@@ -325,12 +321,6 @@ def main(argv=None) -> None:
         for schedule in client.schedules():
             print(f"{schedule['id']:>4} {schedule['app']:<10} {schedule['kind']:<6} {schedule['spec']:<18} "
                   f"{schedule['payload']['title']}")
-    elif args.command == "journal":
-        if args.delete:
-            client.delete_note(args.delete)
-        for note in client.journal(args.query):
-            print(f"{note['id']:>4} {time.strftime('%Y-%m-%d %H:%M', time.localtime(note['at']))} "
-                  f"[{note['app']}] {note['note']}")
     elif args.command == "mcp":
         if args.server_command[:1] == ["--"]:
             args.server_command = args.server_command[1:]

@@ -27,7 +27,7 @@ DEFAULTS = {
     "api_key": "",
     "base_url": "",  # empty: DEFAULT_BASE_URL
     "model": "",  # empty: DEFAULT_MODEL
-    "light_model": "",  # compaction summaries, titles, journal notes, reviewers; empty: same as model
+    "light_model": "",  # compaction summaries, titles, reviewers; empty: same as model
     "context_window": 128000,  # tokens; clearing and compaction thresholds are fractions of it
     "thinking_mode": "default",
     "thinking_tokens": 4096,
@@ -40,11 +40,9 @@ DEFAULTS = {
     "task_workers": 2,
     "rules": {"allow": [], "ask": [], "deny": []},
     "disabled_toolkits": [],
-    "mind": True,  # her body, feelings, wants and life between messages (mind/); off: she answers as asked
-    "session_summaries": True,  # she goes over each conversation as it ends and keeps what matters (summaries.py)
-    # Her long-term memory by meaning (recall.py): "api", an OpenAI-compatible /embeddings (embeddings.py), or "off"
-    # (by words only)
-    "embeddings": "api",
+    # Her long-term memory by meaning (recall.py): an OpenAI-compatible /embeddings (embeddings.py). Her mind and
+    # it are always on (0.30): the "mind", "embeddings" and "session_summaries" switches an older file has are
+    # left out when it is read and gone when it is saved.
     "embeddings_base_url": "",  # empty: OpenRouter
     "embeddings_api_key": "",  # empty: her chat model's key, when the service is at its address
     "embeddings_model": "",  # empty: embeddings.DEFAULT_MODEL
@@ -104,8 +102,6 @@ def validate_setting(key, value):
             value = value[: -len("/embeddings")]
         if value and (urlparse(value).scheme not in ("http", "https") or not urlparse(value).netloc):
             raise ValueError(f"{key} must be an http(s) URL")
-    elif key == "embeddings" and value not in ("api", "off"):
-        raise ValueError("embeddings must be api or off")
     elif key == "embeddings_dimensions" and not 0 <= value <= 65536:
         raise ValueError("embeddings_dimensions must be between 0 (the model's own) and 65536")
     elif key == "request_budget" and not MIN_BUDGET <= value <= MAX_BUDGET:

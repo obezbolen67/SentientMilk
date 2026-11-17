@@ -195,10 +195,10 @@ def test_one_map_of_all_it_can_do_marks_the_parts_of_it(brain):
     flat = " ".join(listed.split())
     assert "never by looking for it on the screen or in files" in flat and "is the whole truth about it" in flat
     assert "whatever they say they made, installed or set up for you is here" in flat
-    assert "- memory [part of you] (What you remember: lasting facts shared by every app" in listed
+    assert "- memory [part of you] (This chat's memory" in listed
     assert "- agents [part of you]" in listed and "- web (Search the web" in listed  # the world is not a part
     # a tool's guide comes under its toolkit, with the tool
-    assert listed.index("save each fact with memory_save right away") > listed.index("- memory [part of you]")
+    assert listed.index("save it with memory_save right away") > listed.index("- memory [part of you]")
 
 
 def test_the_first_turn_after_its_tools_changed_hears_what_changed(brain, tmp_path, monkeypatch):

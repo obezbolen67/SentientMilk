@@ -114,13 +114,11 @@ def test_open_panel_runs_the_recorded_command_in_its_own_window(tmp_path, monkey
         assert options["creationflags"] & subprocess.CREATE_NEW_CONSOLE
 
 
-def test_naming_or_noting_a_session_deleted_just_before_does_not_bring_it_back(brain):
-    """The title and journal jobs start right after a turn; the user may delete the chat before they read it."""
+def test_naming_a_session_deleted_just_before_does_not_bring_it_back(brain):
+    """The title job starts right after a turn; the user may delete the chat before it reads it."""
     turn(brain, "milk", "Remember the milk", session="chat-1")
     wait_for(lambda: brain.provider.title_requests)
     time.sleep(0.3)  # the turn's own title job is done
     brain.store.delete_session("milk", "chat-1")
     titles._name(brain.brain, "milk", "chat-1")
-    brain.brain.journal.write("milk", "chat-1")
-    brain.brain.journal._check_quiet()
     assert listed(brain, "milk", "chat-1") is None

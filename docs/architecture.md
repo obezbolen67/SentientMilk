@@ -42,9 +42,8 @@ progress. Every Anthropic number below was measured on Claude models. On
    tasks, keeps shell jobs, and fires schedules. It never talks to the user on its own. It
    emits events, and each app decides what to do with them. Proactive messages stay
    MilkChan's feature.
-7. **Memory is shared and always in context** (since 0.8; it was per app). Each session also has its
-   own session memory, and the brain keeps a *journal*: short, timestamped notes about what happened
-   in sessions across all apps (section 10).
+7. **Her memory is her mind's and her long-term memory's, always on** (0.30). Every past chat comes back
+   by meaning; each session also has its own session memory, whole in its context (section 10).
 8. **Evals from day one.** A small set of realistic tasks runs before and after every
    change to prompts, tools or context rules.
 
@@ -105,8 +104,8 @@ New in this document:
   minutes.
 - **Notification**: something the brain tells apps, such as a task finishing or a schedule
   firing. Apps read notifications from a stream with a cursor.
-- **Memory**: facts one app keeps. Each app has its own.
-- **Journal**: short, timestamped notes about sessions across all apps.
+- **Memory**: her mind's memories and her long-term memory (every past chat, by meaning), shared by
+  every app; and each session's own session memory (section 10).
 
 ## 4. Process and storage
 
@@ -120,7 +119,7 @@ New in this document:
 |  run executor (worker threads) -- turns, tasks, agents      |
 |  scheduler thread -- fires schedules                        |
 |  MCP thread -- one event loop, one task per MCP server      |
-|  summarizer queue -- compaction, journal notes              |
+|  recall thread -- takes in and embeds her long-term memory  |
 |                                                             |
 |  brain.sqlite3 (WAL)          files under home              |
 +-------------------------------------------------------------+
@@ -147,8 +146,8 @@ Tables in `brain.sqlite3`:
 | `jobs` | id, run, command, pid, status, exit code, log path |
 | `schedules` | id, app, session, kind, spec, payload, next fire time, last fire time, catch-up, created by, enabled |
 | `notifications` | id, time, app, session, type, data |
-| `memory` | category, key, value, app (the one that saved it), updated. Shared by every app since 0.8. |
-| `journal` | id, time, app, session, note |
+| `memory` | category, key, value, app, updated: the facts kept until 0.30, as they were (her long-term memory takes them in) |
+| `journal` | id, time, app, session, note: the notes kept until 0.30, as they were (the same) |
 
 Files under home:
 
@@ -370,8 +369,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
   since. Agents started since are deleted, schedules made since removed. The todo list goes
   back to the last one written before the message; files read since count as unread.
 - **Kept**: calls that change something and are not undone are named (`kept`): commands, app actions
-  (the screen), the web and other services, lasting memory (every app's) and the journal. Session
-  memory goes back to how it was (section 10.2).
+  (the screen), the web and other services. Session memory goes back to how it was (section 10.2).
 - Agents and tasks that started before the message go on, and their changes stay.
 
 ## 6. Environment interface: toolkits
@@ -403,8 +401,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
 | `browser` | `browser_open(url, new_tab)`, `browser_view(tab, find, part, picture, texts)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`, `browser_secrets(fields, tab)`, `browser_review(lines, total, charges, shortfall, slot, address, unverified, tab)` | The user's own Chrome, through SentientMilk's extension: section 6.7. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
-| `memory` | `memory_save(key, value, category, scope)`, `memory_forget(key, category, scope)`; scope `everywhere` or, in turns, `session` | Every app has it (section 10). |
-| `journal` | `journal_search(query)` | Read only. The brain writes notes itself. |
+| `memory` | `memory_save(key, value)`, `memory_forget(key)`: this chat's memory, in turns | Every app has it (section 10). |
 | `agents` | `agent_start(name, task)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)`; for agents, `ask_lead(question)` | Section 5.5. |
 | (workers) | `task_progress(note)` | Every task and agent has it, whatever its toolkits: notes that outlive its context and show how far it got. |
 | `schedule` | `schedule_create(when, text, timezone, title)`, `schedule_list()`, `schedule_update(id, ...)`, `schedule_delete(id)` | Section 9.6. |
@@ -415,7 +412,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `github` (plugin) | `github_search`, `github_repo`, `github_files`, `github_issues`, `github_issue`, `github_diff`, `github_runs`, `github_run`, `github_get`; asking first: `github_issue_create`, `github_comment`, `github_issue_update`, `github_pr_create`, `github_pr_review`, `github_pr_merge`, `github_api` | Section 6.5. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
-Every app has `memory`. MilkChan enables `web`, `browser`, `todo`, `journal`, `schedule`, `files`,
+Every app has `memory`. MilkChan enables `web`, `browser`, `todo`, `schedule`, `files`,
 `shell`, `agents`, `plugins`, `sessions` and `skills`. The CLI chat enables most of them plus MCP,
 rooted in the folder it was started in.
 
@@ -770,7 +767,7 @@ stream, list a session's open panels with `GET /v1/artifacts` and answer with `P
 + system ------------------------------------------+  stable for the session;
 | who you are (persona), environment, rules,       |  rebuilt only at compaction
 | app instructions                                 |  (the skills listing: when a
-| memory, session memory and journal snapshot      |  skill changes)
+| session memory snapshot                          |  skill changes)
 | more tools, skills listing, signal format        |
 + tools -------------------------------------------+  fixed for a run
 + history -----------------------------------------+  append-only between
@@ -845,7 +842,7 @@ size.
    - open problems
    - next steps
 
-   The new context is the rebuilt system block (fresh memory, session memory and journal), then
+   The new context is the rebuilt system block (fresh session memory), then
    the summary, then the recent events. The brain re-reads up to five recently read files
    and repeats the current todo list. The raw events stay in the log.
 4. **Reset with handoff** (tasks only, when `context: reset`). The brain starts a fresh
@@ -874,7 +871,7 @@ the brain is now (a guide can be a function of the profile: `agent_start`'s adds
 agents while one can start). A rule about a tool comes only with the tool, in the run's
 toolset: a read-only agent was once told to save memories with a tool it did not have.
 
-- **Parts of the model** (`Toolkit.part`: memory, journal, schedule, todo, agents, sessions,
+- **Parts of the model** (`Toolkit.part`: memory, schedule, todo, agents, sessions,
   skills, plugins) are marked "[part of you]", under one principle: they live in the brain,
   not on the computer; whatever words the user uses for one mean it; the model sees them
   only through their tools, never on the screen or in files; what those tools show is the
@@ -1107,63 +1104,35 @@ task's size, and the app can force either.
   expire, unlike Claude Code's session cron, because this brain is the user's own
   long-lived service.
 
-## 10. Memory, session memory and the journal
+## 10. Memory
 
-Rework of 0.8.0 (2026-11-11). Before it, memory was per app and went into the system block only for an
-app that enabled the `memory` toolkit, and only while it fit 8,000 characters: past that, the model saw
-the category names and had to call `memory_list`, which it rarely did. The user's memory had grown to 35
-entries (about 13,000 characters), so in practice the model saw almost none of it, and a "for this chat"
-instruction had nowhere to go but lasting memory (where it leaked into every chat) or the conversation
-(where compaction may blur it).
+Since 0.30 her memory is her mind's (§10.6: what she lived, with what she felt) and her long-term memory's
+(§10.7: every past chat, found by meaning), both always on, and each chat's own (session memory). The user
+(2026-11-17): "old memory logic and elements should go now. the brain will be the main logic from now on, it
+is always enabled, and embeddings too." What went is below, in short; what it kept stays as it was in
+`brain.sqlite3`, and her long-term memory takes it in and finds it by meaning.
 
-Now there are three kinds, by how long they last and where they hold:
+### 10.1 Lasting memory (until 0.30)
 
-| | Memory | Session memory | Journal |
-|---|---|---|---|
-| What | lasting facts: who the user is, the people and pets in their life, what they like and how they want things done, what they work on | this session's instructions and what its work must keep in mind ("answer in English here", "don't push until I say", the staging server's address, a decision) | what happened in each session, 1 to 3 sentences a note |
-| Who writes | the model (`memory_save`, unasked, as soon as it learns a fact); the user forgets entries | the model, in the session's turns (`memory_save` with `scope: session`); the user takes entries out | the brain's summarizer, off the request path |
-| Where it holds | every app, every session (one user, one brain); each entry names the app that saved it | its session; the agents and tasks working for it follow it read-only | read by every app, searchable (`journal_search`) |
-| In context | always, whole, in every system block: no app asks for it, no size cut | always, whole, in its session's system block, after memory (where they differ, it wins there) | the newest notes of other sessions, about 1,500 tokens; the rest by search |
-| Ends | when forgotten | with the session; a return to a message (5.6) puts it back as it was then | when 20 newer notes are written |
-
-### 10.1 Memory
-
-- `memory(app, category, key, value, updated)`, keyed by category and key: one fact per name for every
-  app, and `app` is the one that saved it. The system block lists it by category, `- key: value`, with
-  `[app]` after an entry another app saved, so the CLI knows a fact came from MilkChan.
-- 0.8.0 merged the per-app tables once at start (`store._share_memory`): where two apps had the same
-  category and key, the newest stayed; every session's snapshot is taken again.
-- Every app has the `memory` toolkit, listed or not (`Brain.profile`); a user who switches its tools off
-  still has memory in context. Two tools for both scopes: `memory_save` (core) and `memory_forget`. There
-  is no tool to read memory: it is all in context, and what changes later comes as a note (10.3). (0.8.0
-  had five tools; `memory_list` and the separate session tools went the same day, one core tool fewer.)
-- Memory holds lasting facts only. As measured on 2026-11-07, the old wording ("about the user, their
-  preferences, plans or events") saved a setting changed once, "not a bug, don't fix it", in 3 of 3 runs,
-  and passed the two `memory-what-lasts` tasks 1 time in 6; `memory_save`'s description and its guide
-  took them to 9 of 9. Its description now also sends what holds only in a session to session memory:
-  the `session-memory` eval (a chat-only rule and a rule for everywhere in one message) passed 5 of 5
-  with the two tools of 0.8.1, and the three memory evals above still pass (2026-11-11).
-- No cap: memory is whole however long it grows. Its cost is tokens in the system block, cached with the
-  prefix; the light model's compaction does not touch it.
-- Kept one and true (0.26, `lasting.py`). The user's brain on 2026-11-17 held one subject as twelve
-  entries (roblox_watch, each a day's state), one job under two categories, and 11-07 line numbers long
-  moved. A key names one memory whatever its category (`memory_save` moves it), and what she keeps that
-  is like a new entry (`lasting.related`: a word of its key, or a fifth of its words) comes back in the
-  result, to fold them then. As she sleeps (`Mind._consolidate` → `Mind.tidy`), and once after her past
-  is gone over, she goes over all of it with her model and as herself (`lasting.tidy`): the same thing
-  becomes one, what no longer holds is set right or forgotten. A path, link, mail, address or id that a
-  rewrite leaves out is shown to her once (`lasting.dropped`); what she answers then is hers. Every value
-  replaced or forgotten is kept in `memory_revisions` (`Store.remember`/`forget`, with why). Measured on
-  a copy of the real brain: 62 entries to 45 the first night with no exact detail lost, then 4 changes a
-  night; told two updates in a chat she wrote her two existing entries, no new key.
+Facts shared by every app (who the user is, what they like, what they work on), saved by the model with
+`memory_save` (scope everywhere), whole in every system block, with a note to chats left open when another
+changed them, a tidy of them in her sleep (`lasting.py`) and a pass over each chat as it ended that kept
+what mattered (`summaries.py`, the setting `session_summaries`). Measured on the user's brain before it went:
+62 entries, one subject kept as twelve, a tidy a night to keep them one and true. Now: the facts
+(`memory`, with `memory_revisions`) are units of her long-term memory (source `fact`), come back in a turn
+when they are about what the user writes ("something you kept: ..."), hold what is near them when she lets
+go in her sleep, and are never let go themselves. An app's import of what it kept before it used the brain
+(`Brain.import_history`) still adds to them. What is to hold in every chat belongs in the app's persona and
+settings; a standing wish said in a chat comes back only when what the user writes is about it.
 
 ### 10.2 Session memory
 
 - Kept in the session's state, `session_memory: {key: value}`, beside the todo list; `GET
-  /v1/apps/<app>/sessions/<id>` returns it as `session_memory`. `scope: session` works only in turns: an
-  agent or task has the session memory of the chat it works for (`profile.base_session`) in its system
-  block, under "The memory of the session you work for", and cannot change it. A super agent (Claude
-  Code) gets it, and the user's memory, in its appended prompt.
+  /v1/apps/<app>/sessions/<id>` returns it as `session_memory`. `memory_save(key, value)` and
+  `memory_forget(key)` are the session's own turns' (`only_in` turn): an agent or task has the session
+  memory of the chat it works for (`profile.base_session`) in its system block, under "The memory of the
+  session you work for", and no tool to change it. A super agent (Claude Code) gets it in its appended
+  prompt.
 - What works for the chat hears a change at once (`Brain.chat_memory_changed`): its agents, its tasks
   and their agents get a note at their next step when the model changes it; when the user does, their
   snapshots and the chat's are taken again, so what was taken out leaves every system block. A super
@@ -1171,66 +1140,36 @@ Now there are three kinds, by how long they last and where they hold:
   conversation clears its memory with its state.
 - It is what Claude Code lacks: there a rule said only in the conversation can be lost at compaction,
   which re-injects CLAUDE.md from disk but nothing scoped to the session. Here a session's own rules
-  come back whole after every compaction, without making them every chat's.
-- Rewind (5.6) rebuilds it from the session's `memory_save` and `memory_forget` calls with `scope:
-  session` before the message, so those calls are undone, not kept.
+  come back whole after every compaction.
+- Rewind (5.6) rebuilds it from the session's `memory_save` and `memory_forget` calls before the
+  message (a call of scope everywhere, before 0.30, was lasting memory's and is not one of them), so
+  those calls are undone, not kept.
 
 ### 10.3 Snapshots
 
-Memory, session memory and the journal are a snapshot in the session's state, put in the system block:
-taken at the session's first request, again at compaction, and dropped (taken again at the next request)
-after the user forgets a memory or a session memory entry (`Store.drop_snapshots`) or returns to a
-message. A save of the model's own changes nothing there until then, so the cached prefix holds; the
-model sees what it saved in the call's result, which is short and so is never cleared (7.2). What
-another chat or app saved or forgot since a session's snapshot reaches its next turn as a note before
-the input (`Brain.memory_news`, like the tool changes of 7.3; an agent's next run too, since its
-session lives on between runs), so a chat left open yesterday knows
-today's facts without its system block changing; the snapshot's `seen` list is what the session
-already knows, its own saves included.
+Session memory is a snapshot in the session's state, put in the system block: taken at the session's
+first request, again at compaction, and dropped (taken again at the next request) after the user takes
+something out of it (`Store.drop_snapshots`) or returns to a message. A save of the model's own changes
+nothing there until then, so the cached prefix holds; the model sees what it saved in the call's result,
+which is short and so is never cleared (7.2).
 
-### 10.4 The journal
+### 10.4 The journal (until 0.30)
 
-The brain's record of what happened, so the CLI brain knows what MilkChan's brain talked about this
-morning.
-
-- **Writing**: the summarizer queue (light model, off the request path) writes a note:
-  - when a session has been quiet for 20 minutes and has new events since its last note;
-  - at compaction;
-  - when a task ends.
-
-  Each note is 1 to 3 sentences, at most 400 characters, with time, app and session. It is hers
-  (0.25): written as herself, in the first person, the user by their name, with her persona and what
-  she keeps about the user (memory categories `user` and `people`) before it, naming what she worked on
-  rather than the app she talked in. Until then a summarizer wrote it about "you": in the user's journal
-  "your friend's server" was the user's friend's, and "Milk Chan's throttling" was roblox_watch's.
-- **Her life**: with her mind on, each note is also an event of her life (`Mind.remember`, kind
-  `event`): with the mean feeling of the exchanges she lived in that stretch (none for a stretch her
-  mind was not there for), and salience at least 0.35, so it is never forgotten as faint: the details
-  (exchanges) fade, the gist stays. Once per home (`Journal.catch_up`, at start and each minute until
-  done, resumable: `past` in her mind's state) she goes over her past: every stretch of every
-  conversation (a 20-minute quiet ends one; helpers' and her summary passes' left out) that went quiet
-  gets her note, as an event of her life, and the journal is written again from them in her words. A
-  mind that began on 2026-11-16 knew nothing of the ten days before it.
-- **Kept**: the 20 newest notes (`store.JOURNAL_NOTES`, the user 2026-11-11); writing the 21st deletes
-  the oldest. The timestamp decides the order.
-- **Reading**: the newest notes from *other* sessions, up to about 1,500 tokens, go in the
-  system block as `[2026-11-05 09:12, milkchan] ...`. They are snapshotted like memory.
-  `journal_search(query)` searches the kept notes, and with words also her own memories of any time
-  (`Mind.look_back`: what her episodic memory brings back for them, strengthened by the search as
-  recalling does).
-- **Per-app switches**: `journal: {read: true, write: true}` in the app profile. A private
-  app can turn writing off.
-- **User control**: `GET /v1/journal` and `DELETE /v1/journal/<id>`. The CLI gets
-  `sentientmilk journal`. The panel's Memory tab shows memory (with the app that saved each entry, to
-  forget) and the journal (to search and delete).
+Her short dated notes about stretches of conversations in every app, written by her light model as a
+chat went quiet, at compaction and when a task ended; the 20 newest of other sessions in every system
+block (about 1,500 tokens a request), `journal_search` for the rest, each note also an event of her life,
+and a catch-up that noted her whole past once. The notes stay in the `journal` table, are units of her
+long-term memory (source `note`) and come back in a turn as "your note about" the chat they were about.
+What a chat was about now comes back from the chat itself, by meaning; a session's summary is its
+compaction's (`mentions.summary`).
 
 ### 10.5 How other harnesses do it
 
 | | Claude Code | Codex | SentientMilk |
 |---|---|---|---|
 | Lasting instructions the user writes | CLAUDE.md: managed, user (`~/.claude/CLAUDE.md`, every project), project and local files, loaded at start and re-read after compaction | AGENTS.md: global (`~/.codex/AGENTS.md`), repository and folder files, merged, the closer one winning | the app's persona and environment, the user's rules and session instructions (settings) |
-| What the model learns and keeps | auto memory: `MEMORY.md`, an index whose first 200 lines (or 25 KB) load at session start, with topic files read on demand | memories (opt-in): past sessions summarized in the background into `~/.codex/memories`, read by the next session; the docs say rules that must always apply belong in AGENTS.md | memory, whole in every system block, shared by every app |
-| What happened before | the transcript of earlier sessions (resume) | the memories above | the journal, written by the brain, read by every app |
+| What the model learns and keeps | auto memory: `MEMORY.md`, an index whose first 200 lines (or 25 KB) load at session start, with topic files read on demand | memories (opt-in): past sessions summarized in the background into `~/.codex/memories`, read by the next session; the docs say rules that must always apply belong in AGENTS.md | her mind's memories and her long-term memory: every past chat, found by meaning as the user writes (§10.6, §10.7) |
+| What happened before | the transcript of earlier sessions (resume) | the memories above | the same: what comes back is what is about the message |
 | One session's own rules | only the conversation and its compaction summary | only the conversation | session memory, whole after every compaction |
 
 Sources: [Claude Code memory](https://code.claude.com/docs/en/memory),
@@ -1240,7 +1179,7 @@ Sources: [Claude Code memory](https://code.claude.com/docs/en/memory),
 
 The why and the research are in `docs/superpowers/specs/2026-11-16-digital-being-design.md`. One being per
 brain (`Brain.mind`, `mind/`), kept in `home/mind.sqlite3` beside the brain's store: her state as JSON rows
-and her episodes with an FTS5 index. The model stays her cortex; the rest is code with real dynamics.
+and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FTS5 index). The model stays her cortex; the rest is code with real dynamics.
 
 | Part | What it is |
 |---|---|
@@ -1304,7 +1243,7 @@ weighed options); `later` keeps a concern. Nothing in code holds her to it (0.24
 it thinks and makes the call, and may change it as it goes. Before 0.24, `Loop._settle` refused every work
 tool after `later`, `decline` or `talk` (`Mind.barred`), so in the user's brain, worn out and leaning to
 put a job off, she offered one small safe step, called the tool and was told "You decided not to do this
-now". `Mind.after` reads what she did (`_did`: a tool that changes something, beyond memory and journal,
+now". `Mind.after` reads what she did (`_did`: a tool that changes something, beyond the chat's memory,
 ran, so she did it) and remembers and learns that (`decided.outcome.did`, the episode "I did it, though I
 had leaned toward putting it off", her values and the next message's settling). Every turn's message
 also ends with `context.VOICE` (before the format reminder): her thinking is hers, in the first person,
@@ -1314,7 +1253,7 @@ it, 7 of 24). `Loop._think`
 asks `Mind.reflexive(run)` whether she answers without thinking it through: her clarity (`_clear`) is
 1 - 2.5 x (fatigue over 0.4) - 1.5 x (cortisol over 0.5); under 0.5 she is on reflex, and stays so until
 it is back over 0.6; a run that began on reflex ends on it (`reflex` in its options), for every run but
-summaries and compaction. On reflex the request goes with thinking off (Claude Code: its lowest effort); a
+compaction. On reflex the request goes with thinking off (Claude Code: its lowest effort); a
 service that refuses that (HTTP 400) is asked again as the user set it and never asked so again
 (`Mind.reflexes`). Before each step of a run `Loop.execute` calls `Mind.during(run, events)`: the work
 done since the last step tires her then (reply tokens plus 600 a tool call), a call that failed stirs her
@@ -1348,9 +1287,8 @@ whatever her fatigue (0.24.1: sleepiness brings more mind wandering, not less, P
 all kept every thought from the user's brain through a long day, 0.89 against a pull of 0.27); both less
 0.3 x noradrenaline over 0.35. `wonder` is her mind wandering: 0.5 + 1.1 x her need for new things x
 curiosity x (0.4 + dopamine), nothing while a run works. It thinks from her last thought and two episodes
-drawn at random from her whole life, the strong and charged more often (`Memory.replay`), and something
-she knows (one entry of her lasting memory, the most recently changed the most readily: a wandering mind
-goes to what one is busy with, Klinger 2009; before 0.25 her thoughts knew nothing of her projects). `ruminate` pulls
+drawn at random from her whole life, the strong and charged more often (`Memory.replay`); from 0.25 to 0.30
+also one entry of her lasting memory, which went with it. `ruminate` pulls
 when one of the last two days' exchanges or thoughts hurt (valence under -0.3, still charged): the most
 charged of those (before 0.24.1 only the 8 most charged moments were looked at, and none of a busy day's
 hurts was among them). On a fake clock (two weeks of the user's day: at the computer 08:00 to 01:30,
@@ -1396,7 +1334,7 @@ message she is groggy (`inertia`, by stage: most from deep sleep, fading over ab
 the deep of her night with sleep left to get is owed (`debt`), paid back by sleep outside it; it lowers her
 thresholds a little and takes from her focus. With the brain off (a gap over 10 min) she lives alone by the
 same rules: she slept if she was ready, and woke if she was slept out. A sleep of a cycle or more is gone over
-once a night (insights and a dream, with her lasting memory whole; then her long-term memory lets go of
+once a night (insights and a dream; then her long-term memory lets go of
 what she no longer needs, §10.7). Until 0.30 sleep also wrote a story of who she had become, at the end of
 every system prompt: it brought its own details into 7 of 12 live replies (none without), a blind judge took
 the reply without it 7 to 5, and it cost 245 tokens a request, so it went, from her mind's own calls too. On a fake clock: bedtime 22:05-22:35, 7.7-8.7 h with brief awakenings. A body saved before
@@ -1411,7 +1349,7 @@ until 0.23 a chat was decided like a request, so her memories of chats said "I t
 light, joke about the dead watcher)", her values learned "doing it" to a hello, and a chat could leave a
 concern; those clauses go from the episodes (`Memory.rewrite`, recall reindexed), what only those acts
 taught goes from her values, and the concerns and waiting decisions they left are let go.
-`mind` off: none of this runs and the prompt has no inner life.
+Her mind is always on since 0.30: there is no `mind` switch, every turn goes through her.
 
 `GET /v1/mind?app=&idle=&locked=&busy=&brief=` (`Mind.state`; `locked` and `busy` 1 or 0, left out when the
 app cannot tell; all three go to `Presence`): her face for the app, felt words, `feeling` (a few words
@@ -1453,7 +1391,7 @@ provider's routing, not anything the brain sends (the system prompt and tools st
 
 Measured on the user's provider (2026-11-16): see the commit that brought it.
 
-### 10.7 Long-term memory by meaning (0.29)
+### 10.7 Long-term memory by meaning (0.29; her memory, always on, from 0.30)
 
 Short-term memory is the context window: the chat she is in, after its last compaction. Long-term memory is
 everything else, and until 0.29 all of it was found only by shared words (FTS5 bm25, `LIKE`, a substring):
@@ -1461,45 +1399,44 @@ everything else, and until 0.29 all of it was found only by shared words (FTS5 b
 back unless the model searched. Design and requirements: docs/superpowers/specs/2026-11-17-long-term-memory-design.md.
 
 `recall.py` keeps `recall.sqlite3`: units (each round of every past chat, a user message and her replies,
-in 1,600-character pieces with 200 overlapping, all of it; journal notes, kept here after the journal lets
-them go; lasting facts), FTS5 over them, and their vectors (`vectors.py`: `units_vectors`, one per unit,
-searched by cosine over a numpy matrix). Her episodes' vectors are kept beside them in `mind.sqlite3`
-(`episodes_vectors`); triggers drop a vector with its row or when its text changes. A sweep after every
-turn and every 30 s takes in new rounds (a mark per chat), notes and facts, and embeds whatever has no
-vector of the current model in batches of 32; once all are embedded, other models' vectors go. Deleting a
-chat and returning to a message take their units out at once (`forget_session`, `forget_from`).
+in 1,600-character pieces with 200 overlapping, all of it; the journal notes and facts kept until 0.30) and
+their vectors (`vectors.py`: `units_vectors`, one per unit, searched by cosine over a numpy matrix). Her
+episodes' vectors are kept beside them in `mind.sqlite3` (`episodes_vectors`); triggers drop a vector with
+its row or when its text changes. A sweep after every turn and every 30 s takes in new rounds (a mark per
+chat), notes and facts, and embeds whatever has no vector of the current model in batches of 32; once all
+are embedded, other models' vectors go. Deleting a chat and returning to a message take their units out at
+once (`forget_session`, `forget_from`), and so does clearing a chat (its history is "deleted for good"; it
+keeps its last event id, a `rewound` mark, as a return does, so no saved id points at a later message).
 
-A search fuses the 40 nearest by meaning with the 40 best by words (units with at least half of the query's
-words, each weighed by how rare it is among her units, stopwords left out), 1 / (60 + rank) from each
-(reciprocal rank fusion), and keeps a unit only if it is related by meaning (relevance over 0); words alone
-decide only when meaning cannot (no key, the service down). Relevance maps a cosine to 0..1 above the most
-that any of 20 everyday questions her past cannot answer reaches among her vectors of that model
-(`vectors.CALIBRATION`, measured again when their number doubles), so "related" means the same for any
-model. Measured on her history: words let something back for 17 of 20 such questions, meaning for none; a
-floor from random pairs of her own units sat above many right hits (a query lands lower than a document of
-the same thing).
+From 0.30 a search goes by meaning alone: the 40 nearest, kept only if related (relevance over 0). Relevance
+maps a cosine to 0..1 above the most that any of 20 everyday questions her past cannot answer reaches among
+her vectors of that model (`vectors.CALIBRATION`, measured again when their number doubles), so "related"
+means the same for any model. Measured on her history: words let something back for 17 of 20 such
+questions, meaning for none; a floor from random pairs of her own units sat above many right hits (a query
+lands lower than a document of the same thing). Until 0.30 a search also fused the best by words (reciprocal
+rank fusion), and words decided when meaning could not; that went with the switch: without a key, or with
+the service down, nothing comes back in a turn and `sessions_search` says why.
 
-Each turn the user writes, `Recall.note` brings back up to five rounds of other chats (and of hers from
-before its last compaction) with when and where, as `FROM YOUR LONG-TERM MEMORY (...)` in that turn's input
-beside her inner note (runs.py): stored with the input, so the log stays as sent for the prompt cache,
-replay and rewind. Her mind's `Memory.recall` and `known` take relevance as the larger of words and meaning
-(a "hi" after a hundred "hello"s is no longer new to her). `sessions_search` lists turns with the words
-first, then "About this (by meaning)", and takes `after`/`before` dates; `journal_search` finds notes in
-other words, also ones the journal let go; `memory_save` shows a fact kept about the same thing in other
-words (`lasting.related`, relevance >= `RELATED_AT`).
+Each turn the user writes, `Recall.note` brings back up to five units of other chats (and of hers from
+before its last compaction), notes and facts, with when and where, as `FROM YOUR LONG-TERM MEMORY (...)` in
+that turn's input beside her inner note (runs.py): stored with the input, so the log stays as sent for the
+prompt cache, replay and rewind. Her mind's `Memory.recall` and `known` take likeness by meaning (a "hi"
+after a hundred "hello"s is no longer new to her; without meaning she cannot tell, and a message counts as
+not new). `sessions_search` lists the turns about a query, best first, with each one's turn number, and takes
+`after`/`before` dates.
 
-`embeddings.py`: any OpenAI-compatible `/embeddings` (settings `embeddings` api/off, `embeddings_base_url`,
-`embeddings_api_key`, `embeddings_model`, `embeddings_dimensions`; set in the panel's Memory tab), OpenRouter
-by default, where a request carries `input_type` and `provider.data_collection: "deny"` (only providers that
-keep and train on nothing). A query is embedded once and kept (the turn's note, her mind's recall and known
-share one call); a turn waits at most 4 s for it, then goes by words; the backfill waits out a busy service.
-Without a key of its own, a service at the chat model's address uses that key. `GET /v1/stats` gives
-`recall`: state, units, embedded, spent. Measured choice of model: see the spec's "Measured".
+`embeddings.py`: any OpenAI-compatible `/embeddings` (settings `embeddings_base_url`, `embeddings_api_key`,
+`embeddings_model`, `embeddings_dimensions`; set in the panel's Memory tab), OpenRouter by default, where a
+request carries `input_type` and `provider.data_collection: "deny"` (only providers that keep and train on
+nothing). A query is embedded once and kept (the turn's note, her mind's recall and known share one call); a
+turn waits at most 4 s for it; the backfill waits out a busy service. Without a key of its own, a service at
+the chat model's address uses that key. `GET /v1/stats` gives `recall`: state, units, embedded, forgotten,
+spent. Measured choice of model: see the spec's "Measured".
 
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**
-  model. The light one does compaction, journal notes and, by default, read-only agents. Both
+  model. The light one does compaction, titles and, by default, read-only agents. Both
   can be the same.
 - Each model entry has a `context_window` setting. Thresholds in section 7.2 use it. The
   Refuseless model name is not in DeepSeek's docs, so we set it by hand and verify it with
@@ -1546,7 +1483,7 @@ calls `complete()` for one message at a time.
     cleared, the chat was compacted, it returned to before, or it thought with an API service
     until now. The first message is a record of what came before, followed by what is new.
     Claude Code's own context management never decides: the loop's log stays the truth.
-- **Helper calls** without tools (titles, compaction, journal notes) are one process each, with
+- **Helper calls** without tools (titles, compaction) are one process each, with
   no session kept, on `claude_light_model`.
 - **Isolation.** Every process gets `--safe-mode --restricted --tools "" --strict-mcp-config
   --disable-slash-commands`, and her prompt goes in a file (`--system-prompt-file`). None of the
@@ -1616,9 +1553,7 @@ bearer token.
 | `GET/PUT /v1/mcp`, `POST /v1/mcp/<name>/reconnect` | MCP configuration |
 | `GET/POST /v1/plugins`, `PATCH/DELETE /v1/plugins/<name>` | plugins (section 6.5): list, install (`source`), turn on or off, set and trust (`enabled`, `settings`, `trusted`), remove |
 | `POST /v1/plugins/<name>/reload` | copy a plugin in again from its source and import it |
-| `GET /v1/memory`, `DELETE /v1/memory/<category>/<key>` | memory, shared by every app: `entries`, each with the app that saved it |
 | `DELETE /v1/apps/<app>/sessions/<id>/memory/<key>` | take one thing out of a session's memory |
-| `GET /v1/journal`, `DELETE /v1/journal/<id>` | view and prune the journal |
 | `GET /v1/jobs/<id>` | job status and the tail of its log |
 | `GET/POST /v1/apps/<app>/sessions/<id>/rewind` | preview or go back to before a user message (section 5.6) |
 | `GET /v1/skills`, `DELETE /v1/skills/<name>` | skills (section 6.6), removing one of the user's |
@@ -1714,8 +1649,8 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
   through); signals were valid in 6 of 6 screenshot turns.
 - Option updates of a run are one transaction (`Store.update_run_options`): the loop, steering,
   stops and agents change them from different threads. Writing back a copy read earlier lost
-  a message steered while a turn started. Readers that come after a run (titles, the
-  journal, `Brain.profile`) use `Store.find_session`, which never creates a session; they
+  a message steered while a turn started. Readers that come after a run (titles,
+  `Brain.profile`) use `Store.find_session`, which never creates a session; they
   brought back chats the user had just deleted.
 - Calls run in the order the model wrote them; reads next to each other run together. A
   call that waits for the user holds back the calls after it: a read after a write that

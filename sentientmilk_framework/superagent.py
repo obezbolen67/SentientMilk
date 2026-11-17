@@ -188,22 +188,15 @@ class SuperRun:
     # ============== One run ==============
 
     def _memory(self) -> str:
-        """The user's memory (who they are, how they want things done) and the memory of the chat it works for
-        ("don't push until I say"), as the lead has them: they hold for the work too."""
-        from .context import render_memory
+        """The memory of the chat it works for ("don't push until I say"), as the lead has it: it holds for the
+        work too."""
         from .toolkits.memory import session_memory
 
-        profile, store = self.profile, self.brain.store
-        parts, entries = [], store.memory_entries()
-        if entries:
-            parts.append("## THE USER'S MEMORY\nWhat the lead remembers about the user, in every app; [app] marks "
-                         "the app that saved one.\n" + render_memory(entries, profile["app"]))
+        profile = self.profile
         chat = profile.get("base_session") or profile["session"]
-        kept = session_memory((store.find_session(profile["app"], chat) or {}).get("state") or {})
-        if kept:
-            parts.append("## THE CHAT'S MEMORY\nWhat the chat you work for keeps to: follow it in your work too.\n"
-                         + "\n".join(f"- {key}: {value}" for key, value in kept.items()))
-        return "".join("\n\n" + part for part in parts)
+        kept = session_memory((self.brain.store.find_session(profile["app"], chat) or {}).get("state") or {})
+        return ("\n\n## THE CHAT'S MEMORY\nWhat the chat you work for keeps to: follow it in your work too.\n"
+                + "\n".join(f"- {key}: {value}" for key, value in kept.items())) if kept else ""
 
     def execute(self) -> None:
         run, runs = self.run, self.brain.runs

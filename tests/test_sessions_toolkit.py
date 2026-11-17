@@ -30,14 +30,11 @@ def test_she_lists_her_chats_newest_first(brain, talk):
     assert listed[1].startswith('chat-2 "Holidays" · 1 turn') and listed[2].startswith('chat-1 "Groceries" · 2 turns')
     assert 'chat-1 "Groceries"' in kit.sessions_list.func(talk, "groc") and "Holidays" not in kit.sessions_list.func(
         talk, "groc")
-    brain.store.add_note("talk", "chat-1", "You planned the shopping.")
-    assert "You planned the shopping." in kit.sessions_list.func(talk, "groc")
 
 
 def test_she_reads_a_summary_or_the_plain_turns_page_by_page(brain, talk, monkeypatch):
-    brain.store.add_note("talk", "chat-1", "You planned the shopping.")
     summary = kit.sessions_read.func(talk, "Groceries")
-    assert summary.startswith('[Mentioned session "Groceries" (chat-1)') and "Journal notes:" in summary
+    assert summary.startswith('[Mentioned session "Groceries" (chat-1)')
     turns = kit.sessions_read.func(talk, "chat-1", part="turns")
     assert turns.splitlines()[:4] == ["1. user: plan the week's shopping", "   you: Sure.", "2. user: add oat milk",
                                       "   you: Added oat milk."]
@@ -54,9 +51,10 @@ def test_she_reads_a_summary_or_the_plain_turns_page_by_page(brain, talk, monkey
 
 
 def test_she_searches_the_plain_turns_of_her_chats_including_this_one(brain, talk):
-    found = kit.sessions_search.func(talk, "OAT milk")
-    assert found.splitlines() == ['chat-1 "Groceries" #2 user: add oat milk', 'chat-1 "Groceries" #2 you: Added oat milk.']
-    assert kit.sessions_search.func(talk, "hello") == 'main "Today" #1 user: hello'
+    brain.brain.recall.sweep()
+    found = kit.sessions_search.func(talk, "OAT milk").splitlines()
+    assert found[0] == 'chat-1 "Groceries" #2 (just now): they: add oat milk you: Added oat milk.'
+    assert kit.sessions_search.func(talk, "hello").splitlines()[0].startswith('main "Today" #1 (just now): they: hello')
     with pytest.raises(ToolError):
         kit.sessions_search.func(talk, " ")
 
@@ -86,21 +84,20 @@ def test_deleting_a_chat_asks_even_when_a_rule_allows_it(brain, talk):
     assert "chat-1" in [s["id"] for s in brain.client.sessions("talk")]
 
 
-def test_she_finds_turns_with_the_words_first_then_those_about_it(brain, talk):
+def test_she_finds_turns_by_what_they_are_about(brain, talk):
     from conftest import Meaning, use
     use(brain, Meaning())
     brain.provider.replies.append("A tiny platformer with three levels.")
     turn(brain, "talk", "let's design a pixel platformer", session="chat-3")
     brain.brain.recall.sweep()
-    found = kit.sessions_search.func(talk, "game")
-    assert "No turn has those words; about this (by meaning):" in found and "pixel platformer" in found
-    found = kit.sessions_search.func(talk, "platformer")
-    first = found.splitlines()[0]
-    assert first.startswith("chat-3 ") and "#1 user: let's design" in first and "(by meaning)" not in found  # once
+    assert "pixel platformer" in kit.sessions_search.func(talk, "game")  # no word in common
+    first = kit.sessions_search.func(talk, "platformer").splitlines()[0]
+    assert first.startswith("chat-3 ") and "#1 (just now): they: let's design" in first
 
 
 def test_she_can_keep_a_search_to_dates(brain, talk):
-    assert kit.sessions_search.func(talk, "oat milk", before="2000-01-01").startswith("No turn")
+    brain.brain.recall.sweep()
+    assert kit.sessions_search.func(talk, "oat milk", before="2000-01-01").startswith("Nothing in your conversations")
     assert "add oat milk" in kit.sessions_search.func(talk, "oat milk", after="2000-01-01")
     with pytest.raises(ToolError, match="dates, like"):
         kit.sessions_search.func(talk, "oat milk", after="last week")

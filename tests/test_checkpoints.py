@@ -48,10 +48,12 @@ def test_clearable_results_are_removed_before_a_summary_call(brain):
 
 def test_automatic_compaction_uses_the_refreshed_memory_immediately(brain):
     brain.client.update_config(context_window=8000)
-    brain.store.remember('cli', 'user', 'name', 'BeforeMarker')
+    def kept(value):
+        brain.store.update_session('cli', 'main', 'state', lambda s: {**s, 'session_memory': {'name': value}})
+    kept('BeforeMarker')
     profile = brain.brain.profile('cli', 'main')
     brain.brain.session_snapshot(profile)
-    brain.store.remember('cli', 'user', 'name', 'AfterMarker')
+    kept('AfterMarker')
     run_id = brain.store.add_run('cli', 'main', 'turn', {})
     brain.store.add_event('cli', 'main', run_id, 'input', {'content': 'x' * 40000, 'display': 'long request'})
     brain.provider.replies += ['A continuation summary.', 'Continued.']

@@ -557,7 +557,6 @@ class Runs:
             self.brain.notify(run["app"], parent, f"task.{run['status']}",
                               {"task": run["id"], "goal": options["goal"], "reply": result.get("reply", ""),
                                "error": run["error"]})
-            self.brain.journal.request(run["app"], run["session"])
         elif run["kind"] == "turn" and run["options"].get("detached"):
             self.brain.notify(run["app"], run["session"], f"task.{run['status']}",
                               {"run": run["id"], "reply": (run["result"] or {}).get("reply", ""),

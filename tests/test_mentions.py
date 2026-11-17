@@ -39,10 +39,6 @@ def test_a_session_card_brings_its_title_summary_and_last_turns(brain):
                           "  you: Added. Anything else?"]
     assert "sessions_read" not in card  # the CLI has no sessions toolkit to read more with
 
-    brain.store.add_note("cli", "chat-1", "You planned the week's shopping; the user wants no dairy.")
-    assert "Summary: You planned the week's shopping; the user wants no dairy." in \
-        mentions.card(brain.brain, "cli", "main", "session", "chat-1")
-    time.sleep(0.01)
     brain.store.add_event("cli", "chat-1", None, "compaction", {"summary": "A newer summary.", "upto": 0})
     assert "Summary: A newer summary." in mentions.card(brain.brain, "cli", "main", "session", "Groceries")
 

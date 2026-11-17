@@ -2,7 +2,7 @@
 
 Each task gets a throw-away brain home and work folder and runs through the real HTTP API.
 Kinds: "task" (a background task; check its files, a command or its report) and "chat" (turns in a
-session; check replies, signals, schedules, what was remembered and each session's own memory). Tasks marked "holdout" catch rules that only fit the rest.
+session; check replies, signals, schedules and each session's own memory). Tasks marked "holdout" catch rules that only fit the rest.
 
     sentientmilk eval                 every task
     sentientmilk eval fix-failing-test --report results.json
@@ -26,7 +26,8 @@ from .config import BrainConfig
 TASKS_DIR = Path(__file__).parent / "eval_tasks"
 COPIED_SETTINGS = ("provider", "api_key", "base_url", "model", "light_model", "web_search_key", "thinking_mode",
                    "thinking_tokens", "context_window", "vision", "image_pixels", "request_budget", "claude_command",
-                   "claude_model", "claude_light_model", "claude_effort")
+                   "claude_model", "claude_light_model", "claude_effort", "embeddings_base_url",
+                   "embeddings_api_key", "embeddings_model", "embeddings_dimensions")  # her long-term memory too
 DEFAULT_TOOLKITS = ["files", "shell", "web", "todo", "agents", "schedule"]  # and memory, as every app
 
 
@@ -82,13 +83,6 @@ def check(spec: dict, folder: Path, replies: List[str], extra: dict) -> tuple:
 
         if "matches" in rule and not re.search(rule["matches"], path.read_text(encoding="utf-8")):
             return False, f"{rule['file']} does not match {rule['matches']}"
-    memory = extra.get("memory", "").lower()  # everything the app remembered, as JSON
-    for text in rule.get("memory_has", []):
-        if text.lower() not in memory:
-            return False, f"nothing remembered mentions {text!r}: {memory[:300]}"
-    for text in rule.get("memory_lacks", []):
-        if text.lower() in memory:
-            return False, f"a memory mentions {text!r}, which is not worth keeping: {memory[:300]}"
     kept = extra.get("session_memory", {})  # each session's own memory, as JSON
     for session, texts in rule.get("session_memory_has", {}).items():
         for text in texts:
@@ -147,10 +141,10 @@ def run_one(spec: dict, settings: dict, *, compact_between_turns: bool = False) 
                 replies.append(result["reply"])
                 extra["signals_ok"] = extra.get("signals_ok", 0) + bool(result["signals"])
                 runs.append(client.run(result["run"]))
+                server.brain.recall.sweep()  # what was said is in her long-term memory before the next turn
                 if compact_between_turns and index < len(spec["turns"]) - 1:
                     client.compact_session("eval", session)
             extra["schedules"] = len(client.schedules("eval"))
-            extra["memory"] = json.dumps(server.brain.store.memories(), ensure_ascii=False)
             extra["session_memory"] = {session: json.dumps(server.brain.session_info("eval", session)["session_memory"],
                                                            ensure_ascii=False)
                                        for session in set(spec.get("sessions", ["main"]))}

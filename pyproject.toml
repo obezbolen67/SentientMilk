@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentientmilk-framework"
-version = "0.29.1"
+version = "0.30.0"
 description = "SentientMilk: a local brain server that apps such as MilkChan think with"
 authors = [{name = "MilkChan Team"}]
 readme = "README.md"
@@ -35,6 +35,7 @@ sentientmilk_framework = ["eval_tasks/*.json", "assets/*.ico", "assets/skills/*/
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["mind: her mind lives in this test (the rest quiet it: tests/conftest.py)"]
 
 [tool.ruff]
 line-length = 110

@@ -1,55 +1,38 @@
-"""Memory (lasting, shared by every app, always whole in context) and session memory (one session's)."""
+"""Session memory: one chat's own, always whole in its context. Lasting facts (every app's) went in 0.30: her
+long-term memory (test_recall.py) carries what lasts."""
 
 import json
 import sqlite3
 
-import pytest
 from conftest import turn
 
 from sentientmilk_framework import context
 from sentientmilk_framework.store import Store
 from sentientmilk_framework.testing import tool_call
-from sentientmilk_framework.toolkits import ToolContext, ToolError
-from sentientmilk_framework.toolkits import memory as memory_kit
+from sentientmilk_framework.toolkits.memory import is_session_call
 
 
 def system(brain, index=-1):
     return brain.provider.sent[index]["messages"][0]["content"]
 
 
-def test_every_app_sees_all_memory_whole_without_asking_for_it(brain):
+def test_every_app_has_the_chats_memory_and_no_lasting_memory_in_its_prompt(brain):
     brain.client.declare_app("bare", name="Bare", environment="No toolkits.", toolkits=[])
-    for n in range(40):  # far past the old 8,000 characters, after which only the categories went in
-        brain.store.remember("milk", "projects", f"project_{n}", f"Project {n} is about " + "x" * 300)
-    brain.store.remember("bare", "user", "name", "Tester")
+    brain.store.remember("milk", "user", "name", "Tester")  # a fact kept before 0.30: long-term memory's now
     brain.provider.replies += ["Hi."]
     turn(brain, "bare", "hello")
-    shown = system(brain)
-    assert "## YOUR MEMORY" in shown and "- name: Tester" in shown and "- name: Tester [" not in shown
-    assert all(f"- project_{n}: Project {n} is about" in shown for n in range(40))
-    assert "- project_0: Project 0 is about " + "x" * 300 + " [milk]" in shown  # saved by another app
-    toolset = brain.brain.toolset(brain.brain.profile("bare", "main"), "turn")
-    assert set(toolset.by_name) >= {"memory_save", "memory_forget"}  # every app has its tools
-    assert not {"memory_list", "memory_get", "session_memory_save"} & set(toolset.by_name)  # it is all in context
-
-
-def test_a_fact_one_app_saves_another_app_knows(brain):
-    brain.provider.replies += [tool_call("memory_save", {"category": "user", "key": "job", "value": "a nurse"}),
-                               "Noted."]
-    turn(brain, "milk", "I work as a nurse")
-    assert brain.client.memory() == {"user": {"job": "a nurse"}}
-    assert brain.client.memory_entries()[0]["app"] == "milk"
-    brain.provider.replies += ["Hello."]
-    turn(brain, "cli", "hi")
-    assert "- job: a nurse [milk]" in system(brain)
+    assert "YOUR MEMORY" not in system(brain) and "Tester" not in system(brain) and "RECENT NOTES" not in system(brain)
+    profile = brain.brain.profile("bare", "main")
+    assert set(brain.brain.toolset(profile, "turn").by_name) >= {"memory_save", "memory_forget"}
+    assert not {"memory_save", "memory_forget", "journal_search"} & set(brain.brain.toolset(profile, "agent").by_name)
 
 
 def test_session_memory_stays_in_its_session_through_compaction(brain):
-    save = {"key": "reply_language", "value": "English only in this chat.", "scope": "session"}
+    save = {"key": "reply_language", "value": "English only in this chat."}
     brain.provider.replies += [tool_call("memory_save", save), "Sure."]
     result = turn(brain, "cli", "answer in English here")
     ended = [e for e in result["events"] if e["type"] == "tool.end"]
-    assert ended[0]["result"] == "Remembered for this session: reply_language: English only in this chat."
+    assert ended[0]["result"] == "Remembered for this chat: reply_language: English only in this chat."
     assert brain.client.session("cli", "main")["session_memory"] == {"reply_language": "English only in this chat."}
     assert brain.client.session("cli", "other")["session_memory"] == {}
     brain.provider.replies += ["Earlier work.", "Still English."]
@@ -61,25 +44,20 @@ def test_session_memory_stays_in_its_session_through_compaction(brain):
     assert "reply_language" not in system(brain)
 
 
-def test_agents_and_tasks_follow_the_chat_memory_but_do_not_change_it(brain):
+def test_agents_and_tasks_follow_the_chat_memory(brain):
     brain.store.update_session("cli", "main", "state", lambda s: {**s, "session_memory": {"no_push": "Never push."}})
     profile = brain.brain.profile("cli", "agent-1", {"from_session": "main"})
     taken = context.snapshot(brain.store, profile)
     assert taken["session_memory"].startswith("The memory of the session you work for")
     assert "- no_push: Never push." in taken["session_memory"]
-    run = brain.store.run(brain.store.add_run("cli", "agent-1", "agent", {}, status="working"))
-    ctx = ToolContext(brain.brain, run, profile, "call-1")
-    with pytest.raises(ToolError, match="Only the session's own turns"):
-        memory_kit.memory_save.func(ctx, "no_push", "Push away.", scope="session")
-    assert memory_kit.memory_save.func(ctx, "job", "a nurse", "user") == "Remembered user/job for every app and chat."
 
 
 def test_a_return_puts_the_chat_memory_back_as_it_was(brain):
-    brain.provider.replies += [tool_call("memory_save", {"key": "server", "value": "staging", "scope": "session"}), "Ok."]
+    brain.provider.replies += [tool_call("memory_save", {"key": "server", "value": "staging"}), "Ok."]
     turn(brain, "cli", "use staging")
-    brain.provider.replies += [tool_call("memory_save", {"key": "server", "value": "production", "scope": "session"}, "c2"),
-                               tool_call("memory_save", {"key": "no_push", "value": "Never push.", "scope": "session"}, "c3"),
-                               tool_call("memory_forget", {"key": "server", "scope": "session"}, "c4"), "Done."]
+    brain.provider.replies += [tool_call("memory_save", {"key": "server", "value": "production"}, "c2"),
+                               tool_call("memory_save", {"key": "no_push", "value": "Never push."}, "c3"),
+                               tool_call("memory_forget", {"key": "server"}, "c4"), "Done."]
     turn(brain, "cli", "switch to production, never push, then drop the server")
     assert brain.client.session("cli", "main")["session_memory"] == {"no_push": "Never push."}
     target = [e for e in brain.client.history("cli", "main") if e["role"] == "user"][1]
@@ -92,17 +70,21 @@ def test_a_return_puts_the_chat_memory_back_as_it_was(brain):
     assert "- server: staging" in system(brain) and "no_push" not in system(brain)
 
 
-def test_what_the_user_forgets_leaves_every_system_block_at_once(brain):
-    brain.store.remember("milk", "user", "pet", "a cat named Biscuit")
+def test_a_logged_save_of_lasting_memory_is_not_the_chats():
+    assert is_session_call({"name": "memory_save", "arguments": {"key": "k", "value": "v"}})
+    assert is_session_call({"name": "memory_forget", "arguments": {"key": "k", "scope": "session"}})
+    assert not is_session_call({"name": "memory_save", "arguments": {"key": "k", "scope": "everywhere"}})  # before 0.30
+
+
+def test_what_the_user_forgets_leaves_the_system_block_at_once(brain):
     brain.store.update_session("cli", "main", "state", lambda s: {**s, "session_memory": {"tone": "Be brief."}})
     brain.provider.replies += ["Hi.", "Hi again."]
     turn(brain, "cli", "hi")
-    assert "Biscuit" in system(brain) and "Be brief." in system(brain)
-    brain.client.forget("user", "pet")
+    assert "Be brief." in system(brain)
     brain.client.forget_session_memory("cli", "main", "tone")
     turn(brain, "cli", "hi")
-    assert "Biscuit" not in system(brain) and "Be brief." not in system(brain)
-    assert brain.client.memory() == {} and brain.client.session("cli", "main")["session_memory"] == {}
+    assert "Be brief." not in system(brain)
+    assert brain.client.session("cli", "main")["session_memory"] == {}
 
 
 def test_memory_kept_per_app_before_becomes_shared_once(tmp_path):
@@ -122,41 +104,12 @@ def test_memory_kept_per_app_before_becomes_shared_once(tmp_path):
     db.commit()
     db.close()
     store = Store(path)
-    assert store.memories() == {"projects": {"bot": "A trading bot."}, "user": {"name": "Illia S"}}  # newest wins
-    assert [e["app"] for e in store.memory_entries()] == ["milkchan", "cli"]
+    entries = store.memory_entries()
+    assert [(e["category"], e["key"], e["value"], e["app"]) for e in entries] == [
+        ("projects", "bot", "A trading bot.", "milkchan"), ("user", "name", "Illia S", "cli")]  # newest wins
     assert store.session("milkchan", "main")["state"] == {"todo": []}  # its old snapshot is taken again
     Store(path)  # once: a second start changes nothing
     assert len(store.memory_entries()) == 2
-
-
-def flat(payload) -> str:
-    """Everything a request said after the system block, as text."""
-    return json.dumps(payload["messages"][1:], ensure_ascii=False)
-
-
-def test_a_chat_left_open_hears_what_another_chat_saved_since(brain):
-    brain.provider.replies += ["Hi."]
-    turn(brain, "milk", "hello", session="old")  # open since yesterday: its snapshot is taken
-    before = system(brain)
-    brain.provider.replies += [tool_call("memory_save", {"category": "user", "key": "cat", "value": "Biscuit"}),
-                               "Noted."]
-    turn(brain, "milk", "my cat is Biscuit")
-    brain.provider.replies += ["Biscuit, yes."]
-    turn(brain, "milk", "what is my cat called?", session="old")
-    assert system(brain) == before  # the cached prefix holds
-    assert "Your memory changed" in flat(brain.provider.sent[-1]) and "- user/cat: Biscuit" in flat(brain.provider.sent[-1])
-    brain.provider.replies += ["Still Biscuit."]
-    turn(brain, "milk", "and again?", session="old")
-    assert flat(brain.provider.sent[-1]).count("Your memory changed") == 1  # once, then it is known
-    brain.provider.replies += [tool_call("memory_forget", {"category": "user", "key": "cat"}, "f"), "Forgot."]
-    turn(brain, "milk", "forget my cat")
-    assert "Your memory changed" not in flat(brain.provider.sent[-1])  # her own changes are no news to her
-    brain.provider.replies += ["Ok."]
-    turn(brain, "cli", "hi")  # another app, newer: Biscuit is gone from its system block already
-    assert "Biscuit" not in system(brain)
-    brain.provider.replies += ["Gone."]
-    turn(brain, "milk", "my cat?", session="old")
-    assert "- forgotten: user/cat" in flat(brain.provider.sent[-1])
 
 
 def agent_for(brain, chat="main", name="helper"):
@@ -171,8 +124,7 @@ def test_what_works_for_a_chat_hears_its_memory_change(brain):
     helper = agent_for(brain)
     brain.provider.replies += ["Working."]
     turn(brain, "cli", "start", session=helper)  # its snapshot: no chat memory yet
-    brain.provider.replies += [tool_call("memory_save", {"key": "no_push", "value": "Never push.", "scope": "session"}),
-                               "Ok."]
+    brain.provider.replies += [tool_call("memory_save", {"key": "no_push", "value": "Never push."}), "Ok."]
     turn(brain, "cli", "never push in this chat")
     notes = [e["text"] for e in brain.store.events("cli", helper) if e["type"] == "note"]
     assert notes == ["The memory of the session you work for changed. Now:\n- no_push: Never push."]
@@ -184,12 +136,3 @@ def test_what_works_for_a_chat_hears_its_memory_change(brain):
                                                  " it is empty now.]"}]
     assert "snapshot" not in brain.store.session("cli", helper)["state"]  # taken again: what went leaves it
     assert len([e for e in brain.store.events("cli", helper) if e["type"] == "note"]) == 1
-
-
-def test_an_agent_between_runs_hears_what_memory_changed(brain):
-    helper = agent_for(brain)
-    profile = brain.brain.profile("cli", helper, {"from_session": "main"})
-    brain.brain.session_snapshot(profile)
-    brain.store.remember("milk", "user", "job", "a nurse")
-    assert "- user/job: a nurse [milk]" in brain.brain.memory_news(profile)
-    assert brain.brain.memory_news(profile) == ""  # told once

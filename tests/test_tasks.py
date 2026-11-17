@@ -66,7 +66,8 @@ def test_a_reviewer_gets_the_tools_of_its_task(brain):
     reviewer = brain.store.runs(kind="subagent")[0]
     profile = brain.brain.profile(reviewer["app"], reviewer["session"], reviewer["options"]["profile"])
     names = set(brain.brain.toolset(profile, "subagent").by_name)
-    assert {"files_read", "files_write", "files_edit", "shell_run", "memory_save", "todo_write"} <= names
+    assert {"files_read", "files_write", "files_edit", "shell_run", "todo_write"} <= names
+    assert "memory_save" not in names  # the chat's memory is its own turns' to change
 
 
 def test_a_reviewer_asks_for_approval_like_its_task(brain):
@@ -202,30 +203,6 @@ def test_the_brain_runs_the_schedules_of_an_app_that_does_not_call_back(brain):
                                  and r["status"] == "completed"), None))
     assert run["result"]["reply"] == "Summary written."
     assert [o["status"] for o in brain.client.scheduled_occurrences("milk")] == ["pending"]  # MilkChan's to run
-
-
-def test_the_journal_keeps_the_20_newest_notes_from_every_app(brain):
-    brain.provider.replies += ['{"expression": "arms_down/smile"}\nHi!', "Done."]
-    turn(brain, "milk", "I adopted a cat named Miso.")
-    brain.brain.journal.write("milk", "main")
-    assert brain.store.notes()[0]["note"] == "Talked with the user."
-    assert "Miso" in brain.provider.journal_requests[0]["messages"][1]["content"]
-    brain.store.update_session("cli", "main", "state", lambda state: {})
-    turn(brain, "cli", "hello")
-    system = brain.provider.sent[-1]["messages"][0]["content"]
-    assert "RECENT NOTES FROM YOUR OTHER SESSIONS" in system and "milk] Talked with the user." in system
-    for index in range(100):  # past 20 the oldest go, the first note too
-        brain.store.add_note("cli", "main", f"{index:04d} " + "z" * 295)
-    notes = brain.store.notes()
-    assert len(notes) == 20 and notes[0]["note"].startswith("0099") and notes[-1]["note"].startswith("0080")
-
-
-def test_an_app_can_keep_its_sessions_out_of_the_journal(brain):
-    brain.client.update_app("milk", journal={"write": False})
-    brain.provider.replies.append('{"expression": "arms_down/smile"}\nHi!')
-    turn(brain, "milk", "secret stuff")
-    brain.brain.journal.write("milk", "main")
-    assert brain.store.notes() == [] and brain.provider.journal_requests == []
 
 
 def test_a_task_waiting_for_approval_says_what_it_waits_for(brain):

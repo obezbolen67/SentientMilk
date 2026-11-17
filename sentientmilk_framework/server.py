@@ -264,15 +264,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, brain.browser.status())
         elif route == ["browser", "connect"] and method == "POST":  # the extension's page in the user's Chrome
             self._send(200, brain.browser.connect_chrome())
-        elif route == ["journal"] and method == "GET":
-            self._send(200, {"notes": brain.store.notes(query.get("q", ""), _number(query.get("limit", 200), "limit"))})
-        elif route == ["memory"] and method == "GET":
-            self._send(200, {"entries": brain.store.memory_entries()})
-        elif head == "memory" and len(rest) == 2 and method == "DELETE":
-            found = brain.forget_memory(rest[0], rest[1])
-            self._send(200 if found else 404, {"status": "ok" if found else "not found"})
-        elif head == "journal" and len(rest) == 1 and method == "DELETE":
-            self._send(200 if brain.store.delete_note(_number(rest[0], "note id")) else 404, {"status": "ok"})
         elif head == "jobs" and len(rest) == 1 and method == "GET":
             job = brain.store.job(_number(rest[0], "job id"))
             if not job:
@@ -299,8 +290,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, brain.app_info(app))
         elif rest == ["settings"] and method == "PATCH":
             self._send(200, brain.update_app_settings(app, body))
-        elif rest == ["summaries"] and method == "POST":
-            self._send(200, brain.summaries.sweep(app))
         elif rest == ["sessions"] and method == "GET":
             self._send(200, {"sessions": brain.store.sessions(app)})
         elif rest == ['scheduled'] and method == 'GET':
@@ -345,12 +334,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200 if found else 404, {"status": "ok" if found else "not found"})
         elif rest == ["compact"] and method == "POST":
             self._send(200, brain.runs.compact(app, session))
-        elif rest == ["summary"] and method == "POST":
-            self._send(200, brain.summaries.ask(app, session))
         elif rest == ["history"] and method == "GET":
             self._send(200, {"history": brain.history(app, session, tools=query.get("tools") in ("1", "true"))})
         elif rest == ["history"] and method == "DELETE":
             brain.store.clear_session(app, session)
+            brain.recall.forget_from(app, session, 0)  # what was said goes for good; her mind's memories stay
             self._send(200, {"status": "ok"})
         elif rest == ["rewind"] and method in ("GET", "POST"):
             if method == "POST" and set(body) - {"to"}:

@@ -85,16 +85,9 @@ def find_session(brain, app: str, ref: str) -> dict:
 
 
 def summary(brain, app: str, session: str) -> str:
-    """The newest of its journal note and its compaction summary; '' while it has neither."""
-    note = next(iter(brain.store.notes(limit=1, app=app, session=session)), None)
+    """Its compaction summary; '' while it has none."""
     compaction = brain.store.last_compaction(app, session)
-    picks = ([(note["at"], note["note"])] if note else []) + ([(compaction["at"], compaction["summary"])]
-                                                             if compaction and compaction.get("summary") else [])
-    return max(picks)[1] if picks else ""
-
-
-def journal_notes(brain, app: str, session: str) -> List[dict]:
-    return brain.store.notes(app=app, session=session)
+    return (compaction or {}).get("summary") or ""
 
 
 def turns(brain, app: str, session: str) -> List[List[dict]]:

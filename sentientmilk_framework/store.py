@@ -84,7 +84,6 @@ CREATE INDEX IF NOT EXISTS file_versions_by_chat ON file_versions(app, chat);
 """
 NOTIFICATION_DAYS = 7
 NOTIFICATIONS_PER_APP = 1000
-JOURNAL_NOTES = 20  # the user (2026-11-11): the newest 20 stay, older ones are deleted
 PREVIEW_CHARS = 120  # of a session's first message, shown until it has a title
 
 
@@ -294,8 +293,15 @@ class Store:
         return value
 
     def clear_session(self, app: str, session: str) -> None:
+        """Its history and state go; a ``rewound`` mark keeps its last event id, as a return to a message does
+        (SQLite gives a deleted top id out again, and her long-term memory takes in only ids past what it saw)."""
         with self._db() as db:
+            first, last = db.execute("SELECT MIN(id), MAX(id) FROM events WHERE app = ? AND session = ?",
+                                     (app, session)).fetchone()
             db.execute("DELETE FROM events WHERE app = ? AND session = ?", (app, session))
+            if last is not None:
+                db.execute("INSERT INTO events(id, app, session, run, at, type, data) VALUES (?, ?, ?, NULL, ?, "
+                           "'rewound', ?)", (last, app, session, time.time(), dump({"to": first})))
             db.execute("UPDATE sessions SET state = '{}' WHERE app = ? AND id = ?", (app, session))
             db.execute("DELETE FROM file_versions WHERE app = ? AND chat = ?", (app, session))
 
@@ -370,14 +376,6 @@ class Store:
         with self._db() as db:
             return [_event(row) for row in db.execute(query + " ORDER BY id", params)]
 
-    def events_since(self, app: str, session: str, event: int, at: float) -> List[dict]:
-        """The session's events after ``event``, and any after time ``at``: SQLite gives an id out again once
-        the newest events were deleted (a return to an earlier message), and those come later in time."""
-        with self._db() as db:
-            return [_event(row) for row in db.execute(
-                f"SELECT {_EVENT_COLUMNS} FROM events WHERE app = ? AND session = ? AND (id > ? OR at > ?) "
-                "ORDER BY id", (app, session, event, at))]
-
     def event(self, event: int) -> Optional[dict]:
         with self._db() as db:
             row = db.execute(f"SELECT {_EVENT_COLUMNS} FROM events WHERE id = ?", (event,)).fetchone()
@@ -414,12 +412,6 @@ class Store:
             row = db.execute(f"SELECT {_EVENT_COLUMNS} FROM events WHERE app = ? AND session = ? AND "
                              "type = 'compaction' ORDER BY id DESC LIMIT 1", (app, session)).fetchone()
         return _event(row) if row else None
-
-    def quiet_sessions(self, before: float) -> List[tuple]:
-        """(app, session, last event id) of sessions whose last event is older than ``before``."""
-        with self._db() as db:
-            return db.execute("SELECT app, session, MAX(id) FROM events GROUP BY app, session "
-                              "HAVING MAX(at) < ?", (before,)).fetchall()
 
     # ============== Runs ==============
 
@@ -726,56 +718,34 @@ class Store:
         with self._db() as db:
             return db.execute("SELECT COALESCE(MAX(id), 0) FROM notifications WHERE app = ?", (app,)).fetchone()[0]
 
-    # ============== Memory (shared by every app) ==============
+    # ============== What was kept before 0.30 ==============
+    # Lasting facts (``memory``, with ``memory_revisions``) and journal notes, kept as they were when her
+    # long-term memory and her mind became her memory: recall.py takes them in and finds them by meaning.
+    # Nothing writes them now but an app's import of what it kept before it used the brain.
 
-    def remember(self, app: str, category: str, key: str, value: Any, *, replace: bool = True,
-                 why: str = "replaced") -> None:
-        """Keep a lasting fact for every app; ``app`` is the one that saved it. A value it replaces is kept in
-        memory_revisions, with ``why``."""
-        verb = "INSERT OR REPLACE" if replace else "INSERT OR IGNORE"
+    def remember(self, app: str, category: str, key: str, value: Any) -> None:
+        """A fact an app kept before it used the brain (Brain.import_history); one already kept stays."""
         with self._db() as db:
-            if replace:
-                self._revise(db, category, key, dump(value), why)
-            db.execute(f"{verb} INTO memory(app, category, key, value, updated) VALUES (?, ?, ?, ?, ?)",
+            db.execute("INSERT OR IGNORE INTO memory(app, category, key, value, updated) VALUES (?, ?, ?, ?, ?)",
                        (app, category, key, dump(value), time.time()))
 
-    def forget(self, category: str, key: str, why: str = "forgotten") -> bool:
-        with self._db() as db:
-            self._revise(db, category, key, None, why)
-            return db.execute("DELETE FROM memory WHERE category = ? AND key = ?", (category, key)).rowcount > 0
-
-    @staticmethod
-    def _revise(db, category: str, key: str, new: Optional[str], why: str) -> None:
-        """The value of category/key as it was, kept before it changes (``new``: the value it becomes)."""
-        old = db.execute("SELECT app, value FROM memory WHERE category = ? AND key = ?", (category, key)).fetchone()
-        if old and old[1] != new:
-            db.execute("INSERT INTO memory_revisions(at, app, category, key, value, why) VALUES (?, ?, ?, ?, ?, ?)",
-                       (time.time(), old[0], category, key, old[1], why))
-
-    def revisions(self, limit: int = -1) -> List[dict]:
-        """Memory values replaced or forgotten, the newest first."""
-        with self._db() as db:
-            rows = db.execute("SELECT at, app, category, key, value, why FROM memory_revisions ORDER BY id DESC "
-                              "LIMIT ?", (limit,)).fetchall()
-        return [{"at": at, "app": a, "category": c, "key": k, "value": json.loads(v), "why": w}
-                for at, a, c, k, v, w in rows]
-
     def memory_entries(self) -> List[dict]:
-        """Every entry: ``category``, ``key``, ``value``, ``app`` (the one that saved it) and ``updated``."""
+        """Every fact: ``category``, ``key``, ``value``, ``app`` (the one that saved it) and ``updated``."""
         with self._db() as db:
             rows = db.execute("SELECT category, key, value, app, updated FROM memory ORDER BY category, key").fetchall()
         return [{"category": c, "key": k, "value": json.loads(v), "app": a, "updated": u} for c, k, v, a, u in rows]
 
-    def memories(self) -> Dict[str, Dict[str, Any]]:
-        """Every entry as {category: {key: value}}."""
-        result: Dict[str, Dict[str, Any]] = {}
-        for entry in self.memory_entries():
-            result.setdefault(entry["category"], {})[entry["key"]] = entry["value"]
-        return result
+    def notes(self) -> List[dict]:
+        """Every journal note, newest first."""
+        with self._db() as db:
+            rows = db.execute("SELECT id, at, app, session, note FROM journal ORDER BY at DESC, id DESC").fetchall()
+        return [{"id": i, "at": at, "app": a, "session": s, "note": n} for i, at, a, s, n in rows]
+
+    # ============== Sessions' memory ==============
 
     def drop_snapshots(self, app: Optional[str] = None, sessions: Iterable[str] = ()) -> None:
-        """Sessions take a new snapshot of memory at their next request (a running one at its next step):
-        after the user changed memory, what they removed must not linger in a system block until the next
+        """Sessions take a new snapshot of their memory at their next request (a running one at its next step):
+        after the user changed it, what they removed must not linger in a system block until the next
         compaction. Every session, or with ``app``, those ``sessions`` of it."""
         query, params = ("UPDATE sessions SET state = json_remove(state, '$.snapshot') "
                          "WHERE json_extract(state, '$.snapshot') IS NOT NULL"), []
@@ -786,36 +756,7 @@ class Store:
         with self._db() as db:
             db.execute(query, params)
 
-    # ============== Journal (shared by every app) ==============
-
-    def add_note(self, app: str, session: str, note: str, at: Optional[float] = None) -> int:
-        with self._db() as db:
-            note_id = db.execute("INSERT INTO journal(at, app, session, note) VALUES (?, ?, ?, ?)",
-                                 (time.time() if at is None else at, app, session, note)).lastrowid
-            db.execute("DELETE FROM journal WHERE id NOT IN "
-                       "(SELECT id FROM journal ORDER BY at DESC, id DESC LIMIT ?)", (JOURNAL_NOTES,))
-            return note_id
-
     def last_events(self) -> Dict[Tuple[str, str], int]:
         """The newest event id of every session: what her long-term memory has yet to take in (recall.py)."""
         with self._db() as db:
             return {(a, s): i for a, s, i in db.execute("SELECT app, session, MAX(id) FROM events GROUP BY app, session")}
-
-    def notes(self, query: str = "", limit: int = -1, app: Optional[str] = None,
-              session: Optional[str] = None) -> List[dict]:
-        """Journal notes, newest first (``limit`` -1: all of them), of one session when given."""
-        where, params = [], []
-        if query:
-            where.append("note LIKE ? ESCAPE '\\'")
-            params.append("%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
-        if app is not None and session is not None:
-            where.append("app = ? AND session = ?")
-            params += [app, session]
-        sql = "SELECT id, at, app, session, note FROM journal" + (" WHERE " + " AND ".join(where) if where else "")
-        with self._db() as db:
-            rows = db.execute(sql + " ORDER BY at DESC, id DESC LIMIT ?", params + [limit]).fetchall()
-        return [{"id": i, "at": at, "app": a, "session": s, "note": n} for i, at, a, s, n in rows]
-
-    def delete_note(self, note: int) -> bool:
-        with self._db() as db:
-            return db.execute("DELETE FROM journal WHERE id = ?", (note,)).rowcount > 0

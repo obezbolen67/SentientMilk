@@ -222,7 +222,6 @@ def builtin() -> Dict[str, Toolkit]:
         continuation,
         files,
         history,
-        journal,
         memory,
         plugins,
         schedule,
@@ -234,6 +233,6 @@ def builtin() -> Dict[str, Toolkit]:
     )
 
     return {kit.TOOLKIT.name: kit.TOOLKIT
-            for kit in (files, shell, web, browser, todo, memory, journal, agents, schedule, plugins, sessions,
+            for kit in (files, shell, web, browser, todo, memory, agents, schedule, plugins, sessions,
                         skills, history, continuation)}
 

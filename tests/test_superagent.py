@@ -59,7 +59,6 @@ def test_the_lead_is_told_it_has_super_agents_and_how_to_start_one(brain, claude
 
 def test_a_super_agent_writes_with_the_users_approval_and_reports_to_the_lead(brain, claude, monkeypatch):
     brain.store.update_session("cli", "main", "state", lambda s: {**s, "session_memory": {"no_push": "Never push."}})
-    brain.store.remember("milk", "preferences", "tests", "Always run the tests before saying done.")
     run = start_super(brain, "Please write out.txt.")
     asked = wait_for(lambda: [n for n in brain.store.notifications("cli") if n["type"] == "agent.input_required"])
     assert asked[0]["data"]["name"] == "coder"
@@ -79,7 +78,6 @@ def test_a_super_agent_writes_with_the_users_approval_and_reports_to_the_lead(br
     appended = claude.started()[0]["appended"]  # in a file: Windows ends a command line at 32k characters
     assert "## THE CHAT'S MEMORY" in appended  # the chat's rules hold for it
     assert "- no_push: Never push." in appended
-    assert "- tests: Always run the tests before saying done. [milk]" in appended
     assert not list(brain.brain.claude.folder.glob("super-*.md"))  # gone once it ended
     assert claude.started()[0]["cwd"] == str(brain.work)
     steps = brain.client.agent(run["id"])["steps"]

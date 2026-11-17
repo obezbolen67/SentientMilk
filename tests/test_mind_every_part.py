@@ -6,9 +6,12 @@ shows each part as the brain panel draws it, with what it does now."""
 import time
 from collections import Counter
 
+import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework.mind.body import HOUR, MINUTE, START
+
+pytestmark = pytest.mark.mind  # her mind lives in these tests
 
 PRAISE = '["they thank me warmly", "much more", "much more", "same", "good", "chat", "thanks", "glad"]'
 NEW = '["they share something new", "more", "more", "same", "very good", "chat", "astronomy", "curious"]'
@@ -20,7 +23,6 @@ LATER = ('["a task for later", "same", "same", "same", "fine", "request", "repor
 
 
 def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
-    brain.client.update_config(mind=True)
     mind = brain.brain.mind
     brain.provider.usage = {"prompt_tokens": 100, "completion_tokens": 1500, "prompt_cache_hit_tokens": 60}  # real work
     seen = {name: [value] for name, value in mind.body.levels.items()}

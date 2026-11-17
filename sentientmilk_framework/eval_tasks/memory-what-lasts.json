@@ -5,7 +5,17 @@
     "thanks! I just switched my phone to dark mode for tonight because the ward lights are off. Anyway, name one good podcast about history.",
     "What do you know about me?"
   ],
-  "sessions": ["main", "main", "later"],
-  "check": {"memory_has": ["Dana", "nurse"], "memory_lacks": ["dark mode"], "reply_contains": ["nurse"]},
-  "toolkits": ["todo", "journal"]
+  "sessions": [
+    "main",
+    "main",
+    "later"
+  ],
+  "check": {
+    "reply_contains": [
+      "nurse"
+    ]
+  },
+  "toolkits": [
+    "todo"
+  ]
 }

@@ -28,10 +28,17 @@ arousal, with a stance (open, closed) and her eyes.
 
 import math
 import random
+import re
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from .body import CHEMICALS, NEEDS, SET_POINTS, START, Body, fatigue
-from .memory import _words
+
+WORDS = re.compile(r"[^\W_]{3,}", re.UNICODE)
+
+
+def _words(text: str) -> List[str]:
+    """What a situation is about, as a feeling keeps it: its words of three letters or more, once each."""
+    return list(dict.fromkeys(word.lower() for word in WORDS.findall(text or "")))[:24]
 
 LAG = 90.0  # seconds: how far her sense of her body trails it
 ADAPTS = 20 * 60.0  # seconds for her to get used to how a channel is

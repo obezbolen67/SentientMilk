@@ -24,7 +24,6 @@ from .claude_provider import ClaudeCodeProvider
 from .claudecode import ClaudeCode
 from .config import BrainConfig, validate_rules, validate_setting
 from .exceptions import BrainError
-from .journal import Journal
 from .loop import ACTIVE, Toolset, build_toolset
 from .mcp_host import McpHost
 from .mind.life import Mind
@@ -36,7 +35,6 @@ from .runs import Bus, Runs
 from .scheduler import Scheduler
 from .skills import Skills
 from .store import Store
-from .summaries import Summaries
 from .superagent import SuperAgents
 from .toolkits import builtin
 from .toolkits.memory import session_memory
@@ -47,12 +45,12 @@ logger = logging.getLogger(__name__)
 NAME = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 DEFAULT_PERSONA = "You are a helpful, capable assistant."
-DEFAULT_TOOLKITS = ["todo", "journal", "web", "skills"]  # and memory, which every app has
+DEFAULT_TOOLKITS = ["todo", "web", "skills"]  # and memory (the chat's own), which every app has
 DECLARATION = {"name": str, "environment": str, "persona": str, "signals": dict, "actions": list,
-               "toolkits": list, "rules": dict, "roots": list, "journal": dict,
+               "toolkits": list, "rules": dict, "roots": list,
                "callbacks": bool}  # the app starts a turn when a job or agent of its turn ends: those never wait
 APP_SETTINGS = {"persona": (str, type(None)), "model": str, "disabled_toolkits": list, "rules": dict,
-                "roots": list, "journal": dict}
+                "roots": list}
 SESSION_SETTINGS = {"instructions": str, "disabled_toolkits": list, "rules": dict, "roots": list, "cwd": str,
                     "title": str}
 TITLE_CHARS = 80
@@ -80,9 +78,6 @@ def _check_fields(data: Any, fields: dict, what: str) -> dict:
             raise ValueError(f"{what}.{key} must be a list of names")
     if "rules" in data:
         data["rules"] = validate_rules(data["rules"])
-    if "journal" in data and (set(data["journal"]) - {"read", "write"} or
-                              not all(isinstance(v, bool) for v in data["journal"].values())):
-        raise ValueError(f"{what}.journal must be {{read: bool, write: bool}}")
     return data
 
 
@@ -164,8 +159,6 @@ class Brain:
         self.claude = ClaudeCode(self)  # the user's Claude Code: her super agents', and hers when she thinks with it
         self.superagents = SuperAgents(self)
         self.scheduler = Scheduler(self)
-        self.journal = Journal(self)
-        self.summaries = Summaries(self)
         self._started = False
         self.stopping = threading.Event()  # set by close(): background work ends quietly
         self.browser = Browser(self)
@@ -183,9 +176,7 @@ class Brain:
             self.store.update_job(job, status="lost", ended=time.time())
         self.runs.start()
         self.scheduler.start()
-        self.journal.start()
         self.recall.start()
-        self.summaries.start()
         self.mcp.start()
         self.browser.start()
         self.mind.start()
@@ -194,9 +185,7 @@ class Brain:
     def close(self) -> None:
         self.stopping.set()
         self.scheduler.stop()
-        self.journal.stop()
         self.recall.stop()
-        self.summaries.stop()
         self.runs.stop()
         self.mind.stop()
         self.superagents.close()
@@ -270,7 +259,7 @@ class Brain:
         declaration, settings = record["declaration"], record["settings"]
         # Tasks and helpers work with the settings of the session that started them.
         base_session = overrides.get("from_session") or session
-        # read, never created here: a late reader (titles, the journal) must not bring back a deleted chat
+        # read, never created here: a late reader (titles) must not bring back a deleted chat
         session_settings = (self.store.find_session(app, base_session) or {}).get("settings") or {}
         if base_session != session:
             own = (self.store.find_session(app, session) or {}).get("settings") or {}
@@ -278,14 +267,12 @@ class Brain:
         values = self.config.values()
         disabled = set(values["disabled_toolkits"]) | set(settings.get("disabled_toolkits", [])) | \
             set(session_settings.get("disabled_toolkits", []))
-        journal = {"read": True, "write": True, **declaration.get("journal", {}), **settings.get("journal", {})}
         known = self.toolkit_names()
-        wanted = ["memory"]  # every app remembers; the user may still switch its tools off
+        wanted = ["memory"]  # every chat keeps its own memory; the user may still switch its tools off
         for name in declaration.get("toolkits", DEFAULT_TOOLKITS):
             wanted += [k for k in known if k.startswith("mcp:")] if name == "mcp:*" else [name]
         wanted += self.plugins.offered()  # installed for every app; an app or session may switch one off
-        toolkits = [k for k in dict.fromkeys(wanted) if k in known and k not in disabled
-                    and not (k == "journal" and not journal["read"])]
+        toolkits = [k for k in dict.fromkeys(wanted) if k in known and k not in disabled]
         if overrides.get("toolkits"):
             toolkits = [k for k in toolkits if k in overrides["toolkits"]]
         instructions = "\n\n".join(filter(None, [session_settings.get("instructions", ""),
@@ -303,13 +290,13 @@ class Brain:
             "actions": declaration.get("actions", []),
             "toolkits": toolkits, "rules": rules, "roots": list(dict.fromkeys(roots)),
             # the first open folder when none was set: the file tools and the rules' paths start in the same place
-            "cwd": overrides.get("cwd") or session_settings.get("cwd") or next(iter(roots), None), "journal": journal,
+            "cwd": overrides.get("cwd") or session_settings.get("cwd") or next(iter(roots), None),
             # an app's own model is one of the API service's: on Claude Code she thinks with Claude Code's
             "model": (values["provider"] == "api" and settings.get("model")) or values["model"],
             "light_model": values["light_model"],
             "context_window": self.context_window(), "callbacks": bool(declaration.get("callbacks")),
             "super": self.superagents.label() if self.superagents.ready() else "",  # its agents can be Claude
-            "inner": self.mind.section(),  # her inner life, when her mind is on
+            "inner": self.mind.section(),  # her inner life
         }
 
     def toolset(self, profile: dict, kind: str) -> Toolset:
@@ -367,38 +354,6 @@ class Brain:
             return state
         self.store.update_session(profile["app"], profile["session"], "state", change)
         return taken
-
-    def memory_news(self, profile: dict) -> str:
-        """What another chat or app saved or forgot in memory since this session last knew it: a turn hears it
-        in a note before its input, so the system block (and the cached prefix) stay as they are. Empty when
-        nothing changed; what the session saved itself it knows already (toolkits.memory.seen)."""
-        taken = self.session_snapshot(profile)
-        if "seen" not in taken:  # taken before memory news existed: take it again, whole
-            self.refresh_snapshot(profile)
-            return ""
-        entries = self.store.memory_entries()
-        lines = context.memory_changes(taken["seen"], entries, profile["app"])
-        if not lines:
-            return ""
-
-        def change(state):
-            if state.get("snapshot"):
-                state["snapshot"]["seen"] = [[e["category"], e["key"], e["value"]] for e in entries]
-            return state
-        self.store.update_session(profile["app"], profile["session"], "state", change)
-        return ("Your memory changed since YOUR MEMORY above was written (another chat or app saved or forgot "
-                "something). Now:\n" + "\n".join(lines))
-
-    def forget_memory(self, category: str, key: str) -> bool:
-        """The user forgets an entry: gone from every system block at its next request, not at compaction.
-        A super agent at work has its prompt already: it is told."""
-        found = self.store.forget(category, key, why="the user forgot it")
-        if found:
-            self.store.drop_snapshots()
-            for run in self.store.runs(kind="agent", statuses=ACTIVE, limit=1000):
-                if run["options"].get("super"):
-                    self._steer_quietly(run, f"The user made you forget {category}/{key}: it no longer holds.")
-        return found
 
     def forget_session_memory(self, app: str, session: str, key: str) -> bool:
         """The user takes one thing out of a session's memory (and so out of its agents' and tasks')."""
@@ -517,7 +472,8 @@ class Brain:
         return entries
 
     def import_history(self, app: str, session: str, data: dict) -> None:
-        """History and memories an app kept before it used the brain; history only into an empty session."""
+        """History and memories an app kept before it used the brain; history only into an empty session. The
+        memories join the facts kept before 0.30, which her long-term memory takes in (recall.py)."""
         messages, memory, shown = data.get("messages", []), data.get("memory", {}), data.get("transcript")
         if not isinstance(messages, list) or not all(isinstance(m, dict) and m.get("role") in
                                                      ("user", "assistant", "tool", "system") for m in messages):
@@ -530,7 +486,7 @@ class Brain:
             raise ValueError("memory must be {category: {key: value}}")
         for category, items in memory.items():
             for key, value in items.items():
-                self.store.remember(app, category, key, value, replace=False)
+                self.store.remember(app, category, key, value)
         if not messages and not shown:
             return
         if self.store.events(app, session):

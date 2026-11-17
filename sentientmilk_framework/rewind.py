@@ -10,7 +10,7 @@ Undone with it:
   started since are deleted, and the schedules she made since are removed.
 
 Not undone, and ``kept`` names those calls: what commands and app actions did, what went out to the web or
-other services, lasting memory (every app's, not the chat's) and the journal. ``preview`` is the dry run of
+other services. ``preview`` is the dry run of
 ``rewind``; both refuse while a run of the chat goes on.
 """
 
@@ -177,7 +177,7 @@ def _todo(store, app: str, session: str, target: dict) -> list:
 
 def _session_memory(store, app: str, session: str, target: dict) -> dict:
     """The chat's memory as the message found it: its saves and forgets before it, in order, and those she made
-    going over the chat (summaries.py) when what she went over came wholly before it."""
+    going over the chat as it ended (summary runs, until 0.30) when what she went over came wholly before it."""
     names = ("memory_save", "memory_forget")
     calls = store.calls(app, session, target["id"], names)
     # shortcut: every summary run of the app is read; keep its chat's runs apart if returns get slow
@@ -187,7 +187,7 @@ def _session_memory(store, app: str, session: str, target: dict) -> dict:
     kept = {}
     for call in sorted(calls, key=lambda call: call["id"]):
         if not is_session_call(call):
-            continue  # lasting memory is every app's: a return keeps it
+            continue  # lasting memory (until 0.30) was every app's: a return kept it
         key = str(call["arguments"].get("key", "")).strip()
         if call["name"] == "memory_save":
             kept[key] = str(call["arguments"].get("value", "")).strip()

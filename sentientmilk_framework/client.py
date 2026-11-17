@@ -148,9 +148,8 @@ class BrainClient:
 
     def mind(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False,
              locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
-        """How she is now (mind/): ``on``, ``asleep``, ``felt`` (in words), ``feeling`` (a few words for it),
-        ``face`` for ``app`` (``mood`` of its declared ones, ``stance``, ``eyes``, ``asleep``; None when her mind
-        is off), ``levels``, ``feelings``, ``thoughts``, ``concerns``, ``likes``, ``dislikes``. ``idle``: seconds since the
+        """How she is now (mind/): ``asleep``, ``felt`` (in words), ``feeling`` (a few words for it), ``face`` for
+        ``app`` (``mood`` of its declared ones, ``stance``, ``eyes``, ``asleep``), ``levels``, ``feelings``, ``thoughts``, ``concerns``, ``likes``, ``dislikes``. ``idle``: seconds since the
         user last touched the computer (whether they are there, for her); asking also tells her ``app`` is there
         to hear her. ``brief``: only what a face needs, for frequent looks. ``locked``: the screen is locked;
         ``busy``: something fullscreen has the user (None: the app cannot tell)."""
@@ -173,20 +172,8 @@ class BrainClient:
     def app(self, app: str) -> dict:
         return self._call("GET", f"/apps/{app}")
 
-    def memory(self) -> Dict[str, Dict[str, Any]]:
-        """What the brain remembers for every app, {category: {key: value}}; ``memory_entries`` says which app
-        saved each. A session's own memory is ``session(app, id)["session_memory"]``."""
-        result: Dict[str, Dict[str, Any]] = {}
-        for entry in self.memory_entries():
-            result.setdefault(entry["category"], {})[entry["key"]] = entry["value"]
-        return result
-
-    def memory_entries(self) -> List[dict]:
-        """Every memory entry: category, key, value, app (the one that saved it) and updated."""
-        return self._call("GET", "/memory")["entries"]
-
     def update_app(self, app: str, **settings: Any) -> dict:
-        """The user's settings for an app: persona ("" resets), model, rules, disabled_toolkits, roots, journal."""
+        """The user's settings for an app: persona ("" resets), model, rules, disabled_toolkits, roots."""
         return self._call("PATCH", f"/apps/{app}/settings", settings)
 
     def sessions(self, app: str) -> List[dict]:
@@ -223,17 +210,6 @@ class BrainClient:
     def mention_card(self, app: str, kind: str, ref: str, session: str = "main") -> str:
         """The card the brain reads for a mention: what a picker shows as its preview."""
         return self._call("GET", f"/apps/{app}/mentions/{kind}", params={"ref": ref, "session": session})["card"]
-
-    def summarize_session(self, app: str, session: str) -> dict:
-        """The session ended: she goes over what is new in it in the background, and keeps what matters in her
-        memory (memory_save). ``queued``: there was enough new for that; ``messages``: the user's since the
-        last time. Nothing shows in the session."""
-        return self._call("POST", f"/apps/{app}/sessions/{session}/summary", {})
-
-    def summarize_sessions(self, app: str) -> dict:
-        """At an app's start: she goes over each of its conversations with enough new in it (``queued``: their
-        ids), one at a time, after the turns going on."""
-        return self._call("POST", f"/apps/{app}/summaries", {})
 
     def compact_session(self, app: str, session: str) -> dict:
         """Sum up the whole session now: ``compacted`` (False when there was nothing to sum up), and the
@@ -393,7 +369,7 @@ class BrainClient:
         """Notifications for an app (tasks, jobs, schedules), from ``after`` on, then live."""
         return self._stream("GET", "/events", params={"app": app, "after": after})
 
-    # ============== Schedules, toolkits, journal ==============
+    # ============== Schedules and toolkits ==============
 
     def schedules(self, app: Optional[str] = None) -> List[dict]:
         return self._call("GET", "/schedules", params={"app": app} if app else None)["schedules"]
@@ -477,16 +453,6 @@ class BrainClient:
         Chrome first: ``chrome.folder`` of browser(), with Load unpacked). browser() once that Chrome connected,
         or 15 s went by; ``chrome.took``: whether it did."""
         return self._call("POST", "/browser/connect", timeout=30)
-
-    def journal(self, query: str = "") -> List[dict]:
-        return self._call("GET", "/journal", params={"q": query} if query else None)["notes"]
-
-    def delete_note(self, note: int) -> None:
-        self._call("DELETE", f"/journal/{note}")
-
-    def forget(self, category: str, key: str) -> None:
-        """Forget a memory entry in every app; sessions see it gone at their next request."""
-        self._call("DELETE", f"/memory/{quote(category, safe='')}/{quote(key, safe='')}")
 
     def forget_session_memory(self, app: str, session: str, key: str) -> None:
         """Take one thing out of a session's memory."""

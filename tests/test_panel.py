@@ -1,8 +1,9 @@
 import asyncio
 import time
 
+import pytest
 from conftest import wait_for
-from textual.widgets import Button, DataTable, Input, OptionList, Select, SelectionList, Switch, TextArea
+from textual.widgets import Button, DataTable, Input, OptionList, Select, SelectionList, TextArea
 
 from sentientmilk_framework.panel import Panel
 
@@ -97,9 +98,7 @@ def test_she_can_think_with_claude_code_chosen_in_the_panel(brain):
     assert {k: v for k, v in brain.client.config().items() if k in service} == service
 
 
-def test_apps_get_their_persona_and_toolkits_and_memory_is_forgotten_in_its_tab(brain):
-    brain.store.remember("milk", "user facts", "favourite colour", "green")
-
+def test_apps_get_their_persona_and_toolkits(brain):
     async def scenario(panel, pilot):
         panel.action_tab("apps")
         await until(pilot, lambda: panel.app_id is not None)
@@ -109,18 +108,11 @@ def test_apps_get_their_persona_and_toolkits_and_memory_is_forgotten_in_its_tab(
         await press(pilot, panel, "persona-save")
         panel.query_one("#app-toolkits", SelectionList).deselect("web")
         await press(pilot, panel, "app-save")
-        panel.action_tab("journal")  # memory is every app's: it has its own tab, with the journal
-        await until(pilot, lambda: panel.query_one("#memory", DataTable).row_count == 1)
-        assert panel.query_one("#summaries", Switch).value  # she goes over conversations as they end
-        panel.query_one("#summaries", Switch).value = False
-        await until(pilot, lambda: not brain.client.config()["session_summaries"])
-        await press(pilot, panel, "memory-forget")
-        await press(pilot, panel, "yes")
+        assert not panel.query("#app-journal-read")  # the journal went in 0.30
     run(brain, scenario)
     milk = brain.client.app("milk")
     assert milk["persona"] == "You are a calm milk carton." and milk["persona_custom"]
     assert "web" not in milk["toolkits"] and "memory" in milk["toolkits"]
-    assert brain.store.memories() == {}
 
 
 def test_schedules_are_paused_and_deleted_after_asking(brain):
@@ -262,8 +254,8 @@ def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
     panel.show_task()
 
 
-def test_her_mind_shows_in_its_tab_and_is_switched_there(brain):
-    brain.client.update_config(mind=True)
+@pytest.mark.mind
+def test_her_mind_shows_in_its_tab(brain):
     brain.brain.mind.self["thoughts"] = [{"at": time.time(), "kind": "wonder", "thought": "Clouds are odd.",
                                           "want": "nothing"}]
 
@@ -274,15 +266,13 @@ def test_her_mind_shows_in_its_tab_and_is_switched_there(brain):
         assert "energy" in str(panel.query_one("#mind-body").render())
         assert "Clouds are odd." in str(panel.query_one("#mind-thoughts").render())
         assert "Likes" in str(panel.query_one("#mind-self").render())
-        panel.query_one("#mind-on", Switch).value = False
-        await until(pilot, lambda: not brain.client.config()["mind"])
-        await until(pilot, lambda: "Her mind is off." in str(panel.query_one("#mind-now").render()))
+        assert not panel.query("#mind-on")  # always on: there is no switch
     run(brain, scenario)
 
 
 def test_where_her_long_term_memory_is_embedded_is_set_in_the_memory_tab(brain):
     async def scenario(panel, pilot):
-        panel.action_tab("journal")
+        panel.action_tab("memory")
         await until(pilot, lambda: "memories embedded" in str(panel.query_one("#e-status").render()))
         assert "sent to https://openrouter.ai/api/v1" in str(panel.query_one("#e-status").render())
         panel.query_one("#e-model", Input).value = "google/gemini-embedding-2"
@@ -291,9 +281,7 @@ def test_where_her_long_term_memory_is_embedded_is_set_in_the_memory_tab(brain):
         await press(pilot, panel, "e-save")
         await until(pilot, lambda: brain.client.config()["embeddings_model"] == "google/gemini-embedding-2")
         assert panel.query_one("#e-key", Input).value == ""  # never shown again
-        panel.query_one("#e-mode", Select).value = "off"
-        await press(pilot, panel, "e-save")
-        await until(pilot, lambda: "by words only" in str(panel.query_one("#e-status").render()))
+        assert not panel.query("#e-mode")  # always on: there is no off
     run(brain, scenario)
     config = brain.client.config()
-    assert config["embeddings"] == "off" and config["embeddings_api_key_set"] and config["embeddings_dimensions"] == 768
+    assert "embeddings" not in config and config["embeddings_api_key_set"] and config["embeddings_dimensions"] == 768

@@ -196,8 +196,6 @@ def build_toolset(kits: dict, profile: dict, kind: str, shell: str, origins: Opt
                           action=True, only_in=("turn", "agent")))  # the app runs those of a live turn and of agents
     tools = [t for t in tools
              if (t.only_in is None or kind in t.only_in) and not permissions.removed(t.name, profile["rules"])]
-    if kind == "summary":  # she goes over a conversation and keeps what matters: nothing else (summaries.py)
-        tools = [t for t in tools if t.name == "memory_save"]
     if kind in ("task", "agent"):
         tools.append(task_progress)  # every worker keeps notes that outlive its context
     unique = list({t.name: t for t in tools}.values())
@@ -273,10 +271,6 @@ class Loop:
             toolset, plugins = brain.toolset(profile, run["kind"]), brain.plugins.version
             if run["kind"] == "turn":
                 self._tool_news(run, profile, toolset)
-            if run["kind"] in ("turn", "agent"):  # an agent's session lives on between its runs, like a chat
-                news = brain.memory_news(profile)
-                if news:
-                    brain.note(run["app"], run["session"], news)
             self.brain.runs.log_input(run, profile, emit)
             while True:
                 run = store.run(run_id)
@@ -403,8 +397,6 @@ class Loop:
             decision = permissions.decide(tool_, shown, profile["rules"], profile.get("cwd"))
             must_ask = decision == "always"  # an "always allow" is this once, and apps may not answer for the user
             decision = "ask" if must_ask else decision
-            if decision == "ask" and run["kind"] == "summary":  # nobody is there to answer
-                decision = "off"
             if decision == "off":
                 self._result(run, call, name, arguments,
                              ToolResult(f"Refused: {name} is not allowed here{' for these arguments' if tool_.rule_arg else ''}."),
@@ -724,7 +716,6 @@ class Loop:
             "summary": summary, "upto": upto, 'checkpoint': {'event': saved, 'summary': record['summary']}})
         brain.refresh_snapshot(profile)
         self._context(run, profile)
-        brain.journal.request(app, session)
         self.brain.runs.emitter(run["id"])({"type": "compacted"})
         return True
 

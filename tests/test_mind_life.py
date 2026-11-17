@@ -1,6 +1,6 @@
 """Her mind in the brain: a message is felt and leaned on, what she does is hers and is what she learns from,
-an outcome is remembered, thoughts become urges the app hears, sleep goes over the day, and the switch turns
-it all off."""
+an outcome is remembered, thoughts become urges the app hears, sleep goes over the day; and she is always there
+(0.30: there is no switch)."""
 
 import json
 import math
@@ -12,6 +12,8 @@ from conftest import turn, wait_for
 from sentientmilk_framework.mind import life
 from sentientmilk_framework.testing import tool_call
 
+pytestmark = pytest.mark.mind  # her mind lives in these tests
+
 DECLINE = '[0.5, 0.5, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0]]'
 LATER = '[0.5, 0.5, 0.4, "request", "report", "tired", ["later", "the weekly report", 0.8, 0.7, 0.1]]'
 INSULT = '[0.2, 0.2, 0.5, "chat", "insult", "hurt", ["talk", "answer it", 0.2, 0.6, 1]]'
@@ -21,7 +23,6 @@ LAUGH = '[0.9, 0.7, 0.6, "chat", "laughing", "glad", ["talk", "laugh too", 0.1, 
 
 
 def mind_on(brain):
-    brain.client.update_config(mind=True)
     return brain.brain.mind
 
 
@@ -421,16 +422,15 @@ def test_a_long_time_away_she_lived_by_her_body_and_goes_over_the_night_when_she
 def test_her_face_for_an_app_is_one_of_its_own_expressions(brain):
     mind_on(brain)
     state = brain.client.mind("milk", idle=2)
-    assert state["on"] and state["face"]["mood"] in ("neutral", "smile") and state["present"]
+    assert "on" not in state and state["face"]["mood"] in ("neutral", "smile") and state["present"]
     assert state["face"]["eyes"] in ("open", "half") and not any(ch.isdigit() for ch in state["felt"])
 
 
-def test_with_her_mind_off_she_answers_as_asked_and_nothing_of_it_shows(brain):
+def test_she_is_always_there_in_every_turn(brain):
     brain.provider.replies += ["Done."]
     turn(brain, "cli", "Do the thing")
-    assert not brain.provider.mind_requests and "Inside you" not in brain.provider.last_user_text()
-    assert "YOUR INNER LIFE" not in brain.provider.sent[-1]["messages"][0]["content"]
-    assert brain.client.mind("milk") == {"on": False, "face": None}
+    assert brain.provider.mind_requests and "YOUR INNER LIFE" in brain.provider.sent[-1]["messages"][0]["content"]
+    assert brain.client.mind("milk")["face"] is not None
 
 
 def test_what_wins_her_attention_comes_from_how_she_is(brain, monkeypatch):
@@ -646,4 +646,4 @@ def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
     feelings = brain.client.mind("milk", idle=5)["feelings"]  # the stand-in model named what she felt
     assert feelings and feelings[0]["count"] == 2 and len(feelings[0]["place"]) == 3
     brief = brain.client.mind("milk", idle=5, brief=True)  # a face's frequent look stays small as she grows
-    assert set(brief) == {"on", "asleep", "present", "felt", "feeling", "valence", "arousal", "face"}
+    assert set(brief) == {"asleep", "present", "felt", "feeling", "valence", "arousal", "face"}

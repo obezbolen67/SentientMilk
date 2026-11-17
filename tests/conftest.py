@@ -11,16 +11,21 @@ import pytest
 from sentientmilk_framework import BrainClient, embeddings
 from sentientmilk_framework import loop as loop_module
 from sentientmilk_framework.claudecode import ClaudeCode
-from sentientmilk_framework.recall import SETTINGS, STOP
+from sentientmilk_framework.recall import SETTINGS
 from sentientmilk_framework.server import start
-from sentientmilk_framework.testing import PROVIDER_URL, FakeProvider, install_embedder
+from sentientmilk_framework.testing import PROVIDER_URL, FakeProvider, install_embedder, quiet_mind
 
 FAKE_CLAUDE = Path(__file__).with_name("fake_claude.py")
 
 SIGNALS = {"expression": {"description": "how you look", "options": {"arms_down": ["neutral", "smile"],
                                                                      "one_arm": ["neutral"]}}}
 MILK = {"name": "Milk", "environment": "A desktop character.", "persona": "You are Milk.", "signals": SIGNALS,
-        "toolkits": ["memory", "todo", "journal", "web", "tasks", "schedule"], "callbacks": True}  # as MilkChan
+        "toolkits": ["memory", "todo", "web", "tasks", "schedule"], "callbacks": True}  # as MilkChan
+# words that say nothing of what a message is about (Meaning gives them no direction of their own)
+STOP = frozenset("""the and was were what that this these those you your yours they them their she her hers his him
+its our ours for are with have has had not but can could did does doing done from who why how when where which
+will would there here about been just like into than then also some any all get got one out yes now well very
+really too more most much many let lets okay sure please thanks thank want wanted know think said say""".split())
 
 
 def wait_for(check, timeout=10.0, step=0.02):
@@ -42,8 +47,11 @@ def stand_in_claude_code(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def brain(tmp_path, monkeypatch):
-    """A brain server with a faked provider; queue replies in ``brain.provider.replies``."""
+def brain(tmp_path, monkeypatch, request):
+    """A brain server with a faked provider; queue replies in ``brain.provider.replies``. Her mind is quiet
+    unless the test is marked ``mind``."""
+    if "mind" not in request.keywords:
+        quiet_mind(monkeypatch)
     monkeypatch.setattr(loop_module, "RETRIES", (0, 0, 0))
     provider = FakeProvider().install(monkeypatch, claude_code=[sys.executable, str(FAKE_CLAUDE)])
     install_embedder(monkeypatch)
@@ -52,10 +60,10 @@ def brain(tmp_path, monkeypatch):
     work.mkdir()
     server = start(home)
     client = BrainClient(server.url, server.token)
-    client.update_config(api_key="sk-test-secret", base_url=PROVIDER_URL, mind=False)  # tests of her mind turn it on
+    client.update_config(api_key="sk-test-secret", base_url=PROVIDER_URL)
     client.declare_app("milk", **MILK)
     client.declare_app("cli", name="CLI", environment="A terminal.",
-                       toolkits=["files", "shell", "web", "todo", "memory", "journal", "agents", "tasks", "schedule"])
+                       toolkits=["files", "shell", "web", "todo", "memory", "agents", "tasks", "schedule"])
     client.update_session("cli", "main", cwd=str(work), roots=[str(work)])
     yield SimpleNamespace(client=client, server=server, provider=provider, home=home, work=work,
                           brain=server.brain, store=server.brain.store)

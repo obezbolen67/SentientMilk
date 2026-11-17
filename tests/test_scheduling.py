@@ -123,7 +123,7 @@ def queued_schedule(brain):
 def test_occurrence_uses_normal_turn_tools_and_a_duplicate_delivery_reuses_its_run(brain):
     schedule, occurrence = queued_schedule(brain)
     assert occurrence['session'] == schedule['execution_session']
-    brain.provider.replies += [tool_call('memory_save', {'category': 'report', 'key': 'news', 'value': 'done'}),
+    brain.provider.replies += [tool_call('memory_save', {'key': 'news', 'value': 'done'}),
                                '{"expression":"arms_down/smile"}\nThe report is ready.']
     events = []
     first = brain.client.turn('milk', occurrence['session'], occurrence=occurrence['id'], on_event=events.append)
@@ -132,7 +132,7 @@ def test_occurrence_uses_normal_turn_tools_and_a_duplicate_delivery_reuses_its_r
     assert [tool['name'] for tool in again['tools']] == ['memory_save']
     assert len(brain.provider.sent) == 2
     assert brain.store.run(first['run'])['kind'] == 'turn'
-    assert brain.store.memories()['report']['news'] == 'done'
+    assert brain.client.session('milk', occurrence['session'])['session_memory'] == {'news': 'done'}
     assert not brain.client.scheduled_occurrences('milk')
     assert any(event['type'] == 'context' for event in events)
     history = brain.client.history('milk', occurrence['session'])
@@ -267,7 +267,7 @@ def test_reconnect_restores_approval_and_executes_only_after_the_app_allows_it(b
     brain.client.update_app('milk', rules={'ask': ['memory_save']})
     _, item = queued_schedule(brain)
     run, _ = brain.store.start_scheduled_run('milk', item['session'], item['id'], {}, None)
-    args = {'category': 'check', 'key': 'approved', 'value': 'yes'}
+    args = {'key': 'approved', 'value': 'yes'}
     brain.store.add_event('milk', item['session'], run, 'input', {'content': 'Scheduled work', 'display': 'Scheduled work'})
     brain.store.add_event('milk', item['session'], run, 'assistant', {'message': tool_call('memory_save', args, 'ask-1')})
     brain.store.add_event('milk', item['session'], run, 'approval_request', {
@@ -275,13 +275,14 @@ def test_reconnect_restores_approval_and_executes_only_after_the_app_allows_it(b
     brain.store.update_run(run, status='input_required')
     approvals = []
     def approve(event):
-        assert 'check' not in brain.store.memories()
+        assert not brain.client.session('milk', item['session'])['session_memory']
         approvals.append(event['call_id'])
         return 'allow'
     brain.provider.replies.append('Approved and saved.')
     result = brain.client.turn('milk', item['session'], occurrence=item['id'], on_approval=approve)
     assert result['run'] == run and result['status'] == 'completed'
-    assert approvals == ['ask-1'] and brain.store.memories()['check']['approved'] == 'yes'
+    assert approvals == ['ask-1']
+    assert brain.client.session('milk', item['session'])['session_memory'] == {'approved': 'yes'}
 
 
 def test_skip_catchup_records_a_skipped_slot_without_executing_it(brain):
@@ -366,13 +367,13 @@ def test_recovery_resumes_the_same_occurrence_without_repeating_a_started_write(
     run, _ = brain.store.start_scheduled_run('milk', item['session'], item['id'], {}, None)
     brain.store.add_event('milk', item['session'], run, 'input', {'content': 'Scheduled work', 'display': 'Scheduled work'})
     brain.store.add_event('milk', item['session'], run, 'assistant', {'message': tool_call(
-        'memory_save', {'category': 'check', 'key': 'uncertain', 'value': 'do not repeat'}, 'write-1')})
+        'memory_save', {'key': 'uncertain', 'value': 'do not repeat'}, 'write-1')})
     brain.store.add_event('milk', item['session'], run, 'tool_start', {'call_id': 'write-1', 'name': 'memory_save'})
     brain.store.update_run(run, status='working')
     brain.provider.replies.append('Inspected the interrupted operation.')
     brain.brain.runs.recover()
     wait_for(lambda: brain.store.run(run)['status'] == 'completed')
-    assert 'check' not in brain.store.memories()
+    assert not brain.client.session('milk', item['session'])['session_memory']
     assert brain.store.occurrence('milk', item['id'])['run'] == run
     assert brain.store.occurrence('milk', item['id'])['status'] == 'completed'
     result = next(e for e in brain.store.run_events(run) if e['type'] == 'tool')

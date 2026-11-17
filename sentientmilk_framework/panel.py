@@ -95,7 +95,7 @@ def model_options(claude: dict, *chosen: str) -> List[Tuple[str, str]]:
 THEME = Theme(name="sentientmilk", primary=ACCENT, secondary="#7fd1c7", accent="#ffd59e", foreground="#e9e6f2",
               background="#0d0f15", surface="#141720", panel="#1b1f2c", success=OK, warning=WARN, error=BAD)
 FlatButton = partial(Button, flat=True)  # muted until hovered: calmer than solid blocks
-TABS = ("overview", "provider", "apps", "work", "journal", "mind", "tools", "plugins", "skills", "logs")
+TABS = ("overview", "provider", "apps", "work", "memory", "mind", "tools", "plugins", "skills", "logs")
 SHELL_NAMES = {"": "Automatic (Windows PowerShell on Windows, bash elsewhere)", "powershell": "Windows PowerShell 5.1",
                "pwsh": "PowerShell 7", "bash": "bash", "sh": "sh", "cmd": "cmd.exe"}
 STATUS_COLORS = {"working": ACCENT, "queued": MUTED, "input_required": WARN, "completed": OK, "failed": BAD,
@@ -381,8 +381,8 @@ class Panel(App):
                 yield from self.compose_apps()
             with TabPane("Work", id="work"):
                 yield from self.compose_work()
-            with TabPane("Memory", id="journal"):
-                yield from self.compose_journal()
+            with TabPane("Memory", id="memory"):
+                yield from self.compose_memory()
             with TabPane("Mind", id="mind"):
                 yield from self.compose_mind()
             with TabPane("Tools", id="tools"):
@@ -458,7 +458,7 @@ class Panel(App):
                         yield Input(placeholder=f"{DEFAULT_MODEL}  (default)", id="p-model")
                         yield FlatButton("Test & list models", id="p-models")
                     yield Label("Model for helpers")
-                    yield Input(placeholder="the same model (compaction, titles, journal notes, reviewers)", id="p-light")
+                    yield Input(placeholder="the same model (compaction, titles, reviewers)", id="p-light")
                 yield OptionList(id="models")
                 # the API service's own: shown with Claude Code, they changed the service's under the user
                 with Grid(classes="form"):
@@ -515,10 +515,6 @@ class Panel(App):
                         yield Input(placeholder="the brain's model", id="app-model")
                         yield Label("Folders it may use")
                         yield Input(placeholder="comma-separated paths", id="app-roots")
-                        yield Label("Reads the journal")
-                        yield Switch(id="app-journal-read")
-                        yield Label("Writes the journal")
-                        yield Switch(id="app-journal-write")
                     yield Static("Toolkits this app may use", classes="subtitle")
                     yield SelectionList(id="app-toolkits")
                     with Horizontal(classes="buttons"):
@@ -543,18 +539,13 @@ class Panel(App):
                     yield FlatButton("Pause / resume", id="schedule-toggle")
                     yield FlatButton("Delete", id="schedule-delete", variant="error")
 
-    def compose_journal(self) -> ComposeResult:
-        yield Static("What the brain remembers, shared by every app and always in its context (From: the app "
-                     "that saved it; each conversation's own memory is in its app), then the journal: short dated "
-                     "notes about conversations in every app, the 20 newest kept.", classes="hint")
+    def compose_memory(self) -> ComposeResult:
+        yield Static("Her long-term memory: every past chat comes back to her by meaning, through an embeddings "
+                     "service; each chat's own memory is in its app. In her sleep she lets go of what she no "
+                     "longer needs.", classes="hint")
         with VerticalScroll():
             with Vertical(classes="card", id="recall-card"):
-                yield Static("Long-term memory: past chats, notes and what she keeps come back to her by meaning, "
-                             "not only by the same words, through an embeddings service.", classes="hint")
                 with Grid(classes="form"):
-                    yield Label("Embeddings")
-                    yield Select([("A service (OpenAI-compatible)", "api"), ("Off: by words only", "off")],
-                                 allow_blank=False, id="e-mode")
                     yield Label("Service address")
                     yield Input(placeholder=embeddings.DEFAULT_URL, id="e-url")
                     yield Label("Model")
@@ -566,19 +557,6 @@ class Panel(App):
                 yield Static(id="e-status")
                 with Horizontal(classes="buttons"):
                     yield FlatButton("Save long-term memory", id="e-save", variant="primary")
-            with Vertical(classes="card", id="memory-card"):
-                with Horizontal(classes="toggle"):
-                    yield Switch(id="summaries")
-                    yield Static("Go over each conversation as it ends and keep what matters (her own model, "
-                                 "with memory_save)", classes="toggle-label")
-                yield DataTable(id="memory", cursor_type="row", zebra_stripes=True)
-                with Horizontal(classes="buttons"):
-                    yield FlatButton("Forget", id="memory-forget", variant="error")
-            yield Input(placeholder="Search notes…", id="journal-search")
-            with Vertical(classes="card", id="journal-card"):
-                yield DataTable(id="notes", cursor_type="row", zebra_stripes=True)
-                with Horizontal(classes="buttons"):
-                    yield FlatButton("Delete note", id="note-delete", variant="error")
 
     def compose_mind(self) -> ComposeResult:
         yield Static("Her own mind: a body that lives on between messages, the feelings it gives her, what she "
@@ -587,10 +565,6 @@ class Panel(App):
                      classes="hint")
         with VerticalScroll():
             with Vertical(classes="card", id="mind-card"):
-                with Horizontal(classes="toggle"):
-                    yield Switch(id="mind-on")
-                    yield Static("Her own mind (off: she does what she is asked and never speaks up on her own)",
-                                 classes="toggle-label")
                 yield Static(id="mind-now")
             with Horizontal(classes="row"):
                 with Vertical(classes="card", id="mind-body-card"):
@@ -684,9 +658,9 @@ class Panel(App):
                             ("thinking-card", "Pictures and web search"), ("super-card", "Super model"),
                             ("apps-pane", "Apps"),
                             ("persona-card", "Persona"), ("app-settings-card", "Settings"),
-                            ("sessions-card", "Conversations"), ("memory-card", "Memory, every app's"),
+                            ("sessions-card", "Conversations"), ("recall-card", "Long-term memory"),
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
-                            ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
+                            ("toolkits-card", "Toolkits"),
                             ("mind-card", "Now"), ("mind-body-card", "Her body"),
                             ("mind-thoughts-card", "Her thoughts"), ("mind-self-card", "What she has come to like"),
                             ("runtime-card", "Runtime and permissions"), ("browser-card", "Her browser"),
@@ -696,10 +670,8 @@ class Panel(App):
         columns = {
             "usage": ("App", "Runs", "Model calls", "Prompt tokens", "Cached", "Cache hits", "Reply tokens"),
             "sessions": ("Conversation", "Started", "Last active"),
-            "memory": ("Category", "Key", "Value", "From"),
             "tasks": ("#", "App", "Status", "Goal", "Started", "Tokens"),
             "schedules": ("#", "App", "When", "Next", "Name", "Instructions", "State"),
-            "notes": ("When", "App", "Note"),
             "mcp": ("Server", "State", "Tools", "Runs", "Problem"),
             "plugin-table": ("Plugin", "Version", "State", "Tools", "From"),
             "skill-table": ("Skill", "Started by", "State", "Description"),
@@ -797,7 +769,7 @@ class Panel(App):
             return
         self.show_state()
         live = {"overview": self.load_overview, "apps": self.load_app_tables, "work": self.load_work,
-                "journal": self.load_memory, "mind": self.load_mind, "tools": self.load_mcp,
+                "memory": self.load_memory, "mind": self.load_mind, "tools": self.load_mcp,
                 "plugins": self.load_plugins}
         active = self.main.query_one(TabbedContent).active
         live.get(active, lambda: None)()
@@ -1068,11 +1040,8 @@ class Panel(App):
         self.main.query_one("#persona", TextArea).text = record["persona"]
         self.main.query_one("#app-model", Input).value = settings.get("model", "")
         self.main.query_one("#app-roots", Input).value = ", ".join(settings.get("roots", []))
-        journal = {"read": True, "write": True, **declaration.get("journal", {}), **settings.get("journal", {})}
-        self.main.query_one("#app-journal-read", Switch).value = journal["read"]
-        self.main.query_one("#app-journal-write", Switch).value = journal["write"]
         declared = []
-        for kit in ["memory"] + declaration.get("toolkits", []):  # every app has memory, listed or not
+        for kit in ["memory"] + declaration.get("toolkits", []):  # every app has the chat's memory, listed or not
             declared += [k for k in kits["toolkits"] if k.startswith("mcp:")] if kit == "mcp:*" else [kit]
         off_everywhere = set(self.settings.get("disabled_toolkits", []))
         off_here = set(settings.get("disabled_toolkits", []))
@@ -1099,8 +1068,6 @@ class Panel(App):
         listed = [str(option.value) for option in self.main.query_one("#app-toolkits", SelectionList).options]
         changes = {"model": self.main.query_one("#app-model", Input).value.strip(),
                    "roots": items(self.main.query_one("#app-roots", Input).value),
-                   "journal": {"read": self.main.query_one("#app-journal-read", Switch).value,
-                               "write": self.main.query_one("#app-journal-write", Switch).value},
                    "disabled_toolkits": [kit for kit in listed if kit not in chosen]}
         if self.call(lambda c: c.update_app(app, **changes), done=f"Saved. {app} uses it from its next message."):
             self.show_app(app)
@@ -1111,7 +1078,7 @@ class Panel(App):
                              done="Persona saved." if text else "Back to the app's own persona."):
             self.show_app(app)
 
-    # ============== Work and journal ==============
+    # ============== Work and memory ==============
 
     def load_work(self) -> None:
         tasks = self.call(lambda c: sorted(c.tasks() + c.tasks(kind="agent"), key=lambda t: -t["id"]), quiet=True)
@@ -1145,23 +1112,12 @@ class Panel(App):
             f"[b]#{task['id']}[/] {escape(task['options'].get('goal', ''))}\n{outcome}")
 
     def load_memory(self) -> None:
-        """Memory (From: the app that saved an entry), then the journal."""
         settings = self.call(lambda c: c.config(), quiet=True)
         if settings is not None:
-            switch = self.main.query_one("#summaries", Switch)
-            with switch.prevent(Switch.Changed):
-                switch.value = settings["session_summaries"]
             self.load_recall(settings)
-        memory = self.call(lambda c: c.memory_entries(), quiet=True)
-        if memory is not None:
-            fill(self.main.query_one("#memory", DataTable),
-                 [(f"{e['category']}\n{e['key']}", (e["category"], e["key"], cut(e["value"], 90), e["app"]))
-                  for e in memory])
-        self.load_notes()
 
     def load_recall(self, settings: dict) -> None:
         """Where her long-term memory is embedded, and how far it has got."""
-        self.main.query_one("#e-mode", Select).value = settings["embeddings"]
         self.main.query_one("#e-url", Input).value = settings["embeddings_base_url"]
         self.main.query_one("#e-model", Input).value = settings["embeddings_model"]
         self.main.query_one("#e-dims", Input).value = str(settings["embeddings_dimensions"])
@@ -1170,24 +1126,21 @@ class Panel(App):
             else "paste the service's key (empty: her chat model's, at the same address)")
         status = (self.call(lambda c: c.stats(), quiet=True) or {}).get("recall") or {}
         state = status.get("state", "")
-        shown = (f"[{OK}]✓ ready[/]" if state == "ready" else f"[{MUTED}]off: by words only[/]" if state == "off"
-                 else f"[{WARN}]{escape(state)}[/]") if state else ""
+        shown = (f"[{OK}]✓ ready[/]" if state == "ready" else f"[{WARN}]{escape(state)}[/]") if state else ""
         if status:
             shown += (f"  [{MUTED}]{status['embedded']:,} of {status['units']:,} memories embedded"
                       + (f" · {status['forgotten']:,} let go in her sleep" if status.get("forgotten") else "")
                       + (f" · ${status['spent']:.4f} spent since the brain started" if status.get("spent") else "")
                       + "[/]")
-        if settings["embeddings"] == "api":
-            where = settings["embeddings_base_url"] or embeddings.DEFAULT_URL
-            shown += (f"\n[{MUTED}]Every chat she has is sent to {escape(where)} to be embedded"
-                      + (" (on OpenRouter, only to providers that keep and train on nothing)." if "openrouter.ai" in where
-                         else ".") + "[/]")
+        where = settings["embeddings_base_url"] or embeddings.DEFAULT_URL
+        shown += (f"\n[{MUTED}]Every chat she has is sent to {escape(where)} to be embedded"
+                  + (" (on OpenRouter, only to providers that keep and train on nothing)." if "openrouter.ai" in where
+                     else ".") + "[/]")
         self.main.query_one("#e-status", Static).update(shown)
 
     def save_recall(self) -> None:
         try:
-            changes = {"embeddings": self.main.query_one("#e-mode", Select).value,
-                       "embeddings_base_url": self.main.query_one("#e-url", Input).value.strip(),
+            changes = {"embeddings_base_url": self.main.query_one("#e-url", Input).value.strip(),
                        "embeddings_model": self.main.query_one("#e-model", Input).value.strip(),
                        "embeddings_dimensions": number(self.main.query_one("#e-dims", Input), "Dimensions")}
         except ValueError as exc:
@@ -1204,13 +1157,6 @@ class Panel(App):
     def load_mind(self) -> None:
         state = self.call(lambda c: c.mind(), quiet=True)
         if state is None:
-            return
-        switch = self.main.query_one("#mind-on", Switch)
-        with switch.prevent(Switch.Changed):
-            switch.value = state["on"]
-        if not state["on"]:
-            for part in ("now", "body", "thoughts", "self"):
-                self.main.query_one(f"#mind-{part}", Static).update(f"[{MUTED}]Her mind is off.[/]" if part == "now" else "")
             return
         awake = f"[{MUTED}]asleep[/]" if state["asleep"] else f"[{OK}]awake[/]"
         here = "the user is here" if state["present"] else "the user is away"
@@ -1241,17 +1187,6 @@ class Panel(App):
             + f"\n[{MUTED}]Feelings she named[/] "
             + (escape(", ".join(f["word"] for f in sorted(state["feelings"], key=lambda f: -f["count"]))) or "-")
             + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else ""))
-
-    def load_notes(self) -> None:
-        query = self.main.query_one("#journal-search", Input).value.strip()
-        notes = self.call(lambda c: c.journal(query), quiet=True)
-        if notes is not None:
-            fill(self.main.query_one("#notes", DataTable),
-                 [(str(n["id"]), (when(n["at"]), n["app"], cut(n["note"], 110))) for n in notes])
-
-    @on(Input.Changed, "#journal-search")
-    def search_notes(self) -> None:
-        self.load_notes()
 
     # ============== Tools ==============
 
@@ -1520,19 +1455,6 @@ class Panel(App):
         self.refresh_live()
         self.tail_log()
 
-    @on(Switch.Changed, "#summaries")
-    def summaries_changed(self, event: Switch.Changed) -> None:
-        self.call(lambda c: c.update_config(session_summaries=event.value),
-                  done="She goes over each conversation as it ends." if event.value
-                  else "She no longer goes over conversations as they end.")
-
-    @on(Switch.Changed, "#mind-on")
-    def mind_changed(self, event: Switch.Changed) -> None:
-        self.call(lambda c: c.update_config(mind=event.value),
-                  done="Her mind is on: she feels, wants and lives between messages." if event.value
-                  else "Her mind is off: she does what she is asked.")
-        self.load_mind()
-
     @on(Switch.Changed, "#autostart")
     def autostart_changed(self, event: Switch.Changed) -> None:
         try:
@@ -1587,8 +1509,6 @@ class Panel(App):
             self.save_app()
         elif button == "session-clear":
             self.clear_session()
-        elif button == "memory-forget":
-            self.forget_memory()
         elif button == "task-cancel":
             key = selected_key(self.main.query_one("#tasks", DataTable))
             if key:
@@ -1601,11 +1521,6 @@ class Panel(App):
                 self.push_screen(Confirm(f"Delete schedule {key}?", "Delete"),
                                  lambda yes: yes and self.call(lambda c: c.delete_schedule(int(key)),
                                                                done="Schedule deleted."))
-        elif button == "note-delete":
-            key = selected_key(self.main.query_one("#notes", DataTable))
-            if key:
-                self.push_screen(Confirm("Delete this journal note?", "Delete"),
-                                 lambda yes: yes and self.call(lambda c: c.delete_note(int(key)), done="Note deleted."))
         elif button == "t-save":
             self.save_tools()
         elif button == "chrome-connect":
@@ -1623,18 +1538,11 @@ class Panel(App):
     def clear_session(self) -> None:
         app, session = self.app_id, selected_key(self.main.query_one("#sessions", DataTable))
         if app and session:
-            self.push_screen(Confirm(f"Clear the conversation {session} of {app}? Its history and its own "
-                                     "memory are deleted; memory of every app and the journal stay.", "Clear"),
+            self.push_screen(Confirm(f"Clear the conversation {session} of {app}? Its history, its own "
+                                     "memory and what her long-term memory took from what was said are deleted; her mind's "
+                                     "memories stay.", "Clear"),
                              lambda yes: yes and self.call(lambda c: c.clear_history(app, session),
                                                            done="Conversation cleared."))
-
-    def forget_memory(self) -> None:
-        key = selected_key(self.main.query_one("#memory", DataTable))
-        if key:
-            category, _, name = key.partition("\n")
-            self.push_screen(Confirm(f"Forget {category} / {name}? Every app forgets it.", "Forget"),
-                             lambda yes: yes and self.call(lambda c: c.forget(category, name),
-                                                           done="Forgotten.") and self.load_memory())
 
     def toggle_schedule(self) -> None:
         key = selected_key(self.main.query_one("#schedules", DataTable))

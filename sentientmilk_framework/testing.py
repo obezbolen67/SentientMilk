@@ -5,10 +5,10 @@
 
 A reply is text, an assistant message dict, an HTTP status (int) to fail with, or a function
 of the request payload returning one of those. Streaming requests get a real SSE stream.
-Journal notes are written in the background at unpredictable moments, so they are answered
-with ``journal_note`` and recorded in ``journal_requests``, never taken from ``replies``. Her mind's
-calls (mind/prompts.py) are answered from ``mind_replies`` (by kind: birth, imagine, think, sleep), else
-with ``MIND_ANSWERS``: one option, doing it, so a turn goes as it would without her mind.
+Titles are written in the background at unpredictable moments, so they are answered with ``title`` and
+recorded in ``title_requests``, never taken from ``replies``. Her mind's calls (mind/prompts.py) are
+answered from ``mind_replies`` (by kind: birth, imagine, think, sleep), else with ``MIND_ANSWERS``: one
+option, doing it, so a turn goes as it would without her mind.
 """
 
 import json
@@ -84,8 +84,19 @@ def install_embedder(monkeypatch) -> None:
     """Her long-term memory embeds with the stand-in (embeddings.StandIn): no service, no network."""
     from . import embeddings
 
-    monkeypatch.setattr(embeddings, "make", lambda values: None if values.get("embeddings") == "off"
-                        else embeddings.StandIn(values.get("embeddings_model") or "default"))
+    monkeypatch.setattr(embeddings, "make", lambda values: embeddings.StandIn(values.get("embeddings_model") or "default"))
+
+
+def quiet_mind(monkeypatch) -> None:
+    """Her mind is always on (0.30); a test of something else keeps it out of the way: no note in a turn, no
+    inner life in the prompt, no life between messages. Tests of her mind are marked ``mind``."""
+    from .mind import life
+
+    for name in ("before", "heard", "during", "after"):
+        monkeypatch.setattr(life.Mind, name, lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(life.Mind, "section", lambda self: "")
+    monkeypatch.setattr(life.Mind, "reflexive", lambda self, run=None: False)
+    monkeypatch.setattr(life.Mind, "_live", lambda self: None)
 
 
 class FakeProvider:
@@ -94,10 +105,6 @@ class FakeProvider:
         self.replies: List[Any] = []
         self.sent: List[dict] = []
         self.usage = {"prompt_tokens": 100, "completion_tokens": 10, "prompt_cache_hit_tokens": 60}
-        self.journal_note = "Talked with the user."
-        self.journal_requests: List[dict] = []
-        self.tidy_answer: Any = '{"changes": []}'  # her going over her lasting memory (lasting.tidy); a list: in turn
-        self.tidy_requests: List[dict] = []
         self.title = "A chat"
         self.title_requests: List[dict] = []
         self.mind_replies: dict = {}  # kind -> list of replies, as ``replies``
@@ -120,23 +127,12 @@ class FakeProvider:
         return self
 
     def respond(self, payload: dict):
-        from .journal import PROMPT
-        from .lasting import PROMPT as TIDY_PROMPT
         from .titles import PROMPT as TITLE_PROMPT
 
         if payload["messages"][0].get("content") == TITLE_PROMPT:
             self.title_requests.append(payload)
             return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {
                 "choices": [{"message": {"role": "assistant", "content": self.title}}]})
-        if payload["messages"][0].get("content") == TIDY_PROMPT:
-            self.tidy_requests.append(payload)
-            answer = self.tidy_answer.pop(0) if isinstance(self.tidy_answer, list) else self.tidy_answer
-            return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {
-                "choices": [{"message": {"role": "assistant", "content": answer}}]})
-        if str(payload["messages"][0].get("content")).startswith(PROMPT):
-            self.journal_requests.append(payload)
-            return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {
-                "choices": [{"message": {"role": "assistant", "content": self.journal_note}}]})
         first = payload["messages"][0].get("content")
         kind = first[len("[mind:"):].split("]")[0] if isinstance(first, str) and first.startswith("[mind:") else ""
         if kind:

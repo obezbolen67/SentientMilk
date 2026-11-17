@@ -26,7 +26,7 @@ DEFAULT_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "mongodb/voyage-4-large"  # the best of eight of OpenRouter's on her history (spec, "Measured")
 BATCH = 64
 MAX_CHARS = 8000  # what one input may be: a unit is 1,600 characters; a longer query is cut to this
-QUERY_WAIT = 4.0  # s: a turn's recall waits no longer for the service; then it is by words only
+QUERY_WAIT = 4.0  # s: a turn's recall waits no longer for the service; then nothing comes back this once
 KEPT_QUERIES = 64
 # Qwen3 embeddings find best with an instruction on the query side (its model card)
 INSTRUCTED = {"qwen3-embedding": "Instruct: Given a message, find the past conversation it is about\nQuery: "}
@@ -34,7 +34,7 @@ WORDS = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 class NotReady(Exception):
-    """It cannot embed now (no key, the service failed): search goes by words."""
+    """It cannot embed now (no key, the service failed): nothing is found by meaning this time."""
 
 
 def unit(rows) -> np.ndarray:
@@ -122,7 +122,7 @@ class ApiEmbedder(Embedder):
                 **({"dimensions": self.dimensions} if self.dimensions else {}),
                 **({"input_type": "search_query" if query else "search_document",
                     "provider": {"data_collection": "deny"}} if self.openrouter else {})}
-        waits = () if query else (2, 4, 8)  # a turn does not wait out retries: it goes by words this once
+        waits = () if query else (2, 4, 8)  # a turn does not wait out retries: nothing comes back this once
         for wait in (*waits, None):
             try:
                 response = requests.post(f"{self.base_url}/embeddings", json=body, timeout=QUERY_WAIT if query else 60,
@@ -146,11 +146,9 @@ class ApiEmbedder(Embedder):
         raise NotReady(self.failed or "the embeddings service failed")
 
 
-def make(values: dict) -> Optional[Embedder]:
-    """Her embedder from the brain's settings; None when ``embeddings`` is off. Without a key of its own, a
-    service at the same address as her chat model's uses that key."""
-    if values.get("embeddings") == "off":
-        return None
+def make(values: dict) -> Embedder:
+    """Her embedder from the brain's settings. Without a key of its own, a service at the same address as her
+    chat model's uses that key."""
     base = values.get("embeddings_base_url") or DEFAULT_URL
     key = values.get("embeddings_api_key") or (values.get("api_key", "") if base.rstrip("/") ==
                                                (values.get("base_url") or "").rstrip("/") else "")
