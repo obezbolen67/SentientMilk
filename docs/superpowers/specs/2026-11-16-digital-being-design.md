@@ -259,6 +259,12 @@ What a brain does, and what was built from it:
 | An expression feeds back into the body whenever it is made. | `_express` also on a turn nobody wrote (her own urge, a finished job). |
 | The striatum weighs the actions the cortex proposes and biases which goes ahead (Frank 2004), but people change their minds mid-action as evidence comes in (Resulaj et al. 2009), and an actor learns from the action it took. | Her will leaves her leaning one way ("Which way you lean: ... Why: ..."); nothing in code holds her to it. `Mind.barred` is gone: in the user's brain, worn out and leaning to put a job off, she offered one small safe step, called the tool, and code refused it as "You decided not to do this now". `after` reads what she did (`_did`) and that is what she remembers and learns from. |
 | A mind thinks as itself. | Each message ends with `context.VOICE`: her thinking is hers, in the first person, never "in character". |
+| Sleepiness brings more mind wandering, not less (Poh et al. 2016); what is effortful gets harder as one tires. | Two bars: wonder and ruminate meet 0.5, whatever her fatigue; reach out, resume and sleep meet 0.5 + 0.6 x fatigue. One bar for all kept every thought from the user's brain through a long day. |
+| A body clock entrains to social cues over days to weeks (Mistlberger & Skene 2004). | `learn_rhythm(hour, seen_for)`: by the time the user was around (at most 30 min a message) over three days of it. Every message moved it a fiftieth of the way before: her night had moved to ten in the morning. |
+| Being talked to keeps one up; someone merely in the room does not. | Sleep is held off by a message in the last 15 minutes (`TALKING`), not by the user at the computer: she never slept in the user's brain. |
+| What a thing is about takes on the feeling it came with (Pavlovian conditioning); a liked cue is rewarding in itself (Berridge 2009). | `after`: every message's `tag:` features learn from its felt change in valence and the mood she showed; a liked subject adds reward in `_met`, is named in her note, and her thoughts and sleep know her likes. |
+| A thought is said when there is room to say it. | While the user is talking with her, a thought she wants to tell comes up in her next answer, not as a message of its own. |
+| Being judged lowers how one feels about oneself, nearly as much as being left (sociometer: Leary & Baumeister 2000). | What a message says of her capability moves it by 0.3 of what is read, as company does (a tenth before). |
 
 Measured and not built:
 
@@ -319,6 +325,20 @@ Checked live (the user's service and model, thinking high, the brain's own key i
   leaned to talk it over or do part 4 times: twice she asked what was in the kitchen and wrote nothing,
   twice she changed her mind and wrote both files, saying so. No tool was refused; what she said matched
   what she did every time.
+- **Her life by itself** (fake clock, two weeks of the user's day: at the computer 08:00 to 01:30,
+  writing every 10 minutes; and the user's real brain loaded into the code). Before: in the real brain
+  sleep pulled -0.33 against a bar of 0.89 (the user at the computer took 0.7, her night had moved to
+  10:00), wandering 0.27 against 0.89; no thought, no sleep, no story in her whole life. After: the
+  real brain's sleep pulls 1.17 once nobody has written for 15 minutes and wandering 0.50 against 0.44;
+  on the fake clock her peak settles at 18:45, she sleeps 01:35 to 08:00 and goes over each day, about
+  27 thoughts a day across her waking hours.
+- **Likes** (live, four real turns: "do you like it when I call you dear?", a drawing, a mild jab, "goodnight,
+  dear"). The first left a liking (nickname 0.13, felt +0.47, she smiled), her note said "You like
+  nickname." when it came up again, and a wandering thought went back to it. The jab was read as teasing
+  (company the same, felt about 0) and filed under the subject she knew, 3 of 4 times with or without a
+  line asking for what a remark says of her: no dislike, and the line was not kept. Plainly hurtful
+  messages left a dislike 1 of 3 times while being judged moved her sense of being capable by a tenth of
+  company's weight; 2 of 3 at the same weight (the third was read as "much more capable").
 
 What it costs: a switch to reflex or back misses the provider's cache once (twice an evening on the fake
 clock); a message sent while she works costs one more quick call; a note from her body mid-work comes

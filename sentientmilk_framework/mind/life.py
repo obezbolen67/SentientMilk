@@ -37,16 +37,22 @@ followed hers (``_settle``): it is kept with that memory, it shows which guide t
 values about her decision.
 
 Between messages (``_live``, every few seconds) her body lives on. Every ``BIDS_EVERY`` seconds what wants her
-attention competes, with noise, against a threshold that rises as she tires: missing the user (reach_out),
+attention competes, with noise, against a threshold (for what she must set out to do, one that rises as she
+tires; a thought that comes by itself does not wait for her to be rested): missing the user (reach_out),
 her mind wandering (wonder: a resting pull that needs no reason, as a brain's default mode network is
 busiest when nothing is asked of it, Raichle 2001, stronger when she is bored), something that nags her
 (ruminate), what she put off (resume) and sleep. A winner is a thought (a model call); a wandering one
 starts from her last thought and two memories replayed at random (``Memory.replay``: new ideas are old
 pieces that never met, Schacter & Addis 2007). A thought may become something she wants to tell or ask the
 user (the app hears ``mind.urge`` and starts a turn), doing what she put off, or looking something up
-herself (a task).
+herself (a task). Being talked to keeps her up; sleep pressure and her clock put her to sleep.
 Asleep, she goes over the day once (``_consolidate``): insights, a dream, her story rewritten, the day's
 charge softened, faint memories forgotten.
+
+What a moment is about takes on how it felt (``after``: in her body as the message came, and in what she
+showed as she answered): that is where her likes and dislikes come from, a chat as much as a job. And what
+she likes is used: a liked subject is a reward in itself (``_met``), her note says so, her wandering
+thoughts and her sleep know it.
 """
 
 import logging
@@ -63,7 +69,7 @@ from . import prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, SET_POINTS, Body, Temperament
 from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved
 from .memory import Memory, describe_salience, line
-from .values import Values, features
+from .values import Values, features, subjects
 from .will import FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
 
 logger = logging.getLogger(__name__)
@@ -72,10 +78,12 @@ TICK = 5.0
 BIDS_EVERY = 30.0
 SAVE_EVERY = 60.0
 PRESENT_FOR = 5 * MINUTE  # the user counts as there this long after they last touched the computer
+TALKING = 15 * MINUTE  # a message this recent: they are talking with her, and that keeps her up
 APP_ALIVE = 30.0  # an app that asked how she is this recently is there to hear her
 SLEPT_IF_OFF = 6 * HOUR  # a time away this long she has slept through
 CAUGHT_UP_AFTER = 10 * MINUTE  # a gap longer than this (the mind was off, the machine slept) is caught up on
 # after a bid wins, it rests this long; a refractory period, as a body has
+SPONTANEOUS = ("wonder", "ruminate")  # thoughts that come by themselves
 REFRACTORY = {"reach_out": 45 * MINUTE, "wonder": 40 * MINUTE, "ruminate": 30 * MINUTE, "resume": HOUR,
               "sleep": 20 * MINUTE, "thought": 10 * MINUTE}
 # sleep pressure she needs to fall asleep: slept out (Body.slept_out: below 0.03 at night, 0.35 by day), she
@@ -296,10 +304,15 @@ class Mind:
             not self.brain.session_busy(contact["app"], contact["session"])
         urge = self.self.get("urge")
         waiting = bool(urge) and (not contact or contact["at"] < urge["at"])  # she reached out and nobody answered
-        sore = next((e for e in self.memory.since(now - 2 * DAY, kinds=("exchange", "thought"), count=8)
+        # the most charged of what hurt (the 8 most charged moments first, then what hurt among them, missed
+        # every hurt of a busy day: the user's brain never ruminated, 2026-11-17)
+        sore = next((e for e in self.memory.since(now - 2 * DAY, kinds=("exchange", "thought"))
                      if e["valence"] < -0.3 and e["charge"] > 0.5), None)
         concern = self.self["concerns"][0] if self.self["concerns"] else None
         night, evening = body.night(now), body.evening(now)
+        # being talked to keeps her up; the user merely at the computer does not (they were there 08:00 to past
+        # one, and she never slept: the user's brain, 2026-11-16)
+        talking = bool(contact) and now - contact["at"] < TALKING
         resumable = bool(concern) and self._alive(concern["app"], now)
         working = self.brain.runs.busy()  # her cortex is on a task: a mind at work does not wander
 
@@ -307,19 +320,25 @@ class Mind:
             x = body.levels
             return {
                 "sleep": 1.6 * max(0.0, x["adenosine"] - 0.55) + 0.6 * night + 0.4 * (1 - x["energy"])
-                - 0.5 * evening - (0.7 if present else 0.0) if x["adenosine"] > DOZES_OFF else None,
+                - 0.5 * evening - (0.7 if talking else 0.0) if x["adenosine"] > DOZES_OFF else None,
                 "reach_out": 1.5 * body.deficit("social") * x["bond"] * (0.5 + x["oxytocin"]) * t.sociability
                 * (1.0 if present else 0.3) if reachable and not waiting else None,
-                # at rest her mind wanders by itself (needing a need unmet first, she had no thought of her own
-                # in a whole day in the user's brain, 2026-11-16); boredom pulls harder
-                "wonder": (RESTING + 1.1 * body.deficit("novelty") * t.curiosity) * x["energy"] * (0.4 + x["dopamine"])
+                # at rest her mind wanders by itself, tired or not (needing a need unmet first, she had no thought
+                # of her own in a whole day in the user's brain, 2026-11-16); boredom pulls harder, as far as her
+                # drive goes
+                "wonder": RESTING + 1.1 * body.deficit("novelty") * t.curiosity * (0.4 + x["dopamine"])
                 if not working else None,
                 "ruminate": 1.4 * max(0.0, x["cortisol"] - 0.3) + 0.7 * x["grievance"] if sore else None,
                 "resume": 0.9 * x["energy"] * (0.4 + x["dopamine"]) * (0.5 + x["bond"]) - 0.6 * body.fatigue()
                 if resumable else None,
             }
         x = body.levels
-        threshold = 0.5 + 0.6 * body.fatigue() - 0.3 * max(0.0, x["noradrenaline"] - 0.35)
+        # what she must set out to do (reach out, take up work) gets harder as she tires; what comes by itself (a
+        # wandering or a nagging thought) does not: sleepiness brings more of it, not less (Poh et al. 2016).
+        # One bar for all, rising with fatigue, kept every thought from her through a long day (0.89 against a
+        # pull of 0.27, the user's brain, 2026-11-17)
+        musing = 0.5 - 0.3 * max(0.0, x["noradrenaline"] - 0.35)
+        threshold = {kind: musing + (0.0 if kind in SPONTANEOUS else 0.6 * body.fatigue()) for kind in REFRACTORY}
         return bids, threshold, sore, concern
 
     def _winner(self, now: float):
@@ -336,7 +355,7 @@ class Mind:
                 return None, None
             fired["sleep"] = now
             return kind, None
-        if value < threshold or now - fired.get("thought", 0.0) < REFRACTORY["thought"]:
+        if value < threshold[kind] or now - fired.get("thought", 0.0) < REFRACTORY["thought"]:
             return None, None
         fired[kind] = fired["thought"] = now
         return kind, {"ruminate": sore, "resume": concern}.get(kind)
@@ -415,7 +434,7 @@ class Mind:
                 body.apply({"reward": 0.1 + 0.3 * x["bond"]})
                 self.self["urge"] = None
             timing, apart = self._timing(away)
-            body.learn_rhythm(body.hour(now))
+            body.learn_rhythm(body.hour(now), away or 0.0)
             came = self._arrives(run, said, pictures, now)
             felt, feelings, memories, novelty = came["felt"], came["feelings"], came["memories"], came["novelty"]
             self._told(run, felt)
@@ -451,6 +470,7 @@ class Mind:
             # nothing to choose: she talks (or, asked for work her imagining gave no options for, does it)
             option = choice.option if choice else Option("do" if seen.intent == "request" else "talk", chance=0.8)
             threat = self._threat(seen, option)
+            impact = core(self.body.levels)[0] - core(levels)[0]  # how the message felt to her, in her body
             feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
             foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
             decision = {"act": option.act, "what": option.what, "chance": option.chance, "effort": option.effort,
@@ -458,7 +478,8 @@ class Mind:
                         "foreseen": foreseen, "novelty": round(novelty, 3),
                         "stakes": min(1.0, sum(abs(change) for change in foreseen.values()) / 2),
                         "features": found(option), "reasons": choice.reasons if choice else [],
-                        "chances": choice.chances if choice else {}, "said": said[:300], "at": now}
+                        "chances": choice.chances if choice else {}, "said": said[:300], "felt": round(impact, 3),
+                        "at": now}
             # settled by the user's next message in this chat: what followed this one (after() adds how her turn went)
             self.self["waiting"][chat] = {"at": now, "act": option.act, "features": decision["features"],
                                           "model": model, "own": own, "episode": None, "measured": None}
@@ -482,7 +503,10 @@ class Mind:
                 self.self["concerns"].append({"what": option.what or said[:200], "app": run["app"],
                                               "session": run["session"], "at": now})
             self.self["contact"] = {"app": run["app"], "session": run["session"], "at": now}
-            felt_words = felt.words(feelings) + (f" Reading it, you feel {named}." if named else "")
+            likes, dislikes = self.values.fond(subjects(seen.tags))
+            felt_words = felt.words(feelings) + (f" Reading it, you feel {named}." if named else "") \
+                + (f" You like {' and '.join(likes)}." if likes else "") \
+                + (f" You don't like {' and '.join(dislikes)}." if dislikes else "")
             note = prompts.inner(felt_words, memories, option.act if choice else None, option.what,
                                  choice.reasons if choice else [], thoughts)
         self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
@@ -552,11 +576,11 @@ class Mind:
         # something" read as being invited along, by someone who lives on a screen)
         place = (profile.get("environment") or "").strip().split("\n")[0][:400]
         with self._lock:
-            subjects = self.values.subjects(KNOWN_SUBJECTS)
+            known = self.values.subjects(KNOWN_SUBJECTS)
         asked =(f"{self._who(profile['persona'])}\n" + (f"\nWhere they are: {place}\n" if place else "")
                  + f"\nHow they feel right now: {came['felt'].words(came['feelings'])}\n"
                  + (f"What comes back to them: {'; '.join(came['memories'])}\n" if came["memories"] else "")
-                 + (f"Subjects they know: {', '.join(subjects)}\n" if subjects else "")
+                 + (f"Subjects they know: {', '.join(known)}\n" if known else "")
                  + (f"\nThe conversation so far (newest last):\n{recent}\n" if recent else "")
                  + "\nThe new message, from the user" + (f" (with {pictures} pictures)" if pictures else "")
                  + (", sent while they are at work on what was asked" if working else "") + f":\n{said}")
@@ -637,7 +661,10 @@ class Mind:
         it weighed a quarter of her own, still so (replayed live readings, 2026-11-16). What it did, for
         drawing."""
         body, t = self.body, self.body.temperament
-        pushes = {"social": contact + 0.3 * seen.company, "competence": 0.1 * seen.capable,
+        # what the message says of her moves her sense of being capable as much as what it says of company
+        # moves company (a tenth before 0.24.1: "that was a stupid answer" felt -0.06 against a goodbye's -0.50,
+        # and "why are you so dumb today", read as attention, felt +0.42 live)
+        pushes = {"social": contact + 0.3 * seen.company, "competence": 0.3 * seen.capable,
                   "novelty": 0.3 * seen.novelty, "autonomy": 0.2 * seen.free * (t.autonomy if seen.free < 0 else 1.0)}
         gained = sum(value({name: pushes[need] / REACH for name, need in NEEDED.items()}, body).values())
         needs = body.apply(pushes)
@@ -645,13 +672,15 @@ class Mind:
         error = gained - expected
         self.self["expected"] += 2 * LEARNS * error
         company, shared = max(0.0, seen.company), seen.theirs * body["bond"] * t.warmth
-        moved = body.apply({"reward": error + shared,
+        # what it is about is worth what she has learned it is (a liked subject is a reward cue in itself)
+        liked = self.values.predict(subjects(seen.tags)) if seen.tags else 0.0
+        moved = body.apply({"reward": error + shared + 0.3 * liked,
                             "noradrenaline": 0.05 + 0.1 * seen.novelty + 0.05 * timing + 0.2 * abs(error),
                             "cortisol": 0.2 * max(0.0, -shared) * t.stress,
                             "oxytocin": 0.12 * company + 0.15 * abs(shared), "endorphin": 0.05 * company,
                             "bond": 0.003 * seen.company})  # a bond grows over weeks of messages, not in a day
         return {"pushes": {name: round(change, 3) for name, change in needs.items()}, "gained": round(gained, 3),
-                "expected": round(expected, 3), "shared": round(shared, 3),
+                "expected": round(expected, 3), "shared": round(shared, 3), "liked": round(liked, 3),
                 "moved": {name: round(change, 3) for name, change in moved.items()}}
 
     def _threat(self, seen: Appraisal, option: Option) -> dict:
@@ -798,6 +827,15 @@ class Mind:
             expressed = self._express(run) if run["kind"] == "turn" else None
             if not decision:
                 return
+            # what it was about takes on how it felt: in her body as the message came, and in what she showed
+            # as she answered (her cortex's own take on it); this is where likes and dislikes come from, so
+            # every moment teaches them, a chat as much as a job (before 0.24.1 only what followed her answer did)
+            about = [f for f in decision["features"] if f.startswith("tag:")]
+            if about:
+                liking = max(-1.0, min(1.0, 2.5 * decision.get("felt", 0.0)))
+                if expressed:  # the mood she showed itself (``expressed["valence"]`` is its gap from her body)
+                    liking = 0.5 * liking + 0.5 * MOOD_PLACES[expressed["mood"]][0]
+                self.values.learn(about, liking, self._rate())
             ok, stopped = run["status"] == "completed", run["status"] == "cancelled"
             failed = errors / calls if calls else 0.0
             surprise = 0.0
@@ -925,9 +963,12 @@ class Mind:
                 came = self.memory.recall(cue, felt.valence, now, count=self._span())
             feelings = self.concepts.recognize(felt.noticed(), cue)
             memories = [line(e, now)[:THOUGHT_CHARS] for e in came]
+            liked, disliked = (", ".join(_about(found)) for found in self.values.leanings())
         persona = self._persona(contact["app"], contact["session"]) if contact else ""
         asked = (f"{self._who(persona)}\n\nIt is {time.strftime('%A %H:%M')}. How they feel: {felt.words(feelings)}\n"
-                 f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}" if memories else ""))
+                 f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
+                 + (f"What they've come to like: {liked}.\n" if liked else "")
+                 + (f"What they've come to dislike: {disliked}.\n" if disliked else ""))
         answer, usage = self._ask(prompts.THINK, asked)
         thought = " ".join(str(answer.get("thought") or "").split())[:600]
         if not thought or self._stop.is_set():
@@ -954,7 +995,10 @@ class Mind:
             say = " ".join(str(answer.get("say") or "").split())[:600] or thought
             last, known = self.self.get("urge"), self.self.get("contact")
             unanswered = bool(last) and (not known or known["at"] < last["at"])  # one urge at a time, never a stream
-            if unanswered and want in ("tell", "ask", "do"):
+            # while they are talking, what she thought comes up in her next answer (her note carries it), not as
+            # a message of its own in the middle of the conversation
+            talking = bool(known) and now - known["at"] < TALKING
+            if (unanswered or talking) and want in ("tell", "ask", "do"):
                 pass  # the thought stays hers
             elif want in ("tell", "ask") and contact and self._alive(contact["app"], now):
                 urge = {"at": now, "want": want, "app": contact["app"], "session": contact["session"],
@@ -1085,7 +1129,9 @@ class Mind:
                 "night": round(night, 3),
                 "needs": {need: round(body.deficit(need), 3) for need in NEEDS},  # how far each is unmet, 0..1
                 "attention": {"bids": {kind: None if value is None else round(value, 3) for kind, value in pulls.items()},
-                              "threshold": round(threshold, 3), "thinking": self._thinking,
+                              # the bar each must reach: what comes by itself, and what she must set out to do
+                              "threshold": round(threshold["reach_out"], 3), "musing": round(threshold["wonder"], 3),
+                              "thinking": self._thinking,
                               "resting": [kind for kind in pulls if now - fired.get(kind, 0.0) < REFRACTORY[kind]],
                               "last": max(pulls, key=lambda kind: fired.get(kind, 0.0)) if any(
                                   kind in fired for kind in pulls) else None},

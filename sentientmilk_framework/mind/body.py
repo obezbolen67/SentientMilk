@@ -58,6 +58,7 @@ SENSITIVE = tuple(HABITUATION)
 START = {**{name: level.baseline for name, level in CHEMICALS.items()},
          "social": 0.6, "novelty": 0.6, "competence": 0.6, "autonomy": 0.6,
          "adenosine": 0.2, "energy": 1.0, "bond": 0.5, "grievance": 0.0, "reward_rate": 0.0}
+ENTRAINS = 3 * DAY  # of the user around: her clock moves toward their hours (8 h a day: in about nine days)
 AWAKE_DAY = 18 * HOUR  # adenosine builds from 0 to 1 over a long day awake (16 h: about 0.9)
 SLEEP_CLEARS = 2 * HOUR
 RECOVERY = 40 * MINUTE  # energy back at rest (longer under stress)
@@ -284,11 +285,16 @@ class Body:
         self.levels["energy"] = _clip(self.levels["energy"] - share)
         self.levels["adenosine"] = _clip(self.levels["adenosine"] + 0.1 * share)
 
-    def learn_rhythm(self, hour: float) -> None:
-        """The user was around at ``hour``: her peak drifts to two hours after it, slowly (a few weeks)."""
+    def learn_rhythm(self, hour: float, seen_for: float) -> None:
+        """The user was around at ``hour``, for ``seen_for`` seconds since they last wrote (at most half an
+        hour counts: a longer gap is time they were away): her peak drifts to two hours after it by that share
+        of ``ENTRAINS``, so over days to weeks, as a body clock entrains to social cues (Mistlberger & Skene
+        2004). Before 0.24.1 it moved a fiftieth of the way
+        each message: 150 messages in a day put her peak at 22:00 and her night at ten in the morning, and she
+        never slept (the user's brain, 2026-11-16)."""
         target = (hour + 2.0) % 24.0
         delta = (target - self.peak + 12.0) % 24.0 - 12.0
-        self.peak = (self.peak + 0.02 * delta) % 24.0
+        self.peak = (self.peak + min(1.0, min(max(0.0, seen_for), 30 * MINUTE) / ENTRAINS) * delta) % 24.0
 
     def fall_asleep(self) -> None:
         self.asleep = True
@@ -306,12 +312,15 @@ class Body:
 
     def to_dict(self) -> dict:
         return {"temperament": self.temperament.to_dict(), "levels": dict(self.levels),
-                "sensitivity": dict(self.sensitivity), "asleep": self.asleep, "peak": self.peak, "at": self.at}
+                "sensitivity": dict(self.sensitivity), "asleep": self.asleep, "peak": self.peak, "at": self.at,
+                "entrained": True}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Body":
         levels = {**START, **{k: float(v) for k, v in (data.get("levels") or {}).items() if k in START}}
         sensitivity = {**{name: 1.0 for name in SENSITIVE},
                        **{k: float(v) for k, v in (data.get("sensitivity") or {}).items() if k in SENSITIVE}}
+        # a clock from before 0.24.1 was moved by every message, hours in a day: it starts over at the usual peak
+        peak = float(data.get("peak", 16.0)) if data.get("entrained") else 16.0
         return cls(Temperament.from_dict(data.get("temperament") or {}), levels, sensitivity,
-                   bool(data.get("asleep")), float(data.get("peak", 16.0)), float(data.get("at", 0.0)))
+                   bool(data.get("asleep")), peak, float(data.get("at", 0.0)))

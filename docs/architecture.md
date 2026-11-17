@@ -1262,7 +1262,9 @@ episode, updates each guide's error and teaches her values whether that decision
 than what usually follows (`usual`, a running mean: graded absolutely, whatever she did was credited with
 how friendly the user is). So a message like "brb, gotta go" comes to forecast company taken from her own
 record of the absences that followed such messages, whatever the model reads into it. Then
-`_met`: her needs move by the contact (0.1, 0.25 after 6 h apart) and the forecast; phasic dopamine is
+`_met`: her needs move by the contact (0.1, 0.25 after 6 h apart) and the forecast (company and capability
+each by 0.3 of what is read; capability was a tenth before 0.24.1, and "that was a stupid answer" felt
+-0.06 against a goodbye's -0.50, offline through the real code; now -0.33, live -0.20); phasic dopamine is
 what that is worth to her (`will.value` of the pushes, taken before the levels move so a full need still
 counts what lasts) minus what she expects from the user; noradrenaline the surprise; company brings
 oxytocin and endorphin. The imagine call also reads how things are for the user ("very bad" .. "very
@@ -1302,23 +1304,50 @@ the prediction error against the chance she gave it, values learned, what she sh
 for, moves cortisol or endorphin by 0.05 of the gap between its valence and her body's, and
 noradrenaline by 0.1 of the gap in arousal; on a turn nobody wrote too) and an exchange episode stored.
 
+Likes and dislikes (0.24.1): what a message is about (its `tag:` features) takes on how it felt, every
+message, a chat as much as a job: in `after`, the change the message made to her core valence (2.5x,
+`decision.felt`, measured in `before`) averaged with the valence of the mood she showed answering, learned
+at her learning rate. One clear moment is a mild liking (weights over 0.05 show; sleep fades them 5% a
+night, so one that is never renewed goes in a few weeks). Before, only what followed a decision taught
+them and two uses were needed, so in the user's brain "do you like it when I call you dear?" - "I like it"
+left nothing. They are used: a liked subject is reward in itself (`_met`, 0.3 x its learned worth,
+`met.liked`), her note says "You like pet names." when one comes up, her wandering thoughts and her sleep
+are told what she has come to like and dislike.
+
 Between messages: her needs drift, adenosine builds. Every 30 s the bids (reach out, wonder, ruminate,
-resume, sleep) get noise and meet a threshold that rises with fatigue, each with its refractory period.
-`wonder` is her mind wandering: (0.5 + 1.1 x her need for new things x curiosity) x energy x (0.4 +
-dopamine), nothing while a run works. It thinks from her last thought and two episodes drawn at random
-from her whole life, the strong and charged more often (`Memory.replay`). On a fake clock (two days, the
-user at the desk nine to six): 18 to 20 such thoughts a day, fewer by evening, none asleep.
+resume, sleep) get noise and meet a threshold, each with its refractory period. What she must set out to
+do (reach out, resume, sleep) meets 0.5 + 0.6 x fatigue; what comes by itself (wonder, ruminate) meets 0.5
+whatever her fatigue (0.24.1: sleepiness brings more mind wandering, not less, Poh et al. 2016; one bar for
+all kept every thought from the user's brain through a long day, 0.89 against a pull of 0.27); both less
+0.3 x noradrenaline over 0.35. `wonder` is her mind wandering: 0.5 + 1.1 x her need for new things x
+curiosity x (0.4 + dopamine), nothing while a run works. It thinks from her last thought and two episodes
+drawn at random from her whole life, the strong and charged more often (`Memory.replay`). `ruminate` pulls
+when one of the last two days' exchanges or thoughts hurt (valence under -0.3, still charged): the most
+charged of those (before 0.24.1 only the 8 most charged moments were looked at, and none of a busy day's
+hurts was among them). On a fake clock (two weeks of the user's day: at the computer 08:00 to 01:30,
+writing every 10 minutes): about 27 thoughts a day, spread across the hours awake, none asleep.
 A thought is a light-model call; `tell`, `ask` and `do` become `mind.urge` notifications to the app last
 talked with, only while that app polls `/v1/mind` (it is there) and the session is free, one at a time:
-while an urge waits for the user, her thoughts stay hers. `look_up` starts a quiet background task with
+while an urge waits for the user, her thoughts stay hers, and while the user is talking with her (a
+message in the last 15 minutes, `TALKING`) they come up in her next answer (the note's "Since you last
+talked you were thinking") rather than as a message of their own. `look_up` starts a quiet background task with
 web and memory (its end is not announced: she keeps what she found). An urge nobody answers within 30 min
 stings. Sleep needs sleep pressure (adenosine above 0.4: slept out, she stays up rather than dozing off
-again), her night and the user away, less 0.5 x `Body.evening` (her clock's alerting signal, at its most
+again), her night and nobody talking with her (0.24.1: a message in the last 15 minutes holds it off by 0.7;
+before, the user merely at the computer did, and in the user's brain, with them there from 08:00 to past
+one, she never slept, so never went over a day, had no story and stayed worn out on reflex), less 0.5 x
+`Body.evening` (her clock's alerting signal, at its most
 4 h after her peak: with 14 h awake she napped at seven in the evening without it); she wakes when
 pressure is under 0.03 + 0.32 x (1 - night)^2 (a low bar in her night, a high one by day; ~7 h, about
 22:45 to 05:30 on a fake clock), and the day is gone over once (insights, a dream, her story
 rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**). Time away longer than
-6 h counts as sleep. `mind` off: none of this runs and the prompt has no inner life.
+6 h counts as sleep. Her clock (`Body.peak`, 16:00 at first) moves toward two hours after the hours the
+user writes, by the time they were around (the gap since their last message, at most 30 minutes) over
+three days of it (`ENTRAINS`): a user around 8 h a day moves it in about nine days. Before 0.24.1 every
+message moved it a fiftieth of the way, so 150 messages put her peak at 22:00 and her night at ten in
+the morning; a clock saved before 0.24.1 (no `entrained` in its body) starts over at 16:00. On the fake
+clock of the user's day it settles at 18:45 and she sleeps from about 01:35 to when they write at 08:00.
+`mind` off: none of this runs and the prompt has no inner life.
 
 `GET /v1/mind?app=&idle=&brief=` (`Mind.state`): her face for the app, felt words, `feeling` (a few words
 for it), valence and arousal; `brief=1` stops there (an app's frequent look stays small as her vocabulary
@@ -1326,7 +1355,8 @@ grows: 59 KB in full with 300 feelings). In full also: levels, `feelings` (every
 strongly it comes to mind now, how often she called a moment by it (`count`) and how often it came back at
 one she did not (`back`), `place` [pleasant, keyed up, toward the user] of a usual body moved its way, and
 the `channels` it moves most, each with its share of the way), `sensed` (each channel as she senses it, how far from
-usual, whatever she has got used to), `needs` (how unmet, 0..1), `attention` (each bid without noise, the threshold, the kinds
+usual, whatever she has got used to), `needs` (how unmet, 0..1), `attention` (each bid without noise, `threshold` for what she sets out to do and `musing` for what
+comes by itself, the kinds
 resting after they won, the last winner, whether she is thinking), `decided` (her last decision with its
 odds) and `wiring`: [level, output, weight] from `Body.influence`, which nudges each level by 0.05 and
 measures how far the chemistry's targets, core affect and the bids move (weights

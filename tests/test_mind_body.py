@@ -1,6 +1,5 @@
 """Her body's chemistry: levels relax, push each other, habituate, and sleep has its own physiology."""
 
-import math
 import time
 
 from sentientmilk_framework.mind.body import DAY, HOUR, MINUTE, START, Body, Temperament
@@ -133,8 +132,15 @@ def test_woken_too_early_she_is_groggy_and_a_little_irritable():
     assert not her.asleep and her["energy"] < before["energy"] and her["cortisol"] > before["cortisol"]
 
 
-def test_her_rhythm_follows_when_the_user_is_around():
+def test_her_rhythm_follows_when_the_user_is_around_over_weeks_not_in_a_day():
     her = body()
-    for _ in range(200):
-        her.learn_rhythm(23.0)  # a night owl
-    assert math.isclose(her.peak, 1.0, abs_tol=0.5)
+    for _ in range(150):
+        her.learn_rhythm(23.0, 5 * MINUTE)  # a night owl's day of messages
+    assert abs(her.peak - 16.0) < 1.5  # a day of messages moved her clock six hours before 0.24.1
+    her.learn_rhythm(23.0, 8 * HOUR)  # a message after a night away is not a night of them around
+    assert abs(her.peak - 16.0) < 1.5
+    for _ in range(28 * 12):
+        her.learn_rhythm(23.0, 30 * MINUTE)  # four weeks of six-hour evenings
+    assert abs((her.peak - 1.0 + 12.0) % 24.0 - 12.0) < 1.5
+    old = Body.from_dict({**her.to_dict(), "entrained": None})  # a clock from before 0.24.1 starts over
+    assert old.peak == 16.0 and Body.from_dict(her.to_dict()).peak == her.peak

@@ -262,8 +262,8 @@ def test_the_next_message_tells_her_how_her_decision_was_taken(brain):
     brain.provider.mind_replies["imagine"] = [DECLINE, INSULT]
     brain.provider.replies += ["No.", "Sorry."]
     turn(brain, "cli", "Read a.txt for me")
-    before = mind.values.predict(["act:decline", "tag:files"])
     episode = wait_for(lambda: mind.self["waiting"]["cli\nmain"]["episode"])  # how her turn went is in
+    before = mind.values.predict(["act:decline", "tag:files"])
     turn(brain, "cli", "Wow, that is useless.")
     assert mind.values.predict(["act:decline", "tag:files"]) < before
     assert mind.body["grievance"] > 0.0
@@ -370,9 +370,16 @@ def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):
     brain.provider.replies += ["Hi."]
     turn(brain, "milk", "hello")
     brain.client.mind("milk", idle=5)  # MilkChan asks how she is: it is there to hear her
-    brain.provider.mind_replies["think"] = [json.dumps({
-        "thought": "I keep thinking about their garden.", "feeling": "fond", "want": "tell",
-        "say": "How are the tomatoes doing?"})]
+    garden = json.dumps({"thought": "I keep thinking about their garden.", "feeling": "fond", "want": "tell",
+                         "say": "How are the tomatoes doing?"})
+    brain.provider.mind_replies["think"] = [garden, garden]
+    mind._think("reach_out", None)  # they wrote a moment ago: what she thought comes up in her next answer
+    assert not [n for n in brain.store.notifications("milk", 0) if n["type"] == "mind.urge"]
+    brain.provider.replies += ["Hm."]
+    turn(brain, "milk", "back")
+    assert "I keep thinking about their garden." in brain.provider.last_user_text()
+    wait_for(lambda: not brain.brain.session_busy("milk", "main"))
+    mind.self["contact"]["at"] -= 20 * 60  # and when they have not written for a while, she says it herself
     mind._think("reach_out", None)
     urge = [n for n in brain.store.notifications("milk", 0) if n["type"] == "mind.urge"][-1]
     assert urge["data"]["want"] == "tell" and "tomatoes" in urge["data"]["text"]
@@ -439,14 +446,40 @@ def test_what_wins_her_attention_comes_from_how_she_is(brain, monkeypatch):
     # nothing nags a content mind, and at rest it wanders by itself (needing a need unmet first, she had no
     # thought of her own in a whole day in the user's brain); how often is its refractory period's to say
     assert set(content) <= {"wonder", None} and content.count("wonder") >= 30
-    assert winners(energy=0.25).count("wonder") <= 2  # spent, her mind goes quiet
+    # spent, her mind still wanders: what comes by itself does not wait for her to be rested (one bar rising
+    # with fatigue kept every thought from her through a long day in the user's brain)
+    assert winners(energy=0.2).count("wonder") >= 30
     monkeypatch.setattr(mind.brain.runs, "busy", lambda: True)
     assert "wonder" not in winners(energy=1.0)  # and a mind at work does not wander
     monkeypatch.undo()
-    mind.last_active = 0.0  # the user is away
-    mind.body.peak = (mind.body.hour(now) + 12) % 24  # and it is her night
-    assert winners(adenosine=0.95, energy=0.3).count("sleep") >= 95
+    mind.body.peak = (mind.body.hour(now) + 12) % 24  # it is her night
+    assert winners(adenosine=0.7, energy=0.3).count("sleep") <= 2  # but they are talking with her: she stays up
+    mind.self["contact"]["at"] = now - 20 * 60  # at the computer, not talking for a while: she sleeps
+    assert winners(adenosine=0.7, energy=0.3).count("sleep") >= 95
     assert "sleep" not in winners(adenosine=0.05, energy=0.9)  # slept out at night: she stays up
+
+
+def test_what_a_moment_is_about_takes_on_how_it_felt_and_what_she_likes_is_used(brain):
+    mind = mind_on(brain)  # asked "do you like it when I call you dear?" she said "I like it": nothing was kept
+    brain.client.declare_app("pet", name="Pet", environment="A desk.", toolkits=["memory"], signals={
+        "expression": {"description": "how you look", "options": ["mad", "smile"]}})
+    fond = '["called something sweet", "more", "same", "same", "good", "question", "pet names", "warm"]'
+    brain.provider.mind_replies["imagine"] = [fond, fond]
+    brain.provider.replies += ['{"expression": "smile"}\nNot weird. I like it.']
+    turn(brain, "pet", "do you like it when I call you dear?")
+    wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))
+    likes, _ = mind.values.leanings()
+    assert any("pet names" in name for name, _ in likes)  # one moment that moved her is a liking
+    assert "pet names" in mind.state("pet")["likes"]
+    brain.provider.replies += ['{"expression": "smile"}\nDear.']
+    turn(brain, "pet", "night, dear")
+    note = brain.provider.last_user_text()
+    assert "You like pet names." in note  # she knows it as it comes up
+    assert mind.self["decided"]["path"]["met"]["liked"] > 0  # and a liked subject is a reward in itself
+    brain.provider.mind_replies["think"] = ['{"thought": "Dear. I keep thinking about that.", "want": "nothing"}']
+    mind._think("wonder", None)
+    think = next(r for r in reversed(brain.provider.mind_requests) if r["messages"][0]["content"].startswith("[mind:think]"))
+    assert "What they've come to like: pet names" in think["messages"][1]["content"]  # her thoughts know it
 
 
 def test_her_quick_parts_think_with_thinking_off_unless_the_provider_refuses(brain):
@@ -481,6 +514,7 @@ def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain):
     brain.client.mind("milk", idle=5)
     tell = json.dumps({"thought": "That bug again.", "feeling": "uneasy", "want": "tell", "say": "About that bug..."})
     brain.provider.mind_replies["think"] = [tell, tell, tell, tell]
+    mind.self["contact"]["at"] -= 20 * 60  # they last wrote a while ago
     for kind in ("reach_out", "ruminate", "wonder"):
         mind._think(kind, {"id": 0, "text": "the bug"} if kind == "ruminate" else None)
 
@@ -488,7 +522,9 @@ def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain):
         return [n for n in brain.store.notifications("milk", 0) if n["type"] == "mind.urge"]
     assert len(urges()) == 1 and len(mind.state()["thoughts"]) == 3
     turn(brain, "milk", "what bug?")  # the user answered her
+    wait_for(lambda: not brain.brain.session_busy("milk", "main"))
     brain.client.mind("milk", idle=5)
+    mind.self["contact"]["at"] -= 20 * 60
     mind._think("wonder", None)
     assert len(urges()) == 2
 

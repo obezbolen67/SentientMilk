@@ -17,10 +17,15 @@ def _clip(value: float) -> float:
     return -LIMIT if value < -LIMIT else LIMIT if value > LIMIT else value
 
 
+def subjects(tags: Iterable[str]) -> List[str]:
+    """What a moment is about, as she learns to like or dislike it: one feature a subject."""
+    return [f"tag:{w}" for w in dict.fromkeys(" ".join(str(t).lower().split()) for t in tags) if w][:6]
+
+
 def features(act: str, tags: Iterable[str] = (), intent: str = "", hour: float = 12.0, app: str = "") -> List[str]:
     """What an option is, as she learns about it: the act, what it is about, with whom and when."""
     when = "night" if hour < 6 or hour >= 23 else "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
-    words = [w for w in dict.fromkeys(" ".join(str(t).lower().split()) for t in tags) if w][:6]
+    words = [f[4:] for f in subjects(tags)]
     found = [f"act:{act}", f"when:{when}", f"act:{act}|when:{when}"]
     if intent:
         found += [f"intent:{intent}", f"act:{act}|intent:{intent}"]
@@ -64,11 +69,18 @@ class Values:
         return [subject for _, subject in met[:count]]
 
     def leanings(self, count: int = 5) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
-        """Her strongest likes and dislikes among what things are about (tags and acts with a tag)."""
-        about = [(f, w) for f, w in self.weights.items() if "tag:" in f and self.uses.get(f, 0) >= 2]
-        likes = sorted((item for item in about if item[1] > 0.1), key=lambda item: -item[1])[:count]
-        dislikes = sorted((item for item in about if item[1] < -0.1), key=lambda item: item[1])[:count]
+        """Her strongest likes and dislikes among what things are about (tags and acts with a tag). One moment
+        that moved her enough is a liking (before 0.24.1 two were needed, and "do you like it when I call you
+        dear?" - "I like it" left nothing in her brain)."""
+        about = [(f, w) for f, w in self.weights.items() if "tag:" in f]
+        likes = sorted((item for item in about if item[1] > 0.05), key=lambda item: -item[1])[:count]
+        dislikes = sorted((item for item in about if item[1] < -0.05), key=lambda item: item[1])[:count]
         return likes, dislikes
+
+    def fond(self, found: List[str], floor: float = 0.05) -> Tuple[List[str], List[str]]:
+        """Of these subjects, the ones she likes and the ones she dislikes (by their learned worth)."""
+        return ([f[4:] for f in found if self.weights.get(f, 0.0) >= floor],
+                [f[4:] for f in found if self.weights.get(f, 0.0) <= -floor])
 
     def to_dict(self) -> dict:
         return {"weights": self.weights, "uses": self.uses}
