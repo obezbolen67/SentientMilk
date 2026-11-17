@@ -278,3 +278,22 @@ def test_her_mind_shows_in_its_tab_and_is_switched_there(brain):
         await until(pilot, lambda: not brain.client.config()["mind"])
         await until(pilot, lambda: "Her mind is off." in str(panel.query_one("#mind-now").render()))
     run(brain, scenario)
+
+
+def test_where_her_long_term_memory_is_embedded_is_set_in_the_memory_tab(brain):
+    async def scenario(panel, pilot):
+        panel.action_tab("journal")
+        await until(pilot, lambda: "memories embedded" in str(panel.query_one("#e-status").render()))
+        assert "sent to https://openrouter.ai/api/v1" in str(panel.query_one("#e-status").render())
+        panel.query_one("#e-model", Input).value = "google/gemini-embedding-2"
+        panel.query_one("#e-key", Input).value = "sk-or-test"
+        panel.query_one("#e-dims", Input).value = "768"
+        await press(pilot, panel, "e-save")
+        await until(pilot, lambda: brain.client.config()["embeddings_model"] == "google/gemini-embedding-2")
+        assert panel.query_one("#e-key", Input).value == ""  # never shown again
+        panel.query_one("#e-mode", Select).value = "off"
+        await press(pilot, panel, "e-save")
+        await until(pilot, lambda: "by words only" in str(panel.query_one("#e-status").render()))
+    run(brain, scenario)
+    config = brain.client.config()
+    assert config["embeddings"] == "off" and config["embeddings_api_key_set"] and config["embeddings_dimensions"] == 768

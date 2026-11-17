@@ -108,3 +108,12 @@ def test_once_after_her_past_she_goes_over_all_she_keeps(brain):
     asked = len(brain.provider.tidy_requests)
     brain.brain.journal._catch_up()  # once
     assert len(brain.provider.tidy_requests) == asked
+
+
+def test_one_subject_in_other_words_comes_back_as_she_saves_it(brain):
+    from conftest import Meaning, use
+    use(brain, Meaning())
+    brain.store.remember("milk", "user", "occupation", "Translates English and Russian for a living.")
+    brain.brain.recall.sweep()
+    result = save(brain, "job", "Works as an interpreter.", "user")  # no word in common
+    assert "You already keep these, like it:\n- user/occupation: Translates" in result

@@ -15,6 +15,12 @@ def journal_search(ctx: ToolContext, query: str = ""):
     chats, finished tasks), newest first; the 20 newest are kept. With words, also what comes back to you of
     any time: your own memories of what happened (they live longer than the notes)."""
     notes = ctx.store.notes(query.strip())
+    if query.strip():  # and those about it in other words, also the ones the journal no longer keeps
+        shown = {note["id"] for note in notes}
+        notes += [{"id": int(hit["ref"].rsplit("#", 1)[0]), "at": hit["at"], "app": hit["app"],
+                   "session": hit["session"], "note": hit["text"]}
+                  for hit in ctx.brain.recall.search(query, count=10, sources=("note",))
+                  if int(hit["ref"].rsplit("#", 1)[0]) not in shown]
     own = ctx.brain.mind.look_back(query) if query.strip() else []
     if not notes and not own:
         return "No journal notes match, and nothing comes back." if query else "The journal is empty."

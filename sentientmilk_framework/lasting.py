@@ -31,6 +31,7 @@ from .mind.prompts import parse
 logger = logging.getLogger(__name__)
 
 WORDS = re.compile(r"[^\W_]{4,}", re.UNICODE)
+RELATED_AT = 0.3  # relevance (vectors.relevance) from which an entry is about the same thing (spec, "Measured")
 EXACT = re.compile(r"[A-Za-z]:\\[^\s\"'(),;]+|https?://[^\s\"'(),;]+|[\w.+-]+@[\w-]+\.[\w.]+|\b\d{1,3}(?:\.\d{1,3}){3}\b"
                    r"|\b\d{6,}\b|\b[0-9A-Fa-f]{16,}\b")
 PROMPT = """You are going over your lasting memory on your own, as sleep does: nobody else sees this. Below:
@@ -66,9 +67,16 @@ def _tokens(key: str) -> set:
     return {part for part in re.split(r"[\W_]+", key.lower()) if len(part) >= 3}
 
 
-def related(entries: List[dict], key: str, value: str, skip=(), count: int = 3) -> List[dict]:
-    """What she keeps that is like a new entry: a key with a word of its key, or much of its words."""
+def related(entries: List[dict], key: str, value: str, skip=(), count: int = 3, recall=None) -> List[dict]:
+    """What she keeps that is like a new entry: one about the same thing in other words (by meaning, through
+    ``recall``, her long-term memory), a key with a word of its key, or much of its words."""
     tokens, words, found = _tokens(key), _words(value), []
+    if recall is not None:
+        by_ref = {f"{e['category']}/{e['key']}": e for e in entries if (e["category"], e["key"]) not in skip}
+        for hit in recall.search(f"{key}: {value}", count=count + len(skip), sources=("fact",)):
+            entry = by_ref.get(hit["ref"].rsplit("#", 1)[0])
+            if entry is not None and hit["relevance"] >= RELATED_AT:
+                found.append((2.0 + hit["relevance"], entry))
     for entry in entries:
         if (entry["category"], entry["key"]) in skip:
             continue
@@ -77,7 +85,11 @@ def related(entries: List[dict], key: str, value: str, skip=(), count: int = 3) 
         likeness = len(words & other) / max(1, len(words | other))
         if shared or likeness >= 0.2:
             found.append((shared + likeness, entry))
-    return [entry for _, entry in sorted(found, key=lambda item: -item[0])[:count]]
+    ranked = []
+    for _, entry in sorted(found, key=lambda item: -item[0]):
+        if entry not in ranked:
+            ranked.append(entry)
+    return ranked[:count]
 
 
 def exact(text: str) -> set:

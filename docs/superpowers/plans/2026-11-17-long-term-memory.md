@@ -15,6 +15,16 @@ mind's `Memory` and the search tools use the same embedder.
 
 **Spec:** `docs/superpowers/specs/2026-11-17-long-term-memory-design.md` (requirements R1-R14).
 
+**Done (0.29.0, 2026-11-17), with the user's change of course:** embeddings through OpenRouter, the model
+measured on her history among eight of its models (Task 3 with `--models`, spec "Measured"). So Task 1 has
+no `LocalEmbedder`/`ModelSpec` (no onnxruntime or tokenizers, no download) and `embeddings` is `api` or
+`off`; the indexer does not yield to turns (embedding is a network call, not her CPU); a turn waits at most
+`QUERY_WAIT` for its query. Bm25 rank alone made "was" a strong match on a young index, so words count as
+the rarity-weighted share of a query's words, stopwords left out. Measuring changed the floor: `relevance(cosine,
+embedder)` is above the most that 20 everyday questions (`CALIBRATION`) reach, not the 95th percentile of
+random pairs, and only meaning admits (words rank, and admit only when meaning cannot). The store's `last_compaction`
+(already there) marks what of her chat comes back.
+
 ## Global Constraints
 
 - Windows laptop CPU, no GPU; new dependencies only `numpy>=1.26`, `onnxruntime>=1.20`, `tokenizers>=0.20`.

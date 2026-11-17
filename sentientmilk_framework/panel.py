@@ -40,7 +40,7 @@ from textual.widgets import (
     TextArea,
 )
 
-from . import __version__, autostart
+from . import __version__, autostart, embeddings
 from .claudecode import EFFORT_NAMES
 from .client import BrainClient, connect, start_command
 from .config import DEFAULT_BASE_URL, DEFAULT_MODEL, SHELLS
@@ -548,6 +548,24 @@ class Panel(App):
                      "that saved it; each conversation's own memory is in its app), then the journal: short dated "
                      "notes about conversations in every app, the 20 newest kept.", classes="hint")
         with VerticalScroll():
+            with Vertical(classes="card", id="recall-card"):
+                yield Static("Long-term memory: past chats, notes and what she keeps come back to her by meaning, "
+                             "not only by the same words, through an embeddings service.", classes="hint")
+                with Grid(classes="form"):
+                    yield Label("Embeddings")
+                    yield Select([("A service (OpenAI-compatible)", "api"), ("Off: by words only", "off")],
+                                 allow_blank=False, id="e-mode")
+                    yield Label("Service address")
+                    yield Input(placeholder=embeddings.DEFAULT_URL, id="e-url")
+                    yield Label("Model")
+                    yield Input(placeholder=embeddings.DEFAULT_MODEL, id="e-model")
+                    yield Label("API key")
+                    yield Input(password=True, id="e-key")
+                    yield Label("Dimensions (0: the model's own)")
+                    yield Input(type="integer", id="e-dims")
+                yield Static(id="e-status")
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Save long-term memory", id="e-save", variant="primary")
             with Vertical(classes="card", id="memory-card"):
                 with Horizontal(classes="toggle"):
                     yield Switch(id="summaries")
@@ -1133,12 +1151,54 @@ class Panel(App):
             switch = self.main.query_one("#summaries", Switch)
             with switch.prevent(Switch.Changed):
                 switch.value = settings["session_summaries"]
+            self.load_recall(settings)
         memory = self.call(lambda c: c.memory_entries(), quiet=True)
         if memory is not None:
             fill(self.main.query_one("#memory", DataTable),
                  [(f"{e['category']}\n{e['key']}", (e["category"], e["key"], cut(e["value"], 90), e["app"]))
                   for e in memory])
         self.load_notes()
+
+    def load_recall(self, settings: dict) -> None:
+        """Where her long-term memory is embedded, and how far it has got."""
+        self.main.query_one("#e-mode", Select).value = settings["embeddings"]
+        self.main.query_one("#e-url", Input).value = settings["embeddings_base_url"]
+        self.main.query_one("#e-model", Input).value = settings["embeddings_model"]
+        self.main.query_one("#e-dims", Input).value = str(settings["embeddings_dimensions"])
+        self.main.query_one("#e-key", Input).placeholder = (
+            "saved · type a new key to replace it" if settings["embeddings_api_key_set"]
+            else "paste the service's key (empty: her chat model's, at the same address)")
+        status = (self.call(lambda c: c.stats(), quiet=True) or {}).get("recall") or {}
+        state = status.get("state", "")
+        shown = (f"[{OK}]✓ ready[/]" if state == "ready" else f"[{MUTED}]off: by words only[/]" if state == "off"
+                 else f"[{WARN}]{escape(state)}[/]") if state else ""
+        if status:
+            shown += (f"  [{MUTED}]{status['embedded']:,} of {status['units']:,} memories embedded"
+                      + (f" · ${status['spent']:.4f} spent since the brain started" if status.get("spent") else "")
+                      + "[/]")
+        if settings["embeddings"] == "api":
+            where = settings["embeddings_base_url"] or embeddings.DEFAULT_URL
+            shown += (f"\n[{MUTED}]Every chat she has is sent to {escape(where)} to be embedded"
+                      + (" (on OpenRouter, only to providers that keep and train on nothing)." if "openrouter.ai" in where
+                         else ".") + "[/]")
+        self.main.query_one("#e-status", Static).update(shown)
+
+    def save_recall(self) -> None:
+        try:
+            changes = {"embeddings": self.main.query_one("#e-mode", Select).value,
+                       "embeddings_base_url": self.main.query_one("#e-url", Input).value.strip(),
+                       "embeddings_model": self.main.query_one("#e-model", Input).value.strip(),
+                       "embeddings_dimensions": number(self.main.query_one("#e-dims", Input), "Dimensions")}
+        except ValueError as exc:
+            return self.notify(str(exc), severity="error")
+        key = self.main.query_one("#e-key", Input).value.strip()
+        if key:
+            changes["embeddings_api_key"] = key
+        saved = self.call(lambda c: c.update_config(**changes),
+                          done="Saved. Her long-term memory embeds with it from now on.")
+        if saved is not None:
+            self.main.query_one("#e-key", Input).value = ""
+            self.load_recall(saved)
 
     def load_mind(self) -> None:
         state = self.call(lambda c: c.mind(), quiet=True)
@@ -1506,6 +1566,8 @@ class Panel(App):
             self.action_tab("provider")
         elif button == "p-save":
             self.save_provider()
+        elif button == "e-save":
+            self.save_recall()
         elif button == "p-claude-refresh":
             self.notify("Asking Claude Code…")
             self.load_claude(refresh=True)

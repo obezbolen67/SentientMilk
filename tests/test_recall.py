@@ -1,0 +1,179 @@
+"""Her long-term memory: past chats, notes and facts come back by meaning and by words, every turn, and go when
+they are deleted (docs/superpowers/specs/2026-11-17-long-term-memory-design.md)."""
+
+import json
+import time
+
+from conftest import Meaning, turn, use
+
+from sentientmilk_framework.recall import CHUNK, HEADER, chunks
+
+FILLER = ["the weather was grey all week", "we fixed the printer driver", "a recipe for lentil soup",
+          "notes about the quarterly budget", "she read about volcanoes", "music for focus playlists",
+          "a bug in the calendar sync", "plans to repaint the kitchen", "the train schedule changed",
+          "how to prune tomato plants", "a podcast about chess openings", "renewing the passport",
+          "backing up the photos", "a birthday gift for a friend", "the router kept dropping wifi",
+          "learning a few words of Portuguese", "the bike needed new brakes", "sorting old receipts",
+          "a documentary about whales", "choosing a new desk lamp"]
+
+
+def filled(brain):
+    recall = brain.brain.recall
+    for n, text in enumerate(FILLER):
+        recall.add("turn", f"f{n}", "milk", "old", time.time() - 86400 * 30, f"they: {text}\nyou: Sure.")
+    return recall
+
+
+def said(brain, app, session, text, reply="Sure."):
+    brain.provider.replies.append(reply)
+    turn(brain, app, text, session=session)
+
+
+def last_input(brain, app, session) -> str:
+    return json.dumps(brain.store.events(app, session, types=("input",))[-1]["content"], ensure_ascii=False)
+
+
+def test_meaning_finds_what_words_miss(brain):
+    recall = filled(brain)
+    use(brain, Meaning())
+    recall.add("turn", "1", "milk", "a", time.time() - 3 * 86400, "they: We planned a pixel-art platformer.")
+    recall.sweep()
+    assert "platformer" in recall.search("what was that game idea")[0]["text"]
+    use(brain, None)  # by words only, as before
+    assert recall.search("what was that game idea") == []
+
+
+def test_exact_names_still_come_back_by_words(brain):
+    recall = filled(brain)
+    use(brain, Meaning())
+    recall.add("turn", "2", "milk", "a", time.time(), r"they: The notes are in C:\Users\me\plans.md")
+    recall.sweep()
+    hit = recall.search(r"C:\Users\me\plans.md")[0]
+    assert hit["ref"] == "2#0" and hit["lexical"] >= 0.5
+
+
+def test_nothing_unrelated_comes_back(brain):
+    recall = filled(brain)
+    use(brain, Meaning())
+    recall.add("turn", "3", "milk", "a", time.time(), "they: We planned a pixel-art platformer.")
+    recall.sweep()
+    assert recall.search("quantum tax law") == []
+
+
+def test_long_and_cyrillic_text_is_kept_whole(brain):
+    recall = filled(brain)
+    use(brain, None)  # by words: FTS5 takes Cyrillic apart as it does English
+    assert len(recall.add("turn", "4", "milk", "a", time.time(), "ж" * 5000)) == 4
+    assert all(len(piece) <= CHUNK for piece in chunks("x" * 5000)) and "".join(chunks("ab" * 900))[:1800] == "ab" * 900
+    recall.add("turn", "5", "milk", "a", time.time(), "они обсуждали платформер про котов")
+    assert recall.search("платформер", sources=("turn",))[0]["ref"] == "5#0"
+
+
+def test_what_comes_back_is_written_into_the_turn_and_stays_in_the_log(brain):
+    filled(brain)
+    use(brain, Meaning())
+    brain.client.update_session("milk", "a", title="Pixel game")
+    said(brain, "milk", "a", "let's make a pixel-art platformer", "Yes! A small one first.")
+    brain.brain.recall.sweep()
+    said(brain, "milk", "b", "remember that game idea?")
+    seen = last_input(brain, "milk", "b")
+    assert HEADER in seen and "pixel-art platformer" in seen and '\\"Pixel game\\"' in seen
+    said(brain, "milk", "a", "and the game idea, the levels?")  # her own chat she has before her: not again
+    assert "pixel-art platformer" not in last_input(brain, "milk", "a").split(HEADER)[-1]
+    said(brain, "milk", "c", "what's 2+2")
+    assert HEADER not in last_input(brain, "milk", "c")
+
+
+def test_her_chat_comes_back_from_before_its_compaction(brain):
+    filled(brain)
+    use(brain, Meaning())
+    said(brain, "milk", "a", "let's make a pixel-art platformer")
+    brain.brain.recall.sweep()
+    brain.store.add_event("milk", "a", None, "compaction", {"summary": "We talked."})
+    note = brain.brain.recall.note({"kind": "turn", "app": "milk", "session": "a"}, "that game idea?")
+    assert note and "pixel-art platformer" in note
+
+
+def test_with_the_service_down_words_still_bring_it_back(brain):
+    filled(brain)
+    use(brain, Meaning(problem="the embeddings service failed: 503"))
+    said(brain, "milk", "a", "let's make a pixel-art platformer")
+    brain.brain.recall.sweep()
+    said(brain, "milk", "b", "that pixel-art platformer?")  # by words, all of them must be there
+    assert "pixel-art platformer" in last_input(brain, "milk", "b")
+
+
+def test_a_deleted_chat_never_comes_back(brain):
+    filled(brain)
+    use(brain, Meaning())
+    said(brain, "milk", "s", "my secret plan is a pixel-art platformer")
+    brain.store.add_note("milk", "s", "We planned a secret platformer.")
+    recall = brain.brain.recall
+    recall.sweep()
+    assert recall.search("secret platformer", sources=("turn", "note"))
+    brain.client.delete_session("milk", "s")
+    recall.sweep()  # its journal note is still in the journal: it does not come back either
+    assert not recall.search("secret platformer", sources=("turn", "note"))
+
+
+def test_a_return_to_a_message_forgets_what_it_undid(brain):
+    filled(brain)
+    use(brain, Meaning())
+    said(brain, "milk", "main", "we planned a pixel-art platformer")
+    said(brain, "milk", "main", "my cat died yesterday")
+    recall = brain.brain.recall
+    recall.sweep()
+    second = [e for e in brain.brain.history("milk", "main") if e["role"] == "user"][1]["id"]
+    brain.client.rewind("milk", "main", second)
+    recall.sweep()
+    assert recall.search("platformer game") and not recall.search("our pet passed away")
+
+
+def test_a_forgotten_fact_and_a_faded_episode_are_gone(brain):
+    recall = brain.brain.recall
+    use(brain, Meaning())
+    brain.store.remember("milk", "user", "job", "works as an interpreter")
+    episode = brain.brain.mind.memory.add("exchange", "they told me about their cat", 0.2, 0.3, 0.1, at=1.0)
+    recall.sweep()
+    assert recall.search("translator job", sources=("fact",))[0]["ref"] == "user/job#0"
+    assert brain.brain.mind.memory.vectors.count("meaning@64") == 1
+    brain.store.forget("user", "job")
+    brain.brain.mind.memory.forget_faint(time.time())
+    recall.sweep()
+    assert not recall.search("translator job", sources=("fact",))
+    assert brain.brain.mind.memory.vectors.count("meaning@64") == 0 and episode
+
+
+def test_a_changed_model_embeds_everything_again(brain):
+    said(brain, "milk", "a", "we planned a pixel-art platformer")
+    recall = brain.brain.recall
+    recall.sweep()
+    status = brain.client.stats()["recall"]
+    assert status["state"] == "ready" and status["embedded"] == status["units"] > 0
+    brain.client.update_config(embeddings_model="other")
+    assert brain.client.stats()["recall"]["embedded"] == 0
+    recall.sweep()
+    status = brain.client.stats()["recall"]
+    assert status["embedded"] == status["units"] and recall.vectors.count("stand-in:default@256") == 0
+
+
+def test_off_she_goes_by_words_and_says_so(brain):
+    brain.client.update_config(embeddings="off")
+    said(brain, "milk", "a", "we planned a pixel-art platformer")
+    brain.brain.recall.sweep()
+    assert brain.client.stats()["recall"]["state"] == "off"
+    assert brain.brain.recall.search("pixel-art platformer")
+
+
+def test_her_journal_finds_a_note_in_other_words_also_one_it_let_go(brain):
+    from types import SimpleNamespace
+
+    from sentientmilk_framework.toolkits import journal as journal_kit
+    use(brain, Meaning())
+    brain.client.update_session("milk", "main", title="Today")
+    note = brain.store.add_note("milk", "main", "We sketched levels for the platformer.")
+    brain.brain.recall.sweep()
+    brain.store.delete_note(note)  # the journal keeps only its newest
+    ctx = SimpleNamespace(brain=brain.brain, store=brain.store, app="milk", session="main", run={"kind": "turn"},
+                          profile={}, call_id="c")
+    assert "sketched levels for the platformer" in journal_kit.journal_search.func(ctx, "game")

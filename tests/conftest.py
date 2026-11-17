@@ -1,16 +1,19 @@
 import json
 import sys
 import time
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
-from sentientmilk_framework import BrainClient
+from sentientmilk_framework import BrainClient, embeddings
 from sentientmilk_framework import loop as loop_module
 from sentientmilk_framework.claudecode import ClaudeCode
+from sentientmilk_framework.recall import SETTINGS, STOP
 from sentientmilk_framework.server import start
-from sentientmilk_framework.testing import PROVIDER_URL, FakeProvider
+from sentientmilk_framework.testing import PROVIDER_URL, FakeProvider, install_embedder
 
 FAKE_CLAUDE = Path(__file__).with_name("fake_claude.py")
 
@@ -43,6 +46,7 @@ def brain(tmp_path, monkeypatch):
     """A brain server with a faked provider; queue replies in ``brain.provider.replies``."""
     monkeypatch.setattr(loop_module, "RETRIES", (0, 0, 0))
     provider = FakeProvider().install(monkeypatch, claude_code=[sys.executable, str(FAKE_CLAUDE)])
+    install_embedder(monkeypatch)
     home = tmp_path / "home"
     work = tmp_path / "work"
     work.mkdir()
@@ -68,6 +72,46 @@ def claude_log(tmp_path) -> list:
 def claude_starts(tmp_path) -> list:
     """The stand-in's starts for work (not its questions about itself)."""
     return [entry for entry in claude_log(tmp_path) if "args" in entry and "--model" in entry["args"]]
+
+
+class Meaning(embeddings.Embedder):
+    """A test embedder that knows what means the same: words of one concept share a direction (weighing most),
+    and each word has a direction of its own, so the same words are alike too, as with a real model."""
+
+    CONCEPTS = {"game": ("game", "platformer", "pixel", "level"), "pet": ("pet", "cat", "dog", "passed", "died"),
+                "tax": ("tax", "taxes", "deadline", "invoice"), "greeting": ("hi", "hello", "hey"),
+                "job": ("job", "interpreter", "translator", "translates", "work")}
+
+    def __init__(self, name="meaning@64", problem=None):
+        super().__init__()
+        self.name, self.dim, self._problem, self.calls = name, 64, problem, []
+
+    def problem(self):
+        return self._problem
+
+    def _embed(self, texts, query):
+        if self._problem:
+            raise embeddings.NotReady(self._problem)
+        self.calls.append(list(texts))
+        rows = []
+        for text in texts:
+            words = set(embeddings.WORDS.findall(text.lower()))
+            row = np.zeros(self.dim, np.float32)
+            for n, kin in enumerate(self.CONCEPTS.values()):
+                row[n] = 5.0 * bool(words & set(kin))
+            for word in words - STOP:
+                row[8 + zlib.crc32(word.encode()) % (self.dim - 8)] += 1.0
+            rows.append(row)
+        return embeddings.unit(rows)
+
+
+def use(brain, embedder):
+    """Her long-term memory (and her mind's) embeds with ``embedder`` from now on."""
+    recall = brain.brain.recall
+    recall.embedder = embedder
+    recall._settings = tuple(brain.brain.config.values().get(key) for key in SETTINGS)
+    brain.brain.mind.memory.embedder = embedder
+    return embedder
 
 
 def turn(brain, app, text, **kwargs):

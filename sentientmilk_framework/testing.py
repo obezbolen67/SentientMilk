@@ -80,6 +80,14 @@ class _Stream:
         yield "data: [DONE]"
 
 
+def install_embedder(monkeypatch) -> None:
+    """Her long-term memory embeds with the stand-in (embeddings.StandIn): no service, no network."""
+    from . import embeddings
+
+    monkeypatch.setattr(embeddings, "make", lambda values: None if values.get("embeddings") == "off"
+                        else embeddings.StandIn(values.get("embeddings_model") or "default"))
+
+
 class FakeProvider:
     def __init__(self, url: str = PROVIDER_URL):
         self.url = url

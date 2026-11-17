@@ -329,6 +329,15 @@ are cleared at 50% of `context_window` and older turns are summarized at 75%, ke
 todo list and re-reading recent files. Long output goes to `runs/<id>/` and the model gets
 the path.
 
+## Long-term memory
+
+Since 0.29, every past chat, journal note and lasting fact comes back to her by meaning, not
+only by the same words. Each message brings back the rounds of other chats that are about it (in the turn
+she reads, with when and where); her searches and her mind's recall go by meaning too. Embeddings come from
+any OpenAI-compatible service, OpenRouter by default, only to providers that keep nothing; set the key in
+the control panel's Memory tab (without one, by words as before). The context window is her short-term
+memory: what compaction sums up becomes long-term memory.
+
 ## Her mind
 
 She is one being in every app, with a body that lives on between messages (`mind/`, setting `mind`,
@@ -365,7 +374,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 
 | Request | Does |
 | --- | --- |
-| `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
+| `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use and how far her long-term memory is (`recall`) |
 | `GET /claude_code[?refresh=1]` | the user's Claude Code as it says: version, signed in, account, models with their efforts |
 | `GET /mind[?app=&idle=]` | how she is: `on`, `asleep`, `felt` (words), `face` for `app` (`mood` among its declared expressions, `stance`, `eyes`), levels, thoughts, concerns, story; `idle` (seconds since the user touched the computer), `locked` and `busy` (1/0: screen locked, something fullscreen) tell her whether they are there and free, and asking tells her `app` is there to hear her urges |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |

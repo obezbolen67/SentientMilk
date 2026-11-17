@@ -4,6 +4,12 @@ The user: "we need to make a proper, semantic memory logic ... embeddings, vecto
 work like a long term memory, and short term memory will be the context window." And: "preferably free
 embeddings method, but if the best quality is paid, then find the cheapest option."
 
+**Decision (the user, 2026-11-17, after this was written):** "we use best embedding model from openrouter. got
+the key and topped it up." So embeddings go through OpenRouter, the model picked by measuring on her history
+(see "Measured"); the local ONNX backend below is left out (shortcut: add it when someone needs offline or
+free embeddings), and with it R9 and the CPU budgets of R12. Requests go only to OpenRouter providers that
+keep and train on nothing (`provider.data_collection = "deny"`).
+
 ## What she has now (measured on the user's brain, 2026-11-17)
 
 | What | Where | How it is found | Size |
@@ -65,9 +71,10 @@ or LM Studio running locally), with Qwen3-Embedding-8B on DeepInfra named as the
 R1. Short-term memory is the context window and stays as it is. Long-term memory is everything else: past
     chats (their turns), journal notes, her episodes, lasting facts. What is in her context now is never
     brought back to her as a memory: for the chat she is in, only what is before its last compaction is.
-R2. Every turn with something the user wrote brings back, unasked, what in long-term memory is about it:
-    found by meaning and by words (hybrid, RRF k = 60), only what is relevant enough (a calibrated floor,
-    R6), at most 5 items, each with when and in which chat. With her mind on or off.
+R2. Every turn with something the user wrote brings back, unasked, the rounds of past chats that are about
+    it: found by meaning and by words (hybrid, RRF k = 60), only what is relevant enough (a calibrated floor,
+    R6, or most of the query's words), at most 5, each with when and in which chat. With her mind on or off.
+    (Journal notes are not among them: the newest 20 are in her prompt, `journal_search` finds the rest.)
 R3. What comes back is written into that turn's input (beside her inner note, `runs.py`), so the log stays
     deterministic: the prompt cache, replay and rewind see the same text.
 R4. A unit is a round: one user message and her replies to it (`mentions.turns`), split into chunks of at
@@ -75,27 +82,28 @@ R4. A unit is a round: one user message and her replies to it (`mentions.turns`)
     A journal note is a unit (the gist of its stretch), and so are episodes and lasting facts.
 R5. Her mind's recall (`Memory.recall`, `known`) takes relevance from meaning as well as words; its other
     terms (strength, salience, mood, recency, noise, reconsolidation, forgetting) stay.
-R6. Relevance is model-independent: cosine is mapped to 0..1 against the 95th percentile of cosine between
-    random pairs of her own units for that model (recomputed when the count doubles), so "relevant" means
-    the same whatever the model.
+R6. Relevance is model-independent: cosine is mapped to 0..1 above the most that any of 20 everyday
+    questions her past cannot answer reaches among her vectors of that model (measured again when the count
+    doubles), so "relevant" means the same whatever the model. What comes back is what is related by
+    meaning; words rank it, and decide alone only when meaning cannot. (Changed after measuring: the 95th
+    percentile of random pairs of her own units, planned first, sat above many right hits, and words alone
+    let something back for 17 of 20 unrelated questions.)
 R7. The search tools find by meaning: `sessions_search` lists exact matches first, then what is about the
     query; it takes optional `after` and `before` dates (temporal questions, LongMemEval).
     `journal_search` finds notes and her memories by meaning. `lasting.related` finds the nearest facts by
     meaning (the same subject in other words).
-R8. Embeddings: `local` (default; free; offline once the model is downloaded), `api` (any OpenAI-compatible
-    `/embeddings`: base URL, key, model, optional dimensions), or `off` (words only, as today). Set in the
-    SentientMilk control panel; apps have no setting. With `api` the panel says the chats go to that service.
-R9. The local model is downloaded on first use from Hugging Face into `~/.sentientmilk/models/`, pinned to a
-    revision and checked by SHA-256, resumable; until it is ready and whenever embedding fails, search is by
-    words only and nothing waits for it.
+R8. Embeddings: `api` (default: any OpenAI-compatible `/embeddings`, OpenRouter unless another address is
+    set; base URL, key, model, optional dimensions) or `off` (words only, as before). Set in the SentientMilk
+    control panel (Memory tab); apps have no setting. The panel says the chats go to that service.
+R9. Without a key, or with the service down, search is by words only; a turn waits at most 4 s for its query
+    to be embedded, and the backfill waits out a busy service (2, 4, 8 s) without holding anything up.
 R10. Indexing runs in the background: a backfill of everything at start, then each round as its turn ends,
-    each note, episode and fact as it is written. It yields while a turn runs. Vectors of another model are
-    never compared with this one's: a changed model re-embeds in the background.
+    each note, episode and fact as it is written. Vectors of another model are never compared with this
+    one's: a changed model re-embeds in the background, a row's new vector taking its old one's place.
 R11. Forgetting is honoured: a deleted chat's units go; a rewind removes the units of the events it undoes;
     a forgotten fact's unit goes; her forgotten episodes' vectors go with them.
-R12. Budgets on this laptop: a turn's recall (embedding the message + search) at most 150 ms p95; the local
-    model loaded at most 700 MB resident, unloaded after 15 min unused; the backfill of the user's history
-    at most 30 min.
+R12. A turn embeds the user's message once (the recall note, her mind's recall and how known it is share
+    it); a search over the vectors takes milliseconds (brute force, numpy).
 R13. It is measured before it is chosen: recall@5 on questions about her own past chats (paraphrased and
     exact-term), words vs meaning vs hybrid, per candidate model, with latency, backfill time and memory.
     The default model and the relevance floor for `lasting.related` come from that measurement.
@@ -104,9 +112,9 @@ R14. Tests use a deterministic stand-in embedder (no download, no network); the 
 
 ## Design
 
-- `embeddings.py`: what turns text into vectors (stand-in, OpenAI-compatible API, local ONNX Runtime with
-  `tokenizers`; no torch). Rows L2-normalized float32; each embedder has a stable `name` that includes its
-  dimensions.
+- `embeddings.py`: what turns text into vectors (an OpenAI-compatible service, OpenRouter by default; a
+  stand-in for tests). Rows L2-normalized float32; each embedder has a stable `name` that includes its
+  dimensions; a query is embedded once and kept (64).
 - `vectors.py`: vectors kept beside rows of a SQLite table (`<table>_vectors`: id, model, blob), searched by
   brute-force cosine over a cached numpy matrix (shortcut: brute force; switch to sqlite-vec past ~500k
   units, when a search passes 20 ms), and the relevance floor of R6.
@@ -118,6 +126,27 @@ R14. Tests use a deterministic stand-in embedder (no download, no network); the 
 - What changed is found by a sweep (after each turn and every 30 s: new rounds, notes, facts, episodes);
   deletions are hooked so they are immediate: `Brain.delete_session`, `rewind`. Also `runs.py` (the note into
   the input), config, panel, `stats`.
+
+## Measured (2026-11-17, a copy of her brain, scripts/recall_eval.py)
+
+468 units (her rounds, notes, facts). 59 questions written by her light model about a round each, 19 naming
+an exact term from it, 40 in other words; a hit is that round among the first results. Hybrid as shipped
+(admission by meaning, calibrated floor); query time is OpenRouter's round trip from this laptop:
+
+| | @1 | @5 | MRR | query p50 | dims | cost of her 468 units |
+|---|---|---|---|---|---|---|
+| words only (before) | 0.32 | 0.34 | 0.33 | - | - | - |
+| mongodb/voyage-4-large (chosen) | 0.88 | 1.00 | 0.93 | 477 ms | 1024 | $0.011 |
+| openai/text-embedding-3-large | 0.90 | 1.00 | 0.94 | 573 ms | 3072 | $0.012 |
+| qwen/qwen3-embedding-8b | 0.81 | 0.95 | 0.86 | 1,102 ms (1 of 20 over 4 s) | 4096 | ~$0.001 |
+
+By meaning alone (no words fused), the other five: cohere/embed-5-pro 0.78 / 0.97, perplexity/pplx-embed-v1-4b
+0.75 / 0.93, google/gemini-embedding-2 0.63 / 0.95, google/gemini-embedding-001 0.68 / 0.81 (16 s at worst);
+nvidia/nemotron-3.5-embed-8b:free has no provider that keeps nothing. Voyage 4 large and OpenAI 3 large
+are one question apart; Voyage was taken for a third of the vector size, the faster answer, and no recall
+for 20 questions her past cannot answer (OpenAI: 1). Her lasting facts: pairs on one subject in other words
+(the Oracle plan and her stance on Oracle accounts, a Roblox account and the Roblox watcher) reach 0.33-0.52,
+most others under 0.1: `lasting.RELATED_AT` stays 0.3.
 
 ## Left out
 

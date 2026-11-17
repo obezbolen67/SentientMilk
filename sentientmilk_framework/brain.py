@@ -31,6 +31,7 @@ from .mind.life import Mind
 from .plugins import Plugins
 from .presence import Presence
 from .provider import Provider
+from .recall import Recall
 from .runs import Bus, Runs
 from .scheduler import Scheduler
 from .skills import Skills
@@ -171,6 +172,7 @@ class Brain:
         self.artifacts = Artifacts(self)  # panels in the user's chat: what only they type, orders they check
         self.presence = Presence()  # whether the user is at the computer, as its apps see it
         self.mind = Mind(self)  # her body, feelings, wants, memories and sleep (mind/)
+        self.recall = Recall(self, self.home / "recall.sqlite3")  # her long-term memory by meaning (after her mind)
 
     def start(self) -> None:
         """Recover interrupted work and start the background threads."""
@@ -182,6 +184,7 @@ class Brain:
         self.runs.start()
         self.scheduler.start()
         self.journal.start()
+        self.recall.start()
         self.summaries.start()
         self.mcp.start()
         self.browser.start()
@@ -192,6 +195,7 @@ class Brain:
         self.stopping.set()
         self.scheduler.stop()
         self.journal.stop()
+        self.recall.stop()
         self.summaries.stop()
         self.runs.stop()
         self.mind.stop()
@@ -484,6 +488,7 @@ class Brain:
         self.agents.delete_for(app, session)
         self.browser.forget(app, session)
         self.mind.forget(app, session)  # her memories of it go with it
+        self.recall.forget_session(app, session)
 
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """The conversation as apps show it: what the user said and what the brain replied; with
@@ -599,4 +604,4 @@ class Brain:
         for entry in totals.values():
             entry["cache_hit_rate"] = round(entry["cached_tokens"] / entry["prompt_tokens"], 3) \
                 if entry["prompt_tokens"] else None
-        return {"apps": totals}
+        return {"apps": totals, "recall": self.recall.status()}

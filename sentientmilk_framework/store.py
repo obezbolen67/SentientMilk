@@ -10,7 +10,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS apps (
@@ -795,6 +795,11 @@ class Store:
             db.execute("DELETE FROM journal WHERE id NOT IN "
                        "(SELECT id FROM journal ORDER BY at DESC, id DESC LIMIT ?)", (JOURNAL_NOTES,))
             return note_id
+
+    def last_events(self) -> Dict[Tuple[str, str], int]:
+        """The newest event id of every session: what her long-term memory has yet to take in (recall.py)."""
+        with self._db() as db:
+            return {(a, s): i for a, s, i in db.execute("SELECT app, session, MAX(id) FROM events GROUP BY app, session")}
 
     def notes(self, query: str = "", limit: int = -1, app: Optional[str] = None,
               session: Optional[str] = None) -> List[dict]:

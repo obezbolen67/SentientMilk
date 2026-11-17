@@ -390,11 +390,14 @@ class Runs:
             reminders.append(signal_format.OPTIONAL_REPLY)
         items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], options["input"]))
         content, display = context.input_content(items, options.get("context") or {}, reminders=reminders)
-        # what she feels and decides as she reads it: in the message for her, never in what is shown
+        # what comes back from past chats (recall.py) and what she feels and decides as she reads it: in the
+        # message for her, never in what is shown
+        said = display if any(item["type"] == "text" for item in items) and not options.get("occurrence") else ""
+        recalled = self.brain.recall.note(run, said)
         inner = self.brain.mind.before(run, profile, display, sum(item["type"] == "image" for item in items))
-        if inner:
+        if recalled or inner:
             content, display = context.input_content(items, options.get("context") or {},
-                                                     reminders=[inner] + reminders)
+                                                     reminders=[r for r in (recalled, inner) if r] + reminders)
         logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
                                       {"content": content, "display": display, **_stored(items)})
         self.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
@@ -575,6 +578,7 @@ class Runs:
             self.brain.mind.after(run)
         except Exception:
             logger.exception("Her mind could not take in how run %s went", run["id"])
+        self.brain.recall.wake()  # what was just said becomes part of her long-term memory
 
     def recover(self) -> None:
         waiting_reviewers = self.store.runs(kind="subagent", statuses=("input_required",), limit=1000)

@@ -111,3 +111,42 @@ def test_her_own_state_is_kept_beside_her_memories(tmp_path):
     mind = memory(tmp_path)
     mind.put("body", {"levels": {"cortisol": 0.4}})
     assert memory(tmp_path).get("body") == {"levels": {"cortisol": 0.4}} and mind.get("nothing", 1) == 1
+
+
+def embedded(mind, embedder):
+    """Her memory with an embedder, its episodes embedded as her long-term memory's sweep does."""
+    mind.embedder = embedder
+    found = mind.vectors.texts(mind.vectors.pending(embedder.name, 1000))
+    mind.vectors.put([(i, row) for (i, _), row in zip(found, embedder.embed([t for _, t in found]))], embedder.name)
+    return mind
+
+
+def test_she_recalls_by_meaning_as_well_as_by_words(tmp_path):
+    from conftest import Meaning
+    mind = memory(tmp_path)
+    mind.add("exchange", "Our pet passed away last spring", -0.8, 0.6, 0.8, at=NOW - 30 * DAY)
+    mind.add("exchange", "We talked about taxes and the deadline in April", -0.2, 0.4, 0.4, at=NOW - DAY)
+    assert not [e for e in mind.recall("my cat died", -0.5, NOW, strengthen=False) if e["relevance"]]  # no shared word
+    embedded(mind, Meaning())
+    found = mind.recall("my cat died", -0.5, NOW)
+    assert found[0]["text"] == "Our pet passed away last spring" and found[0]["relevance"] > 0.5
+
+
+def test_a_greeting_in_other_words_is_not_new_to_her(tmp_path):
+    from conftest import Meaning
+    mind = memory(tmp_path)
+    for n in range(10):
+        episode = mind.add("exchange", "hello there", 0.3, 0.2, 0.2, at=NOW - n * DAY)
+        mind.follow(episode, {"social": 0.1})
+    assert mind.known("hi", before=NOW)[0] is None  # no word of three letters: nothing to go by
+    embedded(mind, Meaning())
+    likeness, followed, evidence = mind.known("hi", before=NOW)
+    assert likeness > 0.5 and followed["social"] > 0.05 and evidence > 1.0
+
+
+def test_without_its_service_she_recalls_by_words_as_before(tmp_path):
+    from conftest import Meaning
+    mind = memory(tmp_path)
+    mind.add("exchange", "The user showed me their RimWorld colony", 0.3, 0.6, 0.6, at=NOW - DAY)
+    mind.embedder = Meaning(problem="the embeddings service failed: 503")
+    assert "RimWorld" in mind.recall("how is the rimworld colony doing?", 0.0, NOW)[0]["text"]

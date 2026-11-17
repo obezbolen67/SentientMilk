@@ -107,7 +107,8 @@ def memory_save(ctx: ToolContext, key: str, value: str, category: str = "", scop
     seen(ctx, category, key, value)
     result = f"Remembered {category}/{key} for every app and chat." + (
         f" It replaces {', '.join(f'{old}/{key}' for old in moved)}: a key names one memory." if moved else "")
-    like = lasting.related(entries, key, value, skip={(category, key)} | {(old, key) for old in moved})
+    like = lasting.related(entries, key, value, skip={(category, key)} | {(old, key) for old in moved},
+                           recall=ctx.brain.recall)
     if like:  # the same thing kept twice, or a newer state beside an older one, is set right now
         result += ("\nYou already keep these, like it:\n" + "\n".join(
             f"- {e['category']}/{e['key']}: {' '.join(str(e['value']).split())[:300]}" for e in like)

@@ -1,7 +1,11 @@
 """Sessions: your conversations in this app (not your agents' or tasks'), to draw on what was said
 there: list them, read one's summary or its plain turns, search them, rename or delete one."""
 
+import time
+from datetime import datetime
+
 from .. import mentions
+from ..mind.memory import line
 from . import ToolContext, ToolError, Toolkit, cap, tool
 
 PAGE = 40  # turns a page; offset reads on
@@ -66,16 +70,33 @@ def sessions_read(ctx: ToolContext, session: str, part: str = "summary", offset:
     return cap(ctx, "\n".join(lines), "turns") or f"{_name(found)} has {len(grouped)} turns; offset={start} is past them."
 
 
-@tool(readonly=True, args={"query": "Words to find, e.g. 'oat milk' (any case)."})
-def sessions_search(ctx: ToolContext, query: str):
-    """Find words in the plain turns of your conversations, including this one: each match as session, turn and
-    line around it. Read more of one with sessions_read(part="turns", offset=...)."""
+def _date(value: str, name: str):
+    if not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.strip()).timestamp()
+    except ValueError:
+        raise ToolError(f"{name}: after and before are dates, like 2026-11-03.") from None
+
+
+@tool(readonly=True, args={"query": "Words to find, e.g. 'oat milk' (any case), or what it was about.",
+                           "after": "Only from this date on, like 2026-11-03 (optional).",
+                           "before": "Only before this date, like 2026-11-10 (optional)."})
+def sessions_search(ctx: ToolContext, query: str, after: str = "", before: str = ""):
+    """Find what was said in your conversations, including this one: first each turn that has the words
+    (session, turn and the line around it), then the turns that are about it in other words (by meaning).
+    Read more of one with sessions_read(part="turns", offset=...)."""
     needle = query.strip().casefold()
     if not needle:
         raise ToolError("Give words to search for, e.g. query='oat milk'.")
-    found = []
+    since, until = _date(after, "after"), _date(before, "before")
+    found, listed = [], set()
     for chat in mentions.chats(ctx.brain, ctx.app):
         for number, entries in enumerate(mentions.turns(ctx.brain, ctx.app, chat["id"]), 1):
+            first = next((entry["id"] for entry in entries if "id" in entry), None)
+            when = entries[0]["time"]
+            if (since is not None and when < since) or (until is not None and when >= until):
+                continue
             for entry in entries:
                 text = " ".join(entry["text"].split())
                 at = text.casefold().find(needle)
@@ -85,8 +106,18 @@ def sessions_search(ctx: ToolContext, query: str):
                     begin = max(0, at - SNIPPET // 3)
                     text = ("…" if begin else "") + text[begin:begin + SNIPPET] + "…"
                 found.append(f"{_name(chat)} #{number} {mentions.speaker(entry)}: {text}")
+                listed.add((chat["id"], str(first)))
+    chats = {chat["id"]: chat for chat in mentions.chats(ctx.brain, ctx.app)}
+    about = [hit for hit in ctx.brain.recall.search(query, count=10 + len(listed), sources=("turn",), app=ctx.app,
+                                                    after=since, before=until)
+             if hit["session"] in chats and (hit["session"], hit["ref"].rsplit("#", 1)[0]) not in listed][:10]
+    if about:
+        now = time.time()
+        found.append("About this (by meaning):" if found else "No turn has those words; about this (by meaning):")
+        found += [f"{_name(chats[hit['session']])} ({line({'at': hit['at'], 'text': ''}, now).strip()[1:-1]}): "
+                  f"{hit['text'][:SNIPPET * 2]}" for hit in about]
     if not found:
-        return f"No turn of your conversations has {query!r}."
+        return f"No turn of your conversations has {query!r}, or is about it."
     return cap(ctx, "\n".join(found), "search")
 
 

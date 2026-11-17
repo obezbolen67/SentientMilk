@@ -1452,6 +1452,49 @@ provider's routing, not anything the brain sends (the system prompt and tools st
 
 Measured on the user's provider (2026-11-16): see the commit that brought it.
 
+### 10.7 Long-term memory by meaning (0.29)
+
+Short-term memory is the context window: the chat she is in, after its last compaction. Long-term memory is
+everything else, and until 0.29 all of it was found only by shared words (FTS5 bm25, `LIKE`, a substring):
+"that game idea" did not find "a pixel-art platformer", and with her mind off nothing of a past chat came
+back unless the model searched. Design and requirements: docs/superpowers/specs/2026-11-17-long-term-memory-design.md.
+
+`recall.py` keeps `recall.sqlite3`: units (each round of every past chat, a user message and her replies,
+in 1,600-character pieces with 200 overlapping, all of it; journal notes, kept here after the journal lets
+them go; lasting facts), FTS5 over them, and their vectors (`vectors.py`: `units_vectors`, one per unit,
+searched by cosine over a numpy matrix). Her episodes' vectors are kept beside them in `mind.sqlite3`
+(`episodes_vectors`); triggers drop a vector with its row or when its text changes. A sweep after every
+turn and every 30 s takes in new rounds (a mark per chat), notes and facts, and embeds whatever has no
+vector of the current model in batches of 32; once all are embedded, other models' vectors go. Deleting a
+chat and returning to a message take their units out at once (`forget_session`, `forget_from`).
+
+A search fuses the 40 nearest by meaning with the 40 best by words (units with at least half of the query's
+words, each weighed by how rare it is among her units, stopwords left out), 1 / (60 + rank) from each
+(reciprocal rank fusion), and keeps a unit only if it is related by meaning (relevance over 0); words alone
+decide only when meaning cannot (no key, the service down). Relevance maps a cosine to 0..1 above the most
+that any of 20 everyday questions her past cannot answer reaches among her vectors of that model
+(`vectors.CALIBRATION`, measured again when their number doubles), so "related" means the same for any
+model. Measured on her history: words let something back for 17 of 20 such questions, meaning for none; a
+floor from random pairs of her own units sat above many right hits (a query lands lower than a document of
+the same thing).
+
+Each turn the user writes, `Recall.note` brings back up to five rounds of other chats (and of hers from
+before its last compaction) with when and where, as `FROM YOUR LONG-TERM MEMORY (...)` in that turn's input
+beside her inner note (runs.py): stored with the input, so the log stays as sent for the prompt cache,
+replay and rewind. Her mind's `Memory.recall` and `known` take relevance as the larger of words and meaning
+(a "hi" after a hundred "hello"s is no longer new to her). `sessions_search` lists turns with the words
+first, then "About this (by meaning)", and takes `after`/`before` dates; `journal_search` finds notes in
+other words, also ones the journal let go; `memory_save` shows a fact kept about the same thing in other
+words (`lasting.related`, relevance >= `RELATED_AT`).
+
+`embeddings.py`: any OpenAI-compatible `/embeddings` (settings `embeddings` api/off, `embeddings_base_url`,
+`embeddings_api_key`, `embeddings_model`, `embeddings_dimensions`; set in the panel's Memory tab), OpenRouter
+by default, where a request carries `input_type` and `provider.data_collection: "deny"` (only providers that
+keep and train on nothing). A query is embedded once and kept (the turn's note, her mind's recall and known
+share one call); a turn waits at most 4 s for it, then goes by words; the backfill waits out a busy service.
+Without a key of its own, a service at the chat model's address uses that key. `GET /v1/stats` gives
+`recall`: state, units, embedded, spent. Measured choice of model: see the spec's "Measured".
+
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**

@@ -84,3 +84,23 @@ def test_deleting_a_chat_asks_even_when_a_rule_allows_it(brain, talk):
     turn(brain, "talk", "delete the groceries chat", on_approval=lambda request: asked.append(request) or "deny")
     assert asked and asked[0]["always_ask"] is True
     assert "chat-1" in [s["id"] for s in brain.client.sessions("talk")]
+
+
+def test_she_finds_turns_with_the_words_first_then_those_about_it(brain, talk):
+    from conftest import Meaning, use
+    use(brain, Meaning())
+    brain.provider.replies.append("A tiny platformer with three levels.")
+    turn(brain, "talk", "let's design a pixel platformer", session="chat-3")
+    brain.brain.recall.sweep()
+    found = kit.sessions_search.func(talk, "game")
+    assert "No turn has those words; about this (by meaning):" in found and "pixel platformer" in found
+    found = kit.sessions_search.func(talk, "platformer")
+    first = found.splitlines()[0]
+    assert first.startswith("chat-3 ") and "#1 user: let's design" in first and "(by meaning)" not in found  # once
+
+
+def test_she_can_keep_a_search_to_dates(brain, talk):
+    assert kit.sessions_search.func(talk, "oat milk", before="2000-01-01").startswith("No turn")
+    assert "add oat milk" in kit.sessions_search.func(talk, "oat milk", after="2000-01-01")
+    with pytest.raises(ToolError, match="dates, like"):
+        kit.sessions_search.func(talk, "oat milk", after="last week")

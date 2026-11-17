@@ -87,6 +87,7 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
         # a file that could not be put back keeps its versions: a later return can still restore it
         brain.store.rewind(app, session, target["id"], [v["id"] for v in versions if v["key"] not in failed],
                            list(work["runs"]), change_state)
+        brain.recall.forget_from(app, session, target["id"])  # what it undid is not her past any more
         for schedule in work["schedules"]:
             brain.scheduler.delete(schedule["id"])
         if memory_changed:  # agents and tasks from before the message go on: they hear the chat's memory now

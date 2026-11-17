@@ -2,7 +2,8 @@
 
 Each episode keeps its feeling (valence, arousal), its salience (how much it mattered when it happened)
 and a strength that fades as a power law of the time since it was last recalled. Recall is by likeness to
-a cue (bm25 over the episode's words, SQLite FTS5), and also by mood (a sad mind finds sad memories),
+a cue, by meaning (its vector, when her long-term memory has an embedder: recall.py fills ``vectors``) and by
+words (bm25, SQLite FTS5), whichever is more alike, and also by mood (a sad mind finds sad memories),
 strength, salience and recency, with a little noise: the same cue does not always bring back the same
 thing. Recalling strengthens a memory and drifts its feeling toward the mood she recalls it in
 (reconsolidation). Sleep softens the charge of what she replays. Faint, unimportant episodes are forgotten.
@@ -23,6 +24,9 @@ import threading
 import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+
+from ..embeddings import MAX_CHARS
+from ..vectors import Vectors
 
 KINDS = ("exchange", "thought", "outcome", "dream", "insight", "event")
 FADE_DAYS = 1.0  # strength halves over about this, unless recalled, and slower with each day (power law)
@@ -59,6 +63,26 @@ class Memory:
             """)
             if "follows" not in {row[1] for row in self._db.execute("PRAGMA table_info(episodes)")}:
                 self._db.execute("ALTER TABLE episodes ADD COLUMN follows TEXT")  # a mind from before 0.21
+        self.vectors = Vectors(self._db, "episodes", self._lock)
+        self.embedder = None  # her long-term memory's (recall.py sets it); None: by words only
+
+    def _alike(self, cue: str, where: str = "", args: Iterable = ()) -> Dict[int, float]:
+        """Episodes alike in meaning to ``cue`` (``where``: an SQL condition on ``e``), as id -> relevance
+        0..1; none without an embedder, or when it cannot embed now."""
+        embedder = self.embedder
+        if embedder is None or not (cue or "").strip():
+            return {}
+        try:
+            vector = embedder.embed([cue[:MAX_CHARS]], query=True)[0]
+        except Exception:  # the service is down, or no key: by words this time
+            return {}
+        with self._lock:
+            allowed = {row[0] for row in self._db.execute(f"SELECT e.id FROM episodes e WHERE 1=1{where}", list(args))}
+        try:
+            return {episode: self.vectors.relevance(cosine, embedder)
+                    for episode, cosine in self.vectors.nearest(vector, embedder.name, 40, allowed)}
+        except Exception:  # its floor could not be measured now: by words this time
+            return {}
 
     def close(self) -> None:
         with self._lock:
@@ -108,14 +132,20 @@ class Memory:
         when = (" AND e.at < ?" if before is not None else "") + \
             (" AND NOT (e.app = ? AND e.session = ? AND e.at >= ?)" if held else "")
         args = list(kinds) + ([before] if before is not None else []) + list(held or ())
+        alike = self._alike(cue, clause + when, args)
         with self._lock:
             found = {}
+            if alike:
+                for row in self._db.execute(f"SELECT e.* FROM episodes e WHERE e.id IN ({','.join('?' * len(alike))})",
+                                            list(alike)):
+                    found[row["id"]] = {**dict(row), "relevance": alike[row["id"]]}
             if words:
                 query = " OR ".join(f'"{word}"' for word in words)
                 for row in self._db.execute(
                         "SELECT e.*, bm25(recall) AS rank FROM recall JOIN episodes e ON e.id = recall.rowid "
                         f"WHERE recall MATCH ?{clause}{when} ORDER BY rank LIMIT 40", [query] + args):
-                    found[row["id"]] = {**dict(row), "relevance": -row["rank"] / (1.0 - row["rank"])}
+                    lexical = -row["rank"] / (1.0 - row["rank"])
+                    found[row["id"]] = {**dict(row), "relevance": max(lexical, alike.get(row["id"], 0.0))}
             # what comes to mind unbidden: the strongest and the most recent, whatever the words
             for row in self._db.execute(f"SELECT e.* FROM episodes e WHERE 1=1{clause}{when} "
                                         "ORDER BY e.salience * e.strength DESC, e.at DESC LIMIT 20", args):
@@ -161,24 +191,33 @@ class Memory:
         Likeness is the share of the cue's words a memory has, each weighed by how rare it is among her
         memories, so words every memory has count for little and a word she never met makes it new. The
         weight is log(1 + (N - n + 0.5) / (n + 0.5)), which stays above 0 in a young memory (bm25's own is 0
-        for any word in half of them: with two memories, every likeness was 0 live); bm25 finds candidates."""
+        for any word in half of them: with two memories, every likeness was 0 live); bm25 finds candidates.
+        With an embedder, a memory alike in meaning is as alike (a "hi" after a hundred "hello"s is not new)."""
         words = _words(cue)
-        if not words:
+        alike = self._alike(cue, " AND e.at < ?", [before])
+        if not words and not alike:
             return None, {}, 0.0
         with self._lock:
             total = self._db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
             seen = dict(self._db.execute(f"SELECT term, doc FROM recall_terms WHERE term IN ({','.join('?' * len(words))})",
-                                         words).fetchall())
+                                         words).fetchall()) if words else {}
             rows = self._db.execute(
-                "SELECT e.text, e.follows FROM recall JOIN episodes e ON e.id = recall.rowid "
+                "SELECT e.id, e.text, e.follows FROM recall JOIN episodes e ON e.id = recall.rowid "
                 "WHERE recall MATCH ? AND e.at < ? ORDER BY bm25(recall) LIMIT 40",
-                (" OR ".join(f'"{word}"' for word in words), before)).fetchall()
+                (" OR ".join(f'"{word}"' for word in words), before)).fetchall() if words else []
+            rows = {row["id"]: row for row in rows}
+            missing = [episode for episode in alike if episode not in rows]
+            if missing:
+                rows.update({row["id"]: row for row in self._db.execute(
+                    f"SELECT e.id, e.text, e.follows FROM episodes e WHERE e.id IN ({','.join('?' * len(missing))})",
+                    missing)})
         rare = {w: math.log(1.0 + (total - seen.get(w, 0) + 0.5) / (seen.get(w, 0) + 0.5)) for w in words}
-        whole = sum(rare.values())
+        whole = sum(rare.values()) or 1.0
         liked = []
-        for row in rows:
+        for row in rows.values():
             has = {word.lower() for word in WORDS.findall(row["text"])}
-            liked.append((sum(weight for word, weight in rare.items() if word in has) / whole, row["follows"]))
+            lexical = sum(weight for word, weight in rare.items() if word in has) / whole
+            liked.append((max(lexical, alike.get(row["id"], 0.0)), row["follows"]))
         liked.sort(key=lambda item: -item[0])
         best, sums, evidence, used = (liked[0][0] if liked else 0.0), {}, 0.0, 0
         for like, follows in liked:

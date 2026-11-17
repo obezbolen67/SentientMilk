@@ -14,6 +14,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
+from . import embeddings
 from .thinking import thinking_request_options
 from .transport import DEFAULT_BUDGET, IMAGE_PIXELS
 
@@ -41,6 +42,13 @@ DEFAULTS = {
     "disabled_toolkits": [],
     "mind": True,  # her body, feelings, wants and life between messages (mind/); off: she answers as asked
     "session_summaries": True,  # she goes over each conversation as it ends and keeps what matters (summaries.py)
+    # Her long-term memory by meaning (recall.py): "api", an OpenAI-compatible /embeddings (embeddings.py), or "off"
+    # (by words only)
+    "embeddings": "api",
+    "embeddings_base_url": "",  # empty: OpenRouter
+    "embeddings_api_key": "",  # empty: her chat model's key, when the service is at its address
+    "embeddings_model": "",  # empty: embeddings.DEFAULT_MODEL
+    "embeddings_dimensions": 0,  # 0: as many as the model gives
     # The user's own Claude Code (claudecode.py): models are its names ("default", "opus", "haiku") or full ids
     "claude_command": "",  # empty: claude, found on PATH or where its installer puts it
     "claude_model": "default",  # when she thinks with Claude Code
@@ -54,7 +62,7 @@ DEFAULTS = {
 }
 logger = logging.getLogger(__name__)
 
-SECRETS = ("api_key", "web_search_key")
+SECRETS = ("api_key", "web_search_key", "embeddings_api_key")
 MIN_BUDGET, MAX_BUDGET = 128 * 1024, 16 * 1024 * 1024
 MIN_PIXELS = 65_536  # 256 x 256
 OLD_BUDGET = 800 * 1024  # the default before 0.9: saved with the rest, it is not a choice of the user's
@@ -90,10 +98,16 @@ def validate_setting(key, value):
     expected = type(DEFAULTS[key])
     if type(value) is not expected:
         raise ValueError(f"{key} must be a {expected.__name__}")
-    if key == "base_url":
+    if key in ("base_url", "embeddings_base_url"):
         value = normalize_base_url(value)
+        if key == "embeddings_base_url" and value.endswith("/embeddings"):
+            value = value[: -len("/embeddings")]
         if value and (urlparse(value).scheme not in ("http", "https") or not urlparse(value).netloc):
-            raise ValueError("base_url must be an http(s) URL")
+            raise ValueError(f"{key} must be an http(s) URL")
+    elif key == "embeddings" and value not in ("api", "off"):
+        raise ValueError("embeddings must be api or off")
+    elif key == "embeddings_dimensions" and not 0 <= value <= 65536:
+        raise ValueError("embeddings_dimensions must be between 0 (the model's own) and 65536")
     elif key == "request_budget" and not MIN_BUDGET <= value <= MAX_BUDGET:
         raise ValueError(f"request_budget must be between {MIN_BUDGET} and {MAX_BUDGET} bytes")
     elif key == "image_pixels" and 0 < value < MIN_PIXELS:
@@ -160,7 +174,8 @@ class BrainConfig:
         with self._lock:
             view = {key: copy.deepcopy(value) for key, value in self._values.items() if key not in SECRETS}
             view.update({f"{key}_set": bool(self._values[key]) for key in SECRETS})
-        view["defaults"] = {"base_url": DEFAULT_BASE_URL, "model": DEFAULT_MODEL}
+        view["defaults"] = {"base_url": DEFAULT_BASE_URL, "model": DEFAULT_MODEL,
+                            "embeddings_base_url": embeddings.DEFAULT_URL, "embeddings_model": embeddings.DEFAULT_MODEL}
         return view
 
     def update(self, changes: dict) -> dict:
