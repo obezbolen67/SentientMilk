@@ -163,6 +163,8 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
     parts.append(RULES)
     if profile.get("inner"):
         parts.append(profile["inner"])
+    if snapshot.get("with"):
+        parts.append(snapshot["with"])
     if profile.get("instructions"):
         parts.append("## THIS SESSION\n" + profile["instructions"])
     if snapshot.get("session_memory"):
@@ -182,13 +184,14 @@ def _value(value) -> str:
     return text.strip().replace("\n", "\n  ")
 
 
-def snapshot(store, profile: dict) -> dict:
+def snapshot(store, profile: dict, with_section: str = "") -> dict:
     """The session's memory as of now: taken again only at session start, at compaction and when the user
     changes it (Store.drop_snapshots), so the cached prefix holds; what the model saves meanwhile it sees in
-    the result of its call, and what works for the chat hears it as a note (Brain.chat_memory_changed)."""
+    the result of its call, and what works for the chat hears it as a note (Brain.chat_memory_changed).
+    ``with_section``: who she is with there (Mind.with_section), taken with it for the same reason."""
     from .toolkits.memory import session_memory
 
-    result = {"at": time.time(), "session_memory": ""}
+    result = {"at": time.time(), "session_memory": "", "with": with_section}
     chat = profile.get("base_session") or profile["session"]
     found = session_memory((store.find_session(profile["app"], chat) or {}).get("state") or {})
     if found:

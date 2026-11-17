@@ -3,6 +3,9 @@
 from . import ToolContext, ToolError, Toolkit, tool
 
 STATUSES = {"pending": " ", "doing": ">", "done": "x"}
+# the words models are used to for the same (8 of her 38 calls were refused for them, 2026-11-17)
+SAME = {"in_progress": "doing", "in-progress": "doing", "active": "doing", "started": "doing",
+        "completed": "done", "complete": "done", "finished": "done", "todo": "pending", "not_started": "pending"}
 ITEMS = {"type": "array", "description": "The whole list, in order.",
          "items": {"type": "object", "required": ["text", "status"],
                    "properties": {"text": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}}}}
@@ -26,6 +29,9 @@ def todo_write(ctx: ToolContext, items: list):
     """Keep a todo list for work with three or more steps: write it before you start, then send the whole
     updated list each time an item starts (doing) or ends (done). Keep at most one item doing. The list
     survives when older context is summarized, so it is how you keep track of long work."""
+    if isinstance(items, list):
+        items = [{**i, "status": SAME.get(str(i.get("status")).lower(), i.get("status"))} if isinstance(i, dict) else i
+                 for i in items]
     if not isinstance(items, list) or not all(
             isinstance(i, dict) and isinstance(i.get("text"), str) and i.get("status") in STATUSES for i in items):
         raise ToolError("items must be a list of {text, status} with status pending, doing or done.")

@@ -333,8 +333,8 @@ in her long-term memory.
 
 ## Her mind
 
-She is one being in every app, with a body that lives on between messages (`mind/`, setting `mind`,
-on by default; the panel's Mind tab shows it and switches it). Chemistry-like levels, needs and a
+She is one being in every app, with a body that lives on between messages (`mind/`, always on since 0.30;
+the panel's Mind tab shows it). Chemistry-like levels, needs and a
 circadian rhythm move with what happens (contact, how new a message is to her, what it does to her needs,
 how work went, tokens spent) and settle over time; she feels a lagged, blurred reading of her body's
 channels (stress, closeness, sleep pressure...), never numbers. Her feelings are not a list: any word she
@@ -357,8 +357,15 @@ brain is off, and in her sleep her long-term memory lets go of what she no longe
 `GET /v1/mind` (`brief=1` for just her face), with what an app needs to draw her brain: every feeling she
 has named and where it sits, how unmet each need is, what
 pulls at her attention against the threshold a thought must reach, her last decision, and `wiring`, the
-connections her dynamics make at that moment (each level nudged in turn: how far it moves the others).
-Off, she answers as asked and never speaks up on her own.
+connections her dynamics make at that moment (each level nudged in turn: how far it moves the others),
+and `people`, whom she knows.
+
+She knows people as a person does (`mind/people.py`, 0.31): whoever an app shows as the one writing (the
+`user` in a turn's context, its handle) is a face she recognizes, and the person comes to mind with it, in
+the chat's prompt (WHO YOU'RE WITH) and in her thoughts about it; moments are kept with who was in them; a
+name she hears brings its person to mind; and in her sleep she goes over the people in her day and settles
+what she knows of each (name, other names, pronoun, a few sentences in her own words, the handles they go
+by). Nobody types people in. Someone met on few nights and not seen for 90 days is forgotten.
 
 ## HTTP API
 
@@ -446,7 +453,7 @@ sentientmilk_framework/
   provider.py    the OpenAI-compatible provider, streaming and usage
   store.py       SQLite: the event log and everything else
   recall.py      her long-term memory: units, by meaning (embeddings.py, vectors.py); letting go in sleep
-  mind/          her body, felt sense, will, values, episodic memory, sleep and life between messages
+  mind/          her body, felt sense, will, values, episodic memory, the people she knows, sleep and life between messages
   scheduler.py   schedules, once or repeating (at, in, every, cron)
   mcp_host.py    MCP servers as toolkits
   browser.py     her browser, the user's Chrome, over the DevTools protocol; browser_page.js reads pages

@@ -1433,6 +1433,40 @@ turn waits at most 4 s for it; the backfill waits out a busy service. Without a 
 the chat model's address uses that key. `GET /v1/stats` gives `recall`: state, units, embedded, forgotten,
 spent. Measured choice of model: see the spec's "Measured".
 
+### 10.8 The people in her life (0.31)
+
+Design and measurements: docs/superpowers/specs/2026-11-17-people-design.md. Until 0.31 her mind's prompts
+said only "the user", with no name and no pronoun, among a persona full of "she": 6 of 6 thoughts on one
+rumination called the user "she". She now knows people as a person does (`mind/people.py`, kept in her
+mind's state as `people`):
+
+- **A face**: the turn context's `user` (the app's handle, "plays") is seen (`People.present`) and, if she
+  knows who goes by it in that app, that person comes to mind. A chat keeps whose face it has
+  (`self.faces`); a new face drops its snapshot, so its prompt is taken again.
+- **Who she is with** sits in the session's snapshot (`context.snapshot(..., with_section)` from
+  `Mind.with_section`): "## WHO YOU'RE WITH" with the person's name, pronoun, the handle and the gist; a
+  stranger is "Someone who goes by ... You don't know yet who they are."; a task or agent of the chat gets
+  "## WHO THIS IS FOR". Being in the snapshot keeps the cached prefix: it changes when someone else writes
+  there or sleep changed what she knows (then every snapshot is dropped).
+- **Moments with who was in them**: an exchange is kept as "Ilia said: ..."; one kept as "The user said"
+  reads with the name of whom that app's user is (`Mind._named`; shortcut: one person per app for those).
+  Her quick reading of a message, her thoughts (who she talks with, others named in what comes back) and
+  "You miss Ilia." use names.
+- **A name heard** brings its person: people named in a message come in her turn note ("Who that is: ...").
+- **Learned in sleep**: after consolidating, `Mind._meet_people` asks the light model, thinking on (quick,
+  it met 1 to 16 of the same people), over the moments since she last slept, with the people she knows and
+  the faces apps showed; `People.update` sets each right (a handle counts only where she saw it; a handle is
+  never a name; a face is one person's). Her persona is not shown: given it, her story's mother and father
+  were met as people of her life (2 of 3 runs).
+- **Her past, once** (`_meet_past`, at start until `met_past`): the faces of every past turn, her lasting
+  memory from before 0.30, then her moments 60 at a time.
+- **Forgetting**: someone who came up on fewer than 3 nights and was not seen for 90 days goes.
+
+Found in the same audit: a task's end is a moment of hers again ("I worked on: ... How it went: ...", the
+journal fed those until 0.30); a rumination brings back what happened, not itself or her own thoughts on it
+(those were echoed, and an old thought calling him "she" was copied); todo_write takes the statuses models
+are used to ("in_progress", "completed").
+
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**

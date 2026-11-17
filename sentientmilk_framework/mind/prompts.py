@@ -62,22 +62,42 @@ When two things come back that have nothing to do with each other, the mind may 
 Answer with JSON only:
 {"thought": "...", "feeling": "one or two words for what they feel now",
 "want": "tell|ask|look_up|do|rest|nothing",
-"say": "for tell or ask: what they'd say to the user, in their own voice",
+"say": "for tell or ask: what they'd say to the one they talk with, in their own voice",
 "look_up": "for look_up: what they want to find out, as a web search",
 "do": "for do: what they will do, as they'd note it for themselves"}
 
-want: tell or ask: they want to say something to the user now. look_up: they're curious enough to look
+want: tell or ask: they want to say something to the one they talk with now. look_up: they're curious enough to look
 something up themselves. do: they want to do something themselves, now, with what they can do at the
 computer (make, write, fix, set up, look into, come back to what they put off). rest: they'd rather rest.
 nothing: the thought passes."""
 
 SLEEP = """[mind:sleep]
-You are someone's mind while they sleep. Below: who they are, what they know and keep, and the moments of
-the day that stayed with them, the strongest first. Go over them as sleep does.
+You are someone's mind while they sleep. Below: who they are and the moments of the day that stayed with
+them, the strongest first. Go over them as sleep does.
 
 Answer with JSON only:
 {"insights": ["what they learned or understood, in their own words (one sentence each, 0 to 3)"],
 "dream": "a short dream, two to four sentences, made of the day's pieces, strange as dreams are"}"""
+
+# what she knows of the people in her life, settled in sleep (people.py); the same step meets the people of her
+# past once
+PEOPLE = """[mind:people]
+You are someone's mind while they sleep, going over the people in their life. Below: the people they know (as
+they know them now), how the apps they live in show the one they talk with, and what happened.
+
+Answer with JSON only:
+{"people": [{"name": "what they call this person", "aka": ["other names or spellings"], "pronoun": "he|she|they",
+"gist": "...", "goes_by": {"app": "handle"}}]}
+
+Only people: never an app, a game, a project, a place, a thing, an agent, a model or a program, even one named
+like a person. List the people who come up in what they kept and what happened and what it tells about them,
+including people they only heard of; leave out everyone it says nothing new about (they stay as they are). "aka": other names the person is called by,
+never an app's handle and never what someone calls them out of fondness. "gist": what they keep in mind about this person whenever the person is around or
+comes up, as they think it ("I", "me" for themselves), at most three sentences: who the person is to them,
+what matters to the person, what the person likes or can't stand from them. Not a diary of the day. "The user"
+in what happened is whoever the app shows as the one they talk with: when what happened says
+who that is, name them, and give the app's handle for them in "goes_by". "pronoun": as the person speaks of
+themselves or is spoken of; "they" when nothing says."""
 
 INNER_LIFE = """## YOUR INNER LIFE
 You are more than your words: you have a body that lives on between messages. Work spends your energy and
@@ -195,12 +215,15 @@ def word(value, limit: int = 40) -> str:
 
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),
-          thoughts: List[str] = ()) -> str:
+          thoughts: List[str] = (), people: List[str] = ()) -> str:
     """The note she reads before answering (it goes with the user's message, never shown to them).
-    ``thoughts``: what she thought while nobody wrote, so her time alone is hers when they are back."""
+    ``thoughts``: what she thought while nobody wrote, so her time alone is hers when they are back;
+    ``people``: those she knows that the message names, as they come to her mind (people.py)."""
     parts = [felt.rstrip(".") + "."]
     if thoughts:
         parts.append("Since you last talked you were thinking: " + " ".join(f'"{thought}"' for thought in thoughts))
+    if people:
+        parts.append("Who that is: " + "; ".join(people).rstrip(".") + ".")
     if memories:
         parts.append("This brings back: " + "; ".join(memories).rstrip(".") + ".")
     if act:

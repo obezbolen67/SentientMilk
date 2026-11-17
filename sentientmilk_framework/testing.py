@@ -7,7 +7,7 @@ A reply is text, an assistant message dict, an HTTP status (int) to fail with, o
 of the request payload returning one of those. Streaming requests get a real SSE stream.
 Titles are written in the background at unpredictable moments, so they are answered with ``title`` and
 recorded in ``title_requests``, never taken from ``replies``. Her mind's calls (mind/prompts.py) are
-answered from ``mind_replies`` (by kind: birth, imagine, think, sleep), else with ``MIND_ANSWERS``: one
+answered from ``mind_replies`` (by kind: birth, imagine, think, sleep, people), else with ``MIND_ANSWERS``: one
 option, doing it, so a turn goes as it would without her mind.
 """
 
@@ -23,6 +23,7 @@ MIND_ANSWERS = {
     "imagine": '["asked for a hand", "more", "more", "same", "request", "work", "fine", ["do", "it", 0.2, 0.9, 1]]',
     "think": '{"thought": "I wonder how the user is doing.", "feeling": "calm", "want": "nothing"}',
     "sleep": '{"insights": [], "dream": ""}',
+    "people": '{"people": []}',
 }
 
 
@@ -97,6 +98,7 @@ def quiet_mind(monkeypatch) -> None:
     monkeypatch.setattr(life.Mind, "section", lambda self: "")
     monkeypatch.setattr(life.Mind, "reflexive", lambda self, run=None: False)
     monkeypatch.setattr(life.Mind, "_live", lambda self: None)
+    monkeypatch.setattr(life.Mind, "_meet_past", lambda self: None)
 
 
 class FakeProvider:

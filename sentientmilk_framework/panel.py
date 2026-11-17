@@ -662,7 +662,7 @@ class Panel(App):
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("toolkits-card", "Toolkits"),
                             ("mind-card", "Now"), ("mind-body-card", "Her body"),
-                            ("mind-thoughts-card", "Her thoughts"), ("mind-self-card", "What she has come to like"),
+                            ("mind-thoughts-card", "Her thoughts"), ("mind-self-card", "What she has come to like, and who she knows"),
                             ("runtime-card", "Runtime and permissions"), ("browser-card", "Her browser"),
                             ("mcp-card", "MCP servers"),
                             ("plugins-card", "Plugins")):
@@ -1182,11 +1182,14 @@ class Panel(App):
         def about(names) -> str:
             return escape(", ".join(names)) or f"[{MUTED}]nothing yet[/]"
         put_off = "\n".join(f"- {escape(c['what'])} [{MUTED}]({when(c['at'])})[/]" for c in state["concerns"])
+        people = "\n".join(f"- {escape(p['name'])} [{MUTED}]({escape(p['pronoun'] or 'they')})[/] {escape(p['gist'] or '')}"
+                           for p in state.get("people") or [])
         self.main.query_one("#mind-self", Static).update(
             f"[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
             + f"\n[{MUTED}]Feelings she named[/] "
             + (escape(", ".join(f["word"] for f in sorted(state["feelings"], key=lambda f: -f["count"]))) or "-")
-            + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else ""))
+            + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else "")
+            + f"\n[{MUTED}]People she knows[/]\n" + (people or f"[{MUTED}]nobody yet[/]"))
 
     # ============== Tools ==============
 

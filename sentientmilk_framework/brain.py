@@ -347,7 +347,9 @@ class Brain:
         return state.get("snapshot") or self.refresh_snapshot(profile)
 
     def refresh_snapshot(self, profile: dict) -> dict:
-        taken = context.snapshot(self.store, profile)
+        chat = profile.get("base_session") or profile["session"]
+        taken = context.snapshot(self.store, profile,
+                                 self.mind.with_section(profile["app"], chat, own=chat == profile["session"]))
 
         def change(state):
             state["snapshot"] = taken

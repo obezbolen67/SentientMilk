@@ -258,6 +258,9 @@ def test_todo_and_memory_belong_to_their_session(brain, ctx):
     shown = todo.todo_write.func(ctx, [{"text": "plan", "status": "done"}, {"text": "build", "status": "doing"}])
     assert shown == "1. [x] plan\n2. [>] build"
     assert brain.store.session("cli", "main")["state"]["todo"][1] == {"text": "build", "status": "doing"}
+    # the words models are used to mean the same (8 of her 38 calls were refused for them)
+    assert todo.todo_write.func(ctx, [{"text": "plan", "status": "completed"}, {"text": "build", "status": "in_progress"},
+                                      {"text": "ship", "status": "todo"}]) == "1. [x] plan\n2. [>] build\n3. [ ] ship"
     assert memory_kit.memory_save.func(ctx, "name", "Tester") == "Remembered for this chat: name: Tester"
     assert brain.store.session("cli", "main")["state"]["session_memory"] == {"name": "Tester"}
     assert memory_kit.memory_forget.func(ctx, "name") == "Forgot name for this chat."
