@@ -341,6 +341,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"history": brain.history(app, session, tools=query.get("tools") in ("1", "true"))})
         elif rest == ["history"] and method == "DELETE":
             brain.store.clear_session(app, session)
+            brain.mind.invalidate(app, session)
             brain.recall.forget_from(app, session, 0)  # what was said goes for good; her mind's memories stay
             self._send(200, {"status": "ok"})
         elif rest == ["rewind"] and method in ("GET", "POST"):

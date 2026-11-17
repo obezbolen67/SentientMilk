@@ -63,7 +63,8 @@ def _clip(value: float, low: float = 0.0, high: float = 1.0) -> float:
 
 def _number(value, default: float, low: float = 0.0, high: float = 1.0) -> float:
     try:
-        return _clip(float(value), low, high)
+        number = float(value)
+        return _clip(number, low, high) if math.isfinite(number) else default
     except (TypeError, ValueError):
         return default
 
@@ -101,6 +102,12 @@ class Option:
     effort: float = 0.2
     chance: float = 0.8
     gives: float = 0.0  # how much of what the user asked for it gives them
+    check: Optional[dict] = None  # the tool operation and target whose result would resolve this forecast
+
+    def calibrate(self, history: dict) -> None:
+        record = history.get((self.check or {}).get("tool"), {})
+        if record.get("resolved", 0) >= 4:
+            self.chance = (1 + record["succeeded"]) / (2 + record["resolved"])
 
     def effects(self, seen: Appraisal) -> Dict[str, float]:
         """What doing it would do to her needs (-1..1): giving the user what they asked for keeps her wanted,
@@ -118,8 +125,15 @@ class Option:
         if not isinstance(data, dict) or str(data.get("act", "")).lower() not in ACTS:
             return None
         act = str(data["act"]).lower()
+        check = data.get("check")
+        if isinstance(check, dict) and isinstance(check.get("tool"), str) and isinstance(check.get("target"), dict):
+            target = {k: v for k, v in check["target"].items()
+                      if isinstance(k, str) and isinstance(v, str) and 0 < len(v) <= 500}
+            check = {"tool": check["tool"], "target": target} if target and target == check["target"] else None
+        else:
+            check = None
         return cls(act, str(data.get("what", ""))[:400], _number(data.get("effort"), 0.2),
-                   _number(data.get("chance"), 0.8), _number(data.get("gives"), 1.0 if act == "do" else 0.0))
+                   _number(data.get("chance"), 0.8), _number(data.get("gives"), 1.0 if act == "do" else 0.0), check)
 
 
 @dataclass
@@ -161,8 +175,10 @@ def worth(option: Option, seen: Appraisal, body: Body, learned: float) -> Dict[s
     """Each part of what ``option`` is worth to her now (``learned``: her values' gut feeling for it)."""
     x, t = body.levels, body.temperament
     fatigue = body.fatigue()
-    ahead = WEIGHT * (0.4 + x["serotonin"])  # how far ahead she weighs what it brings, against the work now
+    ahead = WEIGHT
     parts = {name: ahead * worth_ for name, worth_ in value(option.effects(seen), body).items()}
+    if option.act == "later":
+        parts["patience"] = WEIGHT * (x["serotonin"] - 0.6) * option.chance
     parts["learned"] = 0.5 * learned
     # work weighs more than its size (a small favor stays small, a big job looms), and more the deeper her
     # fatigue: a little tired barely matters, very tired does
@@ -215,6 +231,8 @@ def reasons(parts: Dict[str, float], rival: Optional[Dict[str, float]] = None, a
             break
         if name == "learned":  # liked this one, or the other one went badly before
             named.append(REASONS["learned+" if parts[name] > -(rival or {}).get(name, 0.0) else "learned-"])
+        elif name == "patience":
+            named.append("willing to wait for a likely result")
         elif name == "cost":  # sparing herself work counts as a reason only against doing it
             if rival is not None and gain >= 0.25:
                 named.append(REASONS["cost"])

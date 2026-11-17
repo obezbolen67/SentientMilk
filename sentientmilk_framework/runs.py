@@ -354,8 +354,10 @@ class Runs:
             run = self.store.run(run_id)
             if not run or run["status"] in TERMINAL or run["options"].get("sealed"):  # sealed: it is ending
                 raise BrainError("ended", "This turn has ended; send the message as a new turn", http_status=409)
+            batch = {"id": secrets.token_hex(12), "at": time.time(), "count": len(items), "user": refuse_approvals}
             self.store.update_run_options(run_id, lambda options: {
-                **options, "steer": options.get("steer", []) + items,
+                **options, "steer_batches": options.get("steer_batches", []) + [batch],
+                "steer": options.get("steer", []) + items,
                 "steer_user": bool(options.get("steer_user") or refuse_approvals)})  # the user's own words
         self.attention(run_id).message()
         if run["status"] == "input_required" and refuse_approvals:
@@ -392,15 +394,12 @@ class Runs:
         content, display = context.input_content(items, options.get("context") or {}, reminders=reminders)
         # what comes back from past chats (recall.py) and what she feels and decides as she reads it: in the
         # message for her, never in what is shown
-        said = display if any(item["type"] == "text" for item in items) and not options.get("occurrence") else ""
-        recalled = self.brain.recall.note(run, said)
         inner = self.brain.mind.before(run, profile, display, sum(item["type"] == "image" for item in items))
-        if recalled or inner:
-            content, display = context.input_content(items, options.get("context") or {},
-                                                     reminders=[r for r in (recalled, inner) if r] + reminders)
+        if inner:
+            content, display = context.input_content(items, options.get("context") or {}, reminders=[inner] + reminders)
         logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
-                                      {"content": content, "display": display, **_stored(items)})
-        self.store.update_run_options(run["id"], lambda now: {**now, "input": None})  # the event keeps it
+                                      {"content": content, "display": display, "origin": f"run:{run['id']}", **_stored(items)},
+                                      change_options=lambda now: {**now, "input": None})
         emit({"type": "input", "id": logged["id"], "text": display})
 
     def take_messages(self, run: dict, emit) -> List[dict]:
@@ -409,23 +408,39 @@ class Runs:
         with self.steer_lock:
             options = self.store.run(run["id"])["options"]
             items, user = options.get("steer") or [], options.get("steer_user")
-            if items:
-                self.store.update_run_options(run["id"], lambda now: {**now, "steer": [], "steer_user": False})
+            batches = options.get("steer_batches") or []
             self.attention(run["id"]).settle()
         if not items:
             return []
+        legacy = len(items) - sum(b["count"] for b in batches)
+        if legacy > 0:
+            batches = [{"id": f"legacy:{run['id']}", "user": user, "count": legacy}, *batches]
+        logged = []
+        for batch in batches:
+            count = batch["count"]
+            logged.append(self._log_steer(run, items[:count], batch, emit))
+            items = items[count:]
+        return logged
+
+    def _log_steer(self, run, items, batch, emit):
         items = self.brain.skills.expand(mentions.resolve(self.brain, run["app"], run["session"], items))
         content, display = context.input_content(items, {}, reminders=[])
         # the user's words reach her body as well as her cortex, as a turn's first message does
-        inner = user and self.brain.mind.heard(
+        inner = batch["user"] and self.brain.mind.heard(
             run, self.brain.profile(run["app"], run["session"], run["options"].get("profile")), display,
-            sum(item["type"] == "image" for item in items))
+            sum(item["type"] == "image" for item in items), source=batch["id"])
         if inner:
             content, display = context.input_content(items, {}, reminders=[inner])
+        def consumed(options):
+            remaining = [b for b in options.get("steer_batches", []) if b["id"] != batch["id"]]
+            return {**options, "steer": options["steer"][batch["count"]:], "steer_batches": remaining,
+                    "steer_user": any(b["user"] for b in remaining)}
+
         logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
-                                      {"content": content, "display": display, **_stored(items)})
+                                      {"content": content, "display": display, "sources": [batch], **_stored(items)},
+                                      change_options=consumed)
         emit({"type": "steered", "text": display or "", "id": logged["id"]})
-        return [logged]
+        return logged
 
     def ask(self, run: dict, kind: str, call_id: str, name: str, arguments: dict, emit,
             always_ask: bool = False) -> None:

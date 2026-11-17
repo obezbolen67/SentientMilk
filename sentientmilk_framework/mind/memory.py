@@ -19,6 +19,7 @@ import random
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -56,6 +57,21 @@ class Memory:
                 self._db.execute("ALTER TABLE episodes ADD COLUMN follows TEXT")  # a mind from before 0.21
             if "sting" not in columns:  # before 0.32: what hurt was not kept, so nothing from then stings
                 self._db.execute("ALTER TABLE episodes ADD COLUMN sting REAL NOT NULL DEFAULT 0")
+            for name, sql_type in (("run_id", "INTEGER"), ("event_id", "INTEGER"), ("actor", "TEXT"),
+                                   ("device", "TEXT"), ("superseded_by", "INTEGER"), ("encoding_valence", "REAL"),
+                                   ("origin_ids", "TEXT"), ("attention", "TEXT")):
+                if name not in columns:
+                    self._db.execute(f"ALTER TABLE episodes ADD COLUMN {name} {sql_type}")
+            self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS episode_run ON episodes(run_id) WHERE run_id IS NOT NULL")
+            self._db.execute("CREATE INDEX IF NOT EXISTS episode_correction ON episodes(superseded_by) "
+                             "WHERE superseded_by IS NOT NULL")
+            self._db.executescript("""
+                CREATE TABLE IF NOT EXISTS episode_sequence (id INTEGER PRIMARY KEY CHECK(id = 1), last_id INTEGER);
+                INSERT OR IGNORE INTO episode_sequence SELECT 1, COALESCE(MAX(id), 0) FROM episodes;
+                CREATE TRIGGER IF NOT EXISTS episode_number AFTER INSERT ON episodes BEGIN
+                    UPDATE episode_sequence SET last_id = MAX(last_id, NEW.id) WHERE id = 1;
+                END;
+            """)
         self.vectors = Vectors(self._db, "episodes", self._lock)
         self.embedder = None  # her long-term memory's (recall.py sets it)
 
@@ -83,6 +99,18 @@ class Memory:
 
     # ============== Her own state ==============
 
+    @contextmanager
+    def transaction(self):
+        with self._lock:
+            self._db.execute("SAVEPOINT mind_write")
+            try:
+                yield
+            except BaseException:
+                self._db.execute("ROLLBACK TO mind_write")
+                raise
+            finally:
+                self._db.execute("RELEASE mind_write")
+
     def get(self, key: str, default=None):
         with self._lock:
             row = self._db.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
@@ -96,17 +124,20 @@ class Memory:
     # ============== Episodes ==============
 
     def add(self, kind: str, text: str, valence: float, arousal: float, salience: float, *, app: str = "",
-            session: str = "", at: Optional[float] = None, sting: float = 0.0) -> int:
+            session: str = "", at: Optional[float] = None, sting: float = 0.0, run_id=None, event_id=None,
+            actor=None, device=None, origins=(), attention=()) -> int:
         """``valence``: how she felt in the moment (her mood then, as it keeps it); ``sting``: what the moment
         itself did to how she felt (negative: it hurt), whatever her mood was."""
         text = " ".join(str(text).split())[:1200]
         salience = max(0.0, min(1.0, salience))
         with self._lock:
             cursor = self._db.execute(
-                "INSERT INTO episodes (at, kind, text, app, session, valence, arousal, salience, strength, charge, "
-                "sting) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO episodes (id, at, kind, text, app, session, valence, arousal, salience, strength, charge, "
+                "sting,run_id,event_id,actor,device,encoding_valence,origin_ids,attention) "
+                "VALUES ((SELECT last_id+1 FROM episode_sequence),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time() if at is None else at, kind, text, app, session, max(-1.0, min(1.0, valence)),
-                 max(0.0, min(1.0, arousal)), salience, 0.5 + 0.5 * salience, 1.0, max(-2.0, min(2.0, sting))))
+                 max(0.0, min(1.0, arousal)), salience, 0.5 + 0.5 * salience, 1.0, max(-2.0, min(2.0, sting)),
+                 run_id, event_id, actor, device, valence, json.dumps(list(origins)), json.dumps(list(attention))))
             return cursor.lastrowid
 
     @staticmethod
@@ -116,7 +147,7 @@ class Memory:
 
     def recall(self, cue: str, valence: float, now: float, count: int = 3, kinds: Iterable[str] = (),
                before: Optional[float] = None, strengthen: bool = True,
-               held: Optional[Tuple[str, str, float]] = None) -> List[dict]:
+               held: Optional[Tuple[str, str, float]] = None, status=None) -> List[dict]:
         """What comes back for ``cue`` in a mood of ``valence``: up to ``count`` episodes the cue calls up (alike
         in meaning), best first; nothing when she cannot tell what is alike now (no service). ``before``: only
         what happened before then (not what just happened). ``held``: (app, session, since), a chat whose
@@ -133,7 +164,10 @@ class Memory:
         when = (" AND e.at < ?" if before is not None else "") + \
             (" AND NOT (e.app = ? AND e.session = ? AND e.at >= ?)" if held else "")
         args = list(kinds) + ([before] if before is not None else []) + list(held or ())
-        alike = self._alike(cue, clause + when, args) or {}
+        alike = self._alike(cue, clause + when + " AND e.superseded_by IS NULL", args)
+        if status is not None:
+            status["available"] = alike is not None
+        alike = alike or {}
         with self._lock:
             found = {}
             if alike:
@@ -151,23 +185,64 @@ class Memory:
                     scored.append((score, episode))
             chosen = [episode for _, episode in sorted(scored, key=lambda item: -item[0])[:count]]
             if strengthen:
-                for episode in chosen:  # recalled: stronger, and its feeling drifts toward the mood it is recalled in
-                    self._db.execute(
-                        "UPDATE episodes SET recalls = recalls + 1, recalled = ?, strength = ?, valence = ? WHERE id = ?",
-                        (now, min(1.0, self.strength_now(episode, now) + 0.25 * (1.0 - self.strength_now(episode, now))),
-                         episode["valence"] + 0.1 * (valence - episode["valence"]), episode["id"]))
+                self.attended(chosen, now, valence)
         return chosen
+
+    def attended(self, chosen, now, valence):
+        with self._lock:
+            for episode in chosen:
+                strength = self.strength_now(episode, now)
+                self._db.execute("UPDATE episodes SET recalls = recalls + 1, recalled = ?, strength = ?, valence = ? "
+                                 "WHERE id = ? AND superseded_by IS NULL",
+                                 (now, min(1.0, strength + 0.25 * (1 - strength)),
+                                  episode["valence"] + 0.1 * (valence - episode["valence"]), episode["id"]))
+
+    def replacements(self, origins):
+        """Resolve corrected memories without treating a superseded account as corroboration."""
+        result = []
+        for item in origins:
+            seen = set()
+            while item and item.get("superseded_by") and item["id"] not in seen:
+                seen.add(item["id"])
+                rows = self.by_ids([item["superseded_by"]])
+                item = rows[0] if rows else None
+            if item and not item.get("superseded_by"):
+                result.append(item)
+        return result
+
+    def corrections(self) -> dict:
+        with self._lock:
+            return {row["event_id"]: row["superseded_by"] for row in self._db.execute(
+                "SELECT event_id,superseded_by FROM episodes WHERE superseded_by IS NOT NULL") if row["event_id"]}
 
     def replay(self, count: int = 2) -> List[dict]:
         """What a resting mind replays: episodes drawn at random from her whole life, the strong and charged
         more often, so two that never met can come up together (what a new idea is made of)."""
         with self._lock:
-            rows = [dict(row) for row in self._db.execute("SELECT * FROM episodes ORDER BY RANDOM() LIMIT 60")]
+            ids = [row[0] for row in self._db.execute("SELECT id FROM episodes ORDER BY id")]
+            sample = self._rng.sample(ids, min(60, len(ids)))
+            rows = [dict(row) for row in self._db.execute(
+                f"SELECT * FROM episodes WHERE id IN ({','.join('?' * len(sample))}) ORDER BY id", sample)]
         chosen = []
         while rows and len(chosen) < count:
             weights = [0.1 + row["salience"] * row["charge"] * row["strength"] for row in rows]
             chosen.append(rows.pop(self._rng.choices(range(len(rows)), weights)[0]))
         return chosen
+
+    def recorded(self, run_id: int) -> bool:
+        with self._lock:
+            return bool(self._db.execute("SELECT 1 FROM episodes WHERE run_id=?", (run_id,)).fetchone())
+
+    def supersede(self, episode: int, replacement: int) -> None:
+        with self._lock:
+            self._db.execute("UPDATE episodes SET superseded_by = ? WHERE id = ?", (replacement, episode))
+
+    def by_ids(self, ids) -> list:
+        if not ids:
+            return []
+        with self._lock:
+            return [dict(row) for row in self._db.execute(
+                f"SELECT * FROM episodes WHERE id IN ({','.join('?' * len(ids))}) ORDER BY id", list(ids))]
 
     def follow(self, episode_id: int, followed: Dict[str, float]) -> None:
         """What followed the user's message in this exchange: what it did to her needs, as it turned out."""
@@ -180,7 +255,7 @@ class Memory:
         followed the ``count`` messages most like it (each need's change, weighted by likeness) and how much she
         has to go on (their summed likeness). A "hi" after a hundred "hello"s is not new; until 0.30 likeness
         was also the share of the cue's words a memory had, which said nothing of a message in other words."""
-        alike = self._alike(cue, " AND e.at < ?", [before])
+        alike = self._alike(cue, " AND e.at < ? AND e.kind = 'exchange' AND e.superseded_by IS NULL", [before])
         if alike is None:
             return None, {}, 0.0
         with self._lock:
@@ -188,14 +263,23 @@ class Memory:
                 f"SELECT id, follows FROM episodes WHERE id IN ({','.join('?' * len(alike))})", list(alike)).fetchall()
             ) if alike else {}
         liked = sorted(((like, follows.get(episode)) for episode, like in alike.items()), key=lambda item: -item[0])
-        best, sums, evidence, used = (liked[0][0] if liked else 0.0), {}, 0.0, 0
+        best, sums, weights, evidence, used = (liked[0][0] if liked else 0.0), {}, {}, 0.0, 0
         for like, followed in liked:
             if followed and used < count and like > 0.0:
                 used += 1
                 evidence += like
                 for need, change in json.loads(followed).items():
+                    weights[need] = weights.get(need, 0.0) + like
                     sums[need] = sums.get(need, 0.0) + like * change
-        return best, ({need: total / evidence for need, total in sums.items()} if evidence else {}), evidence
+        return best, ({need: total / weights[need] for need, total in sums.items()} if evidence else {}), evidence
+
+    def replay_window(self, start, end, pending, limit):
+        with self._lock:
+            return [dict(r) for r in self._db.execute(
+                "SELECT e.* FROM episodes e WHERE at > ? AND at <= ? AND kind IN ('exchange','event','thought') "
+                "ORDER BY EXISTS(SELECT 1 FROM episodes old WHERE old.superseded_by=e.id) DESC, "
+                "e.id IN (SELECT value FROM json_each(?)) DESC, salience * charge DESC, e.id DESC LIMIT ?",
+                (start, end, json.dumps(pending), limit))]
 
     def since(self, at: float, kinds: Iterable[str] = (), count: int = 0) -> List[dict]:
         """Episodes from ``at`` on, the most charged first (``count`` of them; 0: all)."""
@@ -240,19 +324,38 @@ class Memory:
                 self._db.execute("UPDATE episodes SET charge = charge * ?, strength = MIN(1.0, strength + 0.1) "
                                  "WHERE id = ?", (1.0 - share, episode_id))
 
-    def forget_faint(self, now: float, older_days: float = 30.0) -> int:
+    def forget_faint(self, now: float, older_days: float = 30.0, *, protected=()) -> int:
         """Old, faint, unimportant episodes go (insights and dreams she wrote down stay longer): faint is its
         strength now times what of it no stronger episode already holds (``Vectors.held``, by meaning), so of
         two alike the weaker goes sooner (since 0.30; by strength alone before)."""
         with self._lock:
+            keep = set(protected)
+            for row in self._db.execute("SELECT origin_ids, superseded_by, id FROM episodes "
+                                        "WHERE superseded_by IS NOT NULL OR origin_ids != '[]'"):
+                keep.update(json.loads(row["origin_ids"] or "[]"))
+                if row["superseded_by"] is not None:
+                    keep.update((row["id"], row["superseded_by"]))
             rows = self._db.execute("SELECT * FROM episodes WHERE at < ? AND salience < 0.3 AND kind NOT IN "
                                     "('insight')", (now - older_days * 86400.0,)).fetchall()
-            strengths = {row["id"]: self.strength_now(dict(row), now) for row in rows}
+            strengths = {row["id"]: self.strength_now(dict(row), now) for row in rows if row["id"] not in keep}
             held = self.vectors.held(strengths, self.embedder.name) if self.embedder is not None and rows else {}
             gone = [episode for episode, strength in strengths.items() if strength * (1.0 - held.get(episode, 0.0)) < 0.08]
             for episode_id in gone:
                 self._db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
         return len(gone)
+
+    def retract(self, app, session, event=None, since=None):
+        cutoff = "" if event is None else " AND (event_id >= ? OR (event_id IS NULL AND at >= ?))"
+        args = [app, session] + ([] if event is None else [event, since])
+        with self.transaction():
+            gone = {r[0] for r in self._db.execute("SELECT id FROM episodes WHERE app=? AND session=?" + cutoff, args)}
+            for row in self._db.execute("SELECT id, origin_ids FROM episodes WHERE origin_ids IS NOT NULL ORDER BY id"):
+                if gone.intersection(json.loads(row["origin_ids"])):
+                    gone.add(row["id"])
+            for episode in gone:
+                self._db.execute("DELETE FROM episodes WHERE id=?", (episode,))
+                self._db.execute("UPDATE episodes SET superseded_by=NULL WHERE superseded_by=?", (episode,))
+            return gone
 
     def forget_session(self, app: str, session: str) -> int:
         """The user deleted a conversation: what she kept of it goes too."""
@@ -264,12 +367,23 @@ class Memory:
             return self._db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
 
 
-def line(episode: dict, now: float) -> str:
+def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:
     """An episode as it comes back to her: how long ago, and what."""
     ago = max(0.0, now - episode["at"])
     when = ("just now" if ago < 120 else f"{int(ago // 60)} minutes ago" if ago < 3600 else
             f"{int(ago // 3600)} hours ago" if ago < 86400 else f"{int(ago // 86400)} days ago")
-    return f"({when}) {episode['text']}"
+    if waking_evidence and episode.get("kind") == "dream":
+        return (f"({when}) A dream came to mind. Your records here contain no waking observation. "
+                "If asked whether something was done, you can say you cannot verify it. Check before acting.")
+    source = {
+        "dream": "You dreamed this scene while asleep. Its events are imagined. Verify any real-world action separately.",
+        "thought": "This was a private thought. Any plan mentioned here still needs an execution record.",
+        "insight": "An unverified hypothesis you formed on reflection. Check it before relying on it.",
+        "exchange": "Remembered exchange. A speaker's words establish what they said.",
+        "event": "Recorded event. A task report establishes what was reported.",
+        "outcome": "Remembered outcome. Check its original evidence before relying on a more specific claim.",
+    }.get(episode.get("kind"))
+    return f"({when}) " + (f"{source} " if source else "") + episode["text"]
 
 
 def describe_salience(surprise: float, arousal: float, stakes: float) -> float:

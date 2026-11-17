@@ -62,11 +62,14 @@ class Values:
     def learn(self, found: List[str], felt: float, rate: float) -> float:
         """What it felt like (-1..1): the weights move toward it; the prediction error."""
         error = _clip(felt) - self.predict(found)
-        step = rate * error / math.sqrt(max(1, len(found)))
+        self.reinforce(found, error, rate)
+        return error
+
+    def reinforce(self, found: List[str], error: float, rate: float) -> None:
+        step = rate * _clip(error) / math.sqrt(max(1, len(found)))
         for f in found:
             self.weights[f] = _clip(self.weights.get(f, 0.0) + step)
             self.uses[f] = self.uses.get(f, 0) + 1
-        return error
 
     def fade(self, share: float = 0.1, floor: float = FAINT) -> None:
         """In sleep: every weight fades a little toward nothing; the faintest go."""

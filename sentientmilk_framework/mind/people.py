@@ -111,6 +111,8 @@ class People:
             gist = _clean(change.get("gist"), GIST_CHARS)
             if gist:
                 person["gist"] = gist
+                person["origins"] = change.get("origins", [])
+                person["basis"] = change.get("basis", "unknown source")
             goes_by = change.get("goes_by") if isinstance(change.get("goes_by"), dict) else {}
             for app, handles in goes_by.items():
                 for handle in handles if isinstance(handles, list) else [handles]:

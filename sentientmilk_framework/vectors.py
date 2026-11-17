@@ -45,6 +45,12 @@ class Vectors:
             db.executescript(f"""
                 CREATE TABLE IF NOT EXISTS {table}_vectors (id INTEGER PRIMARY KEY, model TEXT NOT NULL,
                                                              vector BLOB NOT NULL);
+                CREATE TABLE IF NOT EXISTS {table}_vector_revision (id INTEGER PRIMARY KEY, revision INTEGER NOT NULL);
+                INSERT OR IGNORE INTO {table}_vector_revision VALUES(1,0);
+                CREATE TRIGGER IF NOT EXISTS {table}_vector_insert AFTER INSERT ON {table}_vectors BEGIN
+                    UPDATE {table}_vector_revision SET revision=revision+1 WHERE id=1; END;
+                CREATE TRIGGER IF NOT EXISTS {table}_vector_delete AFTER DELETE ON {table}_vectors BEGIN
+                    UPDATE {table}_vector_revision SET revision=revision+1 WHERE id=1; END;
                 CREATE INDEX IF NOT EXISTS {table}_vectors_model ON {table}_vectors (model);
                 CREATE TRIGGER IF NOT EXISTS {table}_vector_gone AFTER DELETE ON {table} BEGIN
                     DELETE FROM {table}_vectors WHERE id = old.id; END;
@@ -83,8 +89,7 @@ class Vectors:
 
     def _matrix(self, model: str) -> Tuple[np.ndarray, np.ndarray]:
         with self.lock:
-            version = self.db.execute(f"SELECT COUNT(*), TOTAL(id), MAX(rowid) FROM {self.table}_vectors "
-                                      "WHERE model = ?", (model,)).fetchone()
+            version = self.db.execute(f"SELECT revision FROM {self.table}_vector_revision WHERE id=1").fetchone()
             kept = self._matrices.get(model)
             if kept and kept[0] == tuple(version):
                 return kept[1], kept[2]

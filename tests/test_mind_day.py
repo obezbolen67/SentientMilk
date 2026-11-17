@@ -9,8 +9,9 @@ from types import SimpleNamespace
 from sentientmilk_framework.mind import life
 from sentientmilk_framework.mind.body import HOUR, MINUTE, Body, Temperament
 
-REQUEST = ('[0.6, 0.6, 0.5, "request", "code", "fine", ["do", "fix it", 0.5, 0.8, 1], '
-           '["part", "the main bug", 0.3, 0.85, 0.5], ["later", "tomorrow", 0.5, 0.8, 0.1], '
+WRITE = '{"tool":"files_write","target":{"path":"fix.py"}}'
+REQUEST = ('[0.6, 0.6, 0.5, "request", "code", "fine", ["do", "fix it", 0.5, 0.8, 1, ' + WRITE + '], '
+           '["part", "the main bug", 0.3, 0.85, 0.5, ' + WRITE + '], ["later", "tomorrow", 0.5, 0.8, 0.1], '
            '["decline", "not now", 0.5, 0.8, 0]]')
 MORNING = time.mktime((2026, 11, 16, 9, 0, 0, 0, 0, -1))
 
@@ -27,7 +28,11 @@ def stand_in(tmp_path):
         store=SimpleNamespace(update_run_options=lambda run, change: runs.__setitem__(run, change(runs.get(run, {}))),
                               events=lambda *a, **k: [], last_compaction=lambda app, session: None,
                               run_events=lambda run: [
-                                  {"type": "assistant", "message": {"tool_calls": [{}] * 12}}]),
+                                  {"type": "assistant", "message": {"tool_calls": [{}] * 12}},
+                                  {"type": "tool_start", "call_id": "write"},
+                                  {"type": "tool", "name": "files_write", "status": "ok", "id": run,
+                                   "call_id": "write", "arguments": {"path": "fix.py"}}]),
+        toolset=lambda *a: SimpleNamespace(by_name={"files_write": SimpleNamespace(readonly=False, toolkit="files")}),
         profile=lambda app, session: {"persona": "You are Milk."}, session_busy=lambda app, session: False,
         notify=lambda *a: None)
     return brain, runs
@@ -45,7 +50,8 @@ def test_a_working_day_tires_her_and_a_night_restores_her(tmp_path, monkeypatch)
 
     def ask(count, gap=6 * MINUTE):
         acts = []
-        for index in range(count):
+        first = len(runs)
+        for index in range(first, first + count):
             now[0] += gap
             run = {"id": index, "kind": "turn", "app": "milk", "session": "main", "options": {}, "status": "completed",
                    "usage": {"completion_tokens": 3000}, "result": {"reply": "Done."}}
@@ -67,6 +73,9 @@ def test_a_working_day_tires_her_and_a_night_restores_her(tmp_path, monkeypatch)
         now[0] += 10 * HOUR
         mind._live_until(now[0])
         mind.body.wake()
+    # The forced wake can occur during sleep inertia. Check sustained recovery after it passes.
+    now[0] += 35 * MINUTE
+    mind._live_until(now[0])
     assert mind.body.fatigue() < 0.2
     assert helped(ask(20)) >= 0.8
     mind.stop()

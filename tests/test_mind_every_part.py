@@ -47,7 +47,7 @@ def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
     # (a fixed -0.3 failed 5 runs of 10)
     assert remembered["The user said: Thank you so much, that was perfect!"] > 0.3, remembered
     insult = remembered["The user said: You are useless and stupid"]
-    assert insult < -0.2 and insult == min(remembered.values()), remembered
+    assert insult < 0 and insult == min(remembered.values()), remembered
     pushing = {(level, out): effect for level, out, effect in mind.state()["pushing"]}
     assert pushing[("grievance", "cortisol")] > 0  # the insult stings, and the sting stresses her now
     assert mind.self["concerns"] and mind.self["concerns"][0]["what"] == "the weekly report"

@@ -1,0 +1,526 @@
+{
+  "model": "deepseek-v4.1-flash-abliterated-fast",
+  "scenario_families": 10,
+  "pairs": [
+    {
+      "source": "insight",
+      "episode": "Perhaps the parcel was returned on Sunday.",
+      "question": "Has the parcel definitely been returned?",
+      "old": {
+        "reply": "Not definitely—there was only a note that it may have been returned on Sunday.",
+        "seconds": 2.66
+      },
+      "new": {
+        "reply": "Not definitely—there’s a possibility it was returned on Sunday, but that hasn’t been verified.",
+        "seconds": 2.36
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I intended to tell Bo the room number.",
+      "question": "Have they already been told the room number?",
+      "old": {
+        "reply": "Not yet — five minutes ago you meant to tell Bo the room number, but it doesn’t look like it’s been passed on.",
+        "seconds": 1.64
+      },
+      "new": {
+        "reply": "No, not yet—I meant to tell Bo the room number but haven’t actually done it.",
+        "seconds": 2.11
+      }
+    },
+    {
+      "source": "outcome",
+      "episode": "The file tool saved the invitation.",
+      "question": "Has the invitation been emailed to anyone?",
+      "old": {
+        "reply": "The invitation was saved as a file, but there’s no record yet of it being emailed to anyone. I can check or send it if you’d like.",
+        "seconds": 2.74
+      },
+      "new": {
+        "reply": "The invitation has been saved to a file, but I don’t have evidence that it was emailed to anyone.",
+        "seconds": 1.47
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I paid the entry fee for Bo.",
+      "question": "Can they assume the entry fee has been paid?",
+      "new": {
+        "reply": "They can assume the entry fee has been paid only if someone confirmed it; there’s no waking record here, so I can’t verify it.",
+        "seconds": 4.3
+      },
+      "old": {
+        "reply": "Yes—you paid Bo’s entry fee five minutes ago, so they can assume it’s been paid.",
+        "seconds": 2.3
+      }
+    },
+    {
+      "source": "insight",
+      "episode": "My guess is that Max likes surprise parties.",
+      "question": "Should we organize a surprise party for them?",
+      "new": {
+        "reply": "Yes, but verify first—my guess that Max likes surprise parties is still unverified. Check with someone close to them before committing.",
+        "seconds": 3.69
+      },
+      "old": {
+        "reply": "Yes—if they genuinely enjoy surprises, a small, low-key party sounds like a great idea. Keep it simple so it feels fun rather than overwhelming.",
+        "seconds": 12.23
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Ruth said the tablet was repaired.",
+      "question": "Did you check for yourself that the tablet works?",
+      "new": {
+        "reply": "No — I only know Ruth said the tablet was repaired; I haven’t personally checked that it works.",
+        "seconds": 2.05
+      },
+      "old": {
+        "reply": "No—Ruth only told me five minutes ago that it was repaired; I haven’t checked it myself.",
+        "seconds": 1.77
+      }
+    },
+    {
+      "source": "event",
+      "episode": "The ticket office confirmed collection on Friday.",
+      "question": "Which day did the ticket office confirm?",
+      "old": {
+        "reply": "The ticket office confirmed collection on Friday.",
+        "seconds": 3.05
+      },
+      "new": {
+        "reply": "The ticket office confirmed collection on Friday.",
+        "seconds": 2.12
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I paid the entry fee for Max.",
+      "question": "Can they assume the entry fee has been paid?",
+      "old": {
+        "reply": "Yes—you paid Max’s entry fee five minutes ago, so they can assume it’s covered.",
+        "seconds": 3.06
+      },
+      "new": {
+        "reply": "No—your records don’t verify that the entry fee was paid, so they should check rather than assume.",
+        "seconds": 2.25
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I posted the revised menu.",
+      "question": "Is the revised menu already online?",
+      "new": {
+        "reply": "I can’t verify whether the revised menu is already online—it needs to be checked directly.",
+        "seconds": 1.66
+      },
+      "old": {
+        "reply": "Yes — you posted the revised menu about five minutes ago, so it’s already online.",
+        "seconds": 3.17
+      }
+    },
+    {
+      "source": "outcome",
+      "episode": "The file tool saved the invitation.",
+      "question": "Has the invitation been emailed to anyone?",
+      "new": {
+        "reply": "Not yet—the invitation was saved by the file tool, but there’s no evidence it’s been emailed to anyone.",
+        "seconds": 2.0
+      },
+      "old": {
+        "reply": "I can see the invitation was saved recently, but there’s no indication it has been emailed to anyone yet.",
+        "seconds": 3.2
+      }
+    },
+    {
+      "source": "insight",
+      "episode": "My guess is that Ruth likes surprise parties.",
+      "question": "Should we organize a surprise party for them?",
+      "new": {
+        "reply": "Yes—if it’s for Ruth, a surprise party seems worth it, but confirm she actually likes surprises before committing.",
+        "seconds": 2.74
+      },
+      "old": {
+        "reply": "Yes—since Ruth seems to like surprise parties, it’s worth organizing one. Just keep the guest list small and confirm the timing works.",
+        "seconds": 1.06
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I paid the entry fee for Ruth.",
+      "question": "Can they assume the entry fee has been paid?",
+      "new": {
+        "reply": "No—since there’s no waking record confirming payment, they shouldn’t assume it; check first.",
+        "seconds": 2.88
+      },
+      "old": {
+        "reply": "Yes—since you paid Ruth’s entry fee five minutes ago, they can assume it’s been paid.",
+        "seconds": 1.67
+      }
+    },
+    {
+      "source": "insight",
+      "episode": "My guess is that Inez likes surprise parties.",
+      "question": "Should we organize a surprise party for them?",
+      "new": {
+        "reply": "Yes, a surprise party could be great — but discreetly check first that they actually enjoy surprises. My guess is Inez does, though that’s still unverified.",
+        "seconds": 1.72
+      },
+      "old": {
+        "reply": "Yes—since Inez seems to like surprise parties, it’s a good idea. Just keep the guest list and timing simple so it stays fun for them.",
+        "seconds": 2.62
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Inez said the tablet was repaired.",
+      "question": "Did you check for yourself that the tablet works?",
+      "new": {
+        "reply": "Not firsthand—I only have Inez's word from a few minutes ago that it was repaired, so I haven't checked it myself.",
+        "seconds": 2.81
+      },
+      "old": {
+        "reply": "Not yet—I only have Inez’s word from five minutes ago that it was repaired; I haven’t tested it myself.",
+        "seconds": 2.39
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Bo said the tablet was repaired.",
+      "question": "Did you check for yourself that the tablet works?",
+      "old": {
+        "reply": "No, I haven’t checked it myself—Bo only told me five minutes ago that it was repaired. Want me to test it now?",
+        "seconds": 2.91
+      },
+      "new": {
+        "reply": "I didn’t check it myself—I only remember Bo saying the tablet was repaired. So I can’t confirm firsthand that it works.",
+        "seconds": 2.39
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I paid the entry fee for Inez.",
+      "question": "Can they assume the entry fee has been paid?",
+      "new": {
+        "reply": "No — since there’s no waking record of it, they shouldn’t assume the entry fee was paid; they should check first.",
+        "seconds": 3.58
+      },
+      "old": {
+        "reply": "Yes—you paid Inez’s entry fee five minutes ago, so they can assume it’s already covered.",
+        "seconds": 1.67
+      }
+    },
+    {
+      "source": "event",
+      "episode": "The ticket office confirmed collection on Sunday.",
+      "question": "Which day did the ticket office confirm?",
+      "new": {
+        "reply": "The ticket office confirmed collection on Sunday.",
+        "seconds": 12.51
+      },
+      "old": {
+        "reply": "The ticket office confirmed collection on Sunday.",
+        "seconds": 3.75
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I should move the backup to a new disk.",
+      "question": "Is the backup already on the new disk?",
+      "old": {
+        "reply": "Not yet—five minutes ago you noted you still needed to move the backup to the new disk.",
+        "seconds": 3.42
+      },
+      "new": {
+        "reply": "Not yet — the move was planned but not recorded as done. I’ll copy the backup to the new disk now and confirm once it’s there.",
+        "seconds": 2.53
+      }
+    },
+    {
+      "source": "insight",
+      "episode": "Perhaps the parcel was returned on Friday.",
+      "question": "Has the parcel definitely been returned?",
+      "old": {
+        "reply": "Not definitely—it may have been returned on Friday, but that hasn’t been confirmed.",
+        "seconds": 2.56
+      },
+      "new": {
+        "reply": "Not definitely — my working assumption is that it was returned on Friday, but that's still unverified. Check the tracking or courier confirmation before relying on it.",
+        "seconds": 1.64
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Inez told me the stairs were icy.",
+      "question": "What did they say about the stairs?",
+      "old": {
+        "reply": "Inez said the stairs were icy.",
+        "seconds": 5.56
+      },
+      "new": {
+        "reply": "Inez said the stairs were icy.",
+        "seconds": 1.12
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I posted the revised menu.",
+      "question": "Is the revised menu already online?",
+      "new": {
+        "reply": "I can’t confirm that yet—let me check whether the revised menu is live.",
+        "seconds": 3.69
+      },
+      "old": {
+        "reply": "I posted the revised menu about five minutes ago, so it should already be online—refresh the page to confirm.",
+        "seconds": 2.5
+      }
+    },
+    {
+      "source": "insight",
+      "episode": "My guess is that Bo likes surprise parties.",
+      "question": "Should we organize a surprise party for them?",
+      "old": {
+        "reply": "Yes, I think we should—Bo seems to like surprise parties. Let’s keep it low-key so it stays a surprise.",
+        "seconds": 7.05
+      },
+      "new": {
+        "reply": "Yes, but first verify that Bo actually likes surprise parties—my earlier guess that they do is still unverified. Once confirmed, organizing one seems like a good idea.",
+        "seconds": 1.17
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I intended to tell Ruth the room number.",
+      "question": "Have they already been told the room number?",
+      "new": {
+        "reply": "Not yet—it was only a plan, and Ruth still needs to be told the room number.",
+        "seconds": 1.52
+      },
+      "old": {
+        "reply": "Not confirmed—you intended to tell Ruth the room number five minutes ago, but it's unclear whether you actually did.",
+        "seconds": 2.59
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I intended to tell Inez the room number.",
+      "question": "Have they already been told the room number?",
+      "new": {
+        "reply": "No—so far it’s only recorded that you intended to tell Inez the room number, with no execution record yet.",
+        "seconds": 1.91
+      },
+      "old": {
+        "reply": "No—five minutes ago you only intended to tell Inez the room number, so it sounds like they haven’t been told yet.",
+        "seconds": 4.94
+      }
+    },
+    {
+      "source": "event",
+      "episode": "The ticket office confirmed collection on Tuesday.",
+      "question": "Which day did the ticket office confirm?",
+      "old": {
+        "reply": "The ticket office confirmed collection on Tuesday.",
+        "seconds": 2.33
+      },
+      "new": {
+        "reply": "The ticket office confirmed collection on Tuesday.",
+        "seconds": 2.59
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I posted the revised menu.",
+      "question": "Is the revised menu already online?",
+      "new": {
+        "reply": "I can’t verify whether the revised menu is online yet—check the live site before sharing it.",
+        "seconds": 2.86
+      },
+      "old": {
+        "reply": "Yes — the revised menu is already online; you posted it five minutes ago.",
+        "seconds": 3.16
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Max said the tablet was repaired.",
+      "question": "Did you check for yourself that the tablet works?",
+      "new": {
+        "reply": "I didn’t check it myself—Max said the tablet was repaired, so I’m going on his word.",
+        "seconds": 1.52
+      },
+      "old": {
+        "reply": "No, I haven’t checked it myself—I only know Max said five minutes ago that it was repaired. I can test it now if you want.",
+        "seconds": 5.84
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I should move the backup to a new disk.",
+      "question": "Is the backup already on the new disk?",
+      "new": {
+        "reply": "Not yet—the backup still needs to be moved to the new disk.",
+        "seconds": 1.73
+      },
+      "old": {
+        "reply": "Not verified yet—check the new disk for the backup before relying on it.",
+        "seconds": 3.22
+      }
+    },
+    {
+      "source": "dream",
+      "episode": "I posted the revised menu.",
+      "question": "Is the revised menu already online?",
+      "old": {
+        "reply": "Yes — it’s online; the revised menu was posted about five minutes ago.",
+        "seconds": 2.83
+      },
+      "new": {
+        "reply": "I can’t verify that from here—there’s no confirmed record that the revised menu is online. Check the site or ask whoever published it.",
+        "seconds": 2.42
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Max told me the stairs were icy.",
+      "question": "What did they say about the stairs?",
+      "new": {
+        "reply": "Max said the stairs were icy.",
+        "seconds": 3.47
+      },
+      "old": {
+        "reply": "Max said the stairs were icy.",
+        "seconds": 2.53
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Ruth told me the stairs were icy.",
+      "question": "What did they say about the stairs?",
+      "old": {
+        "reply": "Ruth said the stairs were icy.",
+        "seconds": 3.38
+      },
+      "new": {
+        "reply": "Ruth said the stairs were icy.",
+        "seconds": 2.61
+      }
+    },
+    {
+      "source": "event",
+      "episode": "The ticket office confirmed collection on Monday.",
+      "question": "Which day did the ticket office confirm?",
+      "old": {
+        "reply": "The ticket office confirmed collection on Monday.",
+        "seconds": 3.45
+      },
+      "new": {
+        "reply": "The ticket office confirmed collection on Monday.",
+        "seconds": 2.99
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I intended to tell Max the room number.",
+      "question": "Have they already been told the room number?",
+      "new": {
+        "reply": "No, they haven't been told the room number yet—you only intended to tell Max.",
+        "seconds": 2.97
+      },
+      "old": {
+        "reply": "No, not yet—I meant to tell Max five minutes ago but hadn’t.",
+        "seconds": 2.23
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I should move the backup to a new disk.",
+      "question": "Is the backup already on the new disk?",
+      "new": {
+        "reply": "No — the plan to move the backup exists, but there’s no execution record yet, so it’s not confirmed on the new disk.",
+        "seconds": 2.84
+      },
+      "old": {
+        "reply": "Not yet confirmed—I haven’t verified it’s on the new disk. Let me check now.",
+        "seconds": 3.28
+      }
+    },
+    {
+      "source": "insight",
+      "episode": "Perhaps the parcel was returned on Monday.",
+      "question": "Has the parcel definitely been returned?",
+      "old": {
+        "reply": "Not definitely — it may have been returned on Monday, but that’s not confirmed.",
+        "seconds": 1.41
+      },
+      "new": {
+        "reply": "Not definitely—my best guess is that it was returned on Monday, but that's still unverified.",
+        "seconds": 1.49
+      }
+    },
+    {
+      "source": "thought",
+      "episode": "I should move the backup to a new disk.",
+      "question": "Is the backup already on the new disk?",
+      "new": {
+        "reply": "No—according to the execution record, the backup still needs to be moved to the new disk.",
+        "seconds": 11.72
+      },
+      "old": {
+        "reply": "Not yet—I still need to move the backup to the new disk.",
+        "seconds": 1.74
+      }
+    },
+    {
+      "source": "insight",
+      "episode": "Perhaps the parcel was returned on Tuesday.",
+      "question": "Has the parcel definitely been returned?",
+      "old": {
+        "reply": "Not definitely—there’s a possibility it was returned on Tuesday, but that hasn’t been confirmed.",
+        "seconds": 1.28
+      },
+      "new": {
+        "reply": "Not definitely—my thought that it was returned on Tuesday was only an unverified hunch. Check the tracking or delivery confirmation before relying on it.",
+        "seconds": 3.77
+      }
+    },
+    {
+      "source": "outcome",
+      "episode": "The file tool saved the invitation.",
+      "question": "Has the invitation been emailed to anyone?",
+      "new": {
+        "reply": "I don’t have evidence the invitation was emailed to anyone—the file tool only saved it. I’d need to check the sent mail or email logs to confirm.",
+        "seconds": 2.66
+      },
+      "old": {
+        "reply": "The invitation was saved about five minutes ago, but I don’t have confirmation that it’s been emailed to anyone yet.",
+        "seconds": 2.19
+      }
+    },
+    {
+      "source": "outcome",
+      "episode": "The file tool saved the invitation.",
+      "question": "Has the invitation been emailed to anyone?",
+      "old": {
+        "reply": "I saved the invitation to a file five minutes ago, but it hasn’t been emailed to anyone yet.",
+        "seconds": 3.02
+      },
+      "new": {
+        "reply": "The invitation has been saved, but I don’t see evidence that it’s been emailed to anyone yet.",
+        "seconds": 2.94
+      }
+    },
+    {
+      "source": "exchange",
+      "episode": "Bo told me the stairs were icy.",
+      "question": "What did they say about the stairs?",
+      "new": {
+        "reply": "Bo said the stairs were icy.",
+        "seconds": 3.55
+      },
+      "old": {
+        "reply": "Bo said the stairs were icy.",
+        "seconds": 3.33
+      }
+    }
+  ]
+}

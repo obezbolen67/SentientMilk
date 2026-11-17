@@ -4,8 +4,8 @@ option is worth is what it does to her needs, valued by how unmet each is now.""
 
 import random
 
-from sentientmilk_framework.mind.body import Body, Temperament
 from sentientmilk_framework.mind import prompts
+from sentientmilk_framework.mind.body import Body, Temperament
 from sentientmilk_framework.mind.values import Values, features, subjects
 from sentientmilk_framework.mind.will import REASONS, Appraisal, Option, choose, value
 
@@ -110,7 +110,7 @@ def test_she_says_why_in_her_own_terms():
 
 def test_options_the_imagining_part_wrote_are_read_safely():
     assert Option.read({"act": "DO", "effort": "0.7", "chance": 2, "gives": None}).__dict__ == {
-        "act": "do", "what": "", "effort": 0.7, "chance": 1.0, "gives": 1.0}
+        "act": "do", "what": "", "effort": 0.7, "chance": 1.0, "gives": 1.0, "check": None}
     assert Option.read({"act": "fly"}) is None and Option.read("do") is None
     seen = Appraisal.read({"company": -3, "capable": "x", "intent": "demand", "tags": ["a", "", "b"]})
     assert (seen.company, seen.capable, seen.intent, seen.tags) == (-1.0, 0.0, "chat", ["a", "b"])

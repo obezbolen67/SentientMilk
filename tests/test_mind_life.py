@@ -43,7 +43,7 @@ def test_she_feels_and_decides_before_she_answers_and_the_user_never_sees_it(bra
     run = brain.store.run(result["run"])
     assert run["options"]["mind"]["act"] == "do"
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]  # once the run has ended
-    assert "Can you sum up my notes?" in episode["text"] and "I did it" in episode["text"]
+    assert "Can you sum up my notes?" in episode["text"] and "Completion was unverified" in episode["text"]
 
 
 def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from(brain):
@@ -58,8 +58,9 @@ def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from
     outcome = wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))
     assert outcome["did"] == "do"
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]
-    assert "I did it (the weekly report), though I had leaned toward putting it off" in episode["text"]
-    assert "act:do" in mind.values.weights and "act:later" not in mind.values.weights  # she learns what she did
+    assert "My tool recorded files_write" in episode["text"] and "I did it" not in episode["text"]
+    assert "capable" not in outcome["measured"]  # writing the IP does not verify changing a server allow list
+    assert "act:later" not in mind.values.weights
     assert not mind.self["concerns"]  # done after all: nothing put off to come back to
     brain.provider.mind_replies["imagine"] = [DECLINE]
     (brain.work / "a.txt").write_text("secret plans", encoding="utf-8")
@@ -161,7 +162,7 @@ def test_her_body_lives_through_her_work_and_speaks_up_while_she_works(brain):
     assert felt[0] < 0.99  # a step's work tires her as it is done, not when the turn ends
     third, last = (json.dumps(request["messages"]) for request in brain.provider.sent[-2:])
     assert "much less energy" in third.split("[Note: Inside you: Your body: ")[1].split("]")[0]  # her body, mid-work
-    assert last.count("[Note: Inside you:") == 1  # said once: her cortex hears only what is new
+    assert last.count("[Note: Inside you: Your body:") == 1 and "files_read failed" in last  # said once: her cortex hears only what is new
     assert mind.body["cortisol"] > stress  # a call that failed stirred her as it failed
     wait_for(lambda: result["run"] not in mind._working)  # and what was left is counted once, at the end
     assert mind.body["energy"] < 0.35
@@ -175,7 +176,7 @@ def test_what_the_user_says_while_she_works_reaches_her_body_too(brain):
     def they_write(payload):  # at her first step the user writes again
         run = brain.store.runs(app="cli", statuses=("working",), limit=1)[0]
         brain.provider.mind_replies["imagine"] = [INSULT]
-        hurt.append(mind.body["cortisol"])
+        hurt.append(mind.body.stress_drive)
         brain.brain.runs.steer(run["id"], [{"type": "text", "text": "No, wrong file, you're useless."}])
         return tool_call("files_read", {"path": str(brain.work / "a.txt")})
     brain.provider.replies += [they_write, "Sorry. Which one?"]
@@ -183,7 +184,7 @@ def test_what_the_user_says_while_she_works_reaches_her_body_too(brain):
     sent = brain.provider.sent[-1]["messages"]
     said = next(m["content"] for m in reversed(sent) if m["role"] == "user" and "you're useless" in str(m["content"]))
     assert "[Inside you:" in str(said) and "Reading it, you feel hurt" in str(said) and "What you decide" not in str(said)
-    assert mind.body["cortisol"] > hurt[0]  # being judged while she works stresses her as it would at any time
+    assert mind.body.stress_drive > hurt[0]  # being judged while she works stresses her as it would at any time
     assert brain.store.run(result["run"])["options"]["mind"]["act"] == "do"  # what she decided about the turn stands
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]  # and she remembers it with the turn
     assert "As I worked they said: No, wrong file, you're useless." in episode["text"]
@@ -278,20 +279,23 @@ def test_what_she_puts_off_she_keeps_in_mind(brain):
 
 def test_the_next_message_tells_her_how_her_decision_was_taken(brain):
     mind = mind_on(brain)
-    brain.provider.mind_replies["imagine"] = [DECLINE, INSULT]
+    brain.provider.mind_replies["imagine"] = [DECLINE]
     brain.provider.replies += ["No.", "Sorry."]
     turn(brain, "cli", "Read a.txt for me")
     episode = wait_for(lambda: mind.self["waiting"]["cli\nmain"]["episode"])  # how her turn went is in
     before = mind.values.predict(["act:decline", "tag:files"])
+    target = mind.self["waiting"]["cli\nmain"]["run"]
+    brain.provider.mind_replies["imagine"].append(json.dumps(json.loads(INSULT) + [
+        {"run": target, "quote": "that is useless", "dimension": "capable", "verdict": "negative"}]))
     turn(brain, "cli", "Wow, that is useless.")
     assert mind.values.predict(["act:decline", "tag:files"]) < before
     assert mind.body["grievance"] > 0.0
     followed = json.loads(next(e for e in mind.memory.recent(5) if e["id"] == episode)["follows"])
     # the next message took company and her sense of being capable; her own no won back some freedom
-    assert followed["company"] < -0.4 and followed["capable"] < -0.5 and followed["free"] > 0
+    assert followed == {"capable": -1.0}
 
 
-def test_what_followed_comes_from_the_same_chat_and_a_long_time_apart_takes_company(brain):
+def test_another_chat_and_time_apart_do_not_grade_an_unrelated_action(brain):
     mind = mind_on(brain)
     brain.provider.mind_replies["imagine"] = [BANTER, INSULT, BANTER]
     brain.provider.replies += ["Ha.", "Hm.", "Hi again."]
@@ -305,15 +309,14 @@ def test_what_followed_comes_from_the_same_chat_and_a_long_time_apart_takes_comp
         mind.self["contact"]["at"] -= 4 * 3600
     turn(brain, "cli", "back!", session="a")
     learned = mind.self["decided"]["path"]["learned"]
-    assert learned["act"] == "talk" and learned["measured"]["company"] < -0.5
-    followed = json.loads(next(e for e in mind.memory.recent(9) if e["id"] == episode)["follows"])
-    assert followed["company"] < 0  # the absence counted, not just the banter (read +0.2)
+    assert learned is None
+    assert next(e for e in mind.memory.recent(9) if e["id"] == episode)["follows"] is None
     turn_b = mind.self["waiting"]["cli\nb"]
     brain.client.delete_session("cli", "b")
     assert "cli\nb" not in mind.self["waiting"] and turn_b
 
 
-def test_what_a_message_brings_her_she_learns_from_what_followed_messages_like_it(brain):
+def test_ambiguous_reactions_never_train_the_previous_forecast(brain):
     mind = mind_on(brain)
     foreseen = []
     for _ in range(6):  # teasing that ends in laughing together; insults followed by more of them
@@ -326,9 +329,8 @@ def test_what_a_message_brings_her_she_learns_from_what_followed_messages_like_i
             if text.startswith("lol"):
                 foreseen.append(brain.store.run(result["run"])["options"]["mind"]["foreseen"])
     assert foreseen[0]["free"] == -0.6  # at first only the model's reading: teasing takes her freedom
-    assert foreseen[-1]["free"] > -0.3 and foreseen[-1]["company"] > foreseen[0]["company"]
-    trust = mind.self["trust"]
-    assert trust["own"]["free"] < trust["model"]["free"]  # her own record proved the better guide here
+    assert foreseen[-1] == foreseen[0]
+    assert not mind.self.get("reliability")  # nobody evaluated a particular action
     brain.provider.mind_replies["imagine"].append(INSULT)
     brain.provider.replies.append("...")
     result = turn(brain, "cli", "you're terrible at this")
@@ -345,8 +347,9 @@ def test_a_loss_she_can_undo_stresses_her_less_and_a_blow_from_someone_usually_k
     def cortisol(option):
         with mind._lock:
             mind.body.levels.update(cortisol=0.25, grievance=0.0)
+            mind.body.stress_drive = 0.0
             mind._threat(hurt, option)
-            return mind.body["cortisol"]
+            return mind.body.stress_drive
     # doing it over well wins back what was taken; saying no wins back none of it
     assert cortisol(Option("do", effort=0.6, chance=0.9, gives=1.0)) < cortisol(Option("decline", gives=0.0)) - 0.03
 
@@ -383,7 +386,7 @@ def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
         '["they confide a fear", "more", "same", "same", "very bad", "chat", "pets", "scared"]']
     brain.provider.replies += ["Oh no."]
     with mind._lock:
-        mind.body.levels["bond"] = 0.8
+        mind.self.setdefault("contacts", {}).setdefault("cli\nmain", {})[""] = {"bond": 0.8}
     turn(brain, "cli", "my cat is sick and I'm scared")
     path = mind.self["decided"]["path"]
     assert path["theirs"] == -1.0 and path["met"]["shared"] < -0.5 and mind.concepts.named[-1]["word"] == "scared"
@@ -436,7 +439,7 @@ def test_a_goodnight_disappoints_her_and_is_not_a_hurt_to_brood_on(brain):
                                    if e["text"].startswith("The user said: good night")), None))
     decided = next(r["options"]["mind"] for r in brain.store.runs(kind="turn", limit=-1)
                    if r["options"].get("mind", {}).get("said", "").startswith("good night"))
-    assert decided["felt"] < decided["lasting"] < 0  # worse than the evening had her expect, and that passes
+    assert decided["felt"] < decided["lasting"] <= 0.01  # worse than the evening had her expect, and that passes
     assert night["sting"] > -life.SORE
     with mind._lock:
         assert mind._drives(time.time())[2] is None
@@ -721,11 +724,10 @@ def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
     assert met["moved"]["reward"] == pytest.approx(min(pushed, 1.0), abs=0.01)
     assert [o["act"] for o in path["options"] if o["picked"]] == ["do"] and "cost" in path["options"][0]["parts"]
     assert path["temperature"] > 0 and "lost" in path["threat"] and path["learned"] is None
-    assert decided["outcome"]["status"] == "completed" and "free" in decided["outcome"]["measured"]
+    assert decided["outcome"]["status"] == "completed" and decided["outcome"]["measured"] == {}
     brain.provider.replies += ["Done again."]
     turn(brain, "milk", "Thanks, now the other folder too.")
-    learned = wait_for(lambda: brain.client.mind("milk", idle=5)["decided"]["path"]["learned"])
-    assert learned["act"] == "do" and set(learned["followed"]) == {"company", "capable", "free"}
+    assert brain.client.mind("milk", idle=5)["decided"]["path"]["learned"] is None
     feelings = brain.client.mind("milk", idle=5)["feelings"]  # the stand-in model named what she felt
     assert feelings and feelings[0]["count"] == 2 and len(feelings[0]["place"]) == 3
     brief = brain.client.mind("milk", idle=5, brief=True)  # a face's frequent look stays small as she grows

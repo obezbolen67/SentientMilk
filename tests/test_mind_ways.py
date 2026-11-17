@@ -116,8 +116,8 @@ def test_sleep_tells_which_ways_she_kept_and_what_she_fell_into(brain):
     assert "use the staging server on 8080" in day and "memory_save x2" in day and "Saved. 🥛" in day
     assert "sign_off: when I answer the user, I end with a milk glass" in day
     shown = {w["name"]: (w["source"], w["strength"], w["then"]) for w in mind.state()["ways"]}
-    assert shown == {"sign_off": ("told", 0.625, "I end with a milk glass"), "read_back": ("habit", 0.3, "I read it back")}
+    assert shown == {"sign_off": ("told", 0.625, "I end with a milk glass")}
     brain.provider.mind_replies["ways"] = ["not json at all"]
     mind.self["slept"] = time.time() - 60
     mind._consolidate()  # a night whose answer says nothing changes nothing
-    assert {w["name"]: w["strength"] for w in mind.state()["ways"]} == {"sign_off": 0.625, "read_back": 0.3}
+    assert {w["name"]: w["strength"] for w in mind.state()["ways"]} == {"sign_off": 0.625}

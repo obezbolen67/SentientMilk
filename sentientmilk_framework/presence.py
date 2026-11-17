@@ -86,6 +86,18 @@ class Presence:
                 "idle": round(now - self.touched) if self.touched else None, "locked": self.locked, "busy": self.busy}
 
     def _count(self, now: float) -> None:
-        if self._counted is not None and 0 < now - self._counted < GAP:
-            self.clock += self.availability(self._counted) * (now - self._counted)
+        if self._counted is not None:
+            if now <= self._counted:
+                return
+            if not self.locked and now - self._counted < GAP:
+                # The last report expires and availability falls linearly with idle time.
+                end = min(now, max(self.reported + STALE, self.touched + STILL_THERE), self.touched + GONE)
+                start = self._counted
+                knee = self.touched + STILL_THERE
+                full = max(0.0, min(end, knee) - start)
+                start = max(start, knee)
+                fading = 0.0
+                if end > start:
+                    fading = (end - start) * (self.touched + GONE - (start + end) / 2) / (GONE - STILL_THERE)
+                self.clock += (full + fading) * (ABSORBED if self.busy else 1.0)
         self._counted = now

@@ -63,7 +63,7 @@ def test_she_recognizes_who_writes_and_keeps_the_moment_with_them(brain):
     old = mind.memory.add("exchange", "The user said: NO. I have assignments. I said: Then get up.", -0.3, 0.5, 0.5,
                           app="cli", session="main", at=time.time() - 60)
     assert mind._line(next(e for e in mind.memory.recent(5) if e["id"] == old), time.time()).endswith(
-        "Ilia said: NO. I have assignments. I said: Then get up.")
+        "The user said: NO. I have assignments. I said: Then get up.")
 
 
 def test_someone_she_does_not_know_is_a_stranger_and_another_face_takes_the_chat_again(brain):

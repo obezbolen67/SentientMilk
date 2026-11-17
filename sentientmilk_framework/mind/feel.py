@@ -109,7 +109,8 @@ class Interoception:
         self._rng = random.Random(seed)
 
     def follow(self, body: Body, dt: float) -> None:
-        dt = max(0.0, dt)
+        if dt <= 0:
+            return
         share, keep, adapts = 1.0 - math.exp(-dt / LAG), math.exp(-dt / self.DRIFT), 1.0 - math.exp(-dt / ADAPTS)
         blur = 0.06 / max(0.3, body.temperament.insight)
         for name, value in body.levels.items():

@@ -51,7 +51,14 @@ The options come only when the message asks them to do something that takes work
 real person in their place might take, each starting with one act: doing it, and what else they might
 really do (part of it, later, decline, talk it over first). Anything else gets no options: what they say
 is theirs to find. Say "they" for the one who writes. effort 0 nothing to 1 hours of hard work; chance it
-goes well 0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal."""
+goes well 0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal.
+When a concrete tool operation and its target are known, append a sixth item to the doing option,
+for example {"tool":"files_write","target":{"path":"draft.txt"}}. Its chance then predicts that operation
+on that target returning successfully. Leave it out when the target or operation is unknown.
+If the message explicitly evaluates the identified prior turn, append an object with fields "run" (its numeric ID),
+"quote" (the exact evaluative words in this message), "dimension" (capable, company, or free), and "verdict"
+(positive or negative). Omit it for ambiguous reactions, greetings, and unrelated news. For an explicit factual correction append an object
+with "replaces" (an exact quote of the earlier claim) and "quote" (the replacement in the new message)."""
 
 THINK = """[mind:think]
 You are someone's mind between conversations: nobody is talking to them. Below: who they are, how they
@@ -107,7 +114,7 @@ used in order, what they answered.
 
 Answer with JSON only:
 {"kept": ["name"], "broken": ["name"], "new": [{"name": "short_name", "when": "...", "then": "...",
-"from": "told|habit"}], "dropped": ["name"]}
+"from": "told|habit", "runs": [supporting run IDs]}], "dropped": ["name"]}
 
 kept and broken: their ways whose moment came today, and whether they did as the way says; a way whose moment
 did not come is in neither. new: a way of doing things they took on today and do not have yet: one the one they
@@ -120,7 +127,7 @@ SELF = """[mind:self]
 You are someone's mind while they sleep, going over what today showed about who they are. Below: what they knew
 about themselves, today's moments with how each felt, and their own thoughts today.
 
-Answer with JSON only: {"self": "..."} or {"self": null}
+Answer with JSON only: {"self": "...", "supports": [episode IDs], "against": [counterexample episode IDs]} or {"self": null}
 
 "self": what they know about themselves now, in the first person ("I ..."), at most four short sentences: how
 they tend to react, what gets to them, what they care about, what they are like with others. Keep what they
@@ -207,13 +214,16 @@ def imagined(text: str) -> dict:
         found = found[0]  # the whole answer wrapped in one more array (3 of 10 answers live)
     if not isinstance(found, list):
         return parse(text)
+    correction = next((v for v in found if isinstance(v, dict) and "replaces" in v), None)
+    feedback = next((v for v in found if isinstance(v, dict) and "verdict" in v), None)
+    found = [v for v in found if not isinstance(v, dict)]
     head, options = [], []  # read by shape, not place: live, an answer left out a part, or put one elsewhere
     for item in found:
         grouped = isinstance(item, list) and item and all(isinstance(each, list) for each in item)
         for each in (item if grouped else [item]):  # options one after another, or all in one array
             option = _option(each)
             if option:
-                options.append(dict(zip(("act", "what", "effort", "chance", "gives"), option)))
+                options.append(dict(zip(("act", "what", "effort", "chance", "gives", "check"), option)))
             elif not grouped:
                 head.append(each)
     needs = [index for index, value in enumerate(head) if _need(value) is not None][:3]
@@ -234,7 +244,7 @@ def imagined(text: str) -> dict:
     company, capable, free = (_need(head[index]) for index in needs)
     return {"appraisal": {"company": company, "capable": capable, "free": free, "intent": intent, "tags": tags,
                           "theirs": theirs or 0.0},
-            "happens": happens, "feeling": feeling, "options": options}
+            "happens": happens, "feeling": feeling, "options": options, "feedback": feedback, "correction": correction}
 
 
 def word(value, limit: int = 40) -> str:

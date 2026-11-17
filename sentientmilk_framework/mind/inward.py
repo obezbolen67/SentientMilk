@@ -21,7 +21,7 @@ AWARE = 0.5  # insight x clarity under this: she can tell only how it feels on t
 WENT = {  # what came of a thought she wanted to say, as she knows it
     "offered": "you meant to say it",
     "kept": "you kept it for when they write",
-    "waits": "you said it and are waiting for an answer",
+    "waits": "you held this back while another message was pending",
     "said": "you said it",
     "let go": "you let it go",
     "brought up": "you brought it up",

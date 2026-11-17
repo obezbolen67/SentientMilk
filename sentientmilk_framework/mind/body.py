@@ -10,7 +10,7 @@ Needs drift on their own while she is up (contact fades without the user, novelt
 sameness, adenosine builds while she is awake) and sleep has its own physiology.
 
 Levels are 0..1 except ``reward`` (-1..1): the burst of dopamine when something is better (+) or worse (-)
-than she expected. Its average over the last hour (``reward_rate``) feeds her tonic dopamine: vigor.
+than she expected. Observed gains feed a separate hour-scale reward rate and tonic vigor.
 
 Grounding: Doya 2002 (dopamine as prediction error, serotonin as time horizon, noradrenaline as the
 randomness of choice, acetylcholine as the learning rate); Keramati & Gutkin 2014 (reward as moving toward
@@ -49,7 +49,7 @@ CHEMICALS = {
     # an acute stress response is mostly over within the hour after what stressed her ends (Dickerson & Kemeny
     # 2004); what keeps her stressed longer is a cause that lasts (an unmet need, a hurt: its target). At 3 h one
     # stop and two corrections kept her unpleasant through two hours of warm chat (the user's brain, 2026-11-17)
-    "cortisol": Level(0.25, HOUR, 0.03),
+    "cortisol": Level(0.25, 45 * MINUTE, 0.03),
     "oxytocin": Level(0.4, 4 * HOUR, 0.03),
     "endorphin": Level(0.1, 15 * MINUTE, 0.02),
 }
@@ -152,6 +152,17 @@ def fatigue(levels: Dict[str, float]) -> float:
     return _clip(0.65 * max(0.0, levels["adenosine"] - 0.35) / 0.35 + 0.55 * (1 - levels["energy"]))
 
 
+def restore_random(generator: random.Random, saved) -> None:
+    """Restore Python's random state after its tuples have passed through JSON."""
+    if saved:
+        try:
+            version, words, spare = saved
+            if spare is None or isinstance(spare, (int, float)) and math.isfinite(spare):
+                generator.setstate((version, tuple(words), spare))
+        except (ValueError, TypeError, OverflowError):
+            pass  # keep the seeded generator when an optional checkpoint is damaged
+
+
 def circadian(hour: float, peak: float) -> float:
     """Her alertness rhythm: 1 at ``peak`` (hours), -1 twelve hours later."""
     return math.cos(2 * math.pi * (hour - peak) / 24.0)
@@ -186,6 +197,9 @@ class Body:
     # what pushed her levels, and why: [at, why, {level: how far it moved}], kept while some of it is left
     # (``pushed_now``). Without it a stress of 0.84 could not be told from its connections, which summed to -0.02
     pushed: List[list] = field(default_factory=list)
+
+    stress_drive: float = 0.0
+    nrem_seconds: float = 0.0
 
     def __post_init__(self):
         self._rng = random.Random(self.temperament.seed * 7919 + int(self.at))
@@ -287,6 +301,8 @@ class Body:
             dt = min(STEP, now - self.at)
             if alone and not self.asleep and not self.settling_until and self.readiness() >= 1.0:
                 self.settle()
+            if self.stage() in ("N2", "N3"):
+                self.nrem_seconds += dt
             self._step(dt, present)
             self.at += dt
             self._sleep_step(dt)
@@ -297,7 +313,7 @@ class Body:
         if self.settling_until and not self.asleep:
             if now >= self.settling_until:
                 self.asleep, self.slept_at, self.awakenings, self.settling_until = True, now, 0, 0.0
-                self.stirred_until = 0.0
+                self.stirred_until = self.nrem_seconds = 0.0
             return
         if not self.asleep:
             return
@@ -342,15 +358,15 @@ class Body:
             "dopamine": 0.5 * t.vigor + 0.45 * x["reward_rate"] - 0.35 * max(0.0, sleepy - 0.6)
             - 0.3 * max(0.0, x["cortisol"] - 0.35) - 0.25 * spent + 0.08 * c - (0.15 if sleep else 0.0)
             - 0.15 * groggy - 0.1 * owed,
-            "serotonin": 0.6 * t.patience + 0.25 * (x["oxytocin"] - 0.4) - 0.4 * max(0.0, x["cortisol"] - 0.3)
+            "serotonin": 0.6 * t.patience + 0.25 * (x["oxytocin"] - 0.4) - 0.46 * max(0.0, x["cortisol"] - 0.3)
             + 0.15 * (x["competence"] - 0.5) - 0.15 * d["social"] - 0.1 * x["grievance"] + (0.05 if sleep else 0.0)
             - 0.08 * owed,
             "noradrenaline": 0.35 + 0.12 * c + 0.35 * (x["cortisol"] - 0.25) * t.stress
             + 0.25 * d["novelty"] * x["energy"] * t.curiosity - 0.35 * max(0.0, sleepy - 0.35)
             - 0.25 * spent - (0.25 if sleep else 0.0) - 0.2 * groggy,
             "acetylcholine": 0.5 + 0.1 * c - 0.3 * max(0.0, sleepy - 0.35) - 0.3 * spent
-            + 0.2 * (x["noradrenaline"] - 0.35) - (0.2 if sleep else 0.0) - 0.35 * groggy - 0.2 * owed,
-            "cortisol": 0.25 + 0.08 * morning + t.stress * (
+            + 0.2 * (x["noradrenaline"] - 0.35) - (0.24 if sleep and self.stage() != "REM" else -0.08 if sleep else 0.0) - 0.35 * groggy - 0.2 * owed,
+            "cortisol": 0.25 + self.stress_drive + 0.08 * morning + t.stress * (
                 0.35 * d["social"] * x["bond"] * t.sociability + 0.3 * d["competence"] + 0.2 * d["autonomy"] * t.autonomy
                 + 0.3 * spent ** 2 + 0.3 * x["grievance"] * t.temper)
             - 0.3 * max(0.0, x["oxytocin"] - 0.4) - 0.15 * max(0.0, x["serotonin"] - 0.6) - (0.12 if sleep else 0.0)
@@ -408,7 +424,8 @@ class Body:
             if level.noise:
                 value += self._rng.gauss(0.0, level.noise * t.volatility * math.sqrt(dt / HOUR))
             x[name] = _clip(value, level.low, level.high)
-        x["reward_rate"] = _toward(x["reward_rate"], x["reward"], dt, HOUR)
+        x["reward_rate"] = _toward(x["reward_rate"], 0.0, dt, HOUR)
+        self.stress_drive = _toward(self.stress_drive, 0.0, dt, 8 * MINUTE)
         now_clock = clock(self.hour(), self.peak)
         if sleep and self.at >= self.stirred_until:
             x["adenosine"] = _toward(x["adenosine"], 0.0, dt, CLEARS)
@@ -445,7 +462,7 @@ class Body:
         t, moved = self.temperament, {}
         gains = {"oxytocin": t.warmth, "cortisol": t.stress, "noradrenaline": t.volatility, "endorphin": t.playfulness}
         for name, amount in pushes.items():
-            if not amount or name not in self.levels:
+            if not amount or not math.isfinite(amount) or name not in self.levels:
                 continue
             amount *= gains.get(name, 1.0)
             if name in SENSITIVE:
@@ -523,7 +540,7 @@ class Body:
         """Asleep at once (settle: drifting off first)."""
         if not self.asleep:
             self.asleep, self.slept_at, self.awakenings = True, self.at, 0
-            self.settling_until = self.stirred_until = 0.0
+            self.settling_until = self.stirred_until = self.nrem_seconds = 0.0
 
     def wake(self, woken: bool = False, stage: Optional[str] = None) -> None:
         """Awake, as groggy as the stage she wakes from, the pressure left and the hour make her (deep sleep
@@ -566,11 +583,16 @@ class Body:
                 "entrained": True, "sleep": {"model": 2, "slept_at": self.slept_at, "settling_until": self.settling_until,
                                              "stirred_until": self.stirred_until, "awakenings": self.awakenings,
                                              "last": self.last_sleep, "inertia": self.inertia, "debt": self.debt},
-                "pushed": self.pushed}
+                "pushed": self.pushed, "random": self._rng.getstate(), "stress_drive": self.stress_drive,
+                "nrem_seconds": self.nrem_seconds}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Body":
         levels = {**START, **{k: float(v) for k, v in (data.get("levels") or {}).items() if k in START}}
+        for name, value in levels.items():
+            level = CHEMICALS.get(name)
+            low, high = (level.low, level.high) if level else (0.0, 1.0)
+            levels[name] = _clip(value, low, high) if math.isfinite(value) else START[name]
         sensitivity = {**{name: 1.0 for name in SENSITIVE},
                        **{k: float(v) for k, v in (data.get("sensitivity") or {}).items() if k in SENSITIVE}}
         # a clock from before 0.24.1 was moved by every message, hours in a day: it starts over at the usual peak
@@ -579,8 +601,11 @@ class Body:
         if sleep.get("model") != 2 and "levels" in data:
             # pressure from before 0.27 ran 0 (slept out) to about 0.9 (a long day): the same span of process S
             levels["adenosine"] = _clip(0.12 + 0.6 * levels["adenosine"])
-        return cls(Temperament.from_dict(data.get("temperament") or {}), levels, sensitivity, asleep, peak, at,
+        body = cls(Temperament.from_dict(data.get("temperament") or {}), levels, sensitivity, asleep, peak, at,
                    float(sleep.get("slept_at") or (at if asleep else 0.0)), float(sleep.get("settling_until") or 0.0),
                    float(sleep.get("stirred_until") or 0.0), int(sleep.get("awakenings") or 0),
                    dict(sleep.get("last") or {}), float(sleep.get("inertia") or 0.0), float(sleep.get("debt") or 0.0),
-                   [[float(at), str(why), dict(moved)] for at, why, moved in data.get("pushed") or []])
+                   [[float(at), str(why), dict(moved)] for at, why, moved in data.get("pushed") or []],
+                   _clip(float(data.get("stress_drive") or 0)), max(0, float(data.get("nrem_seconds") or 0)))
+        restore_random(body._rng, data.get("random"))
+        return body

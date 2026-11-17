@@ -358,12 +358,14 @@ class Store:
 
     # ============== Events ==============
 
-    def add_event(self, app: str, session: str, run: Optional[int], type: str, data: dict) -> dict:
+    def add_event(self, app: str, session: str, run: Optional[int], type: str, data: dict, *, change_options=None) -> dict:
         """Committed before returning: a step is durable before the next one starts."""
         at = time.time()
         with self._db() as db:
             cursor = db.execute("INSERT INTO events(app, session, run, at, type, data) VALUES (?, ?, ?, ?, ?, ?)",
                                 (app, session, run, at, type, dump(data)))
+            if change_options:
+                self._change_options(db, run, change_options)
         return {"id": cursor.lastrowid, "app": app, "session": session, "run": run, "at": at, "type": type,
                 **data}
 
@@ -506,9 +508,13 @@ class Store:
         """Read-modify-write a run's options in one transaction: runs, steering, stops and agents change
         them from different threads, and writing back a copy read earlier lost the others' changes."""
         with self._db() as db:
-            row = db.execute("SELECT options FROM runs WHERE id = ?", (run,)).fetchone()
-            options = change(json.loads(row[0]) if row else {})
-            db.execute("UPDATE runs SET options = ?, updated = ? WHERE id = ?", (dump(options), time.time(), run))
+            return self._change_options(db, run, change)
+
+    @staticmethod
+    def _change_options(db, run, change):
+        row = db.execute("SELECT options FROM runs WHERE id = ?", (run,)).fetchone()
+        options = change(json.loads(row[0]) if row else {})
+        db.execute("UPDATE runs SET options = ?, updated = ? WHERE id = ?", (dump(options), time.time(), run))
         return options
 
     def update_run(self, run: int, **fields: Any) -> None:

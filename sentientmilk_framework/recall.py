@@ -91,6 +91,7 @@ class Recall:
                     session TEXT NOT NULL, at REAL NOT NULL, text TEXT NOT NULL, uses INTEGER NOT NULL,
                     gone REAL NOT NULL, weight REAL NOT NULL);
                 CREATE INDEX IF NOT EXISTS units_chat ON units (app, session, at);
+                CREATE TABLE IF NOT EXISTS sleep_prune (id INTEGER PRIMARY KEY CHECK (id = 1), through REAL NOT NULL);
                 DROP TRIGGER IF EXISTS unit_added;  -- its index by words, until 0.30
                 DROP TRIGGER IF EXISTS unit_gone;
                 DROP TABLE IF EXISTS units_terms;
@@ -181,13 +182,13 @@ class Recall:
 
     def forget_session(self, app: str, session: str) -> None:
         """The user deleted a chat: nothing of it comes back."""
-        with self._lock:
+        with self._sweeping, self._lock:
             for table in ("units", "forgotten", "marks"):
                 self._db.execute(f"DELETE FROM {table} WHERE app = ? AND session = ?", (app, session))
 
     def forget_from(self, app: str, session: str, event: int) -> None:
         """A return to a message undid everything from ``event`` on: its rounds go."""
-        with self._lock:
+        with self._sweeping, self._lock:
             for table in ("units", "forgotten"):
                 self._db.execute(f"DELETE FROM {table} WHERE source = 'turn' AND app = ? AND session = ? "
                                  "AND CAST(substr(ref, 1, instr(ref, '#') - 1) AS INTEGER) >= ?", (app, session, event))
@@ -198,7 +199,7 @@ class Recall:
 
     def search(self, query: str, count: int = SHOWN, sources: Tuple[str, ...] = SOURCES,
                held: Optional[Tuple[str, str, float]] = None, after: Optional[float] = None,
-               before: Optional[float] = None, app: Optional[str] = None) -> List[dict]:
+               before: Optional[float] = None, app: Optional[str] = None, strengthen: bool = True) -> List[dict]:
         """What is about ``query``, best first: dicts with the unit's ``source``, ``ref``, ``app``,
         ``session``, ``at``, ``text`` and ``relevance`` (by meaning, 0..1; only what is related). ``held``:
         (app, session, since), a chat whose units from then on she has before her (her context), left out. One
@@ -237,9 +238,13 @@ class Recall:
             found.append({**row, "relevance": round(relevance, 3)})
             if len(found) >= count:
                 break
-        with self._lock:  # what came back is stronger for it (``need``)
-            self._db.executemany("UPDATE units SET uses = uses + 1 WHERE id = ?", [(hit["id"],) for hit in found])
+        if strengthen:
+            self.attended(found)
         return found
+
+    def attended(self, hits):
+        with self._lock:
+            self._db.executemany("UPDATE units SET uses = uses + 1 WHERE id = ?", [(hit["id"],) for hit in hits])
 
     def note(self, run: dict, said: str) -> Optional[str]:
         """What comes back from past chats as she reads what the user wrote (None: nothing does, or not a
@@ -255,6 +260,9 @@ class Recall:
             return None
         if not hits:
             return None
+        return self.render(app, hits)
+
+    def render(self, app, hits):
         now, lines, titles = time.time(), [], {}
         for hit in hits:
             when = line({"at": hit["at"], "text": ""}, now).strip()[1:-1]
@@ -279,7 +287,7 @@ class Recall:
         embedder, now = self.refresh(), now or time.time()
         with self._lock:
             rows = [dict(row) for row in self._db.execute(
-                "SELECT id, source, ref, at, uses FROM units WHERE source IN ('turn', 'note')")]
+                "SELECT id, source, ref, at, uses FROM units WHERE source IN ('turn', 'note') AND at <= ?", (now,))]
         needs = {row["id"]: need(row["uses"], (now - row["at"]) / 86400.0) for row in rows}
         held = self.vectors.held(needs, embedder.name)
         weights: Dict[Tuple[str, str], float] = {}
@@ -288,18 +296,30 @@ class Recall:
             weights[key] = max(weights.get(key, 0.0), needs[row["id"]] * (1.0 - held.get(row["id"], 0.0)))
         return weights
 
-    def forget(self, now: Optional[float] = None) -> int:
+    def forget(self, now: Optional[float] = None, *, sleep_review: bool = False) -> int:
         """Rounds and notes she no longer needs go (``weighed`` under FORGET), kept as text in ``forgotten``
         and never taken in again; how many went."""
         now = now or time.time()
-        weak = [(source, ref, weight) for (source, ref), weight in self.weighed(now).items() if weight < FORGET]
         with self._lock:
-            for source, ref, weight in weak:
-                self._db.execute("INSERT INTO forgotten (source, ref, app, session, at, text, uses, gone, weight) "
-                                 "SELECT source, ref, app, session, at, text, uses, ?, ? FROM units "
-                                 "WHERE source = ? AND substr(ref, 1, ?) = ?",
-                                 (now, weight, source, len(ref) + 1, f"{ref}#"))
-                self._remove_refs(source, [ref])
+            self._db.execute("SAVEPOINT prune")
+            try:
+                if sleep_review:
+                    if self._db.execute("SELECT 1 FROM sleep_prune WHERE through >= ?", (now,)).fetchone():
+                        return 0
+                    self._db.execute("INSERT OR REPLACE INTO sleep_prune VALUES (1, ?)", (now,))
+                weak = [(source, ref, weight) for (source, ref), weight in self.weighed(now).items()
+                        if weight < FORGET]
+                for source, ref, weight in weak:
+                    self._db.execute("INSERT INTO forgotten (source, ref, app, session, at, text, uses, gone, weight) "
+                                     "SELECT source, ref, app, session, at, text, uses, ?, ? FROM units "
+                                     "WHERE source = ? AND substr(ref, 1, ?) = ?",
+                                     (now, weight, source, len(ref) + 1, f"{ref}#"))
+                    self._remove_refs(source, [ref])
+            except BaseException:
+                self._db.execute("ROLLBACK TO prune")
+                raise
+            finally:
+                self._db.execute("RELEASE prune")
         if weak:
             logger.info("Her long-term memory let go of %d rounds and notes she no longer needs", len(weak))
         return len(weak)
@@ -378,4 +398,7 @@ class Recall:
                 except Exception as exc:
                     logger.warning("Her long-term memory could not embed now: %s", exc)
                     return
-                vectors.put([(unit, row) for (unit, _), row in zip(found, rows)], embedder.name)
+                with vectors.lock:
+                    current = dict(vectors.texts([unit for unit, _ in found]))
+                    vectors.put([(unit, row) for (unit, text), row in zip(found, rows)
+                                 if current.get(unit) == text], embedder.name)

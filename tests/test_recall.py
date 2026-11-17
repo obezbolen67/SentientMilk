@@ -80,6 +80,7 @@ def test_long_and_cyrillic_text_is_kept_whole(brain):
     assert recall.search("они обсуждали платформер про котов", sources=("turn",))[0]["ref"] == "5#0"
 
 
+@pytest.mark.mind
 def test_what_comes_back_is_written_into_the_turn_and_stays_in_the_log(brain):
     filled(brain)
     use(brain, Meaning())
@@ -105,6 +106,7 @@ def test_her_chat_comes_back_from_before_its_compaction(brain):
     assert note and "pixel-art platformer" in note
 
 
+@pytest.mark.mind
 def test_with_the_service_down_nothing_comes_back_and_a_search_says_why(brain):
     filled(brain)
     use(brain, Meaning(problem="the embeddings service failed: 503"))
@@ -157,6 +159,7 @@ def test_a_return_to_a_message_forgets_what_it_undid(brain):
     assert recall.search("platformer game") and not recall.search("our pet passed away")
 
 
+@pytest.mark.mind
 def test_a_note_and_a_fact_kept_before_come_back_by_meaning_in_a_turn(brain):
     filled(brain)
     use(brain, Meaning())
@@ -187,8 +190,9 @@ def test_a_changed_model_embeds_everything_again(brain):
     recall.sweep()
     status = brain.client.stats()["recall"]
     assert status["state"] == "ready" and status["embedded"] == status["units"] > 0
-    brain.client.update_config(embeddings_model="other")
-    assert brain.client.stats()["recall"]["embedded"] == 0
+    with recall._sweeping:
+        brain.client.update_config(embeddings_model="other")
+        assert brain.client.stats()["recall"]["embedded"] == 0
     recall.sweep()
     status = brain.client.stats()["recall"]
     assert status["embedded"] == status["units"] and recall.vectors.count("stand-in:default@256") == 0
@@ -217,7 +221,8 @@ def test_in_her_sleep_what_she_no_longer_needs_lets_go_and_stays_gone(brain):
     assert recall._db.execute("SELECT uses FROM units WHERE ref = '3#0'").fetchone()[0] == 1
     # one of each alike pair goes (held by the other, or by the one she came back to); the rest stay: a memory
     # nothing else holds lasts decades unused
-    assert recall.forget(now) == 3
+    assert recall.forget(now, sleep_review=True) == 3
+    assert recall.forget(now, sleep_review=True) == 0
     assert {r[0] for r in recall._db.execute("SELECT ref FROM units WHERE source = 'turn'")} == {"2#0", "3#0", "4#0"}
     assert recall._db.execute("SELECT text FROM forgotten WHERE ref = '1#0'").fetchone()[0].startswith("they: hi")
     recall.sweep()  # a note she let go of is not taken in again
