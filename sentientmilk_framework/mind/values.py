@@ -11,6 +11,7 @@ import math
 from typing import Dict, Iterable, List, Tuple
 
 LIMIT = 1.0  # a learned feeling is at most this strong
+FAINT = 0.02  # weaker than this, sleep lets a weight go; as strong, it is a leaning she keeps
 
 
 def _clip(value: float) -> float:
@@ -55,7 +56,7 @@ class Values:
             self.uses[f] = self.uses.get(f, 0) + 1
         return error
 
-    def fade(self, share: float = 0.1, floor: float = 0.02) -> None:
+    def fade(self, share: float = 0.1, floor: float = FAINT) -> None:
         """In sleep: every weight fades a little toward nothing; the faintest go."""
         for f in list(self.weights):
             self.weights[f] *= 1.0 - share
@@ -69,15 +70,17 @@ class Values:
         return [subject for _, subject in met[:count]]
 
     def leanings(self, count: int = 5) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
-        """Her strongest likes and dislikes among what things are about (tags and acts with a tag). One moment
-        that moved her enough is a liking (before 0.24.1 two were needed, and "do you like it when I call you
-        dear?" - "I like it" left nothing in her brain)."""
-        about = [(f, w) for f, w in self.weights.items() if "tag:" in f]
-        likes = sorted((item for item in about if item[1] > 0.05), key=lambda item: -item[1])[:count]
-        dislikes = sorted((item for item in about if item[1] < -0.05), key=lambda item: item[1])[:count]
+        """Her strongest likes and dislikes: subjects (``tag:``) by what moments about them did to her, any she
+        keeps through sleep (FAINT). One moment that moved her is a liking (before 0.24.1 two were needed).
+        Before 0.29.1 a fixed 0.05 left nearly all out, as one moment moves a subject 0.01-0.05 (her rate over
+        the root of the subjects it had) and sleep fades it, and the strongest five were taken before a subject
+        and its acts were told apart: her brain held a dozen likes and showed one, "what to watch"."""
+        about = [(f, w) for f, w in self.weights.items() if f.startswith("tag:")]
+        likes = sorted((item for item in about if item[1] >= FAINT), key=lambda item: -item[1])[:count]
+        dislikes = sorted((item for item in about if item[1] <= -FAINT), key=lambda item: item[1])[:count]
         return likes, dislikes
 
-    def fond(self, found: List[str], floor: float = 0.05) -> Tuple[List[str], List[str]]:
+    def fond(self, found: List[str], floor: float = FAINT) -> Tuple[List[str], List[str]]:
         """Of these subjects, the ones she likes and the ones she dislikes (by their learned worth)."""
         return ([f[4:] for f in found if self.weights.get(f, 0.0) >= floor],
                 [f[4:] for f in found if self.weights.get(f, 0.0) <= -floor])

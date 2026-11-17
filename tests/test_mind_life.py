@@ -1,5 +1,5 @@
 """Her mind in the brain: a message is felt and leaned on, what she does is hers and is what she learns from,
-an outcome is remembered, thoughts become urges the app hears, sleep rewrites her story, and the switch turns
+an outcome is remembered, thoughts become urges the app hears, sleep goes over the day, and the switch turns
 it all off."""
 
 import json
@@ -9,6 +9,7 @@ import time
 import pytest
 from conftest import turn, wait_for
 
+from sentientmilk_framework.mind import life
 from sentientmilk_framework.testing import tool_call
 
 DECLINE = '[0.5, 0.5, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0]]'
@@ -385,18 +386,22 @@ def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):
     assert urge["session"] == "main" and mind.state()["thoughts"][0]["thought"].startswith("I keep thinking")
 
 
-def test_sleep_goes_over_the_day_and_rewrites_who_she_has_become(brain):
+def test_sleep_goes_over_the_day_and_writes_no_story_of_her(brain):
     mind = mind_on(brain)
+    mind.self["story"] = "You are someone who runs on crickets in a jar."  # a mind from before 0.30
+    mind.save()
+    again = life.Mind(brain.brain)  # loaded again, as the brain does at its start
+    assert "story" not in again.self and "story" not in again.state()
     episode = mind.memory.add("exchange", "The user thanked me for fixing their game", 0.8, 0.7, 0.8)
     brain.provider.mind_replies["sleep"] = [json.dumps({
-        "insights": ["Helping with their game makes me happy."], "dream": "A castle made of code.",
-        "story": "You are someone who loves fixing things with the user."})]
+        "insights": ["Helping with their game makes me happy."], "dream": "A castle made of code."})]
     mind._consolidate()
-    state = mind.state()
-    assert state["story"].startswith("You are someone who loves fixing")
+    asked = next(r for r in reversed(brain.provider.mind_requests)
+                 if r["messages"][0]["content"].startswith("[mind:sleep]"))
+    assert "story" not in asked["messages"][0]["content"] + asked["messages"][1]["content"]
     assert mind.memory.recent(1, kinds=("insight",))[0]["text"] == "Helping with their game makes me happy."
     assert next(e for e in mind.memory.recent(10) if e["id"] == episode)["charge"] < 1.0
-    assert "## WHO YOU HAVE BECOME\nYou are someone who loves fixing" in mind.section()
+    assert "crickets" not in mind.section() + mind._who("A persona.")
 
 
 def test_a_long_time_away_she_lived_by_her_body_and_goes_over_the_night_when_she_can(brain):

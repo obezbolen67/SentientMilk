@@ -22,7 +22,7 @@ MIND_ANSWERS = {
     "birth": '{"traits": {}}',
     "imagine": '["asked for a hand", "more", "more", "same", "request", "work", "fine", ["do", "it", 0.2, 0.9, 1]]',
     "think": '{"thought": "I wonder how the user is doing.", "feeling": "calm", "want": "nothing"}',
-    "sleep": '{"insights": [], "story": "", "dream": ""}',
+    "sleep": '{"insights": [], "dream": ""}',
 }
 
 

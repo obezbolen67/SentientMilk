@@ -68,7 +68,7 @@ def test_what_she_knows_comes_to_mind_as_she_wanders_and_in_her_sleep(brain):
     think = next(r for r in reversed(brain.provider.mind_requests) if r["messages"][0]["content"].startswith("[mind:think]"))
     assert "Something they know comes to mind: roblox watch: My app that finds" in think["messages"][1]["content"]
     mind.memory.add("exchange", "The user thanked me for the watcher", 0.6, 0.5, 0.6)
-    brain.provider.mind_replies["sleep"] = [json.dumps({"insights": [], "dream": "", "story": "You build things."})]
+    brain.provider.mind_replies["sleep"] = [json.dumps({"insights": [], "dream": ""})]
     mind._consolidate()
     sleep = next(r for r in reversed(brain.provider.mind_requests) if r["messages"][0]["content"].startswith("[mind:sleep]"))
     assert "What they know and keep (their lasting memory):" in sleep["messages"][1]["content"]

@@ -12,7 +12,7 @@ An exchange also keeps what followed the user's message (``follow``: what it did
 out). ``known`` tells how like her memories a new message is (how new it is to her) and what followed the
 messages most like it: her own record of what such messages bring.
 
-The mind keeps its own state here too (``state``): her body, values, story, concerns and named feelings.
+The mind keeps its own state here too (``state``): her body, values, concerns and named feelings.
 """
 
 import json
@@ -274,11 +274,15 @@ class Memory:
                                  "WHERE id = ?", (1.0 - share, episode_id))
 
     def forget_faint(self, now: float, older_days: float = 30.0) -> int:
-        """Old, faint, unimportant episodes go (insights and dreams she wrote down stay longer)."""
+        """Old, faint, unimportant episodes go (insights and dreams she wrote down stay longer): faint is its
+        strength now times what of it no stronger episode already holds (``Vectors.held``, by meaning), so of
+        two alike the weaker goes sooner (since 0.30; by strength alone before)."""
         with self._lock:
             rows = self._db.execute("SELECT * FROM episodes WHERE at < ? AND salience < 0.3 AND kind NOT IN "
                                     "('insight')", (now - older_days * 86400.0,)).fetchall()
-            gone = [row["id"] for row in rows if self.strength_now(dict(row), now) < 0.08]
+            strengths = {row["id"]: self.strength_now(dict(row), now) for row in rows}
+            held = self.vectors.held(strengths, self.embedder.name) if self.embedder is not None and rows else {}
+            gone = [episode for episode, strength in strengths.items() if strength * (1.0 - held.get(episode, 0.0)) < 0.08]
             for episode_id in gone:
                 self._db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
         return len(gone)

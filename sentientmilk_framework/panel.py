@@ -688,7 +688,7 @@ class Panel(App):
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("journal-card", "Journal"), ("toolkits-card", "Toolkits"),
                             ("mind-card", "Now"), ("mind-body-card", "Her body"),
-                            ("mind-thoughts-card", "Her thoughts"), ("mind-self-card", "Who she has become"),
+                            ("mind-thoughts-card", "Her thoughts"), ("mind-self-card", "What she has come to like"),
                             ("runtime-card", "Runtime and permissions"), ("browser-card", "Her browser"),
                             ("mcp-card", "MCP servers"),
                             ("plugins-card", "Plugins")):
@@ -1174,6 +1174,7 @@ class Panel(App):
                  else f"[{WARN}]{escape(state)}[/]") if state else ""
         if status:
             shown += (f"  [{MUTED}]{status['embedded']:,} of {status['units']:,} memories embedded"
+                      + (f" · {status['forgotten']:,} let go in her sleep" if status.get("forgotten") else "")
                       + (f" · ${status['spent']:.4f} spent since the brain started" if status.get("spent") else "")
                       + "[/]")
         if settings["embeddings"] == "api":
@@ -1236,8 +1237,7 @@ class Panel(App):
             return escape(", ".join(names)) or f"[{MUTED}]nothing yet[/]"
         put_off = "\n".join(f"- {escape(c['what'])} [{MUTED}]({when(c['at'])})[/]" for c in state["concerns"])
         self.main.query_one("#mind-self", Static).update(
-            (escape(state["story"]) or f"[{MUTED}]She hasn't slept yet: her story is written in her sleep.[/]")
-            + f"\n\n[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
+            f"[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
             + f"\n[{MUTED}]Feelings she named[/] "
             + (escape(", ".join(f["word"] for f in sorted(state["feelings"], key=lambda f: -f["count"]))) or "-")
             + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else ""))

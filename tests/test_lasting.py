@@ -86,7 +86,7 @@ def test_she_goes_over_what_changed_as_she_sleeps_and_remembers_doing_it(brain):
     brain.provider.tidy_answer = json.dumps({"changes": [{"keep": "user/job", "value": "He interprets, 160 h a month.",
                                                           "from": ["projects/job_hours"], "why": "his job"}]})
     mind.memory.add("exchange", "The user said: I work 160 h now.", 0.2, 0.3, 0.4)
-    brain.provider.mind_replies["sleep"] = ['{"insights": [], "dream": "", "story": "You keep things straight."}']
+    brain.provider.mind_replies["sleep"] = ['{"insights": [], "dream": ""}']
     mind._consolidate()
     asked = brain.provider.tidy_requests[-1]["messages"][1]["content"]
     assert "Go over all of it, first what changed since you last did: projects/job_hours." in asked

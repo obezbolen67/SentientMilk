@@ -46,13 +46,14 @@ starts from her last thought and two memories replayed at random (``Memory.repla
 pieces that never met, Schacter & Addis 2007). A thought may become something she wants to tell or ask the
 user (the app hears ``mind.urge`` and starts a turn), doing what she put off, or looking something up
 herself (a task). Being talked to keeps her up; sleep pressure and her clock put her to sleep.
-Asleep, she goes over the day once (``_consolidate``): insights, a dream, her story rewritten, the day's
-charge softened, faint memories forgotten.
+Asleep, she goes over the day once (``_consolidate``): insights, a dream, the day's charge softened, and
+what she no longer needs forgotten (faint episodes, and long-term memory she has not used that other memories
+hold: ``Recall.forget``). Until 0.30 she also wrote a story of who she had become; it went (see ``section``).
 
 What a moment is about takes on how it felt (``after``: in her body as the message came, and in what she
 showed as she answered): that is where her likes and dislikes come from, a chat as much as a job. And what
 she likes is used: a liked subject is a reward in itself (``_met``), her note says so, her wandering
-thoughts and her sleep know it.
+thoughts know it.
 """
 
 import json
@@ -182,11 +183,12 @@ class Mind:
         # of her usual time between messages; trust: each guide's running error (her own record starts unproven);
         # waiting: per chat, her last decision there, until the next message in that chat says what followed;
         # usual: what follows a message is usually worth (her values learn what goes better or worse than it)
-        self.self = {"story": "", "born": False, "expected": 0.1, "gap": None, "contact": None, "concerns": [],
+        self.self = {"born": False, "expected": 0.1, "gap": None, "contact": None, "concerns": [],
                      "waiting": {}, "usual": 0.0, "urge": None, "slept": 0.0, "consolidate": False, "fired": {},
                      "thoughts": [], "trust": {"model": dict.fromkeys(FORESEEN, 0.1), "own": dict.fromkeys(FORESEEN, 0.3)},
                      **(self.memory.get("self") or {})}
         self.self.pop("expected_warmth", None)  # a mind from before 0.21
+        self.self.pop("story", None)  # a mind from before 0.30 wrote a story of herself (see ``section``)
         pending, contact = self.self.pop("pending", None), self.self.get("contact")
         if pending and contact:  # a mind from before 0.21.2 kept one for all chats: it was the last contact's
             self.self["waiting"].setdefault(_chat(contact["app"], contact["session"]), pending)
@@ -431,8 +433,7 @@ class Mind:
         return self.brain.profile(app, session)["persona"]
 
     def _who(self, persona: str) -> str:
-        story = self.self["story"]
-        return f"Who they are:\n{persona[:6000]}" + (f"\n\nWho they have become:\n{story}" if story else "")
+        return f"Who they are:\n{persona[:6000]}"
 
     def _birth(self, persona: str) -> None:
         """Her temperament, read from who she is meant to be, once; her seed keeps her her own."""
@@ -1083,26 +1084,21 @@ class Mind:
             self.brain.runs.start_task(app, session, goal, quiet=quiet)
 
     def _consolidate(self) -> None:
-        """Sleep goes over the day: insights, a dream, her story rewritten; the day's charge softens and faint
-        memories go."""
+        """Sleep goes over the day: insights and a dream; the day's charge softens, faint memories go, and her
+        long-term memory lets go of what she has not used that other memories hold (``Recall.forget``)."""
         with self._lock:
             now = time.time()
             moments = self.memory.since(self.self.get("slept") or 0.0, kinds=("exchange", "thought", "event"), count=12)
             contact = self.self.get("contact")
-            likes, dislikes = self.values.leanings()
         if moments:
             persona = self._persona(contact["app"], contact["session"]) if contact else ""
             listed = "\n".join(f"{index + 1}. {line(m, now)} (it felt {_tone(m['valence'])})"
                                for index, m in enumerate(moments))
-            liked, disliked = ", ".join(_about(likes)) or "nothing yet", ", ".join(_about(dislikes)) or "nothing yet"
-            from ..context import render_memory  # what she knows and keeps: her story is of all of her life
+            from ..context import render_memory  # what she knows and keeps: the day is gone over with it
             kept = render_memory(self.brain.store.memory_entries(), contact["app"] if contact else "")
             asked = (f"Who they are:\n{persona[:6000]}\n\n"
                      + (f"What they know and keep (their lasting memory):\n{kept}\n\n" if kept else "")
-                     + "The story they tell about themselves:\n"
-                     f"{self.self['story'] or '(none yet: they are new to this life)'}\n\n"
-                     f"What they've come to like: {liked}. What they've come to dislike: {disliked}.\n\n"
-                     f"The moments:\n{listed}")
+                     + f"The moments:\n{listed}")
             answer, _ = self._ask(prompts.SLEEP, asked)
         else:
             answer = {}
@@ -1116,9 +1112,6 @@ class Mind:
             dream = " ".join(str(answer.get("dream") or "").split())[:800]
             if dream:
                 self.memory.add("dream", dream, felt.valence, 0.5, 0.35, at=now)
-            story = " ".join(str(answer.get("story") or "").split())[:2400]
-            if story:
-                self.self["story"] = story
             self.memory.soften([m["id"] for m in moments])
             self.values.fade(0.05)
             self.memory.forget_faint(now)
@@ -1128,6 +1121,12 @@ class Mind:
             self.tidy()
         except Exception:
             logger.exception("Could not go over her lasting memory")
+        try:  # and her long-term memory lets go of what she no longer needs
+            recall = getattr(self.brain, "recall", None)
+            if recall is not None:
+                recall.forget()
+        except Exception:
+            logger.exception("Could not go over her long-term memory")
 
     def tidy(self, since: Optional[float] = None) -> Optional[list]:
         """She goes over her lasting memory (lasting.tidy): what changed since she last did (``since``: from
@@ -1239,17 +1238,17 @@ class Mind:
         return f"{entry['key'].replace('_', ' ')}: {gist}"
 
     def section(self) -> str:
-        """Her inner life in the system prompt (empty when the mind is off)."""
-        if not self.active():
-            return ""
-        with self._lock:
-            story = self.self["story"]
-        return prompts.INNER_LIFE + (f"\n\n## WHO YOU HAVE BECOME\n{story}" if story else "")
+        """Her inner life in the system prompt (empty when the mind is off). Her story is not in it: measured
+        live (2026-11-17, 12 messages, a blind judge on her persona), with it 7 replies brought in its details
+        (a jar of crickets, a watcher's pid) and none without, the judge took the reply without it 7 to 5, and
+        it cost 245 tokens a request. So it went altogether (0.30): her persona is who she is, what she
+        learned is in her likes, her memories and what she keeps."""
+        return prompts.INNER_LIFE if self.active() else ""
 
     def state(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False,
               locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
         """How she is now: her face for ``app`` (from its declared expressions), what she feels, her levels,
-        thoughts, concerns and story; for drawing her brain, every feeling she has named (``feelings``), her
+        thoughts, concerns, likes and dislikes; for drawing her brain, every feeling she has named (``feelings``), her
         body's channels as she senses them (``sensed``: how far from usual, in units of a lot), what wants her
         attention (``attention``), her last decision (``decided``) and the connections her dynamics make
         now (``wiring``: [level, what it drives, weight]). ``idle``: seconds since the user last touched
@@ -1323,6 +1322,6 @@ class Mind:
                           for guide, errors in self.self["trust"].items()},
                 "fatigue": round(body.fatigue(), 3), "temperament": body.temperament.to_dict(),
                 "thoughts": list(self.self["thoughts"]), "concerns": list(self.self["concerns"]),
-                "story": self.self["story"], "likes": _about(likes), "dislikes": _about(dislikes),
+                "likes": _about(likes), "dislikes": _about(dislikes),
                 "memories": self.memory.count(),
             }

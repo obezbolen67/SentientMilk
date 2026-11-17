@@ -150,3 +150,14 @@ def test_without_its_service_she_recalls_by_words_as_before(tmp_path):
     mind.add("exchange", "The user showed me their RimWorld colony", 0.3, 0.6, 0.6, at=NOW - DAY)
     mind.embedder = Meaning(problem="the embeddings service failed: 503")
     assert "RimWorld" in mind.recall("how is the rimworld colony doing?", 0.0, NOW)[0]["text"]
+
+
+def test_of_two_alike_faint_memories_the_one_the_other_holds_goes(tmp_path):
+    from conftest import Meaning
+    mind = memory(tmp_path)
+    for text in ("we said hello and hi", "we said hi and hello", "the tax deadline in April"):
+        mind.add("exchange", text, 0.1, 0.1, 0.2, at=NOW - 40 * DAY)
+    assert mind.forget_faint(NOW) == 0  # by strength alone all of them stay this long
+    embedded(mind, Meaning())
+    assert mind.forget_faint(NOW) == 1
+    assert sorted(e["text"] for e in mind.recent(5)) == ["the tax deadline in April", "we said hi and hello"]

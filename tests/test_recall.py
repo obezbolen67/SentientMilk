@@ -177,3 +177,34 @@ def test_her_journal_finds_a_note_in_other_words_also_one_it_let_go(brain):
     ctx = SimpleNamespace(brain=brain.brain, store=brain.store, app="milk", session="main", run={"kind": "turn"},
                           profile={}, call_id="c")
     assert "sketched levels for the platformer" in journal_kit.journal_search.func(ctx, "game")
+
+
+def test_in_her_sleep_what_she_no_longer_needs_lets_go_and_stays_gone(brain):
+    recall, now, long_ago = brain.brain.recall, time.time(), time.time() - 400 * 86400
+    use(brain, Meaning())
+    recall._db.execute("INSERT OR REPLACE INTO done (what, at) VALUES ('forget', ?)", (now,))  # done today
+    recall.add("turn", "1", "milk", "a", long_ago, "they: hi hello\nyou: hey")
+    recall.add("turn", "2", "milk", "b", long_ago, "they: hello hi\nyou: hey")  # the same said again
+    recall.add("turn", "3", "milk", "c", long_ago, "they: my cat died\nyou: I am sorry about your pet")
+    recall.add("turn", "4", "milk", "d", long_ago, "they: the tax deadline\nyou: april")
+    recall.add("turn", "5", "milk", "e", long_ago, "they: the tax deadline\nyou: april")
+    brain.client.update_session("milk", "main", title="Today")
+    for _ in range(2):
+        brain.store.add_note("milk", "main", "We sketched levels for the platformer.", at=long_ago)
+    recall.sweep()
+    recall._db.execute("UPDATE units SET uses = 3 WHERE ref = '4#0'")  # she came back to it
+    assert recall.search("my cat died")[0]["ref"] == "3#0"  # and to this one: what comes back is stronger
+    assert recall._db.execute("SELECT uses FROM units WHERE ref = '3#0'").fetchone()[0] == 1
+    # one of each alike pair goes (held by the other, or by the one she came back to); the rest stay: a memory
+    # nothing else holds lasts decades unused
+    assert recall.forget(now) == 3
+    assert {r[0] for r in recall._db.execute("SELECT ref FROM units WHERE source = 'turn'")} == {"2#0", "3#0", "4#0"}
+    assert recall._db.execute("SELECT text FROM forgotten WHERE ref = '1#0'").fetchone()[0].startswith("they: hi")
+    recall.sweep()  # a note she let go of is not taken in again
+    assert recall._db.execute("SELECT COUNT(*) FROM units WHERE source = 'note'").fetchone()[0] == 1
+    assert brain.client.stats()["recall"]["forgotten"] == 3
+    recall.forget_session("milk", "a")  # a deleted chat leaves nothing, not even what she let go of
+    assert brain.client.stats()["recall"]["forgotten"] == 2
+    recall._db.execute("UPDATE done SET at = ?", (now - 2 * 86400,))  # with her mind off: once a day
+    recall.sweep()
+    assert recall._db.execute("SELECT at FROM done WHERE what = 'forget'").fetchone()[0] >= now

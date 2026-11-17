@@ -150,7 +150,7 @@ class BrainClient:
              locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
         """How she is now (mind/): ``on``, ``asleep``, ``felt`` (in words), ``feeling`` (a few words for it),
         ``face`` for ``app`` (``mood`` of its declared ones, ``stance``, ``eyes``, ``asleep``; None when her mind
-        is off), ``levels``, ``feelings``, ``thoughts``, ``concerns``, ``story``. ``idle``: seconds since the
+        is off), ``levels``, ``feelings``, ``thoughts``, ``concerns``, ``likes``, ``dislikes``. ``idle``: seconds since the
         user last touched the computer (whether they are there, for her); asking also tells her ``app`` is there
         to hear her. ``brief``: only what a face needs, for frequent looks. ``locked``: the screen is locked;
         ``busy``: something fullscreen has the user (None: the app cannot tell)."""

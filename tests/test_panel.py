@@ -273,7 +273,7 @@ def test_her_mind_shows_in_its_tab_and_is_switched_there(brain):
                     or "Nothing stands out" in str(panel.query_one("#mind-now").render()))
         assert "energy" in str(panel.query_one("#mind-body").render())
         assert "Clouds are odd." in str(panel.query_one("#mind-thoughts").render())
-        assert "story is written in her sleep" in str(panel.query_one("#mind-self").render())
+        assert "Likes" in str(panel.query_one("#mind-self").render())
         panel.query_one("#mind-on", Switch).value = False
         await until(pilot, lambda: not brain.client.config()["mind"])
         await until(pilot, lambda: "Her mind is off." in str(panel.query_one("#mind-now").render()))

@@ -19,6 +19,13 @@ message take their units out at once.
 
 Each turn the user writes, what comes back (``note``) goes into that turn's input beside her inner note
 (runs.py), so the log stays as it was sent: the prompt cache, replay and a return to a message see the same.
+
+In her sleep (or once a day with her mind off) what she no longer needs lets go (``forget``), as a person's
+memory does: what she may need a memory for (``need``: each time it came back makes it stronger, time makes
+it weaker, by a power law) times what of it no memory she needs more already holds (``Vectors.held``: the
+same meaning kept elsewhere, a lasting fact included). Only the weakest go: a memory nothing else holds lasts
+decades unused, one held nine tenths elsewhere about a hundred days. What goes is kept as text, without its
+vector, in ``forgotten``.
 """
 
 import logging
@@ -53,6 +60,15 @@ HEADER = "FROM YOUR LONG-TERM MEMORY (past chats that come back for this message
 WORDS = re.compile(r"[^\W_]{3,}", re.UNICODE)
 SETTINGS = ("embeddings", "embeddings_base_url", "embeddings_api_key", "embeddings_model", "embeddings_dimensions",
             "base_url", "api_key")
+DECAY = 0.5  # how need falls with time: a power law (Anderson & Schooler 1991; ACT-R's base-level learning)
+FORGET = 0.02  # what she may need it for, times what of it nothing else holds: under this a memory goes
+DAILY = 86400.0  # with her mind off she does not sleep: what she no longer needs goes once a day
+
+
+def need(uses: int, days: float) -> float:
+    """How likely she is to need a memory, as human memory weighs it: (1 + uses) / ((1 - d) L^d), L its age
+    in days plus one, d = DECAY (ACT-R's base-level learning, Anderson & Lebiere 1998). Just made: 2."""
+    return (1 + uses) / ((1.0 - DECAY) * (1.0 + max(0.0, days)) ** DECAY)
 
 
 def chunks(text: str) -> List[str]:
@@ -82,7 +98,13 @@ class Recall:
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS units (
                     id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL, app TEXT NOT NULL,
-                    session TEXT NOT NULL, at REAL NOT NULL, text TEXT NOT NULL, UNIQUE (source, ref));
+                    session TEXT NOT NULL, at REAL NOT NULL, text TEXT NOT NULL, uses INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE (source, ref));
+                CREATE TABLE IF NOT EXISTS forgotten (
+                    id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL, app TEXT NOT NULL,
+                    session TEXT NOT NULL, at REAL NOT NULL, text TEXT NOT NULL, uses INTEGER NOT NULL,
+                    gone REAL NOT NULL, weight REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS done (what TEXT PRIMARY KEY, at REAL NOT NULL);
                 CREATE INDEX IF NOT EXISTS units_chat ON units (app, session, at);
                 CREATE VIRTUAL TABLE IF NOT EXISTS units_fts USING fts5(text, content='units', content_rowid='id');
                 CREATE VIRTUAL TABLE IF NOT EXISTS units_terms USING fts5vocab(units_fts, 'row');
@@ -93,6 +115,8 @@ class Recall:
                 CREATE TABLE IF NOT EXISTS marks (app TEXT NOT NULL, session TEXT NOT NULL,
                                                   last_event INTEGER NOT NULL, PRIMARY KEY (app, session));
             """)
+            if "uses" not in {row[1] for row in self._db.execute("PRAGMA table_info(units)")}:  # made by 0.29
+                self._db.execute("ALTER TABLE units ADD COLUMN uses INTEGER NOT NULL DEFAULT 0")
         self.vectors = Vectors(self._db, "units", self._lock)
         self.embedder: Optional[embeddings.Embedder] = None
         self._settings: Optional[tuple] = None
@@ -141,10 +165,11 @@ class Recall:
         embedder = self.refresh()
         with self._lock:
             units = self._db.execute("SELECT COUNT(*) FROM units").fetchone()[0]
+            forgotten = self._db.execute("SELECT COUNT(*) FROM forgotten WHERE ref LIKE '%#0'").fetchone()[0]
         embedded = self.vectors.count(embedder.name) if embedder else 0
         state = "off" if embedder is None else embedder.problem() or ("ready" if embedded >= units else "taking in")
         return {"embeddings": self.brain.config.values()["embeddings"], "model": getattr(embedder, "model", None),
-                "state": state, "units": units, "embedded": embedded,
+                "state": state, "units": units, "embedded": embedded, "forgotten": forgotten,
                 "spent": round(getattr(embedder, "spent", 0.0), 4)}
 
     # ============== Units ==============
@@ -175,14 +200,15 @@ class Recall:
     def forget_session(self, app: str, session: str) -> None:
         """The user deleted a chat: nothing of it comes back."""
         with self._lock:
-            self._db.execute("DELETE FROM units WHERE app = ? AND session = ?", (app, session))
-            self._db.execute("DELETE FROM marks WHERE app = ? AND session = ?", (app, session))
+            for table in ("units", "forgotten", "marks"):
+                self._db.execute(f"DELETE FROM {table} WHERE app = ? AND session = ?", (app, session))
 
     def forget_from(self, app: str, session: str, event: int) -> None:
         """A return to a message undid everything from ``event`` on: its rounds go."""
         with self._lock:
-            self._db.execute("DELETE FROM units WHERE source = 'turn' AND app = ? AND session = ? "
-                             "AND CAST(substr(ref, 1, instr(ref, '#') - 1) AS INTEGER) >= ?", (app, session, event))
+            for table in ("units", "forgotten"):
+                self._db.execute(f"DELETE FROM {table} WHERE source = 'turn' AND app = ? AND session = ? "
+                                 "AND CAST(substr(ref, 1, instr(ref, '#') - 1) AS INTEGER) >= ?", (app, session, event))
             self._db.execute("UPDATE marks SET last_event = MIN(last_event, ?) WHERE app = ? AND session = ?",
                              (event - 1, app, session))
 
@@ -254,6 +280,8 @@ class Recall:
                           "lexical": round(matched.get(unit, 0.0), 3), "score": fused[unit]})
             if len(found) >= count:
                 break
+        with self._lock:  # what came back is stronger for it (``need``)
+            self._db.executemany("UPDATE units SET uses = uses + 1 WHERE id = ?", [(hit["id"],) for hit in found])
         return found
 
     def note(self, run: dict, said: str) -> Optional[str]:
@@ -277,10 +305,46 @@ class Recall:
             lines.append(f"- {when}, in {where}: {hit['text'][:SHOWN_CHARS]}")
         return HEADER + "\n" + "\n".join(lines)
 
+    # ============== Letting go ==============
+
+    def weighed(self, now: Optional[float] = None) -> Dict[Tuple[str, str], float]:
+        """Each round and note, as (source, ref) -> what she may need it for times what of it no memory she
+        needs more already holds (its strongest piece). Lasting facts are not weighed: she tidies them herself,
+        and they hold what is near them."""
+        embedder, now = self.refresh(), now or time.time()
+        with self._lock:
+            rows = [dict(row) for row in self._db.execute(
+                "SELECT id, source, ref, at, uses FROM units WHERE source IN ('turn', 'note')")]
+        needs = {row["id"]: need(row["uses"], (now - row["at"]) / 86400.0) for row in rows}
+        held = self.vectors.held(needs, embedder.name) if embedder is not None else {}
+        weights: Dict[Tuple[str, str], float] = {}
+        for row in rows:
+            key = (row["source"], _base(row["ref"]))
+            weights[key] = max(weights.get(key, 0.0), needs[row["id"]] * (1.0 - held.get(row["id"], 0.0)))
+        return weights
+
+    def forget(self, now: Optional[float] = None) -> int:
+        """Rounds and notes she no longer needs go (``weighed`` under FORGET), kept as text in ``forgotten``
+        and never taken in again; how many went."""
+        now = now or time.time()
+        weak = [(source, ref, weight) for (source, ref), weight in self.weighed(now).items() if weight < FORGET]
+        with self._lock:
+            for source, ref, weight in weak:
+                self._db.execute("INSERT INTO forgotten (source, ref, app, session, at, text, uses, gone, weight) "
+                                 "SELECT source, ref, app, session, at, text, uses, ?, ? FROM units "
+                                 "WHERE source = ? AND substr(ref, 1, ?) = ?",
+                                 (now, weight, source, len(ref) + 1, f"{ref}#"))
+                self._remove_refs(source, [ref])
+            self._db.execute("INSERT OR REPLACE INTO done (what, at) VALUES ('forget', ?)", (now,))
+        if weak:
+            logger.info("Her long-term memory let go of %d rounds and notes she no longer needs", len(weak))
+        return len(weak)
+
     # ============== Taking in ==============
 
     def sweep(self) -> None:
-        """Take in what is new (rounds, notes, facts) and embed what has no vector of the current model."""
+        """Take in what is new (rounds, notes, facts) and embed what has no vector of the current model; with
+        her mind off, let go of what she no longer needs once a day (her sleep does it otherwise)."""
         with self._sweeping:
             embedder = self.refresh()
             self._take_in_chats()
@@ -288,6 +352,12 @@ class Recall:
             self._take_in_facts()
             if embedder is not None and embedder.problem() != "no embeddings API key":
                 self._embed(embedder)
+            mind = getattr(self.brain, "mind", None)
+            if not (mind is not None and mind.active()):
+                with self._lock:
+                    last = self._db.execute("SELECT at FROM done WHERE what = 'forget'").fetchone()
+                if time.time() - (last[0] if last else 0.0) >= DAILY:
+                    self.forget()
 
     def _take_in_chats(self) -> None:
         store = self.brain.store
@@ -314,8 +384,9 @@ class Recall:
     def _take_in_notes(self) -> None:
         """Journal notes, kept here after the journal lets them go (the newest 20 are in her prompt)."""
         store = self.brain.store
-        with self._lock:
-            have = {_base(row[0]) for row in self._db.execute("SELECT ref FROM units WHERE source = 'note'")}
+        with self._lock:  # one she let go of is not taken in again
+            have = {_base(row[0]) for row in self._db.execute(
+                "SELECT ref FROM units WHERE source = 'note' UNION SELECT ref FROM forgotten WHERE source = 'note'")}
         for note in store.notes(limit=-1):
             if str(note["id"]) not in have and store.find_session(note["app"], note["session"]) is not None:
                 self.add("note", str(note["id"]), note["app"], note["session"], note["at"], note["note"])

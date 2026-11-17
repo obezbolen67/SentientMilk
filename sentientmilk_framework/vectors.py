@@ -10,6 +10,12 @@ among them (CALIBRATION), and a cosine maps to 0..1 above it; measured again whe
 Measured on her history (spec, "Measured"): with it, every model brought the right chat back and nothing for
 unrelated questions; a floor from random pairs of her own vectors (before) sat above many right hits, as a
 query lands lower than a document of the same thing (models embed the two apart).
+
+Two rows are compared with each other (``held``: how much of a memory's meaning another already holds, for
+forgetting in her sleep) against how near her memories' nearest ones usually are (``usual``), not against a
+query. Measured on her history (2026-11-17): against what two random ones share (95th percentile) a memory
+about the same subject counted half held, and 30 of her 132 episodes would have gone a month on instead of
+none; against the usual nearest only what is more alike than that counts (13, small talk said twice).
 """
 
 import sqlite3
@@ -34,6 +40,7 @@ class Vectors:
         self.db, self.table, self.lock = db, table, lock
         self._matrices: Dict[str, Tuple[tuple, np.ndarray, np.ndarray]] = {}  # model -> (version, ids, rows)
         self._floors: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, floor)
+        self._usuals: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, usual nearest)
         with lock:
             db.executescript(f"""
                 CREATE TABLE IF NOT EXISTS {table}_vectors (id INTEGER PRIMARY KEY, model TEXT NOT NULL,
@@ -120,3 +127,45 @@ class Vectors:
         """How related, 0..1: 0 at or under what an unrelated question reaches."""
         floor = self.floor(embedder)
         return max(0.0, min(1.0, (cosine - floor) / (1.0 - floor)))
+
+    def usual(self, model: str) -> float:
+        """How near these rows' nearest ones usually are: the median of each row's cosine to its nearest
+        (at most 0.95; measured again when their number has doubled)."""
+        ids, rows = self._matrix(model)
+        measured = self._usuals.get(model)
+        if measured and len(ids) < 2 * measured[0]:
+            return measured[1]
+        nearest = []
+        for start in range(0, len(ids), 512):  # a block at a time: 512 x all of them
+            cosines = rows[start:start + 512] @ rows.T
+            cosines[np.arange(len(cosines)), np.arange(start, start + len(cosines))] = -np.inf
+            nearest.extend(cosines.max(axis=1))
+        value = float(min(0.95, np.median(nearest))) if len(ids) > 1 else 0.95
+        self._usuals[model] = (len(ids), value)
+        return value
+
+    def held(self, need: Dict[int, float], model: str) -> Dict[int, float]:
+        """For each row in ``need`` (id -> how much she may need it): how much of its meaning a row she needs
+        more already holds, 0..1 (the nearest such row's cosine, above ``usual``); a row not in ``need`` is
+        kept whatever happens and holds what is near it. A row without a vector of ``model`` holds nothing
+        and is held by nothing (0)."""
+        ids, rows = self._matrix(model)
+        held = dict.fromkeys(need, 0.0)
+        position = {int(row_id): n for n, row_id in enumerate(ids)}
+        mine = [row_id for row_id in need if row_id in position]
+        if len(ids) < 2 or not mine:
+            return held
+        floor = self.usual(model)
+        needs = np.array([need.get(int(row_id), np.inf) for row_id in ids])
+        for start in range(0, len(mine), 512):  # a block at a time: 512 x all of them
+            block = mine[start:start + 512]
+            index = np.array([position[row_id] for row_id in block])
+            cosines = rows[index] @ rows.T
+            own = needs[index][:, None]
+            # who may hold it: one needed more, or as much and newer (so of two alike, one stays)
+            more = (needs[None, :] > own) | ((needs[None, :] == own) & (ids[None, :] > ids[index][:, None]))
+            best = np.where(more, cosines, -np.inf).max(axis=1)
+            for row_id, cosine in zip(block, best):
+                if np.isfinite(cosine):
+                    held[row_id] = float(max(0.0, min(1.0, (cosine - floor) / (1.0 - floor))))
+        return held

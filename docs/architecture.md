@@ -1396,9 +1396,10 @@ message she is groggy (`inertia`, by stage: most from deep sleep, fading over ab
 the deep of her night with sleep left to get is owed (`debt`), paid back by sleep outside it; it lowers her
 thresholds a little and takes from her focus. With the brain off (a gap over 10 min) she lives alone by the
 same rules: she slept if she was ready, and woke if she was slept out. A sleep of a cycle or more is gone over
-once a night (insights, a dream, her story rewritten: **WHO YOU HAVE BECOME** in the system prompt, after
-**YOUR INNER LIFE**; sleep is shown her lasting memory whole, so the story is of all her life, not of one
-day's moments). On a fake clock: bedtime 22:05-22:35, 7.7-8.7 h with brief awakenings. A body saved before
+once a night (insights and a dream, with her lasting memory whole; then her long-term memory lets go of
+what she no longer needs, §10.7). Until 0.30 sleep also wrote a story of who she had become, at the end of
+every system prompt: it brought its own details into 7 of 12 live replies (none without), a blind judge took
+the reply without it 7 to 5, and it cost 245 tokens a request, so it went, from her mind's own calls too. On a fake clock: bedtime 22:05-22:35, 7.7-8.7 h with brief awakenings. A body saved before
 0.27 keeps its pressure on the new scale (0.12 + 0.6 x the old). Her clock (`Body.peak`, 16:00 at first) moves toward two hours after the hours the
 user writes, by the time they were around (the gap since their last message, at most 30 minutes) over
 three days of it (`ENTRAINS`): a user around 8 h a day moves it in about nine days. Before 0.24.1 every

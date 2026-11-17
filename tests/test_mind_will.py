@@ -115,6 +115,17 @@ def test_options_the_imagining_part_wrote_are_read_safely():
     assert (seen.company, seen.capable, seen.intent, seen.tags) == (-1.0, 0.0, "chat", ["a", "b"])
 
 
+def test_her_likes_are_the_subjects_she_keeps_each_once():
+    values = Values()  # one moment that moved her, at a calm rate, about two things: both are likings
+    values.learn(["tag:what to watch", "tag:sleep"], 0.5, rate=0.1)
+    assert {f for f, _ in values.leanings()[0]} == {"tag:sleep", "tag:what to watch"}
+    values = Values({"tag:a": 0.03, "act:do|tag:a": 0.09, "tag:b": 0.025, "tag:c": 0.01, "tag:d": -0.03,
+                     "act:talk": 0.5})
+    likes, dislikes = values.leanings()
+    assert likes == [("tag:a", 0.03), ("tag:b", 0.025)] and dislikes == [("tag:d", -0.03)]
+    assert values.fond(["tag:a", "tag:c", "tag:d"]) == (["a"], ["d"])
+
+
 def test_her_values_fade_in_sleep_unless_they_are_strong():
     values = Values({"tag:a": 0.5, "tag:b": 0.021})
     values.fade(share=0.1)
