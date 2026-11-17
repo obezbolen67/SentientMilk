@@ -201,6 +201,9 @@ class _Handler(BaseHTTPRequestHandler):
             idle = float(query["idle"]) if query.get("idle") not in (None, "") else None
             locked, busy = ({"1": True, "0": False}.get(query.get(key) or "") for key in ("locked", "busy"))
             self._send(200, brain.mind.state(app, idle, brief=query.get("brief") == "1", locked=locked, busy=busy))
+        elif head == "mind" and len(rest) == 2 and rest[0] == "ways" and method == "DELETE":  # the user takes one out
+            brain.mind.drop_way(rest[1])
+            self._send(200, {"status": "ok"})
         elif route == ["stats"] and method == "GET":
             self._send(200, brain.stats())
         elif route == ["apps"] and method == "GET":

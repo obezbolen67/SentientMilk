@@ -573,6 +573,13 @@ class Panel(App):
                     yield Static(id="mind-thoughts")
             with Vertical(classes="card", id="mind-self-card"):
                 yield Static(id="mind-self")
+            with Vertical(classes="card", id="mind-ways-card"):
+                yield Static("Her ways: how she does things in every chat. She takes one on when you tell her to do "
+                             "things so from now on, or falls into one; her sleep keeps them. Tell her to stop, or "
+                             "take one out here.", classes="hint")
+                yield DataTable(id="way-table", cursor_type="row", zebra_stripes=True)
+                with Horizontal(classes="buttons"):
+                    yield FlatButton("Forget this way", id="way-forget", variant="error")
 
     def compose_tools(self) -> ComposeResult:
         yield Static("What the brain may do on this computer. A toolkit switched off here is off for every app.",
@@ -675,6 +682,7 @@ class Panel(App):
             "mcp": ("Server", "State", "Tools", "Runs", "Problem"),
             "plugin-table": ("Plugin", "Version", "State", "Tools", "From"),
             "skill-table": ("Skill", "Started by", "State", "Description"),
+            "way-table": ("When", "She", "From", "Strength"),
         }
         for table, names in columns.items():
             self.main.query_one(f"#{table}", DataTable).add_columns(*names)
@@ -1041,7 +1049,7 @@ class Panel(App):
         self.main.query_one("#app-model", Input).value = settings.get("model", "")
         self.main.query_one("#app-roots", Input).value = ", ".join(settings.get("roots", []))
         declared = []
-        for kit in ["memory"] + declaration.get("toolkits", []):  # every app has the chat's memory, listed or not
+        for kit in ["memory", "ways"] + declaration.get("toolkits", []):  # every app has these, listed or not
             declared += [k for k in kits["toolkits"] if k.startswith("mcp:")] if kit == "mcp:*" else [kit]
         off_everywhere = set(self.settings.get("disabled_toolkits", []))
         off_here = set(settings.get("disabled_toolkits", []))
@@ -1174,8 +1182,12 @@ class Panel(App):
                              "competence", "autonomy", "bond", "grievance")]
         self.main.query_one("#mind-body", Static).update(
             "\n".join(f"[{MUTED}]{label:<13}[/] {value}" for label, value in rows))
+        went = {"offered": "offered to the app", "kept": "kept for when you write", "said": "said",
+                "let go": "let go", "brought up": "brought up when you wrote", "passed": "passed",
+                "waits": "her last message still unanswered", "task": "a task of hers"}  # what came of it (0.34)
         thoughts = [f"[{MUTED}]{when(item['at'])} · {item['kind']}"
                     + (f" → {item['want']}" if item["want"] != "nothing" else "")
+                    + (f", {went[item['went']]}" if item.get("went") in went else "")
                     + f"[/]\n{escape(item['thought'])}" for item in state["thoughts"]]
         self.main.query_one("#mind-thoughts", Static).update("\n\n".join(thoughts) or f"[{MUTED}]None yet.[/]")
 
@@ -1190,6 +1202,9 @@ class Panel(App):
             + (escape(", ".join(f["word"] for f in sorted(state["feelings"], key=lambda f: -f["count"]))) or "-")
             + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else "")
             + f"\n[{MUTED}]People she knows[/]\n" + (people or f"[{MUTED}]nobody yet[/]"))
+        fill(self.main.query_one("#way-table", DataTable),
+             [(way["name"], (cut(way["when"], 50), cut(way["then"], 70), way["source"], f"{way['strength']:.2f}"))
+              for way in state.get("ways") or []])
 
     # ============== Tools ==============
 
@@ -1537,6 +1552,10 @@ class Panel(App):
             self.plugin_button(button)
         elif button and button.startswith("skill-"):
             self.skill_button(button)
+        elif button == "way-forget":
+            name = selected_key(self.main.query_one("#way-table", DataTable))
+            if name and self.call(lambda c: c.forget_way(name), done="She no longer does that.") is not None:
+                self.load_mind()
 
     def clear_session(self) -> None:
         app, session = self.app_id, selected_key(self.main.query_one("#sessions", DataTable))

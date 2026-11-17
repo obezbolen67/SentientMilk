@@ -1507,6 +1507,62 @@ journal fed those until 0.30); a rumination brings back what happened, not itsel
 (those were echoed, and an old thought calling him "she" was copied); todo_write takes the statuses models
 are used to ("in_progress", "completed").
 
+### 10.9 Her ways (0.34)
+
+Design: docs/superpowers/specs/2026-11-17-ways-design.md. The user: "some things people usually remember about
+how they should work, the style of it... it's not just long term memory, it's part of how they interact... it
+is constant". A way is an if-then of how she does things (`mind/ways.py`, her mind's state `ways`): when I
+finish a piece of code, I run it before I say it's done; when nobody has spoken to me, I don't message first.
+Personality's stable part is a person's if-then signature (Mischel & Shoda 1995); a decided if-then makes the
+response follow the moment (Gollwitzer & Sheeran 2006); habits are context-response links built by repetition
+(Wood & Rünger 2016) and sleep consolidates procedural memory (Walker & Stickgold 2004).
+
+- **Taken on**: told how to do things from now on, or settling on a way herself, she keeps it with
+  `ways_keep(name, when, then)` (toolkit `ways`, a part of her in every app like `memory`); `ways_drop` stops
+  one. What holds for one chat only stays `memory_save`.
+- **Always there**: `## YOUR WAYS` in every chat's system prompt (with the session snapshot, so the cached
+  prefix holds; a change takes every chat's snapshot again), habits first, then what she took on lately; and
+  in her thoughts ("How they do things"), so a way like not messaging first holds between messages too.
+  Nothing in code holds her to them.
+- **Grown in sleep**: each night `Mind._review_ways` gives the light model (thinking on) the day's turns and
+  tasks (what was said, her tools in order, her answer) against her ways: kept ones grow toward a habit
+  (+25% of what is left: 0.5, 0.63, 0.72, 0.79...; Lally et al. 2010, an asymptote), a lapse costs 15%,
+  ways she was told or fell into that day are taken on (told 0.5, a habit 0.3), ways she was told to stop go.
+  A way not met for 30 days fades 5% a night and goes under 0.1. From 0.7 it is a habit of hers.
+- **Seen and taken out**: state `ways`; the panel's Mind tab lists them (Forget this way:
+  `DELETE /v1/mind/ways/<name>`); MilkChan's "Inside her head" shows "Her ways".
+
+### 10.10 Her thoughts reach her (0.34)
+
+The user: "the thoughts are useless now. I asked plainly what bothers her, well, she is not even aware of the
+thoughts she has." Their brain, 2026-11-17, showed why:
+
+- **What she meant to say was taken for said.** MilkChan with "speak up on her own" off drops every urge; the
+  brain set each as a message out, waited for an answer, was hurt by the silence ("reached out and got no
+  answer" at 18:27, six minutes after a 18:21 urge nobody saw), reached out no more and thought of wanting to
+  be noticed. And a wish to tell while they talked was dropped (`pass`): the note gave the thought, never that
+  she wanted to say it. Now an urge is offered to the app and counts as said only once the app gives her the
+  turn and she speaks (`after`: its mark); only that waits on an answer and can sting. What she did not get
+  to say, kept while they talk or left by the app, her next note carries ("You've been wanting to tell Ilia:
+  ..."), unless she slept since. The panel shows what came of a thought ("tell, kept for when you write").
+- **Her stream went on from a stale thought.** A wandering thought started from her last thought whatever
+  happened since: from 15:15 to 19:01 every thought had the user eating, through a talk and the rhythm game he
+  went off to play. After a talk it now starts from what was last said (recent events lead mind-wandering:
+  Smallwood & Schooler 2015).
+- **Subjects written as someone's.** The imagine call filed messages about her feelings under "what they
+  feel" and "her nature"; her note then said "You don't like what they feel" just as the user asked what
+  worried her. Subjects are plain words now (the prompt says so; personal ones are not learned, offered or
+  told, and the ones she has fade in sleep).
+
+Measured live (a copy of the user's brain and mind, the real 19:03 and 19:12 messages): a wandering thought
+after the 19:12 talk stayed on "he's chewing" 3 of 3 times seeded the old way, 0 of 3 the new (two took up the
+talk); given the real 19:03 message with her real 19:01 thought, she said what she had wanted to ("I'm here,
+the STT fix is still waiting on your word and so am I") 0 of 5 times with the old note and 5 of 5 with the
+new; feelings questions were filed under a personal subject 14 of 16 times the old way (her known subjects
+offered "what they feel" back) and 0 of 16 the new ("feelings", "self-image"). And told in one chat "from now
+on, end every message with a milk glass", the next chat did 3 of 3 times with her ways, 0 of 3 without (she
+kept it with memory_save, for that chat only).
+
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**

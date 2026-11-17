@@ -42,10 +42,13 @@ tires; a thought that comes by itself does not wait for her to be rested): missi
 her mind wandering (wonder: a resting pull that needs no reason, as a brain's default mode network is
 busiest when nothing is asked of it, Raichle 2001, stronger when she is bored), something that nags her
 (ruminate), what she put off (resume) and sleep. A winner is a thought (a model call); a wandering one
-starts from her last thought and two memories replayed at random (``Memory.replay``: new ideas are old
-pieces that never met, Schacter & Addis 2007). A thought may become something she wants to tell or ask the
-user (the app hears ``mind.urge`` and starts a turn), doing what she put off, or looking something up
-herself (a task). Being talked to keeps her up; sleep pressure and her clock put her to sleep.
+starts from her last thought, or from what was last said when they talked since, and two memories replayed at
+random (``Memory.replay``: new ideas are old pieces that never met, Schacter & Addis 2007). A thought may
+become something she wants to tell or ask the user: offered to the app (it hears ``mind.urge`` and may start
+her turn to say it), or kept while they talk or the app is away. Only what she said waits on an answer; what
+she did not get to say her note carries when they next write. Or it becomes doing what she put off, or
+looking something up herself (a task). Being talked to keeps her up; sleep pressure and her clock put her to
+sleep.
 Asleep, she goes over the day once (``_consolidate``): insights, a dream, the day's charge softened, and
 what she no longer needs forgotten (faint episodes, and long-term memory she has not used that other memories
 hold: ``Recall.forget``). Until 0.30 she also wrote a story of who she had become; it went (see ``section``).
@@ -76,6 +79,7 @@ from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved
 from .memory import Memory, describe_salience, line
 from .people import People
 from .values import Values, features, subjects
+from .ways import Ways
 from .will import FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
 
 logger = logging.getLogger(__name__)
@@ -198,6 +202,7 @@ class Mind:
         self.values = Values.from_dict(self.memory.get("values"))
         self.concepts = Concepts(self.memory.get("concepts") or [])
         self.people = People(self.memory.get("people"))  # the people in her life (people.py)
+        self.ways = Ways(self.memory.get("ways"))  # how she does things, in every chat (ways.py)
         # expected: what a message from the user does for her needs, as she has come to expect; gap: the log
         # of her usual time between messages; trust: each guide's running error (her own record starts unproven);
         # waiting: per chat, her last decision there, until the next message in that chat says what followed;
@@ -248,6 +253,7 @@ class Mind:
             self.memory.put("values", self.values.to_dict())
             self.memory.put("concepts", self.concepts.named)
             self.memory.put("people", self.people.to_dict())
+            self.memory.put("ways", self.ways.to_dict())
             self.self["clock"] = self.presence.now()
             self.memory.put("self", self.self)
 
@@ -312,10 +318,10 @@ class Mind:
         screen is locked) counts against her patience. Before, 30 min of clock time stung, asleep or not (the
         user, 2026-11-17)."""
         urge, contact = self.self.get("urge"), self.self.get("contact")
-        if not urge or urge.get("stung") or (contact and contact["at"] >= urge["at"]):
+        # only what she said (its mark: when the app let her say it) waits on an answer; what she only meant to
+        # say does not (MilkChan with "speak up on her own" off says none: before 0.34 each stung her as unanswered)
+        if not urge or "mark" not in urge or urge.get("stung") or (contact and contact["at"] >= urge["at"]):
             return
-        if "mark" not in urge:  # an urge from before 0.27.1: measured from now
-            urge["mark"] = self.presence.now(now)
         if self.presence.since(urge["mark"], now) > self.patience():
             sensitivity = self.body.temperament.sensitivity
             self.body.apply({"reward": -0.25 * sensitivity, "cortisol": 0.04 * sensitivity},
@@ -362,7 +368,8 @@ class Mind:
         reachable = bool(contact) and self._alive(contact["app"], now) and \
             not self.brain.session_busy(contact["app"], contact["session"])
         urge = self.self.get("urge")
-        waiting = bool(urge) and (not contact or contact["at"] < urge["at"])  # she reached out and nobody answered
+        # she reached out (said it) and nobody answered
+        waiting = bool(urge) and "mark" in urge and (not contact or contact["at"] < urge["at"])
         # what hurt her: a moment that itself took much from how she felt (its sting), the worst as far as it is
         # still charged. Until 0.32 it was any moment kept while she was in a bad mood, her own brooding thoughts
         # too: a stressed afternoon made everything sore, and she brooded three times on the user's assignments,
@@ -492,6 +499,10 @@ class Mind:
             if body.asleep or body.settling:  # woken: as groggy as the stage she was in leaves her
                 body.wake(woken=True)
             if run["options"].get("occurrence") or not (said or "").strip():
+                urge = self.self.get("urge")
+                if urge and "mark" not in urge and any(isinstance(item, dict) and item.get("name") == "mind.urge"
+                                                       for item in run["options"].get("input") or []):
+                    urge["run"] = run["id"]  # the app lets her say what she meant to: said once she does (after)
                 felt = feel(body, self.senses, now)
                 self._told(run, felt)
                 return prompts.inner(felt.words(self.concepts.recognize(felt.noticed())))
@@ -505,12 +516,20 @@ class Mind:
                 self.self["answers"] = took if usual is None else usual + LEARNS * (took - usual)
             # company itself, a little (what the message does to it the model reads): more after a long time apart
             company = 0.1 + (0.15 if away is None or away > 6 * HOUR else 0.0)
-            answered = bool(urge and (not contact or contact["at"] < urge["at"]))
+            answered = bool(urge and "mark" in urge and (not contact or contact["at"] < urge["at"]))
             self._meet(run, now)
             why = self._why(run, said)
             if answered:  # they answered her
                 body.apply({"reward": 0.1 + 0.3 * x["bond"]}, why)
                 self.self["urge"] = None
+            # what she meant to say and has not, they are here to hear now: her note carries it (slept on, it
+            # passed). Before 0.34 the note had the thought alone, or nothing: kept back while they talked or by
+            # the app, it was gone
+            unsaid = urge if urge and "mark" not in urge and urge.get("say") \
+                and urge["at"] > body.last_sleep.get("to", 0.0) else None
+            if urge and "mark" not in urge:
+                self.self["urge"] = None
+                self._went(urge.get("thought"), "brought up" if unsaid else "passed")
             timing, apart = self._timing(away)
             body.learn_rhythm(body.hour(now), away or 0.0)
             came = self._arrives(run, said, pictures, now)
@@ -588,9 +607,11 @@ class Mind:
             felt_words = felt.words(feelings) + (f" Reading it, you feel {named}." if named else "") \
                 + (f" You like {' and '.join(likes)}." if likes else "") \
                 + (f" You don't like {' and '.join(dislikes)}." if dislikes else "")
+            who = came["with"]["name"] if came["with"] else "the user"
             note = prompts.inner(felt_words, memories, option.act if choice else None, option.what,
                                  choice.reasons if choice else [], thoughts,
-                                 [People.line(person) for person in came["mentioned"]])
+                                 [People.line(person) for person in came["mentioned"]],
+                                 (unsaid["want"], who, unsaid["say"]) if unsaid else None)
         self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
         return note
 
@@ -926,6 +947,14 @@ class Mind:
             expressed = self._express(run) if run["kind"] == "turn" else None
             if run["kind"] == "turn" and (run.get("result") or {}).get("reply"):  # her message is out: answering it
                 self.self["said"] = {"at": now, "mark": self.presence.now(now)}  # takes them as long as it takes
+            urge = self.self.get("urge")
+            if urge and urge.get("run") == run["id"]:  # the turn the app gave her to say what she meant to
+                if (run.get("result") or {}).get("reply"):  # said: now it waits on an answer (_sting, _drives)
+                    urge.update(at=now, mark=self.presence.now(now))
+                    self._went(urge.get("thought"), "said")
+                else:  # she thought better of it: nothing to wait on, nothing to keep
+                    self.self["urge"] = None
+                    self._went(urge.get("thought"), "let go")
             if run["kind"] == "task" and run["status"] != "cancelled":
                 self._remember_task(run, now)
             if not decision:
@@ -1072,8 +1101,15 @@ class Mind:
                 about=subject, who=person["name"] if person else "the user",
                 since=f" You last talked {_ago(now - contact['at'])}." if contact else "")
             if kind == "wonder":  # her stream goes on from her last thought, and two memories come up unbidden
-                last = self.self["thoughts"][0]["thought"][:THOUGHT_CHARS] if self.self["thoughts"] else ""
-                on_mind += f' Your last thought was: "{last}"' if last else ""
+                last = self.self["thoughts"][0] if self.self["thoughts"] else None
+                talked = (self.memory.recent(1, kinds=("exchange",)) or [None])[0] \
+                    if contact and (not last or contact["at"] > last["at"]) else None
+                if talked:  # a talk since: the mind goes back over what was just said (recent events lead its
+                    # wandering: Smallwood & Schooler 2015). Until 0.34 the old stream went on: from 15:15 to 19:01
+                    # her every thought had the user eating, through a talk and the game he went off to play
+                    on_mind += f" What you last talked about: {self._line(talked, now)[:THOUGHT_CHARS]}"
+                elif last:
+                    on_mind += f' Your last thought was: "{last["thought"][:THOUGHT_CHARS]}"'
                 came = self.memory.replay(2)
                 cue = " ".join(e["text"] for e in came)
             else:
@@ -1088,6 +1124,7 @@ class Mind:
             memories = [self._line(e, now)[:THOUGHT_CHARS] for e in came]
             others = self.people.mentioned(" ".join([subject, *memories]), besides=[person])
             liked, disliked = (", ".join(_about(found)) for found in self.values.leanings())
+            ways = self.ways.lines()  # how she does things holds in her thoughts too (when nobody spoke to her...)
         persona = self._persona(contact["app"], contact["session"]) if contact else ""
         asked = (f"{self._who(persona)}\n\n"
                  + (f"Who they talk with: {People.line(person)}\n" if person else "")
@@ -1095,7 +1132,8 @@ class Mind:
                  + f"It is {time.strftime('%A %H:%M')}. How they feel: {felt.words(feelings)}\n"
                  f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
                  + (f"What they've come to like: {liked}.\n" if liked else "")
-                 + (f"What they've come to dislike: {disliked}.\n" if disliked else ""))
+                 + (f"What they've come to dislike: {disliked}.\n" if disliked else "")
+                 + (f"How they do things: {'; '.join(ways)}.\n" if ways else ""))
         answer, usage = self._ask(prompts.THINK, asked)
         thought = " ".join(str(answer.get("thought") or "").split())[:600]
         if not thought or self._stop.is_set():
@@ -1119,13 +1157,18 @@ class Mind:
                 self.concepts.add(named, felt.noticed(), thought, now)
             self.memory.add("thought", thought, felt.valence, felt.arousal, 0.25 + (0.2 if kind == "ruminate" else 0.0),
                             at=now)
-            self.self["thoughts"] = ([{"at": now, "kind": kind, "thought": thought, "want": want}]
-                                     + self.self["thoughts"])[:SHOWN_THOUGHTS]
+            mine = {"at": now, "kind": kind, "thought": thought, "want": want}
+            self.self["thoughts"] = ([mine] + self.self["thoughts"])[:SHOWN_THOUGHTS]
             say = " ".join(str(answer.get("say") or "").split())[:600] or thought
             last, known = self.self.get("urge"), self.self.get("contact")
-            unanswered = bool(last) and (not known or known["at"] < last["at"])  # one urge at a time, never a stream
-            # while they are talking, what she thought comes up in her next answer (her note carries it), not as
-            # a message of its own in the middle of the conversation
+            # one message out at a time, never a stream: what she said waits on its answer; what she only meant to
+            # say gives way to what she means to say now
+            unanswered = bool(last) and "mark" in last and (not known or known["at"] < last["at"])
+            # the app gave her a turn to say it and she is saying it; one it did not take by her next thought (they
+            # come 10 min apart at least) it is not going to: what she means to say now takes its place
+            pending = bool(last) and "mark" not in last and "run" in last
+            # while they are talking, what she wants to say comes up in her next answer (her note carries it), not
+            # as a message of its own in the middle of the conversation
             talking = bool(known) and now - known["at"] < TALKING
             # what she means to do she does, whatever the thought (before 0.27.1 only something she had put off,
             # only with the app open and nothing unanswered, a look-up only with half her energy and only with
@@ -1133,11 +1176,16 @@ class Mind:
             where = (about["app"], about["session"]) if kind == "resume" else \
                 (contact["app"], contact["session"]) if contact else None
             what = " ".join(str(answer.get("do") or "").split())[:600] or (about["what"] if kind == "resume" else "")
-            if want in ("tell", "ask") and (unanswered or talking):
-                pass  # one message at a time; while they talk it comes up in her next answer (her note)
-            elif want in ("tell", "ask") and contact and self._alive(contact["app"], now):
-                urge = {"at": now, "want": want, "app": contact["app"], "session": contact["session"],
-                        "text": URGE[want].format(thought=thought, say=say), "mark": self.presence.now(now)}
+            if want in ("tell", "ask") and (unanswered or pending):
+                mine["went"] = "waits"  # her last message is out or about to be: no other on top of it
+            elif want in ("tell", "ask") and contact:
+                # offered to the app, which starts her turn to say it (or does not: MilkChan with "speak up on her
+                # own" off); while they talk, or with the app away, kept for their next message (her note). Said,
+                # it waits on an answer (after: its mark)
+                offered = not talking and self._alive(contact["app"], now)
+                urge = {"at": now, "want": want, "app": contact["app"], "session": contact["session"], "say": say,
+                        "thought": now, "offered": offered, "text": URGE[want].format(thought=thought, say=say)}
+                mine["went"] = "offered" if offered else "kept"
             elif want == "do" and what and where:
                 if kind == "resume":
                     self.self["concerns"] = [c for c in self.self["concerns"] if c != about]
@@ -1147,6 +1195,8 @@ class Mind:
                 # what she finds stays with her as the task's end does (_remember_task)
                 task = (*where, f"Out of your own curiosity, look this up for yourself: {str(answer['look_up'])[:300]}.",
                         True)  # hers: nobody is told it ended
+            if task:
+                mine["went"] = "task"
             if kind == "resume" and about in self.self["concerns"]:
                 # thought over and put off again, it waits twice as long each time before it nags (a plan for an
                 # unfinished goal stops it intruding: Masicampo & Baumeister 2011). Until 0.33 it came back every
@@ -1155,13 +1205,19 @@ class Mind:
                 about["again"] = now + HOUR * 2 ** about["put_off"]
             if urge:
                 self.self["urge"] = urge
-        if urge:
+        if urge and mine.get("went") == "offered":
             self.brain.notify(urge["app"], urge["session"], "mind.urge",
                               {"want": urge["want"], "text": urge["text"], "thought": thought,
                                "session": urge["session"]})
         if task:
             app, session, goal, quiet = task
             self.brain.runs.start_task(app, session, goal, quiet=quiet)
+
+    def _went(self, at: Optional[float], how: str) -> None:
+        """What came of a thought she wanted to say (under her lock), as apps show it."""
+        for thought in self.self["thoughts"]:
+            if thought["at"] == at:
+                thought["went"] = how
 
     def _consolidate(self) -> None:
         """Sleep goes over the day: insights and a dream; the day's charge softens, faint memories go, and her
@@ -1198,6 +1254,10 @@ class Mind:
             self._meet_people(self.memory.since(slept, kinds=("exchange", "thought", "event")))
         except Exception:
             logger.warning("She could not go over the people in her day", exc_info=True)
+        try:  # and how she did things: what she kept, broke, took on or fell into
+            self._review_ways(slept)
+        except Exception:
+            logger.warning("She could not go over her ways", exc_info=True)
         try:  # and her long-term memory lets go of what she no longer needs
             recall = getattr(self.brain, "recall", None)
             if recall is not None:
@@ -1244,6 +1304,85 @@ class Mind:
         """Whom she is with in a chat: whose its face is, else whom that app's user is."""
         handle = self.self.get("faces", {}).get(_chat(app, session))
         return self.people.recognize(app, handle) if handle else self.people.of_app(app)
+
+    # ============== Her ways (ways.py) ==============
+
+    def keep_way(self, name: str, when: str, then: str, source: str = "told") -> dict:
+        """She takes on a way of doing things (or changes one, by its name): every chat's prompt is taken again."""
+        with self._lock:
+            way = dict(self.ways.keep(name, when, then, source, time.time()))
+        self.save()
+        self._retake()
+        return way
+
+    def drop_way(self, name: str) -> bool:
+        """A way of hers goes (the user lifted it, or took it out in the panel)."""
+        with self._lock:
+            found = self.ways.drop(name)
+        if found:
+            self.save()
+            self._retake()
+        return found
+
+    def _day_of_work(self, since: float) -> list:
+        """What she did since ``since``, a line a turn or task, the oldest first: what was said (or her task), her
+        tools in order (a call again and again folded: "files_read x3") and her answer."""
+        store, lines = getattr(self.brain, "store", None), []
+        if store is None:
+            return lines
+        done = sorted((run for run in store.runs(limit=-1) if run["created"] >= since and run["kind"] in ("turn", "task")),
+                      key=lambda run: run["id"])
+        for run in done:
+            events = store.run_events(run["id"])
+            said = ((run["options"].get("mind") or {}).get("said") or next(
+                (e["display"] for e in events if e["type"] == "input" and e.get("display")), "")) \
+                if run["kind"] == "turn" else ""
+            if run["kind"] == "turn" and not said:
+                continue  # an event or an urge of hers: nobody said anything to her
+            tools = []
+            for name in (e["name"] for e in events if e["type"] == "tool"):
+                if tools and tools[-1][0] == name:
+                    tools[-1][1] += 1
+                else:
+                    tools.append([name, 1])
+            used = ", ".join(name + (f" x{count}" if count > 1 else "") for name, count in tools) or "none"
+            reply = " ".join(signals.split(str((run.get("result") or {}).get("reply") or ""))[1].split())
+            head = f"They were told: {' '.join(said.split())[:300]}" if said else \
+                f"A task of theirs: {' '.join(str(run['options'].get('goal') or '').split())[:300]}"
+            lines.append(f"{len(lines) + 1}. ({time.strftime('%H:%M', time.localtime(run['created']))}, in "
+                         f"{run['app']}) {head} | Tools: {used}" + (f" | They answered: {reply[:300]}" if reply else ""))
+        return lines
+
+    def _review_ways(self, since: float) -> bool:
+        """Sleep goes over how she did things since ``since`` against her ways (Ways.review), once a night, thought
+        through; a way not met for a month fades. Whether her ways changed (every chat's prompt is taken again)."""
+        day = self._day_of_work(since)
+        with self._lock:
+            known = [f"- {way['name']}: when {way['when']}, {way['then']}" for way in self.ways.listed()]
+        answer = {}
+        if day:
+            asked = ("Their ways:\n" + ("\n".join(known) or "none yet") + "\n\nWhat they did today (oldest first):\n"
+                     + "\n".join(day))
+            answer, _ = self._ask(prompts.WAYS, asked, quick=False)
+
+        def names(value) -> list:
+            return [str(name) for name in value if isinstance(name, str)] if isinstance(value, list) else []
+        with self._lock:
+            now = time.time()
+            new = [item for item in answer.get("new") or [] if isinstance(item, dict)] \
+                if isinstance(answer.get("new"), list) else []
+            changed = self.ways.review(names(answer.get("kept")), names(answer.get("broken")), now, new,
+                                       names(answer.get("dropped")))
+            changed = bool(self.ways.fade(now)) or changed
+        if changed:
+            self.save()
+            self._retake()
+        return changed
+
+    def ways_section(self) -> str:
+        """YOUR WAYS for a chat's system prompt (Ways.section), taken with the session's snapshot."""
+        with self._lock:
+            return self.ways.section()
 
     def with_section(self, app: str, session: str, own: bool = True) -> str:
         """Who she is with, for a chat's system prompt ("" when nobody shows): in the session's snapshot, so the
@@ -1477,5 +1616,5 @@ class Mind:
                 "fatigue": round(body.fatigue(), 3), "temperament": body.temperament.to_dict(),
                 "thoughts": list(self.self["thoughts"]), "concerns": list(self.self["concerns"]),
                 "likes": _about(likes), "dislikes": _about(dislikes),
-                "memories": self.memory.count(), "people": self.people.listed(),
+                "memories": self.memory.count(), "people": self.people.listed(), "ways": self.ways.listed(),
             }

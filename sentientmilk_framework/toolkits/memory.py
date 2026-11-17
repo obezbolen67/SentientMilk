@@ -12,8 +12,9 @@ from . import ToolContext, ToolError, Toolkit, tool
 
 GUIDE = ("When the user tells you how to work in this chat (what to do or avoid, what to use, how to answer), or "
          "you settle something you must keep to here, save it with memory_save right away: it stays in THIS "
-         "SESSION'S MEMORY through compaction, where the conversation alone may not. What you learn about the user "
-         "you need not save: your past chats come back to you by meaning.")
+         "SESSION'S MEMORY through compaction, where the conversation alone may not. How to do things from now on, "
+         "in every chat, is a way of yours (ways_keep). What you learn about the user you need not save: your past "
+         "chats come back to you by meaning.")
 
 
 def _need(**values):

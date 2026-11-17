@@ -257,7 +257,9 @@ def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
 @pytest.mark.mind
 def test_her_mind_shows_in_its_tab(brain):
     brain.brain.mind.self["thoughts"] = [{"at": time.time(), "kind": "wonder", "thought": "Clouds are odd.",
-                                          "want": "nothing"}]
+                                          "want": "nothing"},
+                                         {"at": time.time() - 60, "kind": "wonder", "thought": "I miss them.",
+                                          "want": "tell", "went": "kept"}]
 
     async def scenario(panel, pilot):
         panel.action_tab("mind")
@@ -265,6 +267,7 @@ def test_her_mind_shows_in_its_tab(brain):
                     or "Nothing stands out" in str(panel.query_one("#mind-now").render()))
         assert "energy" in str(panel.query_one("#mind-body").render())
         assert "Clouds are odd." in str(panel.query_one("#mind-thoughts").render())
+        assert "tell, kept for when you write" in str(panel.query_one("#mind-thoughts").render())  # what came of it
         assert "Likes" in str(panel.query_one("#mind-self").render())
         assert not panel.query("#mind-on")  # always on: there is no switch
     run(brain, scenario)
@@ -285,3 +288,20 @@ def test_where_her_long_term_memory_is_embedded_is_set_in_the_memory_tab(brain):
     run(brain, scenario)
     config = brain.client.config()
     assert "embeddings" not in config and config["embeddings_api_key_set"] and config["embeddings_dimensions"] == 768
+
+
+@pytest.mark.mind
+def test_her_ways_show_in_the_mind_tab_and_the_user_can_take_one_out(brain):
+    brain.brain.mind.keep_way("sign_off", "I answer the user", "I end with a milk glass", "told")
+    brain.brain.mind.keep_way("short", "the user asks a quick thing", "I answer in a line", "told")
+    brain.client.forget_way("short")  # the API takes one out
+    assert [w["name"] for w in brain.client.mind()["ways"]] == ["sign_off"]
+
+    async def scenario(panel, pilot):
+        panel.action_tab("mind")
+        table = panel.query_one("#way-table", DataTable)
+        await until(pilot, lambda: table.row_count == 1)
+        assert "I end with a milk glass" in str(table.get_row("sign_off"))
+        await press(pilot, panel, "way-forget")
+        await until(pilot, lambda: not brain.brain.mind.ways.known)
+    run(brain, scenario)

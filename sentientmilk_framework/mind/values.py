@@ -8,6 +8,7 @@ things did to her before. Weights she has not used fade in sleep, so old likes c
 """
 
 import math
+import re
 from typing import Dict, Iterable, List, Tuple
 
 LIMIT = 1.0  # a learned feeling is at most this strong
@@ -18,9 +19,20 @@ def _clip(value: float) -> float:
     return -LIMIT if value < -LIMIT else LIMIT if value > LIMIT else value
 
 
+# a subject written about someone ("what they feel", "her nature": the light model's, of her own feelings) reads
+# as someone else's in her note ("You don't like what they feel"): never learned, offered or told; the ones she
+# has fade in her sleep
+PERSONAL = re.compile(r"\b(he|she|they|them|their|theirs|her|hers|him|his|you|your|yours|me|my|mine)\b")
+
+
+def plain(subject: str) -> bool:
+    """Whether a subject is a plain one: about something, not written as someone's."""
+    return not PERSONAL.search(subject.removeprefix("tag:"))
+
+
 def subjects(tags: Iterable[str]) -> List[str]:
     """What a moment is about, as she learns to like or dislike it: one feature a subject."""
-    return [f"tag:{w}" for w in dict.fromkeys(" ".join(str(t).lower().split()) for t in tags) if w][:6]
+    return [f"tag:{w}" for w in dict.fromkeys(" ".join(str(t).lower().split()) for t in tags) if w and plain(w)][:6]
 
 
 def features(act: str, tags: Iterable[str] = (), intent: str = "", hour: float = 12.0, app: str = "") -> List[str]:
@@ -66,7 +78,8 @@ class Values:
 
     def subjects(self, count: int) -> List[str]:
         """What she knows things to be about, the most met first: for filing what comes next under them."""
-        met = sorted(((uses, name[4:]) for name, uses in self.uses.items() if name.startswith("tag:")), reverse=True)
+        met = sorted(((uses, name[4:]) for name, uses in self.uses.items() if name.startswith("tag:") and plain(name)),
+                     reverse=True)
         return [subject for _, subject in met[:count]]
 
     def leanings(self, count: int = 5) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
@@ -75,13 +88,14 @@ class Values:
         Before 0.29.1 a fixed 0.05 left nearly all out, as one moment moves a subject 0.01-0.05 (her rate over
         the root of the subjects it had) and sleep fades it, and the strongest five were taken before a subject
         and its acts were told apart: her brain held a dozen likes and showed one, "what to watch"."""
-        about = [(f, w) for f, w in self.weights.items() if f.startswith("tag:")]
+        about = [(f, w) for f, w in self.weights.items() if f.startswith("tag:") and plain(f)]
         likes = sorted((item for item in about if item[1] >= FAINT), key=lambda item: -item[1])[:count]
         dislikes = sorted((item for item in about if item[1] <= -FAINT), key=lambda item: item[1])[:count]
         return likes, dislikes
 
     def fond(self, found: List[str], floor: float = FAINT) -> Tuple[List[str], List[str]]:
         """Of these subjects, the ones she likes and the ones she dislikes (by their learned worth)."""
+        found = [f for f in found if plain(f)]
         return ([f[4:] for f in found if self.weights.get(f, 0.0) >= floor],
                 [f[4:] for f in found if self.weights.get(f, 0.0) <= -floor])
 

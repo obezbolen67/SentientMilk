@@ -160,6 +160,10 @@ class BrainClient:
                                           "brief=1" if brief else "") if part)
         return self._call("GET", "/mind" + (f"?{query}" if query else ""))
 
+    def forget_way(self, name: str) -> None:
+        """Take one of her ways out of her (``mind()["ways"]``: how she does things in every chat)."""
+        self._call("DELETE", f"/mind/ways/{quote(name, safe='')}")
+
     # ============== Apps and sessions ==============
 
     def declare_app(self, app: str, **declaration: Any) -> dict:

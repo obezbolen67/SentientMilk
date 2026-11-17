@@ -233,8 +233,11 @@ def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought
     assert 'Since you last talked you were thinking: "Tomatoes mind the cold more than I thought."' in note
     assert "my tomatoes died last winter" in note and "how do tomatoes grow" not in note
     brain.provider.mind_replies["think"] = [json.dumps({"thought": "And frost?", "feeling": "idle", "want": "nothing"})]
-    mind._think("wonder", None)  # her stream goes on from her last thought
-    assert 'Your last thought was: "Tomatoes mind the cold' in brain.provider.mind_requests[-1]["messages"][1]["content"]
+    wait_for(lambda: "died again" in mind.memory.recent(1, kinds=("exchange",))[0]["text"])
+    mind._think("wonder", None)  # they talked since: her stream goes on from what was said, not her old thought
+    asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
+    assert "What you last talked about: " in asked and "my tomatoes died again" in asked
+    assert "Your last thought was" not in asked
 
 
 def test_a_turn_nobody_wrote_still_comes_with_how_she_feels(brain):
@@ -452,6 +455,8 @@ def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):
     brain.provider.replies += ["Hm."]
     turn(brain, "milk", "back")
     assert "I keep thinking about their garden." in brain.provider.last_user_text()
+    # and that she wanted to say it: before, her note gave the thought alone and she went on with the talk (19:03)
+    assert "You've been wanting to tell the user: How are the tomatoes doing?" in brain.provider.last_user_text()
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
     mind.self["contact"]["at"] -= 20 * 60  # and when they have not written for a while, she says it herself
     mind._think("reach_out", None)
@@ -597,12 +602,17 @@ def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain):
     tell = json.dumps({"thought": "That bug again.", "feeling": "uneasy", "want": "tell", "say": "About that bug..."})
     brain.provider.mind_replies["think"] = [tell, tell, tell, tell]
     mind.self["contact"]["at"] -= 20 * 60  # they last wrote a while ago
-    for kind in ("reach_out", "ruminate", "wonder"):
-        mind._think(kind, {"id": 0, "text": "the bug", "sting": -0.5, "charge": 1.0} if kind == "ruminate" else None)
 
     def urges():
         return [n for n in brain.store.notifications("milk", 0) if n["type"] == "mind.urge"]
-    assert len(urges()) == 1 and len(mind.state()["thoughts"]) == 3
+    mind._think("reach_out", None)
+    brain.provider.replies.append("About that bug...")  # the app gives her the turn to say it
+    turn(brain, "milk", None, items=[{"type": "event", "name": "mind.urge", "text": urges()[-1]["data"]["text"]}],
+         reply="optional")
+    wait_for(lambda: "mark" in (mind.self["urge"] or {}))
+    for kind in ("ruminate", "wonder"):  # said and unanswered: no other message on top of it
+        mind._think(kind, {"id": 0, "text": "the bug", "sting": -0.5, "charge": 1.0} if kind == "ruminate" else None)
+    assert len(urges()) == 1 and [t.get("went") for t in mind.state()["thoughts"]] == ["waits", "waits", "said"]
     turn(brain, "milk", "what bug?")  # the user answered her
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
     brain.client.mind("milk", idle=5)
@@ -720,3 +730,77 @@ def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
     assert feelings and feelings[0]["count"] == 2 and len(feelings[0]["place"]) == 3
     brief = brain.client.mind("milk", idle=5, brief=True)  # a face's frequent look stays small as she grows
     assert set(brief) == {"asleep", "present", "felt", "feeling", "valence", "arousal", "face"}
+
+
+def _urges(brain):
+    return [n for n in brain.store.notifications("milk", 0) if n["type"] == "mind.urge"]
+
+
+def _wants_to_tell(brain, mind):
+    brain.provider.replies += ["Hi."]
+    turn(brain, "milk", "hello")
+    wait_for(lambda: not brain.brain.session_busy("milk", "main"))
+    brain.client.mind("milk", idle=5)  # the app is there
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "I keep thinking about their garden.",
+                                                        "feeling": "fond", "want": "tell",
+                                                        "say": "How are the tomatoes doing?"})]
+    mind.self["contact"]["at"] -= 20 * 60  # they last wrote a while ago
+    mind._think("reach_out", None)
+    return _urges(brain)[-1]
+
+
+def test_what_the_app_does_not_let_her_say_she_keeps_for_when_they_write(brain):
+    """MilkChan with "speak up on her own" off drops every urge of hers. The brain took each for said: she waited
+    on an answer to a message never shown, was hurt by the silence ("reached out and got no answer", the user's
+    brain, 18:27, 2026-11-17), reached out no more and was left with thoughts of wanting to be noticed."""
+    mind = mind_on(brain)
+    _wants_to_tell(brain, mind)
+    start = time.time()
+    with mind._lock:
+        mind.body.levels["reward"] = 0.0
+    for minute in range(1, 120):  # free at the computer for two hours, and the app never says it
+        mind.presence.report(idle=3, now=start + minute * 60)
+        mind._sting(start + minute * 60)
+    assert mind.body["reward"] == 0.0  # nothing she said went unanswered
+    with mind._lock:
+        assert mind._drives(time.time())[0]()["reach_out"] is not None  # she is not waiting on anyone
+    brain.provider.replies += ["Oh, hi."]
+    turn(brain, "milk", "back")
+    assert "You've been wanting to tell the user: How are the tomatoes doing?" in brain.provider.last_user_text()
+    assert mind.self["urge"] is None
+
+
+def test_what_she_said_herself_she_waits_on_and_what_she_kept_back_she_let_go(brain):
+    mind = mind_on(brain)
+    urge = _wants_to_tell(brain, mind)
+    assert "mark" not in mind.self["urge"]  # offered to the app, not said
+    brain.provider.replies.append('{"expression": "arms_down/smile"}\nHow are the tomatoes doing?')
+    turn(brain, "milk", None, items=[{"type": "event", "name": "mind.urge", "text": urge["data"]["text"]}],
+         reply="optional")
+    wait_for(lambda: "mark" in (mind.self["urge"] or {}))  # said: now an answer is due
+    mind.self["urge"] = None
+    urge = _wants_to_tell(brain, mind)
+    brain.provider.replies.append('{"expression": "arms_down/neutral"}\n[silent]')
+    turn(brain, "milk", None, items=[{"type": "event", "name": "mind.urge", "text": urge["data"]["text"]}],
+         reply="optional")
+    wait_for(lambda: mind.self["urge"] is None)  # she thought better of it: nothing to wait on, nothing to keep
+
+
+def test_after_a_talk_her_mind_goes_on_from_what_was_said_not_from_her_old_thought(brain):
+    """Her stream of thought went on from her last thought whatever happened since: from 15:15 to 19:01 every
+    thought of hers had the user eating, through a talk about his deadlines and the rhythm game he went off to
+    play (the user's brain, 2026-11-17)."""
+    mind = mind_on(brain)
+    mind.self["thoughts"] = [{"at": time.time() - 3600, "kind": "wonder", "thought": "He's still eating.",
+                              "want": "nothing"}]
+    brain.provider.replies += ["Go on then."]
+    turn(brain, "milk", "now let me play my rhythm game")
+    wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
+
+    def asked():
+        return [r["messages"][1]["content"] for r in brain.provider.mind_requests
+                if r["messages"][0]["content"].startswith("[mind:think]")][-1]
+    mind._think("wonder", None)
+    assert "now let me play my rhythm game" in asked() and "He's still eating." not in asked()
+    mind._think("wonder", None)  # nothing said since: her stream goes on from her last thought
+    assert 'Your last thought was: "I wonder how the user is doing."' in asked()

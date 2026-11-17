@@ -28,7 +28,7 @@ def test_requests_carry_the_core_tools_and_list_the_rest(brain):
     first, *others = brain.provider.sent
     assert set(sent_names(first)) == {"memory_save", "todo_write", "files_read", "files_search", "shell_run",
                                       "shell_output", "web_search", "web_fetch", "tools_search", "tools_load",
-                                      'history_read', 'history_search', 'context_compact'}
+                                      'history_read', 'history_search', 'context_compact', "ways_keep"}
     assert all(other["tools"] == first["tools"] for other in others)  # one tool list: the cache keeps hitting
     listed = system(first).split("## YOUR TOOLS", 1)[1]
     assert 'schedule_create(when, text, timezone?, title?)' in listed
@@ -142,8 +142,8 @@ def test_an_app_marks_the_actions_it_wants_sent(brain):
 
 def test_with_nothing_to_load_there_are_no_meta_tools(brain):
     brain.client.declare_app("small", toolkits=["web"])
-    # plugins and memory come to every app; the user may switch their tools off
-    brain.client.update_app("small", disabled_toolkits=["github", "memory"])
+    # plugins, memory and her ways come to every app; the user may switch their tools off
+    brain.client.update_app("small", disabled_toolkits=["github", "memory", "ways"])
     brain.provider.replies += ["hi"]
     turn(brain, "small", "hello")
     assert set(sent_names(brain.provider.sent[0])) == {'history_read', 'history_search', 'context_compact',

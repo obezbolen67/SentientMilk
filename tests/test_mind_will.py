@@ -5,7 +5,8 @@ option is worth is what it does to her needs, valued by how unmet each is now.""
 import random
 
 from sentientmilk_framework.mind.body import Body, Temperament
-from sentientmilk_framework.mind.values import Values, features
+from sentientmilk_framework.mind import prompts
+from sentientmilk_framework.mind.values import Values, features, subjects
 from sentientmilk_framework.mind.will import REASONS, Appraisal, Option, choose, value
 
 NOON = 1_763_294_400.0
@@ -157,3 +158,16 @@ def test_the_short_answer_of_her_imagining_is_read_and_odd_ones_are_survived():
                    '"write the full script now", 0.7, 0.7, 0.9]],')
     assert odd["feeling"] == "" and [(o["act"], o["what"], o["gives"]) for o in odd["options"]] == [
         ("do", "write the full script now", 0.9)]
+
+
+def test_what_things_are_about_is_never_written_as_he_she_or_they():
+    """The light model filed messages about her feelings under "what they feel" and "her nature"; told to her in
+    her note ("You don't like what they feel", as the user asked what worried her) they read as someone else's.
+    Such subjects are not learned, offered or told; the ones she has fade in her sleep."""
+    values = Values({"tag:what they feel": -0.3, "tag:her nature": 0.3, "tag:greeting": 0.2},
+                    {"tag:what they feel": 8, "tag:her nature": 14, "tag:greeting": 3})
+    assert values.subjects(10) == ["greeting"]
+    assert values.fond(["tag:what they feel", "tag:her nature", "tag:greeting"]) == (["greeting"], [])
+    assert values.leanings() == ([("tag:greeting", 0.2)], [])
+    assert subjects(["What they feel", "her nature", "rhythm game"]) == ["tag:rhythm game"]
+    assert "never he, she, they" in prompts.IMAGINE

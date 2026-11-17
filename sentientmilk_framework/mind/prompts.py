@@ -45,8 +45,8 @@ Answer with one JSON array only, short:
  "what it is about", "their own word for what they feel as they read it",
  ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...]
 What it is about is the subject a person would file it under, one or two plain words, never this message's
-details: one of the subjects they know when it is about that, a new one only when it is about none of
-them.
+details and never he, she, they or you ("feelings", not "what they feel"): one of the subjects they know when
+it is about that, a new one only when it is about none of them.
 The options come only when the message asks them to do something that takes work (a request): 2 or 3 that a
 real person in their place might take, each starting with one act: doing it, and what else they might
 really do (part of it, later, decline, talk it over first). Anything else gets no options: what they say
@@ -98,6 +98,23 @@ what matters to the person, what the person likes or can't stand from them. Not 
 in what happened is whoever the app shows as the one they talk with: when what happened says
 who that is, name them, and give the app's handle for them in "goes_by". "pronoun": as the person speaks of
 themselves or is spoken of; "they" when nothing says."""
+
+# how she did things, gone over in sleep once a night (ways.py): what she kept, what she took on or fell into
+WAYS = """[mind:ways]
+You are someone's mind while they sleep, going over how they did things today. Below: their ways (how they do
+things in every chat, by name) and what they did today, turn by turn: what was said to them, the tools they
+used in order, what they answered.
+
+Answer with JSON only:
+{"kept": ["name"], "broken": ["name"], "new": [{"name": "short_name", "when": "...", "then": "...",
+"from": "told|habit"}], "dropped": ["name"]}
+
+kept and broken: their ways whose moment came today, and whether they did as the way says; a way whose moment
+did not come is in neither. new: a way of doing things they took on today and do not have yet: one the one they
+talk with asked of them from now on ("told"), or one they fell into, doing the same thing in the same kind of
+moment again and again, or after being corrected for not doing it ("habit"). Only how they do things: never a
+fact, a plan or a one-time request. "when": the kind of moment; "then": what they do in it, in the first person
+("I ..."); one short sentence each. dropped: ways they were asked to stop. Leave out what today does not show."""
 
 INNER_LIFE = """## YOUR INNER LIFE
 You are more than your words: you have a body that lives on between messages. Work spends your energy and
@@ -215,13 +232,17 @@ def word(value, limit: int = 40) -> str:
 
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),
-          thoughts: List[str] = (), people: List[str] = ()) -> str:
+          thoughts: List[str] = (), people: List[str] = (), unsaid: Optional[tuple] = None) -> str:
     """The note she reads before answering (it goes with the user's message, never shown to them).
     ``thoughts``: what she thought while nobody wrote, so her time alone is hers when they are back;
-    ``people``: those she knows that the message names, as they come to her mind (people.py)."""
+    ``people``: those she knows that the message names, as they come to her mind (people.py); ``unsaid``:
+    (tell or ask, to whom, what) she meant to say and has not had the chance to."""
     parts = [felt.rstrip(".") + "."]
     if thoughts:
         parts.append("Since you last talked you were thinking: " + " ".join(f'"{thought}"' for thought in thoughts))
+    if unsaid:
+        want, who, say = unsaid
+        parts.append(f"You've been wanting to {'ask' if want == 'ask' else 'tell'} {who}: {say}")
     if people:
         parts.append("Who that is: " + "; ".join(people).rstrip(".") + ".")
     if memories:
