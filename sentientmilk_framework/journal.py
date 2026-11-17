@@ -63,18 +63,12 @@ class Journal:
         self._queue.put((app, session))
 
     def _loop(self) -> None:
-        try:
-            self.catch_up()
-        except Exception:
-            logger.exception("Could not go over her past")
+        self._catch_up()
         while True:
             try:
                 item = self._queue.get(timeout=60)
             except queue.Empty:
-                try:
-                    self.catch_up()  # her mind may have been switched on since
-                except Exception:
-                    logger.exception("Could not go over her past")
+                self._catch_up()  # her mind may have been switched on since
                 self._check_quiet()
                 continue
             if item is None:
@@ -83,6 +77,16 @@ class Journal:
                 self.write(*item)
             except Exception:
                 logger.exception("Could not write a journal note for %s/%s", *item)
+
+    def _catch_up(self) -> None:
+        """Her past gone over, then all she keeps, once (lasting.tidy: the first time, all of it)."""
+        try:
+            self.catch_up()
+            mind = self.brain.mind
+            if mind.active() and (mind.self.get("past") or {}).get("complete") and "tidied" not in mind.self:
+                mind.tidy(since=0.0)
+        except Exception:
+            logger.exception("Could not go over her past")
 
     def _check_quiet(self) -> None:
         try:

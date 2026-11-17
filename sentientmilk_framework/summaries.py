@@ -40,7 +40,8 @@ Go over it as yourself and decide what to keep. Keep only:
 Keep what you would be annoyed to have forgotten and what will still be true next week. Leave out stray
 leanings, one-off moods, small talk, what happened once and is done, and whatever YOUR MEMORY or THIS
 SESSION'S MEMORY holds already: if it is there, even in other words, skip it; if it changed, save it under
-the same key so the new one replaces it. Write each in your own words, in the first person where it is
+the same key so the new one replaces it, the whole entry as it now stands (one entry a subject, never a new
+key beside an old one), and forget what no longer holds. Write each in your own words, in the first person where it is
 yours ("I decided ..."), in a sentence or two. Scope everywhere for what lasts beyond this conversation
 (category user, preferences or projects); scope session for what matters only in it. Most conversations
 leave little or nothing worth keeping: then save nothing. When you are done, say in one line what you kept,

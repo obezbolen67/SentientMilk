@@ -1080,6 +1080,29 @@ class Mind:
             self.memory.forget_faint(now)
             self.self["slept"], self.self["consolidate"] = now, False
         self.save()
+        try:  # and what she keeps is fitted in with what changed in it today
+            self.tidy()
+        except Exception:
+            logger.exception("Could not go over her lasting memory")
+
+    def tidy(self, since: Optional[float] = None) -> Optional[list]:
+        """She goes over her lasting memory (lasting.tidy): what changed since she last did (``since``: from
+        then; 0: all of it), and remembers doing it. None: she could not now (it is asked again)."""
+        from .. import lasting
+        with self._lock:
+            start = self.self.get("tidied", 0.0) if since is None else since
+            contact = self.self.get("contact")
+        now = time.time()
+        done = lasting.tidy(self.brain, start, contact["app"] if contact else None)
+        if done is None:
+            return None
+        with self._lock:
+            self.self["tidied"] = now
+            if done:
+                self.memory.add("event", "I went over what I keep and set it right: " + "; ".join(done),
+                                0.1, 0.2, GIST, at=now)
+        self.save()
+        return done
 
     def forget(self, app: str, session: str) -> None:
         """A conversation the user deleted: her memories of it, what she put off in it and urges to it go."""

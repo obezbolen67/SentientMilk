@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS memory (
     app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
     updated REAL NOT NULL, PRIMARY KEY (category, key)
 );
+CREATE TABLE IF NOT EXISTS memory_revisions (
+    id INTEGER PRIMARY KEY, at REAL NOT NULL, app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL,
+    value TEXT NOT NULL, why TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS journal (
     id INTEGER PRIMARY KEY, at REAL NOT NULL, app TEXT NOT NULL, session TEXT NOT NULL, note TEXT NOT NULL
 );
@@ -724,16 +728,37 @@ class Store:
 
     # ============== Memory (shared by every app) ==============
 
-    def remember(self, app: str, category: str, key: str, value: Any, *, replace: bool = True) -> None:
-        """Keep a lasting fact for every app; ``app`` is the one that saved it."""
+    def remember(self, app: str, category: str, key: str, value: Any, *, replace: bool = True,
+                 why: str = "replaced") -> None:
+        """Keep a lasting fact for every app; ``app`` is the one that saved it. A value it replaces is kept in
+        memory_revisions, with ``why``."""
         verb = "INSERT OR REPLACE" if replace else "INSERT OR IGNORE"
         with self._db() as db:
+            if replace:
+                self._revise(db, category, key, dump(value), why)
             db.execute(f"{verb} INTO memory(app, category, key, value, updated) VALUES (?, ?, ?, ?, ?)",
                        (app, category, key, dump(value), time.time()))
 
-    def forget(self, category: str, key: str) -> bool:
+    def forget(self, category: str, key: str, why: str = "forgotten") -> bool:
         with self._db() as db:
+            self._revise(db, category, key, None, why)
             return db.execute("DELETE FROM memory WHERE category = ? AND key = ?", (category, key)).rowcount > 0
+
+    @staticmethod
+    def _revise(db, category: str, key: str, new: Optional[str], why: str) -> None:
+        """The value of category/key as it was, kept before it changes (``new``: the value it becomes)."""
+        old = db.execute("SELECT app, value FROM memory WHERE category = ? AND key = ?", (category, key)).fetchone()
+        if old and old[1] != new:
+            db.execute("INSERT INTO memory_revisions(at, app, category, key, value, why) VALUES (?, ?, ?, ?, ?, ?)",
+                       (time.time(), old[0], category, key, old[1], why))
+
+    def revisions(self, limit: int = -1) -> List[dict]:
+        """Memory values replaced or forgotten, the newest first."""
+        with self._db() as db:
+            rows = db.execute("SELECT at, app, category, key, value, why FROM memory_revisions ORDER BY id DESC "
+                              "LIMIT ?", (limit,)).fetchall()
+        return [{"at": at, "app": a, "category": c, "key": k, "value": json.loads(v), "why": w}
+                for at, a, c, k, v, w in rows]
 
     def memory_entries(self) -> List[dict]:
         """Every entry: ``category``, ``key``, ``value``, ``app`` (the one that saved it) and ``updated``."""

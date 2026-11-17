@@ -386,7 +386,7 @@ class Brain:
     def forget_memory(self, category: str, key: str) -> bool:
         """The user forgets an entry: gone from every system block at its next request, not at compaction.
         A super agent at work has its prompt already: it is told."""
-        found = self.store.forget(category, key)
+        found = self.store.forget(category, key, why="the user forgot it")
         if found:
             self.store.drop_snapshots()
             for run in self.store.runs(kind="agent", statuses=ACTIVE, limit=1000):

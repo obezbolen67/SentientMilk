@@ -372,6 +372,31 @@ Measured and not built: her saved facts themselves are hers (the user: "Don't to
 stale ones (an 11-07 code map with old line numbers, roblox_watch tuning a later entry says is obsolete,
 the interpreter job twice) are left for her to set right.
 
+### What she keeps is one and true (0.26)
+
+The user (2026-11-17): "you definetly need to handle stale and duplicated memories, and make sure
+MilkChan won't make ones". Her saved facts stay hers: she sets them right herself, no code edits them.
+
+| The brain | Here |
+|---|---|
+| A memory brought back is open to change and stored again changed (reconsolidation, Nader et al. 2000). | As she saves, what she keeps like the new entry comes back in the result, so she folds them then; a key names one memory whatever its category. |
+| Sleep fits what was learned in with what is known. | Every night she goes over all she keeps, first what changed: the same thing becomes one, what no longer holds is set right or forgotten. |
+| Details fade, the gist stays. | Details that go out of date by themselves (line numbers, a count at a moment) go from entries not changed for days. |
+
+Checked on copies of the user's real brain, three nights each (their model):
+- With her journal shown too, she moved what happened once ("cleared Camelia with an S rank") into what
+  she keeps. Not shown since.
+- A merge dropped the watcher's folder path. Now a dropped path, link, mail, address or id is shown to
+  her once; the next run lost none of them anywhere.
+- Over nights 2 and 3 she folded "his age" and "his native language" into his job. "Different things
+  about one person each stay their own" fixed that; she also kept rewording the same long entries until
+  told never to write one again only to word it better.
+- Final run: 62 entries to 45 the first night, then 4 changes a night. Total stayed about 30k characters,
+  with no exact detail lost.
+- Told two updates in a chat, she wrote her two existing entries; no new key.
+
+Nothing is lost: every value replaced or forgotten is in `memory_revisions`.
+
 ## Left to the builder
 
 Exact gains and time constants (tuned by unit tests: a rested, attached being does an ordinary request at

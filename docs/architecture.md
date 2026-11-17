@@ -1145,6 +1145,17 @@ Now there are three kinds, by how long they last and where they hold:
   with the two tools of 0.8.1, and the three memory evals above still pass (2026-11-11).
 - No cap: memory is whole however long it grows. Its cost is tokens in the system block, cached with the
   prefix; the light model's compaction does not touch it.
+- Kept one and true (0.26, `lasting.py`). The user's brain on 2026-11-17 held one subject as twelve
+  entries (roblox_watch, each a day's state), one job under two categories, and 11-07 line numbers long
+  moved. A key names one memory whatever its category (`memory_save` moves it), and what she keeps that
+  is like a new entry (`lasting.related`: a word of its key, or a fifth of its words) comes back in the
+  result, to fold them then. As she sleeps (`Mind._consolidate` → `Mind.tidy`), and once after her past
+  is gone over, she goes over all of it with her model and as herself (`lasting.tidy`): the same thing
+  becomes one, what no longer holds is set right or forgotten. A path, link, mail, address or id that a
+  rewrite leaves out is shown to her once (`lasting.dropped`); what she answers then is hers. Every value
+  replaced or forgotten is kept in `memory_revisions` (`Store.remember`/`forget`, with why). Measured on
+  a copy of the real brain: 62 entries to 45 the first night with no exact detail lost, then 4 changes a
+  night; told two updates in a chat she wrote her two existing entries, no new key.
 
 ### 10.2 Session memory
 

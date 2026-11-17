@@ -12,6 +12,7 @@ model never has to list it: what another chat or app changes later reaches a ses
 What happened is the journal's (written by the brain); the plan for the work at hand is the todo list's.
 """
 
+from .. import lasting
 from . import ToolContext, ToolError, Toolkit, tool
 
 SCOPE = {"type": "string", "enum": ["everywhere", "session"],
@@ -20,7 +21,9 @@ SCOPE = {"type": "string", "enum": ["everywhere", "session"],
 CATEGORY = "For scope everywhere: user (who they are), preferences (how they like things) or projects."
 GUIDE = ("When you learn something lasting about the user (their name too), save each fact with memory_save right "
          "away, unasked; it is in YOUR MEMORY in every app and chat from then on. Memory is for what stays true; "
-         "one-time events and changes are not worth keeping. When the user tells you how to work in this session "
+         "one-time events and changes are not worth keeping. Keep one entry a subject: when what you keep "
+         "about something changes or grows, save the whole entry as it now stands under its key, never a new key "
+         "beside it, and forget what no longer holds. When the user tells you how to work in this session "
          "only (what to do or avoid, what to use, how to answer), or you settle something you must keep to here, "
          "save it with scope session right away: it stays in THIS SESSION'S MEMORY through compaction, where the "
          "conversation alone may not.")
@@ -94,9 +97,23 @@ def memory_save(ctx: ToolContext, key: str, value: str, category: str = "", scop
         ctx.store.update_session(ctx.app, _chat(ctx), "state", change)
         ctx.brain.chat_memory_changed(ctx.app, _chat(ctx))
         return f"Remembered for this session: {key}: {value.strip()}"
-    ctx.store.remember(ctx.app, category, key, value)
+    entries = ctx.store.memory_entries()
+    # a key names one memory, whatever its category (the user's job was kept under projects and under user)
+    moved = [e["category"] for e in entries if e["key"] == key and e["category"] != category]
+    for old in moved:
+        ctx.store.forget(old, key, why=f"saved again as {category}/{key}")
+        seen(ctx, old, key)
+    ctx.store.remember(ctx.app, category, key, value, why="saved again (memory_save)")
     seen(ctx, category, key, value)
-    return f"Remembered {category}/{key} for every app and chat."
+    result = f"Remembered {category}/{key} for every app and chat." + (
+        f" It replaces {', '.join(f'{old}/{key}' for old in moved)}: a key names one memory." if moved else "")
+    like = lasting.related(entries, key, value, skip={(category, key)} | {(old, key) for old in moved})
+    if like:  # the same thing kept twice, or a newer state beside an older one, is set right now
+        result += ("\nYou already keep these, like it:\n" + "\n".join(
+            f"- {e['category']}/{e['key']}: {' '.join(str(e['value']).split())[:300]}" for e in like)
+            + "\nWhere one is about the same thing, make them one entry (save the whole of it under one key, "
+              "forget the other); where one no longer holds, set it right or forget it.")
+    return result
 
 
 @tool(policy="auto", args={"key": "Its name, as in YOUR MEMORY or THIS SESSION'S MEMORY.", "category": CATEGORY,
@@ -118,7 +135,7 @@ def memory_forget(ctx: ToolContext, key: str, category: str = "", scope: str = "
         if found[0]:
             ctx.brain.chat_memory_changed(ctx.app, _chat(ctx))
         return f"Forgot {key} for this session." if found[0] else f"This session's memory has no {key}."
-    found = ctx.store.forget(category, key)
+    found = ctx.store.forget(category, key, why="she forgot it (memory_forget)")
     seen(ctx, category, key)
     return f"Forgot {category}/{key}." if found else f"Nothing was remembered as {category}/{key}."
 
