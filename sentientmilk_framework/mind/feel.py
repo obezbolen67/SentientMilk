@@ -41,12 +41,12 @@ ADAPTS = 20 * 60.0  # seconds for her to get used to how a channel is
 CHANNELS = {
     "dopamine": ("drive", 0.2), "reward": ("reward", 0.4), "serotonin": ("calm", 0.2),
     "noradrenaline": ("alertness", 0.25), "acetylcholine": ("focus", 0.2), "cortisol": ("stress", 0.25),
-    "oxytocin": ("closeness", 0.25), "endorphin": ("comfort", 0.3), "adenosine": ("sleep pressure", 0.3),
+    "oxytocin": ("closeness", 0.25), "endorphin": ("comfort", 0.3), "adenosine": ("sleep pressure", 0.17),
     "energy": ("energy", 0.4), "grievance": ("hurt", 0.3), "social": ("company", 0.35),
     "novelty": ("new things", 0.3), "competence": ("being of use", 0.3), "autonomy": ("freedom", 0.3),
 }
 USUAL = {**{name: level.baseline for name, level in CHEMICALS.items()}, **SET_POINTS,
-         "adenosine": 0.3, "energy": 1.0, "grievance": 0.0}
+         "adenosine": 0.4, "energy": 1.0, "grievance": 0.0}  # sleep pressure: mid-day (body.py, 0.27)
 # How much of a lasting state she stops noticing: what her body needs (sleep, energy, her needs, a hurt) keeps
 # calling for her; the rest fades into how things are, down to what is still far from usual
 USED_TO = {name: 0.3 if name in (*NEEDS, "adenosine", "energy", "grievance") else 0.6 for name in CHANNELS}
@@ -203,7 +203,7 @@ def face(felt: Felt, options: Dict[str, List[str]], asleep: bool) -> Optional[di
     guarded = off("cortisol", x["cortisol"]) + off("grievance", x["grievance"]) - off("oxytocin", x["oxytocin"])
     stance = "closed" if guarded > 1.5 and felt.valence < -0.1 else "open" if felt.valence > 0.25 and \
         off("oxytocin", x["oxytocin"]) > 0.5 else "neutral"
-    heavy_lidded = max(1.6 * (x["adenosine"] - 0.45) + 0.4 * felt.night,
+    heavy_lidded = max(3.0 * (x["adenosine"] - 0.45) + 0.4 * felt.night,
                        2.0 * (0.4 - x["acetylcholine"]) + 0.8 * fatigue(x) - 0.2)
     eyes = "closed" if asleep else "half" if heavy_lidded > 0.6 else "open"
     return {"mood": mood, "stance": stance, "eyes": eyes, "asleep": asleep}

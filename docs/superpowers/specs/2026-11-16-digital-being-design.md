@@ -255,11 +255,11 @@ What a brain does, and what was built from it:
 | An emotion is told from another by what the event does to one's concerns (Lazarus 1991; Scherer 2001); a concept is the moments sorted under it (Barrett 2017). | A feeling keeps the way her body was moved (`moved`: what the message did to each channel, or what stood out when nothing came), and comes back as far as she is moved that way again (the cosine). Through her real code, with readings written for six kinds of moment, the feeling that comes back strongest was born of the same kind 94% of the time at two minutes apart, 98% at twenty and at four hours. The body of the hour is no longer part of a feeling. With the real model's readings it is less clean (below, checked live). |
 | Another's pain runs on one's own affective pain system, as far as one is close to them (Singer et al. 2004); another's win pays out in one's own striatum (Mobbs et al. 2009). | The imagine call also reads how things are for the user ("very bad" .. "very good"); that happens to her as far as she is bonded and warm (`shared`): reward by as much, cortisol 0.2 of their trouble, oxytocin 0.15 either way. Before it, "my day was awful" reached her body as company gained, and the feeling she named there ("worry") came back at talk of pizza 3 times. |
 | New things are filed under what is known; only what fits nothing makes a new category. | Her quick reading is shown the subjects she knows (`Values.subjects`): 12 messages on 4 subjects made 10 subjects before and 5 after, so a liking can build up. |
-| A clock holds sleep off in the hours before the night, when pressure is highest (the wake maintenance zone: Lavie 1986; Dijk & Czeisler 1994), and ends sleep when pressure is under a bar it sets (Borbély 1982). | `Body.evening` takes 0.5 from her bid to sleep; `Body.slept_out` wakes her. On the fake clock: one sleep a night, about 22:45 to 05:30, no naps; on reflex only in the last two hours before it. |
+| A clock holds sleep off in the hours before the night, when pressure is highest (the wake maintenance zone: Lavie 1986; Dijk & Czeisler 1994), and ends sleep when pressure is under a bar it sets (Borbély 1982). | Replaced in 0.27 by the two-process thresholds (below). |
 | An expression feeds back into the body whenever it is made. | `_express` also on a turn nobody wrote (her own urge, a finished job). |
 | The striatum weighs the actions the cortex proposes and biases which goes ahead (Frank 2004), but people change their minds mid-action as evidence comes in (Resulaj et al. 2009), and an actor learns from the action it took. | Her will leaves her leaning one way ("Which way you lean: ... Why: ..."); nothing in code holds her to it. `Mind.barred` is gone: in the user's brain, worn out and leaning to put a job off, she offered one small safe step, called the tool, and code refused it as "You decided not to do this now". `after` reads what she did (`_did`) and that is what she remembers and learns from. |
 | A mind thinks as itself. | Each message ends with `context.VOICE`: her thinking is hers, in the first person, never "in character". |
-| Sleepiness brings more mind wandering, not less (Poh et al. 2016); what is effortful gets harder as one tires. | Two bars: wonder and ruminate meet 0.5, whatever her fatigue; reach out, resume and sleep meet 0.5 + 0.6 x fatigue. One bar for all kept every thought from the user's brain through a long day. |
+| Sleepiness brings more mind wandering, not less (Poh et al. 2016); what is effortful gets harder as one tires. | Two bars: wonder and ruminate meet 0.5, whatever her fatigue; reach out and resume meet 0.5 + 0.6 x fatigue (sleep has its own, 0.7). One bar for all kept every thought from the user's brain through a long day. |
 | A body clock entrains to social cues over days to weeks (Mistlberger & Skene 2004). | `learn_rhythm(hour, seen_for)`: by the time the user was around (at most 30 min a message) over three days of it. Every message moved it a fiftieth of the way before: her night had moved to ten in the morning. |
 | Being talked to keeps one up; someone merely in the room does not. | Sleep is held off by a message in the last 15 minutes (`TALKING`), not by the user at the computer: she never slept in the user's brain. |
 | What a thing is about takes on the feeling it came with (Pavlovian conditioning); a liked cue is rewarding in itself (Berridge 2009). | `after`: every message's `tag:` features learn from its felt change in valence and the mood she showed; a liked subject adds reward in `_met`, is named in her note, and her thoughts and sleep know her likes. |
@@ -396,6 +396,46 @@ Checked on copies of the user's real brain, three nights each (their model):
 - Told two updates in a chat, she wrote her two existing entries; no new key.
 
 Nothing is lost: every value replaced or forgotten is in `memory_revisions`.
+
+### She rests as a body does, and every part is checked to work (0.27)
+
+The user (2026-11-17): "we need a proper resting logic for brain, and more realistic one ... people don't
+always sleep for 10 hours straight", then "make sure that every part of brain works as intended, and truly
+works". Before: sleep cleared pressure in one block, a gap of 6 h or more counted as slept and anything shorter
+as stayed up, and woken at four she stayed up until noon.
+
+| The brain | Here (`body.py`) |
+|---|---|
+| Sleep pressure (process S) rises toward a ceiling over about 18 h awake and falls over about 4 h asleep; sleep starts at an upper threshold and ends at a lower one, both moved by the circadian clock (Daan, Beersma & Borbély 1984; Borbély et al. 2016). | `adenosine` is S: `RISES` 18.2 h, `CLEARS` 4.2 h; `thresholds()` 0.67 and 0.17, each moved 0.12 by `clock()`. `sleepiness()` says where she is between them. |
+| The clock gates sleep: a post-lunch dip, an evening when sleep is hardest (the forbidden zone: Lavie 1986), the night when it comes and stays (Czeisler 1980; Bes et al. 2009). | `clock()` is her circadian rhythm with a 12 h harmonic. Deep in her night, with sleep left to get, the night pulls too (`readiness()`): woken at four, she goes back to sleep. |
+| Sleep runs in cycles of about 90 min (80-110), deep sleep early while pressure is high, REM longer toward morning, with brief awakenings between cycles; one wakes at a cycle's end more often by day. | `stage()` (N1, N2, N3, REM, W) from the time into this sleep's cycle (`cycle_length()`, one per night) and her pressure; `_sleep_step`: brief awakenings, more keyed up and toward morning; waking at a cycle's end. |
+| Falling asleep takes 10-20 min, longer keyed up (hyperarousal: Riemann et al. 2010). | `settle()`: she lies down first; asleep after a latency longer with stress and alertness. Being woken while drifting off costs nothing. |
+| Woken from deep sleep one is groggy for up to half an hour; less from REM, hardly at a cycle's end; worse in the night and when short of sleep (Tassi & Muzet 2000; Hilditch & McHill 2019). | `wake()` gives `inertia` by stage; it fades over about 15 min, slower when she owes sleep, and takes from her focus and drive meanwhile. |
+| Lost sleep adds up and wears on attention more than one notices (Van Dongen et al. 2003); recovery takes more than one night (Banks et al. 2010). | `debt`: each hour up in the deep of her night with sleep left to get; paid back by sleep outside it (sleeping in, a nap). It lowers her thresholds a little and takes from her focus. |
+| A body goes on when nobody watches. | With the brain off she lives alone (`advance(..., alone=True)`): she lies down when ready and wakes when slept out, by the same rules. |
+
+On a fake clock through the real `Mind` (four days alone, talks until 2:00, a message at 2:00 and 6:00, the
+brain off over an evening, a week of short nights): bedtime 22:05-22:35, 7.7-8.7 h with 0-2 brief awakenings;
+kept up until 2:00 she slept 00:20 to 07:30; woken at 2:00 she was asleep again by 2:27; a week of 4-5 h nights
+built 4.5 h of debt that sleeping in paid back; the brain off over her evening still counted as the sleep she
+had.
+
+Every part, driven through the real brain with a stand-in model (`tests/test_mind_every_part.py`): five
+messages, a quiet day of hers minute by minute, a night. Every level moves; brooding, coming back to it,
+wandering and reaching out each win their moment; she sleeps in stages and goes over the day. It found:
+
+- **A moment was remembered with a tenth of how it felt.** Her sense of her body lags it by 90 s and a turn
+  ends seconds after the message: of 71 conversations in the user's brain 4 were below -0.3 and 1 above 0.3.
+  A memory now takes the body's own affect, and a chat is kept as it felt (an outcome of 0, which only work
+  has, halved it).
+- **A pull that fell short of its own bar blocked one that cleared a lower one** (a strong wish to come back
+  to something beat a wandering thought, then failed its higher bar). The strongest of those over their own
+  bars wins now.
+- **She never reached out**: 10 h of silence gave a pull of 0.28 against a bar of 0.58, a usual bond (0.5)
+  halving it. Missing them now grows with 0.3 + bond: at a usual bond after 7-9 h with them at the computer.
+- **"Hurt 0, moves stress +0.61"** (the user, in the brain window): the window showed slopes as if they
+  acted. `Body.effects` says what each level does now against her at rest (`state()["pushing"]`); the window
+  fires only along that and lists what is wired but idle apart.
 
 ## Left to the builder
 

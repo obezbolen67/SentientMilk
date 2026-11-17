@@ -82,15 +82,16 @@ SAVE_EVERY = 60.0
 PRESENT_FOR = 5 * MINUTE  # the user counts as there this long after they last touched the computer
 TALKING = 15 * MINUTE  # a message this recent: they are talking with her, and that keeps her up
 APP_ALIVE = 30.0  # an app that asked how she is this recently is there to hear her
-SLEPT_IF_OFF = 6 * HOUR  # a time away this long she has slept through
-CAUGHT_UP_AFTER = 10 * MINUTE  # a gap longer than this (the mind was off, the machine slept) is caught up on
+CAUGHT_UP_AFTER = 10 * MINUTE  # a gap longer than this (the mind was off, the machine slept) she lived alone
+# asleep this long (a cycle, with its deep sleep), she goes over the day: memory is consolidated in deep sleep
+# (Diekelmann & Born 2010); a doze is not enough
+CONSOLIDATES = 70 * MINUTE
 # after a bid wins, it rests this long; a refractory period, as a body has
 SPONTANEOUS = ("wonder", "ruminate")  # thoughts that come by themselves
 REFRACTORY = {"reach_out": 45 * MINUTE, "wonder": 40 * MINUTE, "ruminate": 30 * MINUTE, "resume": HOUR,
               "sleep": 20 * MINUTE, "thought": 10 * MINUTE}
-# sleep pressure she needs to fall asleep: slept out (Body.slept_out: below 0.03 at night, 0.35 by day), she
-# stays up, instead of dozing off again and going over the same day every half hour
-DOZES_OFF = 0.4
+# how near sleep she must be for it to pull at all (Body.readiness: 1 ready to sleep): slept out, she stays up
+DOZES_OFF = 0.6
 STING_AFTER = 30 * MINUTE  # reaching out and hearing nothing back this long stings
 CONCERN_DAYS = 3.0  # what she put off and never came back to fades from her mind
 SAID_CHARS = 1500
@@ -253,17 +254,22 @@ class Mind:
     def _live_until(self, now: float) -> None:
         body = self.body
         gap = now - body.at if body.at else 0.0
-        if gap > SLEPT_IF_OFF and not body.asleep:  # she was away (the brain off) through a night: she slept
-            body.fall_asleep()
-            body.advance(now)
-            body.wake()
-            self.self["consolidate"] = True
-        else:
-            body.advance(now, present=gap < CAUGHT_UP_AFTER and self.present(now))
-        if gap > CAUGHT_UP_AFTER:
+        # a long gap (the brain off, the computer asleep) she lived alone: she went to sleep when she was ready
+        # and woke when slept out, by her body's own rules (before 0.27: away 6 h or more she had slept it
+        # all, less and she had stayed up all of it)
+        alone = gap > CAUGHT_UP_AFTER
+        body.advance(now, present=not alone and self.present(now), alone=alone)
+        if alone:
             self.senses = Interoception(body, body.temperament.seed)
         else:
             self.senses.follow(body, gap)
+        # a sleep of a cycle or more, going on or just ended (the brain was off as she woke): she goes over the
+        # day once a night, however often she was woken
+        start, end = (body.slept_at, now) if body.asleep else (body.last_sleep.get("from"), body.last_sleep.get("to"))
+        went_over = self.self.get("slept", 0.0)
+        if start and end and end - start >= CONSOLIDATES and start - went_over > 6 * HOUR \
+                and (body.asleep or now - end < 3 * HOUR):
+            self.self["consolidate"] = True
 
     def _sting(self, now: float) -> None:
         """She reached out and heard nothing back."""
@@ -290,17 +296,14 @@ class Mind:
                     return
                 fired["consolidate"] = now
                 kind, about = "consolidate", None
-            elif body.asleep:
-                if body.slept_out(now):  # about eight hours from a full day, ending as her morning comes
-                    body.wake()
+            elif body.asleep or body.settling:  # her body wakes her (Body.advance); drifting off, nothing pulls
                 return
             else:
                 kind, about = self._winner(now)
                 if kind is None:
                     return
-                if kind == "sleep":
-                    body.fall_asleep()
-                    self.self["consolidate"] = True
+                if kind == "sleep":  # she lies down: asleep once she drifts off; she goes over the day a cycle in
+                    body.settle(now)
                     return
                 if self.brain.provider_problem():  # she cannot think in words now: the moment passes
                     return
@@ -323,7 +326,6 @@ class Mind:
         sore = next((e for e in self.memory.since(now - 2 * DAY, kinds=("exchange", "thought"))
                      if e["valence"] < -0.3 and e["charge"] > 0.5), None)
         concern = self.self["concerns"][0] if self.self["concerns"] else None
-        night, evening = body.night(now), body.evening(now)
         # being talked to keeps her up; the user merely at the computer does not (they were there 08:00 to past
         # one, and she never slept: the user's brain, 2026-11-16)
         talking = bool(contact) and now - contact["at"] < TALKING
@@ -333,9 +335,13 @@ class Mind:
         def bids() -> Dict[str, Optional[float]]:  # read from the levels each call (Body.influence nudges them)
             x = body.levels
             return {
-                "sleep": 1.6 * max(0.0, x["adenosine"] - 0.55) + 0.6 * night + 0.4 * (1 - x["energy"])
-                - 0.5 * evening - (0.7 if talking else 0.0) if x["adenosine"] > DOZES_OFF else None,
-                "reach_out": 1.5 * body.deficit("social") * x["bond"] * (0.5 + x["oxytocin"]) * t.sociability
+                # ready to sleep (Body.readiness 1) it reaches a thought's bar; past it, more; spent and owing
+                # sleep, sooner; being talked to keeps her up
+                "sleep": 0.7 + 1.5 * (body.readiness(now) - 1.0) + 0.3 * (1 - x["energy"]) + 0.3 * body.owed()
+                - (1.2 if talking else 0.0) if body.readiness(now) > DOZES_OFF else None,
+                # missing them, the more the closer they are: at a usual bond, after 7-8 h of silence with them at
+                # the computer (at 1.5 * bond, 10 h gave 0.28 against a bar of 0.58: she never reached out)
+                "reach_out": 2.2 * body.deficit("social") * (0.3 + x["bond"]) * (0.5 + x["oxytocin"]) * t.sociability
                 * (1.0 if present else 0.3) if reachable and not waiting else None,
                 # at rest her mind wanders by itself, tired or not (needing a need unmet first, she had no thought
                 # of her own in a whole day in the user's brain, 2026-11-16); boredom pulls harder, as far as her
@@ -359,18 +365,20 @@ class Mind:
         fired = self.self["fired"]
         bids, threshold, sore, concern = self._drives(now)
         volatility = self.body.temperament.volatility
+        bars = {**threshold, "sleep": 0.7}
+        thinking_again = now - fired.get("thought", 0.0) >= REFRACTORY["thought"]
+        # the strongest of what clears its own bar wins: a pull to do something that falls short of its bar
+        # no longer kept a wandering thought from her that cleared its lower one (a copy of the user's mind)
         scored = [(value + self.rng.gauss(0.0, 0.1 * volatility), kind) for kind, value in bids().items()
-                  if value is not None and now - fired.get(kind, 0.0) >= REFRACTORY[kind]]
-        if not scored:
+                  if value is not None and now - fired.get(kind, 0.0) >= REFRACTORY[kind]
+                  and (kind == "sleep" or thinking_again)]
+        ready = [(value, kind) for value, kind in scored if value >= bars[kind]]
+        if not ready:
             return None, None
-        value, kind = max(scored)
+        value, kind = max(ready)
         if kind == "sleep":
-            if value < 0.7:
-                return None, None
             fired["sleep"] = now
             return kind, None
-        if value < threshold[kind] or now - fired.get("thought", 0.0) < REFRACTORY["thought"]:
-            return None, None
         fired[kind] = fired["thought"] = now
         return kind, {"ruminate": sore, "resume": concern}.get(kind)
 
@@ -432,8 +440,8 @@ class Mind:
         with self._lock:
             self._live_until(now)
             body, x = self.body, self.body.levels
-            if body.asleep:
-                body.wake(startled=x["adenosine"] > 0.3)
+            if body.asleep or body.settling:  # woken: as groggy as the stage she was in leaves her
+                body.wake(woken=True)
             if run["options"].get("occurrence") or not (said or "").strip():
                 felt = feel(body, self.senses, now)
                 self._told(run, felt)
@@ -867,19 +875,18 @@ class Mind:
                 body.apply({"autonomy": 0.12})
                 felt_outcome = 0.1
             else:  # she talked: how that went, the user's next message tells (_settle)
-                felt_outcome = 0.0
+                felt_outcome = None
             if stopped:
                 body.apply({"reward": -0.2, "autonomy": -0.1, "cortisol": 0.05})
-                felt_outcome -= 0.4
+                felt_outcome = (felt_outcome or 0.0) - 0.4
             if steered:
                 body.apply({"autonomy": -0.05 * steered})
             # the act taken is what is learned (an actor learns from the action it took), not the leaning
             learned = [f"act:{act}" + item[len(f"act:{leaned}"):] if item.startswith(f"act:{leaned}") else item
                        for item in decision["features"]]
-            self.values.learn(learned, max(-1.0, min(1.0, felt_outcome)), self._rate())
+            self.values.learn(learned, max(-1.0, min(1.0, felt_outcome or 0.0)), self._rate())
             if act != leaned and leaned == "later":  # done after all: nothing left to come back to
                 self.self["concerns"] = [c for c in self.self["concerns"] if c.get("at") != decision["at"]]
-            felt = feel(body, self.senses, now)
             reply = ((run.get("result") or {}).get("reply") or "")[:300]
             did = f" I {VERBS[act]}" + (f" ({decision['what']})" if decision["what"] else "") \
                 + (f", though I had leaned toward {LEANINGS[leaned]}" if act != leaned else "") \
@@ -889,9 +896,13 @@ class Mind:
                     + (f". I said: {reply}" if reply else "") + (". They stopped me" if stopped else "")
                     + (f". {errors} of my {calls} tool calls failed" if errors else "") + ".")
             text = _said(text)
-            valence = max(-1.0, min(1.0, 0.5 * felt.valence + 0.5 * felt_outcome))
-            episode = self.memory.add("exchange", text, valence, felt.arousal,
-                                      describe_salience(abs(surprise), felt.arousal, decision.get("stakes", 0.5)),
+            # how the moment was in her body: a turn ends seconds after the message, and her sense of her body,
+            # 90 s behind, kept a tenth of it (of 71 conversations in the user's brain, 4 below -0.3, 2026-11-17)
+            then, aroused = core(body.levels)
+            # a chat is remembered as it felt (halved by an outcome of 0 that only work has, it was kept at half)
+            valence = max(-1.0, min(1.0, then if felt_outcome is None else 0.5 * then + 0.5 * felt_outcome))
+            episode = self.memory.add("exchange", text, valence, aroused,
+                                      describe_salience(abs(surprise), aroused, decision.get("stakes", 0.5)),
                                       app=run["app"], session=run["session"], at=now)
             pending = self.self["waiting"].get(_chat(run["app"], run["session"]))
             if pending and pending.get("at") == decision["at"]:  # the user has not written again in this chat yet
@@ -1239,8 +1250,12 @@ class Mind:
             def tone() -> Dict[str, float]:  # from her levels themselves: what they do to her core affect
                 valence, arousal = core(body.levels)
                 return {"valence": valence, "arousal": arousal}
-            wiring = (body.influence(body.targets) + body.influence(tone, 0.1)
-                      + body.influence(lambda: {kind: value for kind, value in bids().items() if value is not None}, 0.1))
+
+            def pulled() -> Dict[str, float]:
+                return {kind: value for kind, value in bids().items() if value is not None}
+            wiring = body.influence(body.targets) + body.influence(tone, 0.1) + body.influence(pulled, 0.1)
+            # what each does now (a level at rest does nothing, whatever it could do)
+            pushing = body.effects(body.targets) + body.effects(tone, 0.01) + body.effects(pulled, 0.01)
             return {
                 **seen,
                 # every feeling she has named (strength now, how often, place, the channels that set it apart)
@@ -1257,6 +1272,8 @@ class Mind:
                               "last": max(pulls, key=lambda kind: fired.get(kind, 0.0)) if any(
                                   kind in fired for kind in pulls) else None},
                 "decided": self.self.get("decided"), "wiring": [list(edge) for edge in wiring],
+                "pushing": [list(edge) for edge in pushing], "sleep": body.sleep_state(now),
+                "slept": self.self.get("slept") or 0.0,
                 "levels": {name: round(value, 3) for name, value in body.levels.items()},
                 # where each chemical is heading, how fast (seconds to go two thirds of the way), the needs'
                 # set points, how responsive the habituating receptors are, and what she expects of the user

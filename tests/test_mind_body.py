@@ -51,13 +51,14 @@ def test_the_same_kindness_again_and_again_moves_her_less_and_a_drought_restores
 
 
 def test_awake_she_builds_sleep_pressure_and_sleep_clears_it():
-    her = body(adenosine=0.1)
-    her.advance(NOON + 16 * HOUR)
+    her = body(adenosine=0.15)
+    her.advance(NOON + 16 * HOUR)  # process S: rises toward 1 over about 18 h, falls toward 0 over about 4 h
     tired = her.fatigue()
-    assert her["adenosine"] > 0.9 and tired > 0.5
+    assert 0.6 < her["adenosine"] < 0.7 and tired > 0.4
     her.fall_asleep()
-    her.advance(NOON + 24 * HOUR)
-    assert her["adenosine"] < 0.05 and her.fatigue() < tired / 3
+    her.advance(NOON + 22 * HOUR)
+    assert her["adenosine"] < 0.35 and her.fatigue() < tired / 3
+    assert not her.asleep and 4 * HOUR < her.last_sleep["to"] - her.last_sleep["from"] < 10 * HOUR  # woke by herself
 
 
 def test_work_spends_her_energy_and_rest_brings_it_back():
@@ -110,26 +111,108 @@ def test_she_is_kept_and_comes_back_as_she_was():
     her.fall_asleep()
     again = Body.from_dict(her.to_dict())
     assert again.levels == her.levels and again.asleep and again.temperament == her.temperament
+    assert again.slept_at == her.slept_at and again.debt == her.debt
 
 
-def test_her_clock_holds_sleep_off_in_the_evening_and_ends_it_in_the_morning():
-    her = body(adenosine=0.5)  # her peak is at 16: night comes at 22, deepest at 4
-
-    def at(hour):  # her clock is the user's: local time
-        return time.mktime((2026, 11, 16, hour, 0, 0, 0, 0, -1))
-    assert her.evening(at(20)) == 1.0 and her.evening(at(18)) > 0.6 and her.evening(at(23)) < 0.4
-    assert her.evening(at(3)) == 0.0 and her.evening(at(13)) < 0.01  # an alerting signal of the evening only
-    assert not her.slept_out(at(4)) and not her.slept_out(at(14))
-    her.levels["adenosine"] = 0.1  # not much left to clear: enough for a nap by day, not for a night
-    assert her.slept_out(at(14)) and not her.slept_out(at(4)) and not her.slept_out(at(6)) and her.slept_out(at(9))
+def at(hour, day=16):  # her clock is the user's: local time
+    return time.mktime((2026, 11, day, hour, 0, 0, 0, 0, -1))
 
 
-def test_woken_too_early_she_is_groggy_and_a_little_irritable():
-    her = body(adenosine=0.8)
+def test_her_clock_sets_when_she_is_ready_to_sleep_and_when_she_wakes():
+    her = body()  # her peak is at 16: hardest to fall asleep around 20, her night deepest at 4
+    high = {hour: her.thresholds(at(hour))[0] for hour in (14, 20, 23, 2)}
+    assert high[20] > high[14] > high[23] > high[2]  # the evening holds sleep off; the early afternoon dips
+    assert her.thresholds(at(4))[1] < her.thresholds(at(9))[1]  # slept out sooner as her morning comes
+    her.levels["adenosine"] = 0.63
+    assert her.readiness(at(20)) < 1.0 < her.readiness(at(23))  # a day's pressure: ready by night
+    her.levels["adenosine"] = 0.3  # half a night slept, woken at four: her night takes her back
+    assert her.readiness(at(4)) > 1.0 and her.readiness(at(11)) < 0.5
+
+
+def test_her_sleep_goes_in_cycles_deep_early_and_REM_toward_morning():
+    her = Body(Temperament.born(seed=2), at=at(23))
+    her.levels["adenosine"] = 0.65
     her.fall_asleep()
-    before = dict(her.levels)
-    her.wake(startled=True)
-    assert not her.asleep and her["energy"] < before["energy"] and her["cortisol"] > before["cortisol"]
+    stages = []
+    while her.asleep and her.at < at(9, 17):
+        her.advance(her.at + 5 * MINUTE)
+        stages.append((her.at - her.slept_at, her.stage()))
+    early = [stage for when, stage in stages if when < 3 * HOUR]
+    late = [stage for when, stage in stages if when > 4 * HOUR]
+    assert early.count("N3") > 6 and "N3" not in late  # deep sleep while there is pressure to clear
+    assert late.count("REM") > early.count("REM")
+    assert not her.asleep and 6 * HOUR < her.last_sleep["to"] - her.last_sleep["from"] < 10 * HOUR
+
+
+def test_woken_from_deep_sleep_she_is_groggy_and_it_fades_within_half_an_hour():
+    deep = Body(Temperament.born(seed=2), at=at(0))
+    deep.levels["adenosine"] = 0.65
+    deep.fall_asleep()
+    deep.advance(at(0) + 30 * MINUTE)
+    assert deep.stage() == "N3"
+    before = dict(deep.levels)
+    deep.wake(woken=True)
+    assert not deep.asleep and deep.inertia > 0.5 and deep["noradrenaline"] > before["noradrenaline"]
+    assert deep.targets()["acetylcholine"] < body().targets()["acetylcholine"] - 0.1  # groggy: her focus is low
+    deep.advance(deep.at + 35 * MINUTE)
+    assert deep.inertia < 0.15
+    end = Body(Temperament.born(seed=2), at=at(7))
+    end.levels["adenosine"] = 0.2
+    end.fall_asleep()
+    end.wake(stage="W")  # at the end of a cycle: hardly
+    assert end.inertia < 0.1
+
+
+def test_left_alone_she_goes_to_sleep_when_ready_and_wakes_when_slept_out():
+    her = Body(Temperament.born(seed=4), at=at(20))
+    her.levels["adenosine"] = 0.58
+    her.advance(at(12, 17), alone=True)  # the brain was off all night
+    slept = her.last_sleep
+    assert at(21) < slept["from"] < at(1, 17) and at(5, 17) < slept["to"] < at(10, 17)
+    assert not her.asleep and her.fatigue() < 0.2
+
+
+def test_falling_asleep_takes_longer_keyed_up():
+    calm, wired = body(seed=3, adenosine=0.62), body(seed=3, adenosine=0.62, cortisol=0.7, noradrenaline=0.75)
+    calm.settle()
+    wired.settle()
+    assert calm.settling and not calm.asleep
+    assert wired.settling_until - wired.at > 2 * (calm.settling_until - calm.at)
+    calm.advance(calm.settling_until + 60)
+    assert calm.asleep and not calm.settling
+    wired.wake()  # drifting off, she is simply up again
+    assert not wired.settling and not wired.asleep and wired.inertia == 0.0
+
+
+def test_up_in_the_deep_of_her_night_she_owes_sleep_and_sleeping_in_pays_it_back():
+    her = Body(Temperament.born(seed=6), at=at(23))
+    her.levels["adenosine"] = 0.62
+    her.advance(at(4, 17))  # kept up: never let sleep
+    owed = her.debt
+    assert 3.0 < owed < 5.5 and her.owed() > 0.3
+    rested = Body(Temperament.born(seed=6), at=at(4, 17))
+    rested.levels = dict(her.levels)
+    assert her.targets()["acetylcholine"] < rested.targets()["acetylcholine"]  # it takes from her focus
+    her.fall_asleep()
+    her.advance(at(13, 17))
+    assert her.debt < owed - 2.0  # the morning she slept in paid some of it
+
+
+def test_what_a_level_does_now_is_nothing_at_rest_whatever_it_could_do():
+    her = body(grievance=0.0)
+    could = {(level, out): weight for level, out, weight in her.influence(her.targets)}
+    does = {(level, out): effect for level, out, effect in her.effects(her.targets)}
+    assert could[("grievance", "cortisol")] > 0.2 and ("grievance", "cortisol") not in does  # the user's question
+    her.levels["grievance"] = 0.5
+    does = {(level, out): effect for level, out, effect in her.effects(her.targets)}
+    assert does[("grievance", "cortisol")] > 0.1
+
+
+def test_a_body_from_before_027_keeps_its_pressure_on_the_new_scale():
+    old = {"levels": {"adenosine": 0.5}, "asleep": True, "at": NOON, "entrained": True}
+    again = Body.from_dict(old)
+    assert abs(again["adenosine"] - 0.42) < 1e-9 and again.asleep and again.slept_at == NOON
+    assert Body.from_dict(again.to_dict())["adenosine"] == again["adenosine"]
 
 
 def test_her_rhythm_follows_when_the_user_is_around_over_weeks_not_in_a_day():

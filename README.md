@@ -347,8 +347,9 @@ rested and close she helps; spent, stressed or hurt she may do part, put it off 
 work tools stay unused for that turn. What things did to her becomes learned likes and
 dislikes, and episodes she recalls by likeness and mood. Between messages, missing the user, boredom,
 what nags her and what she put off compete for her attention; a winning thought may become an urge the
-app hears (`mind.urge`: MilkChan starts a turn for it). She sleeps when tired at night with the user
-away, and her sleep rewrites the story of who she has become. Apps read her face and feelings from
+app hears (`mind.urge`: MilkChan starts a turn for it). She sleeps as a body does (sleep pressure against
+her body clock, in cycles of deep sleep and REM, groggy when woken, owing what she missed), also while the
+brain is off, and her sleep rewrites the story of who she has become. Apps read her face and feelings from
 `GET /v1/mind` (`brief=1` for just her face), with what an app needs to draw her brain: every feeling she
 has named and where it sits, how unmet each need is, what
 pulls at her attention against the threshold a thought must reach, her last decision, and `wiring`, the

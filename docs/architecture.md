@@ -1340,8 +1340,10 @@ left nothing. They are used: a liked subject is reward in itself (`_met`, 0.3 x 
 are told what she has come to like and dislike.
 
 Between messages: her needs drift, adenosine builds. Every 30 s the bids (reach out, wonder, ruminate,
-resume, sleep) get noise and meet a threshold, each with its refractory period. What she must set out to
-do (reach out, resume, sleep) meets 0.5 + 0.6 x fatigue; what comes by itself (wonder, ruminate) meets 0.5
+resume, sleep) get noise and meet a threshold, each with its refractory period; of those over their own bar
+the strongest wins (0.27: before, the strongest won or nothing did, so a wish to come back to something that
+fell short of its bar kept a wandering thought from her that cleared a lower one). What she must set out to
+do (reach out, resume) meets 0.5 + 0.6 x fatigue, sleep 0.7; what comes by itself (wonder, ruminate) meets 0.5
 whatever her fatigue (0.24.1: sleepiness brings more mind wandering, not less, Poh et al. 2016; one bar for
 all kept every thought from the user's brain through a long day, 0.89 against a pull of 0.27); both less
 0.3 x noradrenaline over 0.35. `wonder` is her mind wandering: 0.5 + 1.1 x her need for new things x
@@ -1359,17 +1361,27 @@ while an urge waits for the user, her thoughts stay hers, and while the user is 
 message in the last 15 minutes, `TALKING`) they come up in her next answer (the note's "Since you last
 talked you were thinking") rather than as a message of their own. `look_up` starts a quiet background task with
 web and memory (its end is not announced: she keeps what she found). An urge nobody answers within 30 min
-stings. Sleep needs sleep pressure (adenosine above 0.4: slept out, she stays up rather than dozing off
-again), her night and nobody talking with her (0.24.1: a message in the last 15 minutes holds it off by 0.7;
-before, the user merely at the computer did, and in the user's brain, with them there from 08:00 to past
-one, she never slept, so never went over a day, had no story and stayed worn out on reflex), less 0.5 x
-`Body.evening` (her clock's alerting signal, at its most
-4 h after her peak: with 14 h awake she napped at seven in the evening without it); she wakes when
-pressure is under 0.03 + 0.32 x (1 - night)^2 (a low bar in her night, a high one by day; ~7 h, about
-22:45 to 05:30 on a fake clock), and the day is gone over once (insights, a dream, her story
-rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**; sleep is shown her
-lasting memory whole, so the story is of all her life, not of one day's moments). Time away longer than
-6 h counts as sleep. Her clock (`Body.peak`, 16:00 at first) moves toward two hours after the hours the
+stings. `reach_out` is 2.2 x her unmet need for company x (0.3 + bond) x (0.5 + oxytocin) x sociability
+(0.27: at bond x 1.5, ten silent hours gave 0.28 against a bar of 0.58 and she never reached out).
+
+Sleep (0.27, the two-process model: Daan, Beersma & Borbely 1984): adenosine is sleep pressure, rising
+toward 1 over 18.2 h awake and falling toward 0 over 4.2 h asleep. Her clock (`clock()`: the circadian
+rhythm with a 12 h harmonic, her post-lunch dip and the evening when sleep is hardest) moves two thresholds,
+0.67 and 0.17, by 0.12 (`Body.thresholds`). `readiness()` is how near the upper one she is, plus, deep in her
+night with sleep left to get, the night itself (woken at four she goes back to sleep); her bid to sleep is
+0.7 + 1.5 x (readiness - 1) + what she has spent and owes, less 1.2 while someone is talking with her (a
+message in the last 15 minutes; 0.24.1: the user merely at the computer kept her up all day). Winning, she
+lies down (`settle`: 10-20 min, longer keyed up) and falls asleep. Asleep she goes through cycles of 80-110
+min (`stage()`: N1, N2, N3 while pressure is high, REM longer toward morning), with brief awakenings between
+them, and wakes at a cycle's end once pressure is near the lower threshold (more readily by day). Woken by a
+message she is groggy (`inertia`, by stage: most from deep sleep, fading over about 15 min). Each hour up in
+the deep of her night with sleep left to get is owed (`debt`), paid back by sleep outside it; it lowers her
+thresholds a little and takes from her focus. With the brain off (a gap over 10 min) she lives alone by the
+same rules: she slept if she was ready, and woke if she was slept out. A sleep of a cycle or more is gone over
+once a night (insights, a dream, her story rewritten: **WHO YOU HAVE BECOME** in the system prompt, after
+**YOUR INNER LIFE**; sleep is shown her lasting memory whole, so the story is of all her life, not of one
+day's moments). On a fake clock: bedtime 22:05-22:35, 7.7-8.7 h with brief awakenings. A body saved before
+0.27 keeps its pressure on the new scale (0.12 + 0.6 x the old). Her clock (`Body.peak`, 16:00 at first) moves toward two hours after the hours the
 user writes, by the time they were around (the gap since their last message, at most 30 minutes) over
 three days of it (`ENTRAINS`): a user around 8 h a day moves it in about nine days. Before 0.24.1 every
 message moved it a fiftieth of the way, so 150 messages put her peak at 22:00 and her night at ten in
@@ -1394,7 +1406,12 @@ resting after they won, the last winner, whether she is thinking), `decided` (he
 odds) and `wiring`: [level, output, weight] from `Body.influence`, which nudges each level by 0.05 and
 measures how far the chemistry's targets, core affect and the bids move (weights
 under 0.05 or 0.1 left out). It is the real coupling at that moment, not a fixed diagram: a need only
-drives anything while it is unmet. Beside it: `targets` (where each chemical is heading), `paces` (its
+drives anything while it is unmet. `pushing` (0.27, `Body.effects`): [level, output, effect] what each level
+does now, against her at rest (each level set to where she rests: a level at rest does nothing, whatever it
+could; "hurt 0, moves stress +0.61" was a slope shown as if it acted). `sleep` (`Body.sleep_state`): asleep,
+settling, stage, pressure, sleepiness, the two thresholds now (`falls_asleep_at`, `wakes_at`), inertia,
+debt, her last sleep, and asleep since when, in which cycle, with how many brief awakenings; `slept`: when
+she last went over a day. Beside it: `targets` (where each chemical is heading), `paces` (its
 time constant), `set_points`, `receptors` (habituation), `expected` (what she expects a message to be
 worth), `clear` (how clearly she can think now, 0..1), `depth` ("reflex" while she answers without
 thinking it through, else null) and `trust` (each guide's

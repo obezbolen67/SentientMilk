@@ -57,10 +57,33 @@ HABITUATION = {"reward": 0.4, "oxytocin": 0.8, "endorphin": 0.8, "noradrenaline"
 SENSITIVE = tuple(HABITUATION)
 START = {**{name: level.baseline for name, level in CHEMICALS.items()},
          "social": 0.6, "novelty": 0.6, "competence": 0.6, "autonomy": 0.6,
-         "adenosine": 0.2, "energy": 1.0, "bond": 0.5, "grievance": 0.0, "reward_rate": 0.0}
+         "adenosine": 0.35, "energy": 1.0, "bond": 0.5, "grievance": 0.0, "reward_rate": 0.0}
 ENTRAINS = 3 * DAY  # of the user around: her clock moves toward their hours (8 h a day: in about nine days)
-AWAKE_DAY = 18 * HOUR  # adenosine builds from 0 to 1 over a long day awake (16 h: about 0.9)
-SLEEP_CLEARS = 2 * HOUR
+# Sleep, the two-process model: sleep pressure (process S, kept as ``adenosine``) rises toward 1 while she is
+# awake and falls toward 0 asleep, at the pace human slow-wave activity shows; she is ready to sleep when it
+# reaches an upper threshold and wakes when it falls to a lower one, both moved by her clock (Daan, Beersma &
+# Borbély 1984; Borbély et al. 2016). So how long she sleeps depends on when she goes to bed more than on how
+# long she was up (Czeisler et al. 1980), and a nap by day is short. Before 0.27 pressure rose in a straight
+# line, sleep cleared it in two hours and she slept one block until it was gone (the user: "people don't
+# always sleep for 10 hours straight").
+RISES, CLEARS = 18.2 * HOUR, 4.2 * HOUR
+UPPER, LOWER, SWING = 0.67, 0.17, 0.12
+DIP = 0.25  # her clock's 12-hour harmonic: the early-afternoon dip and the evening's wake maintenance zone
+# (Bes, Jobert & Schulz 2009; Lavie 1986)
+CYCLE = 90 * MINUTE  # NREM to REM, about (each night's cycles run 80-110 min): deep sleep early in the night,
+# REM longer toward morning
+LATENCY = 15 * MINUTE  # falling asleep takes 10-20 min; keyed up or stressed, longer (Riemann et al. 2010)
+INERTIA_FADES = 15 * MINUTE  # grogginess after waking: mostly gone within half an hour (Tassi & Muzet 2000)
+# how groggy waking from each stage leaves her: deep sleep worst, REM between, light sleep least (Tassi &
+# Muzet 2000)
+STAGE_INERTIA = {"N3": 1.0, "REM": 0.55, "N2": 0.35, "N1": 0.15, "W": 0.05}
+# sleep debt: each hour up in the deep of her night (with sleep left to get) is owed, and each hour asleep
+# outside it (sleeping in, a nap) pays it back, so recovery takes nights (Banks et al. 2010); it wears on
+# her focus more than she notices (Van Dongen et al. 2003). The deep of her night: her clock below this (for
+# a peak at 16, from about midnight to six)
+DEEP_NIGHT = -0.5
+DEBT_SCALE = 8 * HOUR  # of debt: most of what it can do to her
+DEBT_SHIFT = 0.05  # how far a full debt moves both thresholds down: she falls asleep sooner and sleeps longer
 RECOVERY = 40 * MINUTE  # energy back at rest (longer under stress)
 EFFORT_TOKENS = 300_000  # what spends all her energy: hours of hard work (about 300 tool calls)
 STEP = 60.0  # seconds per step when catching up on time that passed
@@ -114,13 +137,25 @@ def _toward(value: float, target: float, dt: float, tau: float) -> float:
 
 
 def fatigue(levels: Dict[str, float]) -> float:
-    """How tired a body with these levels is, 0..1: sleep pressure and spent energy."""
-    return _clip(0.65 * max(0.0, levels["adenosine"] - 0.3) / 0.7 + 0.55 * (1 - levels["energy"]))
+    """How tired a body with these levels looks, 0..1, from its levels alone: sleep pressure and spent energy
+    (``Body.fatigue`` reads pressure against her clock, grogginess and debt too)."""
+    return _clip(0.65 * max(0.0, levels["adenosine"] - 0.35) / 0.35 + 0.55 * (1 - levels["energy"]))
 
 
 def circadian(hour: float, peak: float) -> float:
     """Her alertness rhythm: 1 at ``peak`` (hours), -1 twelve hours later."""
     return math.cos(2 * math.pi * (hour - peak) / 24.0)
+
+
+def clock(hour: float, peak: float) -> float:
+    """Her clock's alerting signal, what moves her sleep thresholds: the daily rhythm, with a dip two hours
+    before her peak and a lift four hours after it (for a peak at 16: sleepier at 14:00 and 02:00, hardest to
+    fall asleep around 20:00)."""
+    return circadian(hour, peak) - DIP * math.cos(4 * math.pi * (hour - peak + 2.0) / 24.0)
+
+
+REST = {**{name: level.baseline for name, level in CHEMICALS.items()}, **SET_POINTS, "adenosine": LOWER,
+        "energy": 1.0, "bond": 0.5, "grievance": 0.0, "reward_rate": 0.0}  # each level as it is at rest
 
 
 @dataclass
@@ -131,6 +166,13 @@ class Body:
     asleep: bool = False
     peak: float = 16.0  # the hour of her alertness peak: moves toward when the user is around (learn_rhythm)
     at: float = 0.0  # the time the levels are of
+    slept_at: float = 0.0  # when this sleep began (asleep), or the last one
+    settling_until: float = 0.0  # drifting off: asleep from then on (0: not)
+    stirred_until: float = 0.0  # awake for a moment in the night, and back to sleep (not remembered)
+    awakenings: int = 0  # brief ones, this sleep
+    last_sleep: Dict[str, float] = field(default_factory=dict)  # the last whole sleep: from, to, awakenings
+    inertia: float = 0.0  # grogginess after waking, 0..1
+    debt: float = 0.0  # hours of sleep owed
 
     def __post_init__(self):
         self._rng = random.Random(self.temperament.seed * 7919 + int(self.at))
@@ -144,8 +186,70 @@ class Body:
         """How far a need is below its set point, 0..1."""
         return max(0.0, SET_POINTS[need] - self.levels[need]) / SET_POINTS[need]
 
-    def fatigue(self) -> float:
-        return fatigue(self.levels)
+    def fatigue(self, now: Optional[float] = None) -> float:
+        """How tired she is, 0..1: how near sleep her pressure is for this time of day, spent energy,
+        grogginess and what she owes."""
+        return _clip(0.55 * max(0.0, self.sleepiness(now) - 0.3) / 0.7 + 0.55 * (1 - self.levels["energy"])
+                     + 0.5 * self.inertia + 0.15 * self.owed())
+
+    def owed(self) -> float:
+        """What her sleep debt does to her, 0..1."""
+        return 1.0 - math.exp(-max(0.0, self.debt) * HOUR / DEBT_SCALE)
+
+    def thresholds(self, now: Optional[float] = None) -> Tuple[float, float]:
+        """The sleep pressure she falls asleep at now, and the one she wakes at (her clock moves both; debt
+        lowers both)."""
+        moved = SWING * clock(self.hour(now), self.peak) - DEBT_SHIFT * self.owed()
+        return UPPER + moved, LOWER + moved
+
+    def sleepiness(self, now: Optional[float] = None) -> float:
+        """How near sleep her pressure is for this time of day: 0 slept out, 1 ready to sleep, more past it."""
+        high, low = self.thresholds(now)
+        return max(0.0, (self.levels["adenosine"] - low) / (high - low))
+
+    def readiness(self, now: Optional[float] = None) -> float:
+        """How ready for sleep she is: her sleepiness, and in the deep of her night, with sleep left to get,
+        the night itself (woken at four she goes back to sleep; the two-process thresholds alone kept her up
+        until noon)."""
+        _high, low = self.thresholds(now)
+        night = 1.2 * max(0.0, -clock(self.hour(now), self.peak) - 0.2)
+        return self.sleepiness(now) + (night if self.levels["adenosine"] > low + 0.03 else 0.0)
+
+    @property
+    def settling(self) -> bool:
+        return bool(self.settling_until) and not self.asleep
+
+    def stage(self, now: Optional[float] = None) -> str:
+        """Where in her sleep she is: awake, W (a moment awake in the night), N1, N2, N3 (deep) or REM. A
+        cycle of about 90 min: light, deep for as long as much pressure is left (deep sleep tracks it), light
+        again, then REM, longer each cycle (Carskadon & Dement)."""
+        now = self.at if now is None else now
+        if not self.asleep:
+            return "awake"
+        if now < self.stirred_until:
+            return "W"
+        length = self.cycle_length()
+        cycle, share = divmod(max(0.0, now - self.slept_at), length)
+        share /= length
+        onset = 0.08 if cycle == 0 else 0.0
+        deep = 0.55 * _clip((self.levels["adenosine"] - 0.3) / 0.3)
+        rem = min(0.45, 0.12 + 0.09 * cycle)
+        if share < onset:
+            return "N1"
+        if share < onset + 0.12:
+            return "N2"
+        if share < onset + 0.12 + deep:
+            return "N3"
+        return "REM" if share >= 1.0 - rem else "N2"
+
+    def cycle_length(self) -> float:
+        """This sleep's cycle, 80 to 110 min: one night's differs from another's."""
+        return CYCLE * (0.9 + 0.33 * random.Random(int(self.slept_at)).random())
+
+    def keyed_up(self) -> float:
+        """How keyed up she is for falling asleep, 0..: stress and arousal keep sleep off (hyperarousal)."""
+        x = self.levels
+        return _clip((x["cortisol"] - 0.35) / 0.4) + _clip((x["noradrenaline"] - 0.5) / 0.3)
 
     def hour(self, now: Optional[float] = None) -> float:
         moment = time.localtime(self.at if now is None else now)
@@ -155,31 +259,60 @@ class Body:
         """How much it is her night, 0..1 (her rhythm's trough is twelve hours after its peak)."""
         return _clip(-circadian(self.hour(now), self.peak))
 
-    def evening(self, now: Optional[float] = None) -> float:
-        """Her clock's alerting signal in the hours before her night, 0..1 (strongest four hours after her
-        peak, gone by midnight for a peak at 16): it holds sleep off as pressure builds, so she stays up
-        until night comes (the wake maintenance zone, Lavie 1986; Dijk & Czeisler 1994). Without it she
-        napped at seven in the evening whenever she had been up fourteen hours."""
-        return max(0.0, circadian(self.hour(now), self.peak + 4.0)) ** 3
-
-    def slept_out(self, now: Optional[float] = None) -> bool:
-        """Whether sleep has cleared enough pressure for her to wake by herself: nearly all of it in the deep
-        of her night, about a third less by day (a nap), and in between as her morning comes (the two-process
-        model's lower threshold, moved by the clock: Borbély 1982)."""
-        return self.levels["adenosine"] < 0.03 + 0.32 * (1.0 - self.night(now)) ** 2
-
     # ============== Time ==============
 
-    def advance(self, now: float, *, present: bool = False) -> None:
+    def advance(self, now: float, *, present: bool = False, alone: bool = False) -> None:
         """Live until ``now``: in steps, so a long gap (the brain was off) is lived through, not jumped.
-        ``present``: the user is at the computer (she misses them more slowly)."""
+        ``present``: the user is at the computer (she misses them more slowly). Her sleep runs by itself:
+        she drifts off when settling is done, stirs between cycles and wakes when slept out. ``alone``: her
+        mind is not there to choose (the brain was off, the computer asleep): she also goes to sleep when
+        she is ready to, as anyone left alone would."""
         if not self.at:
             self.at = now
             return
         while self.at < now - 1e-6:
             dt = min(STEP, now - self.at)
+            if alone and not self.asleep and not self.settling_until and self.readiness() >= 1.0:
+                self.settle()
             self._step(dt, present)
             self.at += dt
+            self._sleep_step(dt)
+
+    def _sleep_step(self, dt: float) -> None:
+        """Her sleep, as time passes: drifting off, the cycles, a moment awake between them, waking."""
+        now = self.at
+        if self.settling_until and not self.asleep:
+            if now >= self.settling_until:
+                self.asleep, self.slept_at, self.awakenings, self.settling_until = True, now, 0, 0.0
+                self.stirred_until = 0.0
+            return
+        if not self.asleep:
+            return
+        pressure, (_high, low) = self.levels["adenosine"], self.thresholds()
+        if pressure <= low - 0.03:  # well past slept out, wherever in a cycle
+            self.wake()
+            return
+        length = self.cycle_length()
+        if int((now - self.slept_at) // length) == int((now - dt - self.slept_at) // length):
+            if now < self.stirred_until and pressure <= low + 0.015:
+                self.wake(stage="W")  # slept out during a moment awake: she stays up
+            return
+        # a cycle ends: she wakes if slept out; by day a nap mostly ends here; at night she may stir a moment
+        # (more as the night goes on and pressure is gone, and more keyed up) and drift back
+        if pressure <= low + 0.015 or self._rng.random() < 0.6 * _clip(clock(self.hour(), self.peak)):
+            self.wake(stage="W")
+            return
+        if self._rng.random() < 0.12 + 0.3 * (1 - _clip(pressure / 0.4)) + 0.25 * min(1.0, self.keyed_up()):
+            self.stirred_until = now + self._rng.uniform(1.0, 4.0) * MINUTE
+            self.awakenings += 1
+
+    def settle(self, now: Optional[float] = None) -> None:
+        """She lies down to sleep: drifting off takes 10-20 min, longer keyed up, shorter the sleepier."""
+        now = self.at if now is None else now
+        if self.asleep or self.settling_until:
+            return
+        latency = LATENCY * (0.6 + 0.8 * self._rng.random()) * (1 + 2.5 * self.keyed_up())
+        self.settling_until = now + latency / (0.5 + min(1.5, self.sleepiness(now)))
 
     def targets(self) -> Dict[str, float]:
         """Where each chemical is heading now: what the other levels make of it (the couplings)."""
@@ -189,20 +322,26 @@ class Body:
         d = {need: self.deficit(need) for need in NEEDS}
         spent = 1.0 - x["energy"]
         sleep = self.asleep
+        # sleepy (pressure near what she falls asleep at, for the hour), groggy just after waking, and what she
+        # owes, which takes most from her focus (Van Dongen et al. 2003)
+        sleepy, groggy, owed = self.sleepiness(), self.inertia, self.owed()
         return {
-            "dopamine": 0.5 * t.vigor + 0.45 * x["reward_rate"] - 0.35 * max(0.0, x["adenosine"] - 0.5)
-            - 0.3 * max(0.0, x["cortisol"] - 0.35) - 0.25 * spent + 0.08 * c - (0.15 if sleep else 0.0),
+            "dopamine": 0.5 * t.vigor + 0.45 * x["reward_rate"] - 0.35 * max(0.0, sleepy - 0.6)
+            - 0.3 * max(0.0, x["cortisol"] - 0.35) - 0.25 * spent + 0.08 * c - (0.15 if sleep else 0.0)
+            - 0.15 * groggy - 0.1 * owed,
             "serotonin": 0.6 * t.patience + 0.25 * (x["oxytocin"] - 0.4) - 0.4 * max(0.0, x["cortisol"] - 0.3)
-            + 0.15 * (x["competence"] - 0.5) - 0.15 * d["social"] - 0.1 * x["grievance"] + (0.05 if sleep else 0.0),
+            + 0.15 * (x["competence"] - 0.5) - 0.15 * d["social"] - 0.1 * x["grievance"] + (0.05 if sleep else 0.0)
+            - 0.08 * owed,
             "noradrenaline": 0.35 + 0.12 * c + 0.35 * (x["cortisol"] - 0.25) * t.stress
-            + 0.25 * d["novelty"] * x["energy"] * t.curiosity - 0.45 * max(0.0, x["adenosine"] - 0.4)
-            - 0.25 * spent - (0.25 if sleep else 0.0),
-            "acetylcholine": 0.5 + 0.1 * c - 0.4 * max(0.0, x["adenosine"] - 0.4) - 0.3 * spent
-            + 0.2 * (x["noradrenaline"] - 0.35) - (0.2 if sleep else 0.0),
+            + 0.25 * d["novelty"] * x["energy"] * t.curiosity - 0.35 * max(0.0, sleepy - 0.35)
+            - 0.25 * spent - (0.25 if sleep else 0.0) - 0.2 * groggy,
+            "acetylcholine": 0.5 + 0.1 * c - 0.3 * max(0.0, sleepy - 0.35) - 0.3 * spent
+            + 0.2 * (x["noradrenaline"] - 0.35) - (0.2 if sleep else 0.0) - 0.35 * groggy - 0.2 * owed,
             "cortisol": 0.25 + 0.08 * morning + t.stress * (
                 0.35 * d["social"] * x["bond"] * t.sociability + 0.3 * d["competence"] + 0.2 * d["autonomy"] * t.autonomy
                 + 0.3 * spent ** 2 + 0.3 * x["grievance"] * t.temper)
-            - 0.3 * max(0.0, x["oxytocin"] - 0.4) - 0.15 * max(0.0, x["serotonin"] - 0.6) - (0.12 if sleep else 0.0),
+            - 0.3 * max(0.0, x["oxytocin"] - 0.4) - 0.15 * max(0.0, x["serotonin"] - 0.6) - (0.12 if sleep else 0.0)
+            + 0.06 * owed,
             "oxytocin": 0.4 + 0.3 * (x["bond"] - 0.5) * t.warmth - 0.2 * x["grievance"],
             "endorphin": 0.1 * t.playfulness,
             "reward": 0.0,
@@ -226,6 +365,27 @@ class Body:
                     found.append((name, output, round(weight, 3)))
         return found
 
+    def effects(self, outputs: Callable[[], Dict[str, float]], floor: float = 0.005) -> List[Tuple[str, str, float]]:
+        """What each level does now: (level, output, effect), how far ``outputs`` is from where it would be
+        with that level at rest (``REST``). ``influence`` says how much a level could move an output; this
+        says how much it does: a hurt at 0 could raise stress a lot and raises it by nothing (the user, on
+        the brain panel: "why hurt is zero but it says it affects stress")."""
+        base, found = outputs(), []
+        for name, saved in list(self.levels.items()):
+            rest = REST.get(name)
+            if rest is None or abs(saved - rest) < 1e-9:
+                continue
+            self.levels[name] = rest
+            try:
+                then = outputs()
+            finally:
+                self.levels[name] = saved
+            for output, value in base.items():
+                effect = value - then.get(output, value)
+                if output != name and abs(effect) >= floor:
+                    found.append((name, output, round(effect, 3)))
+        return found
+
     def _step(self, dt: float, present: bool) -> None:
         t, x = self.temperament, self.levels
         sleep = self.asleep
@@ -236,14 +396,23 @@ class Body:
                 value += self._rng.gauss(0.0, level.noise * t.volatility * math.sqrt(dt / HOUR))
             x[name] = _clip(value, level.low, level.high)
         x["reward_rate"] = _toward(x["reward_rate"], x["reward"], dt, HOUR)
+        now_clock = clock(self.hour(), self.peak)
+        if sleep and self.at >= self.stirred_until:
+            x["adenosine"] = _toward(x["adenosine"], 0.0, dt, CLEARS)
+            if self.debt and now_clock >= DEEP_NIGHT:  # sleep outside the deep of her night pays it back
+                self.debt = max(0.0, self.debt - dt / HOUR)
+        else:  # awake, or a moment awake in the night
+            x["adenosine"] = _toward(x["adenosine"], 1.0, dt, RISES)
+            if not sleep and now_clock < DEEP_NIGHT and x["adenosine"] > self.thresholds()[1] + 0.03:
+                self.debt += dt / HOUR  # up in the deep of her night, with sleep left to get
         if sleep:
-            x["adenosine"] = _toward(x["adenosine"], 0.0, dt, SLEEP_CLEARS)
             x["energy"] = _toward(x["energy"], 1.0, dt, 50 * MINUTE)
             x["grievance"] = _toward(x["grievance"], 0.0, dt, DAY)
         else:
-            x["adenosine"] = _clip(x["adenosine"] + dt / AWAKE_DAY)
             x["energy"] = _toward(x["energy"], 1.0, dt, RECOVERY * (1 + x["cortisol"]) / t.stamina)
             x["grievance"] = _toward(x["grievance"], 0.0, dt, 2 * DAY)
+            # grogginess fades, slower when she owes sleep (McHill et al. 2019)
+            self.inertia = _toward(self.inertia, 0.0, dt, INERTIA_FADES * (1 + self.owed()))
         missing = 8 * HOUR / t.sociability * (2.0 if present else 1.0) * (1.5 if sleep else 1.0)
         x["social"] = _toward(x["social"], 0.0, dt, missing)
         x["novelty"] = _toward(x["novelty"], 0.2, dt, 4 * HOUR / t.curiosity * (3.0 if sleep else 1.0))
@@ -297,23 +466,52 @@ class Body:
         self.peak = (self.peak + min(1.0, min(max(0.0, seen_for), 30 * MINUTE) / ENTRAINS) * delta) % 24.0
 
     def fall_asleep(self) -> None:
-        self.asleep = True
+        """Asleep at once (settle: drifting off first)."""
+        if not self.asleep:
+            self.asleep, self.slept_at, self.awakenings = True, self.at, 0
+            self.settling_until = self.stirred_until = 0.0
 
-    def wake(self, startled: bool = False) -> None:
-        """Awake; woken by something before her sleep was done, she is groggy and a bit irritable."""
+    def wake(self, woken: bool = False, stage: Optional[str] = None) -> None:
+        """Awake, as groggy as the stage she wakes from, the pressure left and the hour make her (deep sleep
+        in the night, after too little, worst; at the end of a cycle, slept out, hardly). ``woken``: by
+        something, not by herself: a start. Drifting off, she is simply up again."""
+        if self.settling_until and not self.asleep:
+            self.settling_until = 0.0
+            return
         if not self.asleep:
             return
-        self.asleep = False
-        if startled:
-            pressure = self.levels["adenosine"]
-            self.apply({"noradrenaline": 0.15, "cortisol": 0.1 * pressure, "energy": -0.2 * pressure})
+        stage = stage or self.stage()
+        groggy = STAGE_INERTIA.get(stage, 0.3) * min(1.2, 0.5 + self.levels["adenosine"]) \
+            * (0.7 + 0.5 * self.night()) * (1 + 0.5 * self.owed())
+        self.inertia = _clip(max(self.inertia, groggy))
+        self.last_sleep = {"from": self.slept_at, "to": self.at, "awakenings": self.awakenings}
+        self.asleep, self.stirred_until = False, 0.0
+        if woken:
+            self.apply({"noradrenaline": 0.12, "cortisol": 0.05 * self.inertia})
+
+    def sleep_state(self, now: Optional[float] = None) -> dict:
+        """Her sleep as it is: for a panel, and for her."""
+        now = self.at if now is None else now
+        high, low = self.thresholds(now)
+        state = {"asleep": self.asleep, "settling": self.settling, "stage": self.stage(now),
+                 "pressure": round(self.levels["adenosine"], 3), "sleepiness": round(self.sleepiness(now), 3),
+                 "falls_asleep_at": round(high, 3), "wakes_at": round(low, 3), "inertia": round(self.inertia, 3),
+                 "debt": round(self.debt, 2), "last": dict(self.last_sleep)}
+        if self.asleep:
+            state.update(since=self.slept_at, cycle=int((now - self.slept_at) // self.cycle_length()) + 1,
+                         awakenings=self.awakenings)
+        elif self.settling:
+            state["until"] = self.settling_until
+        return state
 
     # ============== Keeping ==============
 
     def to_dict(self) -> dict:
         return {"temperament": self.temperament.to_dict(), "levels": dict(self.levels),
                 "sensitivity": dict(self.sensitivity), "asleep": self.asleep, "peak": self.peak, "at": self.at,
-                "entrained": True}
+                "entrained": True, "sleep": {"model": 2, "slept_at": self.slept_at, "settling_until": self.settling_until,
+                                             "stirred_until": self.stirred_until, "awakenings": self.awakenings,
+                                             "last": self.last_sleep, "inertia": self.inertia, "debt": self.debt}}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Body":
@@ -322,5 +520,11 @@ class Body:
                        **{k: float(v) for k, v in (data.get("sensitivity") or {}).items() if k in SENSITIVE}}
         # a clock from before 0.24.1 was moved by every message, hours in a day: it starts over at the usual peak
         peak = float(data.get("peak", 16.0)) if data.get("entrained") else 16.0
-        return cls(Temperament.from_dict(data.get("temperament") or {}), levels, sensitivity,
-                   bool(data.get("asleep")), peak, float(data.get("at", 0.0)))
+        sleep, at, asleep = data.get("sleep") or {}, float(data.get("at", 0.0)), bool(data.get("asleep"))
+        if sleep.get("model") != 2 and "levels" in data:
+            # pressure from before 0.27 ran 0 (slept out) to about 0.9 (a long day): the same span of process S
+            levels["adenosine"] = _clip(0.12 + 0.6 * levels["adenosine"])
+        return cls(Temperament.from_dict(data.get("temperament") or {}), levels, sensitivity, asleep, peak, at,
+                   float(sleep.get("slept_at") or (at if asleep else 0.0)), float(sleep.get("settling_until") or 0.0),
+                   float(sleep.get("stirred_until") or 0.0), int(sleep.get("awakenings") or 0),
+                   dict(sleep.get("last") or {}), float(sleep.get("inertia") or 0.0), float(sleep.get("debt") or 0.0))

@@ -9,7 +9,6 @@ import time
 import pytest
 from conftest import turn, wait_for
 
-from sentientmilk_framework.mind.life import SLEPT_IF_OFF
 from sentientmilk_framework.testing import tool_call
 
 DECLINE = '[0.5, 0.5, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0]]'
@@ -400,13 +399,18 @@ def test_sleep_goes_over_the_day_and_rewrites_who_she_has_become(brain):
     assert "## WHO YOU HAVE BECOME\nYou are someone who loves fixing" in mind.section()
 
 
-def test_a_long_time_away_she_has_slept_through_and_goes_over_it_when_she_can(brain):
+def test_a_long_time_away_she_lived_by_her_body_and_goes_over_the_night_when_she_can(brain):
     mind = mind_on(brain)
+    now = time.time()
     with mind._lock:
-        mind.body.at -= SLEPT_IF_OFF + 3600
-        mind.body.levels["adenosine"] = 0.9
-        mind._live_until(time.time())
-    assert mind.self["consolidate"] and mind.body["adenosine"] < 0.3 and not mind.body.asleep
+        mind.body.peak = (mind.body.hour(now - 5 * 3600) - 12) % 24  # the brain was off over her night
+        mind.body.at, mind.body.asleep = now - 11 * 3600, False
+        mind.body.levels["adenosine"] = 0.62
+        mind.self["slept"] = 0.0
+        mind._live_until(now)
+    slept = mind.body.last_sleep
+    assert slept and slept["to"] - slept["from"] > 5 * 3600 and not mind.body.asleep  # she slept, and woke
+    assert mind.self["consolidate"] and mind.body["adenosine"] < 0.3
 
 
 def test_her_face_for_an_app_is_one_of_its_own_expressions(brain):
@@ -452,7 +456,7 @@ def test_what_wins_her_attention_comes_from_how_she_is(brain, monkeypatch):
     monkeypatch.setattr(mind.brain.runs, "busy", lambda: True)
     assert "wonder" not in winners(energy=1.0)  # and a mind at work does not wander
     monkeypatch.undo()
-    mind.body.peak = (mind.body.hour(now) + 12) % 24  # it is her night
+    mind.body.peak = (mind.body.hour(now) - 6) % 24  # her bedtime: a day's pressure has her ready to sleep
     assert winners(adenosine=0.7, energy=0.3).count("sleep") <= 2  # but they are talking with her: she stays up
     mind.self["contact"]["at"] = now - 20 * 60  # at the computer, not talking for a while: she sleeps
     assert winners(adenosine=0.7, energy=0.3).count("sleep") >= 95
