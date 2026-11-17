@@ -763,10 +763,10 @@ class Store:
 
     # ============== Journal (shared by every app) ==============
 
-    def add_note(self, app: str, session: str, note: str) -> int:
+    def add_note(self, app: str, session: str, note: str, at: Optional[float] = None) -> int:
         with self._db() as db:
             note_id = db.execute("INSERT INTO journal(at, app, session, note) VALUES (?, ?, ?, ?)",
-                                 (time.time(), app, session, note)).lastrowid
+                                 (time.time() if at is None else at, app, session, note)).lastrowid
             db.execute("DELETE FROM journal WHERE id NOT IN "
                        "(SELECT id FROM journal ORDER BY at DESC, id DESC LIMIT ?)", (JOURNAL_NOTES,))
             return note_id

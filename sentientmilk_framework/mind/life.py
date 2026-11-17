@@ -55,9 +55,11 @@ she likes is used: a liked subject is a reward in itself (``_met``), her note sa
 thoughts and her sleep know it.
 """
 
+import json
 import logging
 import math
 import random
+import re
 import secrets
 import threading
 import time
@@ -104,6 +106,9 @@ RESTING = 0.5  # her mind's pull to wander when nothing is asked of it (a though
 REFLEX, CLEAR_AGAIN = 0.5, 0.6
 TOLD_AGAIN = 0.4  # how much more a channel must stand out than when she last heard of it, to hear of it again
 THOUGHT_CHARS = 400  # of a memory or a thought, in what she is told of it
+GIST_CHARS = 240  # of something she knows, as it comes to mind
+GIST = 0.35  # how much the gist of a stretch of a conversation matters to memory, at least: it is kept
+LOGIC = 1  # the logic her saved state follows (_bring_up_to_date sets right what an older one left)
 # shortcut: her quick reading is shown her 24 most met subjects, any other still counts when it is named again;
 # show them by likeness to the message once she knows hundreds
 KNOWN_SUBJECTS = 24
@@ -134,6 +139,11 @@ def _tone(valence: float) -> str:
 def _about(leanings) -> list:
     """What her likes or dislikes are about, each once ("tag:code" and "act:do|tag:code" are both code)."""
     return list(dict.fromkeys(name.split("tag:")[-1] for name, _ in leanings))
+
+
+def _said(text: str) -> str:
+    """An exchange's words with each part ending once ("for you.. I said" read as a stutter in her memories)."""
+    return re.sub(r"([.!?])\.(?=\s|$)", r"\1", text)
 
 
 def _chat(app: str, session: str) -> str:
@@ -186,6 +196,10 @@ class Mind:
     def start(self) -> None:
         with self._lock:
             self._live_until(time.time())
+            try:
+                self._bring_up_to_date()
+            except Exception:
+                logger.exception("Could not set right what an older mind kept")
         self._thread = threading.Thread(target=self._live, name="mind", daemon=True)
         self._thread.start()
 
@@ -874,6 +888,7 @@ class Mind:
                     + (f". As I worked they said: {'; '.join(heard)}" if heard else "")
                     + (f". I said: {reply}" if reply else "") + (". They stopped me" if stopped else "")
                     + (f". {errors} of my {calls} tool calls failed" if errors else "") + ".")
+            text = _said(text)
             valence = max(-1.0, min(1.0, 0.5 * felt.valence + 0.5 * felt_outcome))
             episode = self.memory.add("exchange", text, valence, felt.arousal,
                                       describe_salience(abs(surprise), felt.arousal, decision.get("stakes", 0.5)),
@@ -965,8 +980,10 @@ class Mind:
             memories = [line(e, now)[:THOUGHT_CHARS] for e in came]
             liked, disliked = (", ".join(_about(found)) for found in self.values.leanings())
         persona = self._persona(contact["app"], contact["session"]) if contact else ""
+        known = self._something_known() if kind == "wonder" else ""  # what she knows comes up as her mind wanders
         asked = (f"{self._who(persona)}\n\nIt is {time.strftime('%A %H:%M')}. How they feel: {felt.words(feelings)}\n"
                  f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
+                 + (f"Something they know comes to mind: {known}\n" if known else "")
                  + (f"What they've come to like: {liked}.\n" if liked else "")
                  + (f"What they've come to dislike: {disliked}.\n" if disliked else ""))
         answer, usage = self._ask(prompts.THINK, asked)
@@ -1034,7 +1051,11 @@ class Mind:
             listed = "\n".join(f"{index + 1}. {line(m, now)} (it felt {_tone(m['valence'])})"
                                for index, m in enumerate(moments))
             liked, disliked = ", ".join(_about(likes)) or "nothing yet", ", ".join(_about(dislikes)) or "nothing yet"
-            asked = (f"Who they are:\n{persona[:6000]}\n\nThe story they tell about themselves:\n"
+            from ..context import render_memory  # what she knows and keeps: her story is of all of her life
+            kept = render_memory(self.brain.store.memory_entries(), contact["app"] if contact else "")
+            asked = (f"Who they are:\n{persona[:6000]}\n\n"
+                     + (f"What they know and keep (their lasting memory):\n{kept}\n\n" if kept else "")
+                     + "The story they tell about themselves:\n"
                      f"{self.self['story'] or '(none yet: they are new to this life)'}\n\n"
                      f"What they've come to like: {liked}. What they've come to dislike: {disliked}.\n\n"
                      f"The moments:\n{listed}")
@@ -1072,6 +1093,83 @@ class Mind:
                     self.self[key] = {**found, "session": "main"} if key == "contact" else None
 
     # ============== For apps and the panel ==============
+
+    def _bring_up_to_date(self) -> None:
+        """What she kept under an older logic, set right once. Until 0.23 a chat was decided like a request,
+        one of a few scripted acts picked: her memories of those chats say "I talked it over (keep it light,
+        joke about the dead watcher)", her values learned "doing it" and "saying no" to a hello, and a chat
+        could leave a concern or wait to teach that. A chat is what was said (0.23): those clauses go from
+        her memories, what only those acts taught goes from her values, and what waits on them is let go."""
+        if self.self.get("logic", 0) >= LOGIC:
+            return
+        stale, kept = [], set()
+        for run in self.brain.store.runs(kind="turn", limit=-1):
+            decision = (run.get("options") or {}).get("mind")
+            if not decision:
+                continue
+            if "gated" in decision or "intent:request" in decision.get("features", []):
+                kept.update(decision.get("features", []))  # decided as she decides now
+            else:
+                stale.append((run, decision))
+        for run, decision in stale:
+            act, what = decision.get("act"), decision.get("what") or ""
+            if act not in VERBS:
+                continue
+            said = " ".join(str(decision.get("said") or "").split())
+            did = " ".join(f" I {VERBS[act]}{f' ({what})' if what else ''}".split())
+            for episode in self.memory.lived(run["app"], run["session"], decision["at"], decision["at"] + DAY):
+                if episode["text"].startswith(f"The user said: {said} {did}"):
+                    self.memory.rewrite(episode["id"], _said(f"The user said: {said}"
+                                                             + episode["text"][len(f"The user said: {said} {did}"):]))
+                    break
+        for episode in self.memory.recent(-1, kinds=("exchange",)):  # each part ending once (_said)
+            self.memory.rewrite(episode["id"], _said(episode["text"]))
+        for feature in {f for _, decision in stale if decision.get("act") != "talk"
+                        for f in decision.get("features", []) if f.startswith(f"act:{decision.get('act')}|")} - kept:
+            self.values.weights.pop(feature, None)
+            self.values.uses.pop(feature, None)
+        times = {decision["at"] for _, decision in stale if decision.get("act") != "talk"}
+        self.self["concerns"] = [c for c in self.self["concerns"] if c.get("at") not in times]
+        self.self["waiting"] = {chat: kept_ for chat, kept_ in self.self["waiting"].items() if kept_.get("at") not in times}
+        self.self["logic"] = LOGIC
+        self.save()
+
+    def remember(self, app: str, session: str, note: str, start: float, end: float) -> None:
+        """A stretch of a conversation in her own words (her journal note), kept as an event of her life:
+        with the feeling of what she lived in it, where her mind was there for it, else none left (an old
+        memory keeps what happened, and its feeling fades). The gist outlives the details: they fade and go,
+        it is kept (salience at least GIST; Memory.forget_faint takes only what mattered less than 0.3)."""
+        if not self.active() or not note:
+            return
+        with self._lock:
+            lived = self.memory.lived(app, session, start, end + MINUTE)  # her last answer is kept just after it
+            valence = sum(e["valence"] for e in lived) / len(lived) if lived else 0.0
+            arousal = sum(e["arousal"] for e in lived) / len(lived) if lived else 0.2
+            self.memory.add("event", note, valence, arousal, max([GIST] + [e["salience"] for e in lived]),
+                            app=app, session=session, at=end)
+
+    def look_back(self, query: str, count: int = 8) -> list:
+        """What comes back as she searches her memory for ``query`` (journal_search): her own memories of what
+        happened, of any time, that have its words; searching for them makes them stronger, as recalling does."""
+        if not self.active() or not query.strip():
+            return []
+        with self._lock:
+            now = time.time()
+            found = self.memory.recall(query, core(self.body.levels)[0], now, count=count)
+        return [line(e, now) for e in found if e["relevance"]]
+
+    def _something_known(self) -> str:
+        """Something she knows (her lasting memory) that comes to mind as her mind wanders, what mattered most
+        recently the most readily: a wandering mind goes to what one is busy with (Klinger 2009)."""
+        entries = self.brain.store.memory_entries()
+        if not entries:
+            return ""
+        now = time.time()
+        entry = self.rng.choices(entries, [1.0 / (1.0 + max(0.0, now - (e["updated"] or 0.0)) / DAY) for e in entries])[0]
+        value = " ".join((entry["value"] if isinstance(entry["value"], str)
+                          else json.dumps(entry["value"], ensure_ascii=False)).split()).strip('"')
+        gist = re.split(r"(?<=[.!?])\s", value, maxsplit=1)[0][:GIST_CHARS]  # what comes back is its gist
+        return f"{entry['key'].replace('_', ' ')}: {gist}"
 
     def section(self) -> str:
         """Her inner life in the system prompt (empty when the mind is off)."""

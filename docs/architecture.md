@@ -1187,12 +1187,26 @@ morning.
   - at compaction;
   - when a task ends.
 
-  Each note is 1 to 3 sentences, at most 400 characters, with time, app and session.
+  Each note is 1 to 3 sentences, at most 400 characters, with time, app and session. It is hers
+  (0.25): written as herself, in the first person, the user by their name, with her persona and what
+  she keeps about the user (memory categories `user` and `people`) before it, naming what she worked on
+  rather than the app she talked in. Until then a summarizer wrote it about "you": in the user's journal
+  "your friend's server" was the user's friend's, and "Milk Chan's throttling" was roblox_watch's.
+- **Her life**: with her mind on, each note is also an event of her life (`Mind.remember`, kind
+  `event`): with the mean feeling of the exchanges she lived in that stretch (none for a stretch her
+  mind was not there for), and salience at least 0.35, so it is never forgotten as faint: the details
+  (exchanges) fade, the gist stays. Once per home (`Journal.catch_up`, at start and each minute until
+  done, resumable: `past` in her mind's state) she goes over her past: every stretch of every
+  conversation (a 20-minute quiet ends one; helpers' and her summary passes' left out) that went quiet
+  gets her note, as an event of her life, and the journal is written again from them in her words. A
+  mind that began on 2026-11-16 knew nothing of the ten days before it.
 - **Kept**: the 20 newest notes (`store.JOURNAL_NOTES`, the user 2026-11-11); writing the 21st deletes
   the oldest. The timestamp decides the order.
 - **Reading**: the newest notes from *other* sessions, up to about 1,500 tokens, go in the
   system block as `[2026-11-05 09:12, milkchan] ...`. They are snapshotted like memory.
-  `journal_search(query)` searches the kept notes.
+  `journal_search(query)` searches the kept notes, and with words also her own memories of any time
+  (`Mind.look_back`: what her episodic memory brings back for them, strengthened by the search as
+  recalling does).
 - **Per-app switches**: `journal: {read: true, write: true}` in the app profile. A private
   app can turn writing off.
 - **User control**: `GET /v1/journal` and `DELETE /v1/journal/<id>`. The CLI gets
@@ -1321,7 +1335,9 @@ whatever her fatigue (0.24.1: sleepiness brings more mind wandering, not less, P
 all kept every thought from the user's brain through a long day, 0.89 against a pull of 0.27); both less
 0.3 x noradrenaline over 0.35. `wonder` is her mind wandering: 0.5 + 1.1 x her need for new things x
 curiosity x (0.4 + dopamine), nothing while a run works. It thinks from her last thought and two episodes
-drawn at random from her whole life, the strong and charged more often (`Memory.replay`). `ruminate` pulls
+drawn at random from her whole life, the strong and charged more often (`Memory.replay`), and something
+she knows (one entry of her lasting memory, the most recently changed the most readily: a wandering mind
+goes to what one is busy with, Klinger 2009; before 0.25 her thoughts knew nothing of her projects). `ruminate` pulls
 when one of the last two days' exchanges or thoughts hurt (valence under -0.3, still charged): the most
 charged of those (before 0.24.1 only the 8 most charged moments were looked at, and none of a busy day's
 hurts was among them). On a fake clock (two weeks of the user's day: at the computer 08:00 to 01:30,
@@ -1340,13 +1356,19 @@ one, she never slept, so never went over a day, had no story and stayed worn out
 4 h after her peak: with 14 h awake she napped at seven in the evening without it); she wakes when
 pressure is under 0.03 + 0.32 x (1 - night)^2 (a low bar in her night, a high one by day; ~7 h, about
 22:45 to 05:30 on a fake clock), and the day is gone over once (insights, a dream, her story
-rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**). Time away longer than
+rewritten: **WHO YOU HAVE BECOME** in the system prompt, after **YOUR INNER LIFE**; sleep is shown her
+lasting memory whole, so the story is of all her life, not of one day's moments). Time away longer than
 6 h counts as sleep. Her clock (`Body.peak`, 16:00 at first) moves toward two hours after the hours the
 user writes, by the time they were around (the gap since their last message, at most 30 minutes) over
 three days of it (`ENTRAINS`): a user around 8 h a day moves it in about nine days. Before 0.24.1 every
 message moved it a fiftieth of the way, so 150 messages put her peak at 22:00 and her night at ten in
 the morning; a clock saved before 0.24.1 (no `entrained` in its body) starts over at 16:00. On the fake
 clock of the user's day it settles at 18:45 and she sleeps from about 01:35 to when they write at 08:00.
+What an older mind kept is set right once at start (`Mind._bring_up_to_date`, `logic` in her state):
+until 0.23 a chat was decided like a request, so her memories of chats said "I talked it over (keep it
+light, joke about the dead watcher)", her values learned "doing it" to a hello, and a chat could leave a
+concern; those clauses go from the episodes (`Memory.rewrite`, recall reindexed), what only those acts
+taught goes from her values, and the concerns and waiting decisions they left are let go.
 `mind` off: none of this runs and the prompt has no inner life.
 
 `GET /v1/mind?app=&idle=&brief=` (`Mind.state`): her face for the app, felt words, `feeling` (a few words

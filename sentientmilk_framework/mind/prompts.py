@@ -70,14 +70,15 @@ something up themselves. do: they feel like doing what they put off. rest: they'
 the thought passes."""
 
 SLEEP = """[mind:sleep]
-You are someone's mind while they sleep. Below: who they are, the story they tell about themselves, and
-the moments of the day that stayed with them, the strongest first. Go over them as sleep does.
+You are someone's mind while they sleep. Below: who they are, what they know and keep, the story they tell
+about themselves, and the moments of the day that stayed with them, the strongest first. Go over them as
+sleep does.
 
 Answer with JSON only:
 {"insights": ["what they learned or understood, in their own words (one sentence each, 0 to 3)"],
 "story": "who they have become: the story they tell themselves about who they are, what they like and
 dislike, and the people in their life, in the second person ('You ...'), 4 to 8 sentences, carrying over
-what still holds from their old story and changed by today",
+what still holds from their old story and what they know, and changed by today",
 "dream": "a short dream, two to four sentences, made of the day's pieces, strange as dreams are"}"""
 
 INNER_LIFE = """## YOUR INNER LIFE

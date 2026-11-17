@@ -117,7 +117,7 @@ class FakeProvider:
             self.title_requests.append(payload)
             return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {
                 "choices": [{"message": {"role": "assistant", "content": self.title}}]})
-        if payload["messages"][0].get("content") == PROMPT:
+        if str(payload["messages"][0].get("content")).startswith(PROMPT):
             self.journal_requests.append(payload)
             return SimpleNamespace(raise_for_status=lambda: None, close=lambda: None, json=lambda: {
                 "choices": [{"message": {"role": "assistant", "content": self.journal_note}}]})

@@ -344,6 +344,34 @@ What it costs: a switch to reflex or back misses the provider's cache once (twic
 clock); a message sent while she works costs one more quick call; a note from her body mid-work comes
 only for a channel that newly stands out; the imagine answer is one word longer.
 
+### Her memory is one (0.25)
+
+The user (2026-11-17): "look at the memories, journal, and other persistent things ... up to date with
+current logic and used properly". Read first, from the real stores: the journal (14 notes) was a
+summarizer's, about "you" ("your friend's server" was the user's friend's); her mind's episodes began on
+11-16 and knew nothing of ten days before; her lasting memory (62 facts) reached her cortex only, never
+her wandering or her sleep; 31 memories of chats kept the scripted acts chats had before 0.23.
+
+| The brain | Here |
+|---|---|
+| What happened is kept as a gist that outlives its details; the details fade. | Each journal note is hers, in the first person, and an event of her life (`Mind.remember`, salience at least 0.35: never forgotten as faint), with the feeling of the exchanges she lived in it. |
+| Semantic memory comes up in a wandering mind, most what one is busy with (Klinger 2009). | A wandering thought is given one thing she knows, the most recently changed the most readily, as its gist (its first sentence). |
+| Sleep consolidates the day against what one knows. | Sleep is shown her lasting memory whole. |
+| Deliberate recall reaches further than what is at hand. | `journal_search` with words also brings back her own memories of any time (`Mind.look_back`). |
+
+Set right once: her past gone over (`Journal.catch_up`), the old chats' scripted clauses taken out of her
+memories, what only those acts taught taken out of her values, doubled stops ("for you.. I said") made one.
+
+Checked on a copy of the user's real brain (their model): 49 events of her life from 11-09 in 150 s, her
+own words naming Ilia and the right projects ("Ilia had me crack MDRG fully open ..."); all 29 scripted
+clauses gone; 8 weights only those acts taught gone. Sleep, the same night 3 times each: with her lasting
+memory about 7 true specifics a story and at most one slip; without it about 3, drifting into her
+persona's lore, with made-up facts ("you heard audio for the first time"). Kept.
+
+Measured and not built: her saved facts themselves are hers (the user: "Don't touch it, let it be"):
+stale ones (an 11-07 code map with old line numbers, roblox_watch tuning a later entry says is obsolete,
+the interpreter job twice) are left for her to set right.
+
 ## Left to the builder
 
 Exact gains and time constants (tuned by unit tests: a rested, attached being does an ordinary request at

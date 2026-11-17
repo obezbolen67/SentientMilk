@@ -199,6 +199,26 @@ class Memory:
                                     [at] + kinds + ([count] if count else [])).fetchall()
         return [dict(row) for row in rows]
 
+    def lived(self, app: str, session: str, start: float, end: float, kinds: Iterable[str] = ("exchange",)) -> List[dict]:
+        """What she lived in a session between ``start`` and ``end``."""
+        kinds = list(kinds)
+        with self._lock:
+            rows = self._db.execute(f"SELECT * FROM episodes WHERE app = ? AND session = ? AND at BETWEEN ? AND ? "
+                                    f"AND kind IN ({','.join('?' * len(kinds))})",
+                                    [app, session, start, end] + kinds).fetchall()
+        return [dict(row) for row in rows]
+
+    def rewrite(self, episode_id: int, text: str) -> None:
+        """An episode's words, set right (recall finds it by the new ones)."""
+        text = " ".join(str(text).split())[:1200]
+        with self._lock:
+            row = self._db.execute("SELECT text FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+            if row is None or row["text"] == text:
+                return
+            self._db.execute("INSERT INTO recall(recall, rowid, text) VALUES ('delete', ?, ?)", (episode_id, row["text"]))
+            self._db.execute("UPDATE episodes SET text = ? WHERE id = ?", (text, episode_id))
+            self._db.execute("INSERT INTO recall(rowid, text) VALUES (?, ?)", (episode_id, text))
+
     def recent(self, count: int = 10, kinds: Iterable[str] = ()) -> List[dict]:
         kinds = list(kinds)
         clause = (" WHERE kind IN (" + ",".join("?" * len(kinds)) + ")") if kinds else ""
