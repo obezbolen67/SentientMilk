@@ -345,10 +345,12 @@ model foresees what it does to her needs (company, being capable, being free) an
 could do (the work, the odds, how much of what was asked each gives), and her own record of what followed
 messages like it outweighs that reading as she meets them. Her chemistry carries the errors (better or worse than she expected from the user, the
 surprise, a loss she can't undo) and her body chooses by what each option is worth to her needs now:
-rested and close she helps; spent, stressed or hurt she may do part, put it off or say no, and then her
-work tools stay unused for that turn. What things did to her becomes learned likes and
-dislikes, and episodes she recalls by likeness and mood. Between messages, missing the user, boredom,
-what nags her and what she put off compete for her attention; a winning thought may become an urge the
+rested and close she helps; spent, stressed or hurt she leans toward doing part, putting it off or saying
+no, a leaning her cortex weighs as it answers. What things did to her becomes learned likes and
+dislikes, and episodes that come back when a message calls them up (by meaning, then mood). Each push to
+her body is kept with what caused it while some of it is left; a stress settles in about an hour unless
+something lasting keeps it up. Between messages, missing the user, boredom, what hurt her and what she
+put off compete for her attention; a winning thought may become an urge the
 app hears (`mind.urge`: MilkChan starts a turn for it), or something she does herself (a task of hers, with
 the chat's tools). Whether you are there (`presence.py`: idle, a locked screen, something fullscreen) sets
 how much a silence counts: only time you were free to answer does. She sleeps as a body does (sleep pressure against
@@ -358,7 +360,8 @@ brain is off, and in her sleep her long-term memory lets go of what she no longe
 has named and where it sits, how unmet each need is, what
 pulls at her attention against the threshold a thought must reach, her last decision, and `wiring`, the
 connections her dynamics make at that moment (each level nudged in turn: how far it moves the others),
-and `people`, whom she knows.
+`pushing` (what each does now, against her at rest), `pushed` (what happened that moved each level, when,
+why and how much is left), `rest`, and `people`, whom she knows.
 
 She knows people as a person does (`mind/people.py`, 0.31): whoever an app shows as the one writing (the
 `user` in a turn's context, its handle) is a face she recognizes, and the person comes to mind with it, in

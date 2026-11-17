@@ -22,9 +22,20 @@ def test_a_cue_brings_back_what_is_like_it(tmp_path):
     mind.add("exchange", "The user showed me their RimWorld colony and the raid that burned the farms",
              0.3, 0.6, 0.6, at=NOW - DAY)
     mind.add("exchange", "We talked about taxes and the deadline in April", -0.2, 0.4, 0.4, at=NOW - DAY)
-    found = mind.recall("how is the rimworld colony doing?", 0.0, NOW)
-    assert "RimWorld" in found[0]["text"]
-    assert all("taxes" not in episode["text"] for episode in found[:1])
+    found = embedded(mind, mind.embedder).recall("how is the rimworld colony doing?", 0.0, NOW)
+    assert [e["text"] for e in found] == ["The user showed me their RimWorld colony and the raid that burned the farms"]
+
+
+def test_only_what_the_cue_calls_up_comes_back(tmp_path):
+    """Her strongest memories came back with every message, related or not, each recall making them stronger
+    (a brooding thought of hers with 11 of 21 messages, the user's brain, 2026-11-17)."""
+    mind = memory(tmp_path)
+    mind.add("thought", "I keep thinking about their assignments", -0.6, 0.7, 0.9, at=NOW - 600)
+    mind.add("exchange", "My cat knocked the plant over", 0.2, 0.4, 0.3, at=NOW - DAY)
+    embedded(mind, mind.embedder)
+    for _ in range(5):
+        assert [e["text"] for e in mind.recall("the cat again", -0.6, NOW)] == ["My cat knocked the plant over"]
+    assert mind.recent(5, kinds=("thought",))[0]["recalls"] == 0  # never brought back, never made stronger
 
 
 def test_what_she_still_has_before_her_is_not_brought_back_and_a_resting_mind_replays_at_random(tmp_path):
@@ -43,8 +54,9 @@ def test_what_she_still_has_before_her_is_not_brought_back_and_a_resting_mind_re
 
 def test_a_mood_finds_memories_of_its_own_kind(tmp_path):
     mind = memory(tmp_path)
-    mind.add("exchange", "the user and I played chess, I won and they laughed", 0.8, 0.5, 0.5, at=NOW - DAY)
-    mind.add("exchange", "the user and I played chess, I lost and they mocked me", -0.8, 0.5, 0.5, at=NOW - DAY)
+    mind.add("exchange", "chess with the user: I won", 0.8, 0.5, 0.5, at=NOW - DAY)  # alike to the cue
+    mind.add("exchange", "chess with the user: I lost", -0.8, 0.5, 0.5, at=NOW - DAY)
+    embedded(mind, mind.embedder)
     sad = [mind.recall("chess", -0.9, NOW, count=1, strengthen=False)[0]["valence"] for _ in range(20)]
     glad = [mind.recall("chess", 0.9, NOW, count=1, strengthen=False)[0]["valence"] for _ in range(20)]
     assert sum(v < 0 for v in sad) >= 15 and sum(v > 0 for v in glad) >= 15
@@ -114,6 +126,9 @@ def test_a_mind_from_before_gains_what_followed_its_exchanges(tmp_path):
     mind.follow(mind.add("exchange", "hello there friend", 0.1, 0.2, 0.3, at=NOW), {"company": 0.5})
     embedded(mind, mind.embedder)
     assert mind.known("hello friend", before=NOW + 1)[1] == {"company": 0.5}
+    assert mind.recent(1)[0]["sting"] == 0.0  # and what hurt: nothing from before stings
+    mind.add("exchange", "they mocked me", -0.2, 0.5, 0.5, at=NOW, sting=-0.4)
+    assert mind.recent(1)[0]["sting"] == -0.4
 
 
 def test_her_own_state_is_kept_beside_her_memories(tmp_path):
@@ -153,13 +168,12 @@ def test_a_greeting_in_other_words_is_not_new_to_her(tmp_path):
     assert likeness > 0.5 and followed["social"] > 0.05 and evidence > 1.0
 
 
-def test_without_its_service_only_what_comes_unbidden_comes_back(tmp_path):
+def test_without_its_service_nothing_comes_back(tmp_path):
     from conftest import Meaning
     mind = memory(tmp_path)
     mind.add("exchange", "The user showed me their RimWorld colony", 0.3, 0.6, 0.6, at=NOW - DAY)
     embedded(mind, mind.embedder).embedder = Meaning(problem="the embeddings service failed: 503")
-    found = mind.recall("how is the rimworld colony doing?", 0.0, NOW)
-    assert found and not [e for e in found if e["relevance"]]  # her strongest, by nothing alike
+    assert mind.recall("how is the rimworld colony doing?", 0.0, NOW) == []  # she cannot tell what is alike
     assert mind.known("the rimworld colony", before=NOW) == (None, {}, 0.0)  # she cannot tell
 
 

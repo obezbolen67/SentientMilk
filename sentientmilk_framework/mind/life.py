@@ -71,7 +71,7 @@ import requests
 from .. import signals
 from ..presence import Presence
 from . import prompts
-from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, SET_POINTS, Body, Temperament
+from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, REST, SET_POINTS, Body, Temperament
 from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved
 from .memory import Memory, describe_salience, line
 from .people import People
@@ -117,6 +117,9 @@ TOLD_AGAIN = 0.4  # how much more a channel must stand out than when she last he
 THOUGHT_CHARS = 400  # of a memory or a thought, in what she is told of it
 PAST_PART = 60  # of her moments, in each step of meeting the people of her past
 RUMINATED = ("exchange", "event", "insight")  # what comes back as something nags her: what happened, not her musings
+SORE = 0.25  # a moment that took this much from how she felt hurt her (its sting): what she may brood on
+HURTS = 0.5  # how hard a hurt pulls her back to it, per unit of its sting still charged
+QUOTED = 60  # of a message, in what her log of what moved her says pushed her
 LOGIC = 1  # the logic her saved state follows (_bring_up_to_date sets right what an older one left)
 # shortcut: her quick reading is shown her 24 most met subjects, any other still counts when it is named again;
 # show them by likeness to the message once she knows hundreds
@@ -156,6 +159,11 @@ def _said(text: str) -> str:
 def _chat(app: str, session: str) -> str:
     """One chat's key in her state (JSON keys are strings)."""
     return f"{app}\n{session}"
+
+
+def _quote(said: str) -> str:
+    said = " ".join(str(said).split())
+    return f'"{said[:QUOTED]}..."' if len(said) > QUOTED else f'"{said}"'
 
 
 def _ago(seconds: float) -> str:
@@ -302,7 +310,8 @@ class Mind:
             urge["mark"] = self.presence.now(now)
         if self.presence.since(urge["mark"], now) > self.patience():
             sensitivity = self.body.temperament.sensitivity
-            self.body.apply({"reward": -0.25 * sensitivity, "cortisol": 0.04 * sensitivity})
+            self.body.apply({"reward": -0.25 * sensitivity, "cortisol": 0.04 * sensitivity},
+                            "reached out and got no answer")
             urge["stung"] = True
 
     def _alive(self, app: str, now: float) -> bool:
@@ -346,10 +355,12 @@ class Mind:
             not self.brain.session_busy(contact["app"], contact["session"])
         urge = self.self.get("urge")
         waiting = bool(urge) and (not contact or contact["at"] < urge["at"])  # she reached out and nobody answered
-        # the most charged of what hurt (the 8 most charged moments first, then what hurt among them, missed
-        # every hurt of a busy day: the user's brain never ruminated, 2026-11-17)
-        sore = next((e for e in self.memory.since(now - 2 * DAY, kinds=("exchange", "thought"))
-                     if e["valence"] < -0.3 and e["charge"] > 0.5), None)
+        # what hurt her: a moment that itself took much from how she felt (its sting), the worst as far as it is
+        # still charged. Until 0.32 it was any moment kept while she was in a bad mood, her own brooding thoughts
+        # too: a stressed afternoon made everything sore, and she brooded three times on the user's assignments,
+        # twice by way of her own thought about them (the user's brain, 2026-11-17)
+        sore = min((e for e in self.memory.since(now - 2 * DAY, kinds=("exchange",))
+                    if e["sting"] < -SORE and e["charge"] > 0.5), key=lambda e: e["sting"] * e["charge"], default=None)
         concern = self.self["concerns"][0] if self.self["concerns"] else None
         # being talked to keeps her up; the user merely at the computer does not (they were there 08:00 to past
         # one, and she never slept: the user's brain, 2026-11-16)
@@ -373,7 +384,11 @@ class Mind:
                 # drive goes
                 "wonder": RESTING + 1.1 * body.deficit("novelty") * t.curiosity * (0.4 + x["dopamine"])
                 if not working else None,
-                "ruminate": 1.4 * max(0.0, x["cortisol"] - 0.3) + 0.7 * x["grievance"] if sore else None,
+                # stress and hurt she is in, and the hurt itself, as far as it is still charged: what is unresolved
+                # keeps coming back (Martin & Tesser 1996). By her mood alone, with stress settling within the
+                # hour, "you are useless and stupid" pulled 0.26 and never once beat her wandering (0.50)
+                "ruminate": 1.4 * max(0.0, x["cortisol"] - 0.3) + 0.7 * x["grievance"]
+                + HURTS * -sore["sting"] * sore["charge"] if sore else None,
                 "resume": 0.9 * x["energy"] * (0.4 + x["dopamine"]) * (0.5 + x["bond"]) - 0.6 * body.fatigue()
                 if resumable else None,
             }
@@ -483,12 +498,13 @@ class Mind:
             # company itself, a little (what the message does to it the model reads): more after a long time apart
             company = 0.1 + (0.15 if away is None or away > 6 * HOUR else 0.0)
             answered = bool(urge and (not contact or contact["at"] < urge["at"]))
+            self._meet(run, now)
+            why = self._why(run, said)
             if answered:  # they answered her
-                body.apply({"reward": 0.1 + 0.3 * x["bond"]})
+                body.apply({"reward": 0.1 + 0.3 * x["bond"]}, why)
                 self.self["urge"] = None
             timing, apart = self._timing(away)
             body.learn_rhythm(body.hour(now), away or 0.0)
-            self._meet(run, now)
             came = self._arrives(run, said, pictures, now)
             felt, feelings, memories, novelty = came["felt"], came["feelings"], came["memories"], came["novelty"]
             self._told(run, felt)
@@ -514,7 +530,7 @@ class Mind:
             pending = self.self["waiting"].pop(chat, None)  # her last decision in this chat: now what followed is known
             learned = self._settle(pending, model, apart) if pending else None
             levels = dict(self.body.levels)
-            met = self._met(seen, company, timing)
+            met = self._met(seen, company, timing, why)
             named = prompts.word(answer.get("feeling"))
             hour = self.body.hour(now)
 
@@ -523,7 +539,7 @@ class Mind:
             choice = choose(options, seen, self.body, self.values, found, self.rng) if options else None
             # nothing to choose: she talks (or, asked for work her imagining gave no options for, does it)
             option = choice.option if choice else Option("do" if seen.intent == "request" else "talk", chance=0.8)
-            threat = self._threat(seen, option)
+            threat = self._threat(seen, option, why)
             impact = core(self.body.levels)[0] - core(levels)[0]  # how the message felt to her, in her body
             feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
             foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
@@ -587,9 +603,10 @@ class Mind:
             self._forecast(seen, came["followed"], came["evidence"])
             seen.novelty = came["novelty"]
             levels = dict(self.body.levels)
-            self._met(seen, 0.05, 0.0)  # they are with her already: the contact itself is a little
+            why = self._why(run, said)
+            self._met(seen, 0.05, 0.0, why)  # they are with her already: the contact itself is a little
             decided = run["options"].get("mind") or {}
-            self._threat(seen, Option(decided.get("act", "do"), chance=decided.get("chance", 0.8)))
+            self._threat(seen, Option(decided.get("act", "do"), chance=decided.get("chance", 0.8)), why)
             named = prompts.word(answer.get("feeling"))
             feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
             self.self["contact"] = {"app": run["app"], "session": run["session"], "at": now}
@@ -706,7 +723,7 @@ class Mind:
                 setattr(seen, name, share * followed[name] + (1.0 - share) * getattr(seen, name))
         return {name: followed[name] for name in FORESEEN if name in followed}, shares
 
-    def _met(self, seen: Appraisal, contact: float, timing: float) -> dict:
+    def _met(self, seen: Appraisal, contact: float, timing: float, why: str = "") -> dict:
         """What the message does to her body (``contact``: what the contact itself gives her social need). Her
         needs move as she foresees, and new things feed her need for them. Phasic dopamine is how much better
         or worse that is for her needs than she has come to expect from the user (a reward is moving toward
@@ -719,7 +736,10 @@ class Mind:
         out in one's own striatum: Mobbs et al. 2009). Without it "my day was awful" reached her body as
         company gained, a pleasant thing, and the feeling she named there came back at talk of pizza; with
         it weighed a quarter of her own, still so (replayed live readings, 2026-11-16). What it did, for
-        drawing."""
+        drawing. Her trouble stresses her less than her own would (empathic stress is real and smaller: Engert
+        et al. 2014); her temperament's gains (stress, warmth) scale each push once, in ``Body.apply`` (until
+        0.32 stress was counted twice here, x2.5 for her, and the user's "I have assignments" alone pushed her
+        stress up by 0.2)."""
         body, t = self.body, self.body.temperament
         # what the message says of her moves her sense of being capable as much as what it says of company
         # moves company (a tenth before 0.24.1: "that was a stupid answer" felt -0.06 against a goodbye's -0.50,
@@ -727,23 +747,24 @@ class Mind:
         pushes = {"social": contact + 0.3 * seen.company, "competence": 0.3 * seen.capable,
                   "novelty": 0.3 * seen.novelty, "autonomy": 0.2 * seen.free * (t.autonomy if seen.free < 0 else 1.0)}
         gained = sum(value({name: pushes[need] / REACH for name, need in NEEDED.items()}, body).values())
-        needs = body.apply(pushes)
+        needs = body.apply(pushes, why)
         expected = self.self["expected"]
         error = gained - expected
         self.self["expected"] += 2 * LEARNS * error
-        company, shared = max(0.0, seen.company), seen.theirs * body["bond"] * t.warmth
+        company, theirs = max(0.0, seen.company), seen.theirs * body["bond"]
+        shared = theirs * t.warmth
         # what it is about is worth what she has learned it is (a liked subject is a reward cue in itself)
         liked = self.values.predict(subjects(seen.tags)) if seen.tags else 0.0
         moved = body.apply({"reward": error + shared + 0.3 * liked,
                             "noradrenaline": 0.05 + 0.1 * seen.novelty + 0.05 * timing + 0.2 * abs(error),
-                            "cortisol": 0.2 * max(0.0, -shared) * t.stress,
-                            "oxytocin": 0.12 * company + 0.15 * abs(shared), "endorphin": 0.05 * company,
-                            "bond": 0.003 * seen.company})  # a bond grows over weeks of messages, not in a day
+                            "cortisol": 0.1 * max(0.0, -shared),
+                            "oxytocin": 0.12 * company + 0.15 * abs(theirs), "endorphin": 0.05 * company,
+                            "bond": 0.003 * seen.company}, why)  # a bond grows over weeks of messages, not in a day
         return {"pushes": {name: round(change, 3) for name, change in needs.items()}, "gained": round(gained, 3),
                 "expected": round(expected, 3), "shared": round(shared, 3), "liked": round(liked, 3),
                 "moved": {name: round(change, 3) for name, change in moved.items()}}
 
-    def _threat(self, seen: Appraisal, option: Option) -> dict:
+    def _threat(self, seen: Appraisal, option: Option, why: str = "") -> dict:
         """A loss she can't undo stresses her: what the message takes of her company and her sense of being
         capable (being judged), and less so of her freedom; less as far as what she chose to do wins it back
         (Dickerson & Kemeny 2004: uncontrollable social-evaluative threat moves cortisol most). Judged and
@@ -757,7 +778,8 @@ class Mind:
         back = sum(min(lost[name], max(0.0, wins[name])) for name in lost) * option.chance
         sensitivity = self.body.temperament.sensitivity
         moved = self.body.apply({"cortisol": 0.08 * loss * (1.0 - 0.7 * back / loss) * sensitivity,
-                                 "grievance": 0.1 * max(0.0, lost["company"] + lost["capable"] - 0.5) * sensitivity})
+                                 "grievance": 0.1 * max(0.0, lost["company"] + lost["capable"] - 0.5) * sensitivity},
+                                why)
         return {"lost": {name: round(amount, 3) for name, amount in lost.items()}, "back": round(back, 3),
                 "moved": {name: round(change, 3) for name, change in moved.items()}}
 
@@ -831,7 +853,7 @@ class Mind:
         self.body.exert(max(0, tokens - done["tokens"]) + WORK_PER_CALL * max(0, calls - done["calls"]))
         stumbles = errors - done["errors"]
         if stumbles > 0:
-            self.body.apply({"cortisol": 0.01 * stumbles, "noradrenaline": 0.03 * stumbles})
+            self.body.apply({"cortisol": 0.01 * stumbles, "noradrenaline": 0.03 * stumbles}, "a tool call failed")
         done.update(tokens=max(tokens, done["tokens"]), calls=max(calls, done["calls"]), errors=max(errors, done["errors"]))
         return done
 
@@ -881,6 +903,7 @@ class Mind:
             now = time.time()
             self._live_until(now)
             body = self.body
+            ending = core(body.levels)[0]  # how she felt as the run ended, before how it ended moved her
             # a run that is not the loop's (a super agent's) is counted here whole, from what it used
             self._lived(run["id"], (run.get("usage") or {}).get("completion_tokens") or 0, calls, errors)
             heard = self._working.pop(run["id"]).get("heard") or []  # what the user said while she worked
@@ -909,20 +932,22 @@ class Mind:
             if act in ("do", "part"):
                 success = (1.0 if ok else 0.0) * (1.0 - 0.6 * failed) - 0.3 * min(1, denied)
                 surprise = success - decision["chance"]
+                went = "better than expected" if surprise > 0.05 else "worse than expected" if surprise < -0.05 \
+                    else "as expected"
                 body.apply({"reward": 0.45 * surprise, "competence": 0.15 * surprise + (0.05 if ok else 0.0),
-                            "cortisol": 0.06 * failed})
+                            "cortisol": 0.06 * failed}, f"the work went {went}" + (", calls failed" if failed else ""))
                 felt_outcome = surprise - 0.3 * failed
                 measured["capable"] = max(-1.0, 1.2 * success - 0.4 - 0.3 * stopped)
             elif act in ("later", "decline"):  # spared the work: relief, and the freedom of her own choice
-                body.apply({"autonomy": 0.12})
+                body.apply({"autonomy": 0.12}, f"spared the work ({VERBS[act]})")
                 felt_outcome = 0.1
             else:  # she talked: how that went, the user's next message tells (_settle)
                 felt_outcome = None
             if stopped:
-                body.apply({"reward": -0.2, "autonomy": -0.1, "cortisol": 0.05})
+                body.apply({"reward": -0.2, "autonomy": -0.1, "cortisol": 0.05}, "stopped mid-turn")
                 felt_outcome = (felt_outcome or 0.0) - 0.4
             if steered:
-                body.apply({"autonomy": -0.05 * steered})
+                body.apply({"autonomy": -0.05 * steered}, "redirected mid-work")
             # the act taken is what is learned (an actor learns from the action it took), not the leaning
             learned = [f"act:{act}" + item[len(f"act:{leaned}"):] if item.startswith(f"act:{leaned}") else item
                        for item in decision["features"]]
@@ -943,9 +968,12 @@ class Mind:
             then, aroused = core(body.levels)
             # a chat is remembered as it felt (halved by an outcome of 0 that only work has, it was kept at half)
             valence = max(-1.0, min(1.0, then if felt_outcome is None else 0.5 * then + 0.5 * felt_outcome))
+            # what the moment itself did to how she felt: the message as it came, and how her turn ended (what
+            # she showed, being stopped, failing); what hurt is what she may brood on (_drives), whatever her mood
+            sting = decision.get("felt", 0.0) + then - ending
             episode = self.memory.add("exchange", text, valence, aroused,
                                       describe_salience(abs(surprise), aroused, decision.get("stakes", 0.5)),
-                                      app=run["app"], session=run["session"], at=now)
+                                      app=run["app"], session=run["session"], at=now, sting=round(sting, 3))
             pending = self.self["waiting"].get(_chat(run["app"], run["session"]))
             if pending and pending.get("at") == decision["at"]:  # the user has not written again in this chat yet
                 pending.update(episode=episode, measured=measured, act=act, features=learned)
@@ -954,6 +982,7 @@ class Mind:
                 decided["outcome"] = {"did": act, "status": run["status"], "calls": calls, "errors": errors,
                                       "denied": denied,
                                       "steered": steered, "surprise": round(surprise, 3), "expressed": expressed,
+                                      "sting": round(sting, 3),
                                       "measured": {name: round(change, 3) for name, change in measured.items()}}
 
     def _express(self, run: dict) -> Optional[dict]:
@@ -972,7 +1001,7 @@ class Mind:
         valence, arousal = core(self.body.levels)
         apart, stirred = MOOD_PLACES[mood][0] - valence, MOOD_PLACES[mood][1] - arousal
         moved = self.body.apply({"cortisol": 0.05 * max(0.0, -apart), "endorphin": 0.05 * max(0.0, apart),
-                                 "noradrenaline": 0.1 * stirred})
+                                 "noradrenaline": 0.1 * stirred}, f"the mood she showed ({mood})")
         return {"mood": mood, "valence": round(apart, 3), "arousal": round(stirred, 3),
                 "moved": {name: round(change, 3) for name, change in moved.items()}}
 
@@ -1059,9 +1088,9 @@ class Mind:
             body = self.body
             body.exert(usage.get("completion_tokens") or 0)
             if kind == "wonder":
-                body.apply({"novelty": 0.15, "dopamine": 0.03})
+                body.apply({"novelty": 0.15, "dopamine": 0.03}, "her mind wandered")
             elif kind == "ruminate":  # going over it stirs it up again, and wears it down a little
-                body.apply({"cortisol": 0.03})
+                body.apply({"cortisol": 0.03}, "brooding on what hurt")
                 self.memory.soften([about["id"]], 0.1)
             felt = feel(body, self.senses, now)
             named = prompts.word(answer.get("feeling"))
@@ -1178,6 +1207,11 @@ class Mind:
             faces[_chat(run["app"], run["session"])] = handle
             self._retake(run["app"], [run["session"]])
         return person
+
+    def _why(self, run: dict, said: str) -> str:
+        """What a message's pushes are kept as in her log of what moved her: who said what."""
+        person = self._with(run["app"], run["session"])
+        return f"{person['name'] if person else 'The user'} said {_quote(said)}"
 
     def _with(self, app: str, session: str) -> Optional[dict]:
         """Whom she is with in a chat: whose its face is, else whom that app's user is."""
@@ -1403,6 +1437,9 @@ class Mind:
                 # where each chemical is heading, how fast (seconds to go two thirds of the way), the needs'
                 # set points, how responsive the habituating receptors are, and what she expects of the user
                 "targets": {name: round(value, 3) for name, value in body.targets().items()},
+                # each level at rest, and what pushed each and is still moving it (Body.pushed_now)
+                "rest": {name: round(value, 3) for name, value in REST.items() if name in body.levels},
+                "pushed": body.pushed_now(now),
                 "paces": {name: level.tau for name, level in CHEMICALS.items()},
                 "set_points": dict(SET_POINTS), "receptors": {name: round(value, 3) for name, value in body.sensitivity.items()},
                 "expected": round(self.self["expected"], 3),

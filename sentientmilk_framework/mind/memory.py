@@ -1,8 +1,8 @@
 """Her episodic memory: what happened, with what she felt then, recalled the way people recall.
 
-Each episode keeps its feeling (valence, arousal), its salience (how much it mattered when it happened)
-and a strength that fades as a power law of the time since it was last recalled. Recall is by likeness to
-a cue by meaning (its vector, from her long-term memory's embedder: recall.py fills ``vectors``; until 0.30
+Each episode keeps its feeling (valence, arousal), what the moment itself did to how she felt (``sting``), its
+salience (how much it mattered when it happened) and a strength that fades as a power law of the time since it
+was last recalled. Recall is only of what a cue calls up, by likeness to it in meaning (its vector, from her long-term memory's embedder: recall.py fills ``vectors``; until 0.30
 also by shared words), and also by mood (a sad mind finds sad memories), strength, salience and recency, with
 a little noise: the same cue does not always bring back the same thing. Recalling strengthens a memory and drifts its feeling toward the mood she recalls it in
 (reconsolidation). Sleep softens the charge of what she replays. Faint, unimportant episodes are forgotten.
@@ -44,15 +44,18 @@ class Memory:
                     id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
                     app TEXT, session TEXT, valence REAL NOT NULL, arousal REAL NOT NULL,
                     salience REAL NOT NULL, strength REAL NOT NULL, recalls INTEGER NOT NULL DEFAULT 0,
-                    recalled REAL, charge REAL NOT NULL, follows TEXT);
+                    recalled REAL, charge REAL NOT NULL, follows TEXT, sting REAL NOT NULL DEFAULT 0);
                 DROP TRIGGER IF EXISTS episode_added;  -- her index by words, until 0.30
                 DROP TRIGGER IF EXISTS episode_gone;
                 DROP TABLE IF EXISTS recall_terms;
                 DROP TABLE IF EXISTS recall;
                 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             """)
-            if "follows" not in {row[1] for row in self._db.execute("PRAGMA table_info(episodes)")}:
+            columns = {row[1] for row in self._db.execute("PRAGMA table_info(episodes)")}
+            if "follows" not in columns:
                 self._db.execute("ALTER TABLE episodes ADD COLUMN follows TEXT")  # a mind from before 0.21
+            if "sting" not in columns:  # before 0.32: what hurt was not kept, so nothing from then stings
+                self._db.execute("ALTER TABLE episodes ADD COLUMN sting REAL NOT NULL DEFAULT 0")
         self.vectors = Vectors(self._db, "episodes", self._lock)
         self.embedder = None  # her long-term memory's (recall.py sets it)
 
@@ -93,15 +96,17 @@ class Memory:
     # ============== Episodes ==============
 
     def add(self, kind: str, text: str, valence: float, arousal: float, salience: float, *, app: str = "",
-            session: str = "", at: Optional[float] = None) -> int:
+            session: str = "", at: Optional[float] = None, sting: float = 0.0) -> int:
+        """``valence``: how she felt in the moment (her mood then, as it keeps it); ``sting``: what the moment
+        itself did to how she felt (negative: it hurt), whatever her mood was."""
         text = " ".join(str(text).split())[:1200]
         salience = max(0.0, min(1.0, salience))
         with self._lock:
             cursor = self._db.execute(
-                "INSERT INTO episodes (at, kind, text, app, session, valence, arousal, salience, strength, charge) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO episodes (at, kind, text, app, session, valence, arousal, salience, strength, charge, "
+                "sting) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (time.time() if at is None else at, kind, text, app, session, max(-1.0, min(1.0, valence)),
-                 max(0.0, min(1.0, arousal)), salience, 0.5 + 0.5 * salience, 1.0))
+                 max(0.0, min(1.0, arousal)), salience, 0.5 + 0.5 * salience, 1.0, max(-2.0, min(2.0, sting))))
             return cursor.lastrowid
 
     @staticmethod
@@ -112,10 +117,17 @@ class Memory:
     def recall(self, cue: str, valence: float, now: float, count: int = 3, kinds: Iterable[str] = (),
                before: Optional[float] = None, strengthen: bool = True,
                held: Optional[Tuple[str, str, float]] = None) -> List[dict]:
-        """What comes back for ``cue`` in a mood of ``valence``: up to ``count`` episodes, best first.
-        ``before``: only what happened before then (not what just happened). ``held``: (app, session, since),
-        a chat whose exchanges from then on she still has before her (her context holds them): they are
-        not brought back (in the user's brain, 2026-11-16, what came back was mostly the chat she was in)."""
+        """What comes back for ``cue`` in a mood of ``valence``: up to ``count`` episodes the cue calls up (alike
+        in meaning), best first; nothing when she cannot tell what is alike now (no service). ``before``: only
+        what happened before then (not what just happened). ``held``: (app, session, since), a chat whose
+        exchanges from then on she still has before her (her context holds them): they are not brought back (in
+        the user's brain, 2026-11-16, what came back was mostly the chat she was in).
+
+        Until 0.32 her strongest memories also came back unbidden, whatever the cue: replayed on her messages of
+        2026-11-17, 13 of 21 brought back one of her own brooding thoughts (one of them 11 times) and two of her
+        insights came back with 15 and 13, nearly all related by nothing, each recall making it stronger still.
+        A memory that comes by itself is cued by something about the moment (Berntsen 2009); what a resting mind
+        replays at random is ``replay``."""
         kinds = list(kinds)
         clause = (" AND e.kind IN (" + ",".join("?" * len(kinds)) + ")") if kinds else ""
         when = (" AND e.at < ?" if before is not None else "") + \
@@ -128,10 +140,6 @@ class Memory:
                 for row in self._db.execute(f"SELECT e.* FROM episodes e WHERE e.id IN ({','.join('?' * len(alike))})",
                                             list(alike)):
                     found[row["id"]] = {**dict(row), "relevance": alike[row["id"]]}
-            # what comes to mind unbidden: the strongest and the most recent, whatever the words
-            for row in self._db.execute(f"SELECT e.* FROM episodes e WHERE 1=1{clause}{when} "
-                                        "ORDER BY e.salience * e.strength DESC, e.at DESC LIMIT 20", args):
-                found.setdefault(row["id"], {**dict(row), "relevance": 0.0})
             scored = []
             for episode in found.values():
                 strength = self.strength_now(episode, now)
@@ -139,7 +147,7 @@ class Memory:
                 congruence = 1.0 - abs(episode["valence"] - valence) / 2.0
                 score = (1.2 * episode["relevance"] + 0.4 * strength + 0.25 * episode["salience"] * episode["charge"]
                          + 0.25 / (1.0 + age) + 0.35 * abs(valence) * congruence + self._rng.gauss(0.0, 0.05))
-                if episode["relevance"] or strength > 0.35:
+                if episode["relevance"]:
                     scored.append((score, episode))
             chosen = [episode for _, episode in sorted(scored, key=lambda item: -item[0])[:count]]
             if strengthen:

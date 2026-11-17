@@ -227,3 +227,20 @@ def test_her_rhythm_follows_when_the_user_is_around_over_weeks_not_in_a_day():
     assert abs((her.peak - 1.0 + 12.0) % 24.0 - 12.0) < 1.5
     old = Body.from_dict({**her.to_dict(), "entrained": None})  # a clock from before 0.24.1 starts over
     assert old.peak == 16.0 and Body.from_dict(her.to_dict()).peak == her.peak
+
+
+def test_what_pushed_her_is_kept_with_why_while_some_of_it_is_left():
+    """A stress of 0.84 could not be told from her connections (they summed to -0.02): what happened pushed it,
+    and nothing kept what (the user's brain, 2026-11-17)."""
+    her = body(cortisol=0.25)
+    her.apply({"cortisol": 0.1, "reward": -0.3}, "they stopped me")
+    her.apply({"cortisol": 0.05}, "they stopped me")  # the same moment: told as one
+    [(at, why, then, left)] = her.pushed_now()["cortisol"]
+    assert why == "they stopped me" and at == NOON and then == left > 0.15
+    her.advance(NOON + HOUR)
+    assert her.pushed_now()["cortisol"][0][3] < 0.4 * then  # it fades at stress's own pace: about an hour
+    assert "reward" not in her.pushed_now()  # a burst is gone in minutes
+    assert Body.from_dict(her.to_dict()).pushed_now() == her.pushed_now()  # and it is kept
+    her.advance(NOON + 9 * HOUR)
+    her.apply({"social": 0.1}, "a hello")
+    assert [entry[1] for entry in her.pushed] == ["a hello"]  # what is spent is let go

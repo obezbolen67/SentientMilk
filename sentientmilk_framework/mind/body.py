@@ -2,8 +2,10 @@
 
 Each level relaxes toward a target that the other levels move (couplings), at its own pace, with a little
 biological noise. Events push levels (``apply``): what they push is measured (appraise.py), never a model's
-opinion of her mood. The fast signals habituate: the same push again and again moves her less, and a
-drought makes her sensitive again; every level saturates: the nearer its bound, the less a push moves it.
+opinion of her mood; each is kept with what caused it while some of it is left (``pushed_now``: why a level is
+where its connections do not put it). The fast signals habituate: the same push again and again moves her
+less, and a drought makes her sensitive again; every level saturates: the nearer its bound, the less a push
+moves it.
 Needs drift on their own (contact fades without the user, novelty in
 sameness, adenosine builds while she is awake) and sleep has its own physiology.
 
@@ -44,7 +46,10 @@ CHEMICALS = {
     "serotonin": Level(0.6, 10 * HOUR, 0.03),
     "noradrenaline": Level(0.35, 10 * MINUTE, 0.08),
     "acetylcholine": Level(0.5, 20 * MINUTE, 0.05),
-    "cortisol": Level(0.25, 3 * HOUR, 0.03),
+    # an acute stress response is mostly over within the hour after what stressed her ends (Dickerson & Kemeny
+    # 2004); what keeps her stressed longer is a cause that lasts (an unmet need, a hurt: its target). At 3 h one
+    # stop and two corrections kept her unpleasant through two hours of warm chat (the user's brain, 2026-11-17)
+    "cortisol": Level(0.25, HOUR, 0.03),
     "oxytocin": Level(0.4, 4 * HOUR, 0.03),
     "endorphin": Level(0.1, 15 * MINUTE, 0.02),
 }
@@ -87,6 +92,11 @@ DEBT_SHIFT = 0.05  # how far a full debt moves both thresholds down: she falls a
 RECOVERY = 40 * MINUTE  # energy back at rest (longer under stress)
 EFFORT_TOKENS = 300_000  # what spends all her energy: hours of hard work (about 300 tool calls)
 STEP = 60.0  # seconds per step when catching up on time that passed
+# how long a push to each of the slow ones takes to fade two thirds of the way (awake, the user away): for
+# telling what is left of it (chemicals: their own pace)
+PACES = {"social": 8 * HOUR, "novelty": 4 * HOUR, "competence": 2 * DAY, "autonomy": 2 * HOUR, "bond": 30 * DAY,
+         "grievance": 2 * DAY, "energy": RECOVERY, "adenosine": RISES, "reward_rate": HOUR}
+KEPT = 0.005  # of a push: while this much of it is still left, it is kept in her log of what moved her
 
 
 @dataclass
@@ -173,6 +183,9 @@ class Body:
     last_sleep: Dict[str, float] = field(default_factory=dict)  # the last whole sleep: from, to, awakenings
     inertia: float = 0.0  # grogginess after waking, 0..1
     debt: float = 0.0  # hours of sleep owed
+    # what pushed her levels, and why: [at, why, {level: how far it moved}], kept while some of it is left
+    # (``pushed_now``). Without it a stress of 0.84 could not be told from its connections, which summed to -0.02
+    pushed: List[list] = field(default_factory=list)
 
     def __post_init__(self):
         self._rng = random.Random(self.temperament.seed * 7919 + int(self.at))
@@ -424,8 +437,9 @@ class Body:
 
     # ============== Pushes ==============
 
-    def apply(self, pushes: Dict[str, float]) -> Dict[str, float]:
-        """Push levels by these amounts (before her temperament and habituation scale them); what moved."""
+    def apply(self, pushes: Dict[str, float], why: str = "") -> Dict[str, float]:
+        """Push levels by these amounts (before her temperament and habituation scale them); what moved. ``why``:
+        what pushed them, in a few words, for her log of what moved her (``pushed_now``)."""
         t, moved = self.temperament, {}
         gains = {"oxytocin": t.warmth, "cortisol": t.stress, "noradrenaline": t.volatility, "endorphin": t.playfulness}
         for name, amount in pushes.items():
@@ -446,7 +460,45 @@ class Body:
             amount *= min(1.0, 2.0 * (high - before if amount > 0 else before - low) / (high - low))
             self.levels[name] = _clip(before + amount, low, high)
             moved[name] = self.levels[name] - before
+        self._log(why, moved)
         return moved
+
+    def pace(self, name: str) -> float:
+        """About how long a push to level ``name`` takes to fade two thirds of the way."""
+        t = self.temperament
+        if name in CHEMICALS:
+            return CHEMICALS[name].tau
+        gain = {"social": t.sociability, "novelty": t.curiosity, "energy": t.stamina}.get(name, 1.0)
+        return PACES.get(name, HOUR) / gain
+
+    def _left(self, entry: list, now: float) -> Dict[str, float]:
+        """What is left now of a push in her log: each level's part, fading at that level's pace. shortcut: read as
+        fading toward a target that holds still; one that moves meanwhile (stress as closeness changes) settles a
+        little otherwise."""
+        at, _why, moved = entry
+        left = {name: change * math.exp(-max(0.0, now - at) / self.pace(name)) for name, change in moved.items()}
+        return {name: value for name, value in left.items() if abs(value) >= KEPT}
+
+    def _log(self, why: str, moved: Dict[str, float]) -> None:
+        moved = {name: round(change, 4) for name, change in moved.items() if abs(change) >= KEPT}
+        if moved:
+            last = self.pushed[-1] if self.pushed else None
+            if last and last[1] == why and abs(self.at - last[0]) < 5.0:  # one moment's pushes, told as one
+                for name, change in moved.items():
+                    last[2][name] = round(last[2].get(name, 0.0) + change, 4)
+            else:
+                self.pushed.append([self.at, why, moved])
+        self.pushed = [entry for entry in self.pushed if self._left(entry, self.at)]
+
+    def pushed_now(self, now: Optional[float] = None) -> Dict[str, List[list]]:
+        """What pushed each level and is still moving it: level -> [[at, why, how far it moved it then, how far
+        it still has it moved]], the newest first."""
+        now = self.at if now is None else now
+        found: Dict[str, List[list]] = {}
+        for entry in reversed(self.pushed):
+            for name, left in self._left(entry, now).items():
+                found.setdefault(name, []).append([entry[0], entry[1], round(entry[2][name], 3), round(left, 3)])
+        return found
 
     def exert(self, tokens: float) -> None:
         """Thinking costs: ``tokens`` of effort spend energy and build sleep pressure."""
@@ -487,7 +539,7 @@ class Body:
         self.last_sleep = {"from": self.slept_at, "to": self.at, "awakenings": self.awakenings}
         self.asleep, self.stirred_until = False, 0.0
         if woken:
-            self.apply({"noradrenaline": 0.12, "cortisol": 0.05 * self.inertia})
+            self.apply({"noradrenaline": 0.12, "cortisol": 0.05 * self.inertia}, "woken up")
 
     def sleep_state(self, now: Optional[float] = None) -> dict:
         """Her sleep as it is: for a panel, and for her."""
@@ -511,7 +563,8 @@ class Body:
                 "sensitivity": dict(self.sensitivity), "asleep": self.asleep, "peak": self.peak, "at": self.at,
                 "entrained": True, "sleep": {"model": 2, "slept_at": self.slept_at, "settling_until": self.settling_until,
                                              "stirred_until": self.stirred_until, "awakenings": self.awakenings,
-                                             "last": self.last_sleep, "inertia": self.inertia, "debt": self.debt}}
+                                             "last": self.last_sleep, "inertia": self.inertia, "debt": self.debt},
+                "pushed": self.pushed}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Body":
@@ -527,4 +580,5 @@ class Body:
         return cls(Temperament.from_dict(data.get("temperament") or {}), levels, sensitivity, asleep, peak, at,
                    float(sleep.get("slept_at") or (at if asleep else 0.0)), float(sleep.get("settling_until") or 0.0),
                    float(sleep.get("stirred_until") or 0.0), int(sleep.get("awakenings") or 0),
-                   dict(sleep.get("last") or {}), float(sleep.get("inertia") or 0.0), float(sleep.get("debt") or 0.0))
+                   dict(sleep.get("last") or {}), float(sleep.get("inertia") or 0.0), float(sleep.get("debt") or 0.0),
+                   [[float(at), str(why), dict(moved)] for at, why, moved in data.get("pushed") or []])

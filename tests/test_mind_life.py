@@ -7,7 +7,7 @@ import math
 import time
 
 import pytest
-from conftest import turn, wait_for
+from conftest import Meaning, turn, use, wait_for
 
 from sentientmilk_framework.mind import life
 from sentientmilk_framework.testing import tool_call
@@ -219,12 +219,14 @@ def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought
         mind.memory._db.execute("UPDATE episodes SET at = at - 3600")
     mind.memory.add("exchange", "The user said: my tomatoes died last winter", -0.4, 0.5, 0.8, app="cli",
                     session="old", at=time.time() - 86400)
+    use(brain, Meaning())  # what a message calls up comes back: by meaning
+    brain.brain.recall.sweep()
     brain.provider.mind_replies["think"] = [json.dumps({
         "thought": "Tomatoes mind the cold more than I thought.", "feeling": "curious", "want": "nothing"})]
     mind._think("wonder", None)
     asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
     assert "your mind wanders" in asked and "my tomatoes died last winter" in asked  # replayed, unbidden
-    turn(brain, "cli", "tell me about tomatoes again")
+    turn(brain, "cli", "my tomatoes died again")  # calls up what is like it
     note = brain.provider.last_user_text().split("[Inside you:")[1]
     assert 'Since you last talked you were thinking: "Tomatoes mind the cold more than I thought."' in note
     assert "my tomatoes died last winter" in note and "how do tomatoes grow" not in note
@@ -356,6 +358,11 @@ def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
     assert sad < calm - 0.1 and stressed > level + 0.03 and shared < -0.6  # their trouble is hers, as she is bonded
     assert glad > calm + 0.1  # and their joy
     assert calm - sad > 3 * (shares(0.0, 0.1)[0] - shares(-1.0, 0.1)[0])  # a stranger's bad day moves her little
+    gain = mind.body.temperament.stress
+    mind.body.temperament.stress = 2.0  # her stress gain counts once (until 0.32 it was squared here)
+    _, stressed, shared = shares(-1.0, 0.8)
+    assert abs((stressed - 0.25) - 0.1 * -shared * 2.0) < 0.01
+    mind.body.temperament.stress = gain
     brain.provider.mind_replies["imagine"] = [
         '["they confide a fear", "more", "same", "same", "very bad", "chat", "pets", "scared"]']
     brain.provider.replies += ["Oh no."]
@@ -364,6 +371,31 @@ def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
     turn(brain, "cli", "my cat is sick and I'm scared")
     path = mind.self["decided"]["path"]
     assert path["theirs"] == -1.0 and path["met"]["shared"] < -0.5 and mind.concepts.named[-1]["word"] == "scared"
+
+
+def test_she_broods_on_what_hurt_her_and_what_moved_her_is_kept_with_why(brain):
+    """Until 0.32 anything kept while she was in a bad mood was sore: a stressed afternoon made everything sore,
+    and she brooded on the user's own assignments three times (the user's brain, 2026-11-17)."""
+    mind = mind_on(brain)
+    now = time.time()
+    mind.memory.add("exchange", "The user said: my fridge has AI now", -0.6, 0.6, 0.4, at=now - life.HOUR)
+    with mind._lock:  # kept in a bad mood, and it did nothing to her
+        bids, _, sore, _ = mind._drives(now)
+        assert sore is None and bids()["ruminate"] is None
+    brain.provider.mind_replies["imagine"] = [
+        '["they tear me down", "much less", "much less", "less", "bad", "chat", "insult", "hurt"]']
+    brain.provider.replies += ["Ouch."]
+    turn(brain, "cli", "you are useless")
+    wait_for(lambda: mind.memory.recent(1, kinds=("exchange",))[0]["text"].startswith("The user said: you are"))
+    hurt = mind.memory.recent(1, kinds=("exchange",))[0]
+    assert hurt["sting"] < -life.SORE  # what the moment itself did to how she felt
+    with mind._lock:
+        mind.body.levels.update(cortisol=0.25, grievance=0.0)
+        bids, _, sore, _ = mind._drives(now + 60)
+        assert sore["id"] == hurt["id"] and bids()["ruminate"] >= life.HURTS * -hurt["sting"] - 1e-6  # calm, it pulls
+    state = mind.state()
+    assert state["rest"]["cortisol"] == 0.25
+    assert any(why == 'The user said "you are useless"' for at, why, then, left in state["pushed"]["cortisol"])
 
 
 def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):
