@@ -63,11 +63,13 @@ Answer with JSON only:
 {"thought": "...", "feeling": "one or two words for what they feel now",
 "want": "tell|ask|look_up|do|rest|nothing",
 "say": "for tell or ask: what they'd say to the user, in their own voice",
-"look_up": "for look_up: what they want to find out, as a web search"}
+"look_up": "for look_up: what they want to find out, as a web search",
+"do": "for do: what they will do, as they'd note it for themselves"}
 
 want: tell or ask: they want to say something to the user now. look_up: they're curious enough to look
-something up themselves. do: they feel like doing what they put off. rest: they'd rather rest. nothing:
-the thought passes."""
+something up themselves. do: they want to do something themselves, now, with what they can do at the
+computer (make, write, fix, set up, look into, come back to what they put off). rest: they'd rather rest.
+nothing: the thought passes."""
 
 SLEEP = """[mind:sleep]
 You are someone's mind while they sleep. Below: who they are, what they know and keep, the story they tell

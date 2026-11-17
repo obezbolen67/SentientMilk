@@ -437,6 +437,20 @@ wandering and reaching out each win their moment; she sleeps in stages and goes 
   acted. `Body.effects` says what each level does now against her at rest (`state()["pushing"]`); the window
   fires only along that and lists what is wired but idle apart.
 
+### She does what she means to, and knows when you could have answered (0.28)
+
+The user, 2026-11-17: "if she has a thought to do something, she shouldn't be limited in doing it"; and of
+"if you don't reply within 30 minutes, it stings": "doesn't handle if i'm asleep and have laptop turned
+on", "30 minutes shouldn't be hardcoded too ... it really depends on the activity".
+
+- **Doing**: a thought that wants `do` (any thought; it says what) is a background task of hers in the chat
+  it belongs to, with that chat's tools, whatever else is going on; a look-up the same, quiet. Only messages
+  keep one at a time (she does not stack them while you sleep).
+- **Presence** (`presence.py`): reusable, one per brain, fed by apps (idle, locked screen, something
+  fullscreen) and by messages; a clock that runs only while the user could answer, weighted by how free.
+- **Patience**: a silence stings once it passes 3 x how long they usually take to answer her (learned on
+  that clock) / sensitivity. Asleep with the laptop on counts nothing; a fullscreen game counts a third.
+
 ## Left to the builder
 
 Exact gains and time constants (tuned by unit tests: a rested, attached being does an ordinary request at

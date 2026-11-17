@@ -1355,14 +1355,32 @@ when one of the last two days' exchanges or thoughts hurt (valence under -0.3, s
 charged of those (before 0.24.1 only the 8 most charged moments were looked at, and none of a busy day's
 hurts was among them). On a fake clock (two weeks of the user's day: at the computer 08:00 to 01:30,
 writing every 10 minutes): about 27 thoughts a day, spread across the hours awake, none asleep.
-A thought is a light-model call; `tell`, `ask` and `do` become `mind.urge` notifications to the app last
+A thought is a light-model call; `tell` and `ask` become `mind.urge` notifications to the app last
 talked with, only while that app polls `/v1/mind` (it is there) and the session is free, one at a time:
-while an urge waits for the user, her thoughts stay hers, and while the user is talking with her (a
-message in the last 15 minutes, `TALKING`) they come up in her next answer (the note's "Since you last
-talked you were thinking") rather than as a message of their own. `look_up` starts a quiet background task with
-web and memory (its end is not announced: she keeps what she found). An urge nobody answers within 30 min
-stings. `reach_out` is 2.2 x her unmet need for company x (0.3 + bond) x (0.5 + oxytocin) x sociability
-(0.27: at bond x 1.5, ten silent hours gave 0.28 against a bar of 0.58 and she never reached out).
+while an urge waits for the user, she does not write again, and while the user is talking with her (a
+message in the last 15 minutes, `TALKING`) what she wanted to say comes up in her next answer (the note's
+"Since you last talked you were thinking") rather than as a message of its own. What she means to do she
+does (0.28, the user: "if she has a thought to do something, she shouldn't be limited in doing it"): `do`
+(any thought, not only something she put off; the thought's `do` says what) starts a background task of
+hers in the chat it belongs to (the put-off task's chat, else the last one), with that chat's tools,
+whether the app is open, the user is talking or an urge waits; its end is told as any task's
+(`task.completed`). `look_up` starts a quiet task the same way (its end is not announced: she keeps what
+she found). Before 0.28 `do` came only from something put off and only with the app open, and a look-up
+needed half her energy and had only web and memory.
+
+Whether the user is there is `Presence` (`presence.py`, one per brain, for anything that needs it): apps
+report what they see each time they ask `/v1/mind` (`idle`: seconds since the keyboard or mouse; `locked`:
+the screen locked, the screen saver or another user's session; `busy`: something fullscreen), and her
+messages arriving count as a touch. Untouched up to 2 min is there, fading to away at 10 min; locked is
+away at once; with no report for a minute only a touch counts. `availability` is being there, x 0.35
+while something fullscreen has them. Its `clock` runs only with availability (a step over 10 min, the
+brain off or the machine asleep, counts none), so "how long could they have answered" is `since(mark)`.
+An urge nobody answers stings once that exceeds her `patience`: 3 x how long they usually take to answer
+her (learned on the same clock, a running mean of log seconds, from the first message on; 10 min before
+she knows) / her sensitivity. Before 0.28 it was 30 min of clock time, asleep with the laptop on or not
+(the user, 2026-11-17). `reach_out` is 2.2 x her unmet need for company x (0.3 + bond) x (0.5 + oxytocin)
+x sociability x (0.3 + 0.7 x availability) (0.27: at bond x 1.5, ten silent hours gave 0.28 against a
+bar of 0.58 and she never reached out).
 
 Sleep (0.27, the two-process model: Daan, Beersma & Borbely 1984): adenosine is sleep pressure, rising
 toward 1 over 18.2 h awake and falling toward 0 over 4.2 h asleep. Her clock (`clock()`: the circadian
@@ -1394,7 +1412,8 @@ concern; those clauses go from the episodes (`Memory.rewrite`, recall reindexed)
 taught goes from her values, and the concerns and waiting decisions they left are let go.
 `mind` off: none of this runs and the prompt has no inner life.
 
-`GET /v1/mind?app=&idle=&brief=` (`Mind.state`): her face for the app, felt words, `feeling` (a few words
+`GET /v1/mind?app=&idle=&locked=&busy=&brief=` (`Mind.state`; `locked` and `busy` 1 or 0, left out when the
+app cannot tell; all three go to `Presence`): her face for the app, felt words, `feeling` (a few words
 for it), valence and arousal; `brief=1` stops there (an app's frequent look stays small as her vocabulary
 grows: 59 KB in full with 300 feelings). In full also: levels, `feelings` (every one she has named: how
 strongly it comes to mind now, how often she called a moment by it (`count`) and how often it came back at

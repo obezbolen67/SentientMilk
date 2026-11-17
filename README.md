@@ -347,7 +347,9 @@ rested and close she helps; spent, stressed or hurt she may do part, put it off 
 work tools stay unused for that turn. What things did to her becomes learned likes and
 dislikes, and episodes she recalls by likeness and mood. Between messages, missing the user, boredom,
 what nags her and what she put off compete for her attention; a winning thought may become an urge the
-app hears (`mind.urge`: MilkChan starts a turn for it). She sleeps as a body does (sleep pressure against
+app hears (`mind.urge`: MilkChan starts a turn for it), or something she does herself (a task of hers, with
+the chat's tools). Whether you are there (`presence.py`: idle, a locked screen, something fullscreen) sets
+how much a silence counts: only time you were free to answer does. She sleeps as a body does (sleep pressure against
 her body clock, in cycles of deep sleep and REM, groggy when woken, owing what she missed), also while the
 brain is off, and her sleep rewrites the story of who she has become. Apps read her face and feelings from
 `GET /v1/mind` (`brief=1` for just her face), with what an app needs to draw her brain: every feeling she
@@ -365,7 +367,7 @@ with the token from `server.json`. Paths start with `/v1`; streams are server-se
 | --- | --- |
 | `GET /health`, `GET`/`PATCH /config`, `POST /models`, `GET /stats` | brain status, settings (secrets only as `*_set`), models, token use |
 | `GET /claude_code[?refresh=1]` | the user's Claude Code as it says: version, signed in, account, models with their efforts |
-| `GET /mind[?app=&idle=]` | how she is: `on`, `asleep`, `felt` (words), `face` for `app` (`mood` among its declared expressions, `stance`, `eyes`), levels, thoughts, concerns, story; `idle` (seconds since the user touched the computer) tells her whether they are there, and asking tells her `app` is there to hear her urges |
+| `GET /mind[?app=&idle=]` | how she is: `on`, `asleep`, `felt` (words), `face` for `app` (`mood` among its declared expressions, `stance`, `eyes`), levels, thoughts, concerns, story; `idle` (seconds since the user touched the computer), `locked` and `busy` (1/0: screen locked, something fullscreen) tell her whether they are there and free, and asking tells her `app` is there to hear her urges |
 | `PUT`/`GET /apps/{app}`, `PATCH /apps/{app}/settings` | declare an app; the user's persona, model, toolkits, rules, roots |
 | `GET /apps/{app}/sessions`, `GET /memory` | sessions (each with `title`, `preview`: the start of its first message, `last_active`); memory, shared by every app: `entries`, each with the app that saved it |
 | `GET`/`PATCH`/`DELETE /apps/{app}/sessions/{id}` | a session and its settings (`title` among them); `context`: how full it is (`used` tokens at the last step, the `window`, and the `clear_at`/`compact_at` fractions); one never used reads as empty and is not made by the GET; deleting it and its history, refused (409 `busy`) while a turn of it goes on |

@@ -29,6 +29,7 @@ from .loop import ACTIVE, Toolset, build_toolset
 from .mcp_host import McpHost
 from .mind.life import Mind
 from .plugins import Plugins
+from .presence import Presence
 from .provider import Provider
 from .runs import Bus, Runs
 from .scheduler import Scheduler
@@ -168,6 +169,7 @@ class Brain:
         self.stopping = threading.Event()  # set by close(): background work ends quietly
         self.browser = Browser(self)
         self.artifacts = Artifacts(self)  # panels in the user's chat: what only they type, orders they check
+        self.presence = Presence()  # whether the user is at the computer, as its apps see it
         self.mind = Mind(self)  # her body, feelings, wants, memories and sleep (mind/)
 
     def start(self) -> None:

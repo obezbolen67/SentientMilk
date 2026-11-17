@@ -146,14 +146,18 @@ class BrainClient:
     def stats(self) -> dict:
         return self._call("GET", "/stats")
 
-    def mind(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False) -> dict:
+    def mind(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False,
+             locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
         """How she is now (mind/): ``on``, ``asleep``, ``felt`` (in words), ``feeling`` (a few words for it),
         ``face`` for ``app`` (``mood`` of its declared ones, ``stance``, ``eyes``, ``asleep``; None when her mind
         is off), ``levels``, ``feelings``, ``thoughts``, ``concerns``, ``story``. ``idle``: seconds since the
         user last touched the computer (whether they are there, for her); asking also tells her ``app`` is there
-        to hear her. ``brief``: only what a face needs, for frequent looks."""
+        to hear her. ``brief``: only what a face needs, for frequent looks. ``locked``: the screen is locked;
+        ``busy``: something fullscreen has the user (None: the app cannot tell)."""
         query = "&".join(part for part in (f"app={app}" if app else "",
                                           f"idle={idle:.0f}" if idle is not None else "",
+                                          f"locked={int(locked)}" if locked is not None else "",
+                                          f"busy={int(busy)}" if busy is not None else "",
                                           "brief=1" if brief else "") if part)
         return self._call("GET", "/mind" + (f"?{query}" if query else ""))
 

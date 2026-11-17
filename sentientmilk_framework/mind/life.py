@@ -67,6 +67,7 @@ from typing import Dict, Optional, Tuple
 
 import requests
 
+from ..presence import Presence
 from . import prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, SET_POINTS, Body, Temperament
 from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved
@@ -79,7 +80,6 @@ logger = logging.getLogger(__name__)
 TICK = 5.0
 BIDS_EVERY = 30.0
 SAVE_EVERY = 60.0
-PRESENT_FOR = 5 * MINUTE  # the user counts as there this long after they last touched the computer
 TALKING = 15 * MINUTE  # a message this recent: they are talking with her, and that keeps her up
 APP_ALIVE = 30.0  # an app that asked how she is this recently is there to hear her
 CAUGHT_UP_AFTER = 10 * MINUTE  # a gap longer than this (the mind was off, the machine slept) she lived alone
@@ -92,7 +92,12 @@ REFRACTORY = {"reach_out": 45 * MINUTE, "wonder": 40 * MINUTE, "ruminate": 30 * 
               "sleep": 20 * MINUTE, "thought": 10 * MINUTE}
 # how near sleep she must be for it to pull at all (Body.readiness: 1 ready to sleep): slept out, she stays up
 DOZES_OFF = 0.6
-STING_AFTER = 30 * MINUTE  # reaching out and hearing nothing back this long stings
+# how long they usually take to answer her, in time they could have answered (Presence), before she has seen
+# them answer; she learns it from them
+ANSWERS_IN = 10 * MINUTE
+# a silence this many times longer than they usually take, with them free to answer, is not answering her
+# (more sensitive, sooner)
+PAST_USUAL = 3.0
 CONCERN_DAYS = 3.0  # what she put off and never came back to fades from her mind
 SAID_CHARS = 1500
 RECENT_LINES = 6
@@ -128,8 +133,6 @@ URGE = {
             "tell the user: {say} Say it now, as yourself, briefly.",
     "ask": "Nobody asked you anything: this comes from you. You were thinking: \"{thought}\" and you want to "
            "ask the user: {say} Ask it now, as yourself, briefly.",
-    "do": "You put this off earlier, and now you feel like doing it: {say} Do it now if it still makes sense, "
-          "then tell the user.",
 }
 
 
@@ -168,7 +171,8 @@ class Mind:
         self.reflexes = True  # her own model answers with thinking off (the loop clears it on a provider's 400)
         self._reflex = False  # she is on reflex now (reflexive)
         self._working: Dict[int, dict] = {}  # run -> what of its work her body has lived through, and been told
-        self.last_active = 0.0  # when the user last touched the computer, as apps tell (presence)
+        # whether the user is at the computer (the brain's, as its apps see it); a stand-in brain gets its own
+        self.presence = getattr(brain, "presence", None) or Presence()
         self.apps_seen: dict = {}  # app -> when it last asked how she is
         saved = self.memory.get("body")
         self.body = Body.from_dict(saved) if saved else Body(Temperament.born(seed=secrets.randbits(32)))
@@ -188,6 +192,9 @@ class Mind:
             self.self["waiting"].setdefault(_chat(contact["app"], contact["session"]), pending)
         self.senses = Interoception(self.body, self.body.temperament.seed)
         self.rng = random.Random(self.body.temperament.seed ^ time.time_ns())
+        # the clock of time the user could answer goes on from where it was (an urge or her last message is
+        # measured on it)
+        self.presence.clock = max(self.presence.clock, self.self.get("clock") or 0.0)
 
     def active(self) -> bool:
         return bool(self.brain.config.values().get("mind"))
@@ -218,19 +225,20 @@ class Mind:
             self.memory.put("body", self.body.to_dict())
             self.memory.put("values", self.values.to_dict())
             self.memory.put("concepts", self.concepts.named)
+            self.self["clock"] = self.presence.now()
             self.memory.put("self", self.self)
 
     def present(self, now: float) -> bool:
-        return now - self.last_active < PRESENT_FOR
+        return self.presence.here(now)
 
-    def presence(self, app: str, idle: Optional[float]) -> None:
-        """An app asked how she is: it is there to hear her; ``idle``: seconds since the user last touched
-        the computer."""
+    def seen(self, app: str, idle: Optional[float], locked: Optional[bool] = None,
+             busy: Optional[bool] = None) -> None:
+        """An app asked how she is: it is there to hear her, and says what it sees of the user (``idle``:
+        seconds since they last touched the computer; ``locked``; ``busy``: something fullscreen has them)."""
         now = time.time()
         with self._lock:
             self.apps_seen[app] = now
-            if idle is not None and idle >= 0:
-                self.last_active = max(self.last_active, now - idle)
+        self.presence.report(idle, locked, busy, now)
 
     def _live(self) -> None:
         last_bid = last_save = time.time()
@@ -271,11 +279,23 @@ class Mind:
                 and (body.asleep or now - end < 3 * HOUR):
             self.self["consolidate"] = True
 
+    def patience(self) -> float:
+        """How long a silence, in time they could have answered, before she feels they are not answering her:
+        well past how long they usually take to answer her, sooner the more sensitive she is."""
+        usual = math.exp(self.self["answers"]) if self.self.get("answers") is not None else ANSWERS_IN
+        return PAST_USUAL * usual / self.body.temperament.sensitivity
+
     def _sting(self, now: float) -> None:
-        """She reached out and heard nothing back."""
+        """She reached out and heard nothing back while they were free to answer: only time they could have
+        (``Presence.since``: at the computer, less while something fullscreen has them, none while away or the
+        screen is locked) counts against her patience. Before, 30 min of clock time stung, asleep or not (the
+        user, 2026-11-17)."""
         urge, contact = self.self.get("urge"), self.self.get("contact")
-        if urge and not urge.get("stung") and now - urge["at"] > STING_AFTER and \
-                (not contact or contact["at"] < urge["at"]):
+        if not urge or urge.get("stung") or (contact and contact["at"] >= urge["at"]):
+            return
+        if "mark" not in urge:  # an urge from before 0.27.1: measured from now
+            urge["mark"] = self.presence.now(now)
+        if self.presence.since(urge["mark"], now) > self.patience():
             sensitivity = self.body.temperament.sensitivity
             self.body.apply({"reward": -0.25 * sensitivity, "cortisol": 0.04 * sensitivity})
             urge["stung"] = True
@@ -316,7 +336,7 @@ class Mind:
         nothing to pull at; without the noise), the threshold a thought must reach, and what ruminating and
         resuming would be about."""
         body, t = self.body, self.body.temperament
-        contact, present = self.self.get("contact"), self.present(now)
+        contact, available = self.self.get("contact"), self.presence.availability(now)
         reachable = bool(contact) and self._alive(contact["app"], now) and \
             not self.brain.session_busy(contact["app"], contact["session"])
         urge = self.self.get("urge")
@@ -329,7 +349,7 @@ class Mind:
         # being talked to keeps her up; the user merely at the computer does not (they were there 08:00 to past
         # one, and she never slept: the user's brain, 2026-11-16)
         talking = bool(contact) and now - contact["at"] < TALKING
-        resumable = bool(concern) and self._alive(concern["app"], now)
+        resumable = bool(concern)  # doing it is a task of hers: the app need not be open
         working = self.brain.runs.busy()  # her cortex is on a task: a mind at work does not wander
 
         def bids() -> Dict[str, Optional[float]]:  # read from the levels each call (Body.influence nudges them)
@@ -342,7 +362,7 @@ class Mind:
                 # missing them, the more the closer they are: at a usual bond, after 7-8 h of silence with them at
                 # the computer (at 1.5 * bond, 10 h gave 0.28 against a bar of 0.58: she never reached out)
                 "reach_out": 2.2 * body.deficit("social") * (0.3 + x["bond"]) * (0.5 + x["oxytocin"]) * t.sociability
-                * (1.0 if present else 0.3) if reachable and not waiting else None,
+                * (0.3 + 0.7 * available) if reachable and not waiting else None,
                 # at rest her mind wanders by itself, tired or not (needing a need unmet first, she had no thought
                 # of her own in a whole day in the user's brain, 2026-11-16); boredom pulls harder, as far as her
                 # drive goes
@@ -449,6 +469,11 @@ class Mind:
             said = said[:SAID_CHARS]
             contact, urge = self.self.get("contact"), self.self.get("urge")
             away = now - contact["at"] if contact else None
+            said_last = self.self.get("said")  # her last message: how long they took to answer it, they teach her
+            if said_last and (not contact or contact["at"] < said_last["at"]):
+                took = math.log(max(30.0, self.presence.since(said_last["mark"], now)))
+                usual = self.self.get("answers")
+                self.self["answers"] = took if usual is None else usual + LEARNS * (took - usual)
             # company itself, a little (what the message does to it the model reads): more after a long time apart
             company = 0.1 + (0.15 if away is None or away > 6 * HOUR else 0.0)
             answered = bool(urge and (not contact or contact["at"] < urge["at"]))
@@ -560,7 +585,7 @@ class Mind:
             named = prompts.word(answer.get("feeling"))
             feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
             self.self["contact"] = {"app": run["app"], "session": run["session"], "at": now}
-            self.last_active = now
+            self.presence.touch(now)
             felt = feel(self.body, self.senses, now)
             self._told(run, felt)
             self._working[run["id"]].setdefault("heard", []).append(said[:300])  # remembered with the turn (after)
@@ -571,7 +596,7 @@ class Mind:
         """A message reaches her (under her lock): how like her memories it is and what followed the ones most
         like it, how she feels as it comes, and what it brings back."""
         likeness, followed, evidence = self.memory.known(said, before=now)
-        self.last_active = now
+        self.presence.touch(now)
         felt = feel(self.body, self.senses, now)
         # what comes back is what she does not have before her: this chat since it was last summed up is in
         # her context already (a hippocampus completes what is missing, it does not repeat what is held)
@@ -847,6 +872,8 @@ class Mind:
             self._lived(run["id"], (run.get("usage") or {}).get("completion_tokens") or 0, calls, errors)
             heard = self._working.pop(run["id"]).get("heard") or []  # what the user said while she worked
             expressed = self._express(run) if run["kind"] == "turn" else None
+            if run["kind"] == "turn" and (run.get("result") or {}).get("reply"):  # her message is out: answering it
+                self.self["said"] = {"at": now, "mark": self.presence.now(now)}  # takes them as long as it takes
             if not decision:
                 return
             # what it was about takes on how it felt: in her body as the message came, and in what she showed
@@ -1026,17 +1053,25 @@ class Mind:
             # while they are talking, what she thought comes up in her next answer (her note carries it), not as
             # a message of its own in the middle of the conversation
             talking = bool(known) and now - known["at"] < TALKING
-            if (unanswered or talking) and want in ("tell", "ask", "do"):
-                pass  # the thought stays hers
+            # what she means to do she does, whatever the thought (before 0.27.1 only something she had put off,
+            # only with the app open and nothing unanswered, a look-up only with half her energy and only with
+            # the web): a task of hers, in the chat it belongs to, with that chat's tools; its end is told
+            where = (about["app"], about["session"]) if kind == "resume" else \
+                (contact["app"], contact["session"]) if contact else None
+            what = " ".join(str(answer.get("do") or "").split())[:600] or (about["what"] if kind == "resume" else "")
+            if want in ("tell", "ask") and (unanswered or talking):
+                pass  # one message at a time; while they talk it comes up in her next answer (her note)
             elif want in ("tell", "ask") and contact and self._alive(contact["app"], now):
                 urge = {"at": now, "want": want, "app": contact["app"], "session": contact["session"],
-                        "text": URGE[want].format(thought=thought, say=say)}
-            elif want == "do" and kind == "resume" and self._alive(about["app"], now):
-                self.self["concerns"] = [c for c in self.self["concerns"] if c != about]
-                urge = {"at": now, "want": "do", "app": about["app"], "session": about["session"],
-                        "text": URGE["do"].format(say=about["what"])}
-            elif want == "look_up" and contact and body.levels["energy"] > 0.5 and answer.get("look_up"):
-                task = (contact["app"], contact["session"], str(answer["look_up"])[:300])
+                        "text": URGE[want].format(thought=thought, say=say), "mark": self.presence.now(now)}
+            elif want == "do" and what and where:
+                if kind == "resume":
+                    self.self["concerns"] = [c for c in self.self["concerns"] if c != about]
+                task = (*where, f"This comes from you: nobody asked. You were thinking: \"{thought}\" and you decided "
+                        f"to do it: {what}", False)
+            elif want == "look_up" and where and answer.get("look_up"):
+                task = (*where, f"Out of your own curiosity, look this up for yourself: {str(answer['look_up'])[:300]}. "
+                        "Keep what you find worth remembering.", True)  # hers: nobody is told it ended
             if urge:
                 self.self["urge"] = urge
         if urge:
@@ -1044,10 +1079,8 @@ class Mind:
                               {"want": urge["want"], "text": urge["text"], "thought": thought,
                                "session": urge["session"]})
         if task:
-            app, session, query = task
-            self.brain.runs.start_task(app, session, f"Out of your own curiosity, look this up for yourself: {query}. "
-                                       "Keep it short, and keep what you find worth remembering.",
-                                       toolkits=["web", "memory"], quiet=True)  # hers: nobody is told it ended
+            app, session, goal, quiet = task
+            self.brain.runs.start_task(app, session, goal, quiet=quiet)
 
     def _consolidate(self) -> None:
         """Sleep goes over the day: insights, a dream, her story rewritten; the day's charge softens and faint
@@ -1213,7 +1246,8 @@ class Mind:
             story = self.self["story"]
         return prompts.INNER_LIFE + (f"\n\n## WHO YOU HAVE BECOME\n{story}" if story else "")
 
-    def state(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False) -> dict:
+    def state(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False,
+              locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
         """How she is now: her face for ``app`` (from its declared expressions), what she feels, her levels,
         thoughts, concerns and story; for drawing her brain, every feeling she has named (``feelings``), her
         body's channels as she senses them (``sensed``: how far from usual, in units of a lot), what wants her
@@ -1222,7 +1256,7 @@ class Mind:
         the computer. ``brief``: only what a face needs (``on``, ``asleep``, ``present``, ``felt``, ``feeling``: a
         few words for it, ``valence``, ``arousal``, ``face``): an app's frequent look, kept small as she grows."""
         if app:
-            self.presence(app, idle)
+            self.seen(app, idle, locked, busy)
         if not self.active():
             return {"on": False, "face": None}
         options = {}
@@ -1273,6 +1307,8 @@ class Mind:
                                   kind in fired for kind in pulls) else None},
                 "decided": self.self.get("decided"), "wiring": [list(edge) for edge in wiring],
                 "pushing": [list(edge) for edge in pushing], "sleep": body.sleep_state(now),
+                # the user at the computer (Presence), and how long a silence before she feels unanswered
+                "user": {**self.presence.state(now), "patience": round(self.patience())},
                 "slept": self.self.get("slept") or 0.0,
                 "levels": {name: round(value, 3) for name, value in body.levels.items()},
                 # where each chemical is heading, how fast (seconds to go two thirds of the way), the needs'

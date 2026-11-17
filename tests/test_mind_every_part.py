@@ -49,7 +49,7 @@ def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
 
     # a quiet day of hers after it, in her own time (from her 10:00 to 21:00): each pull wins its moment
     start = time.time() - 11 * HOUR
-    mind.presence("milk", 1)
+    mind.seen("milk", 1)
     won = Counter()
     with mind._lock:
         mind.body.peak = (mind.body.hour(start) + 6) % 24

@@ -433,7 +433,7 @@ def test_what_wins_her_attention_comes_from_how_she_is(brain, monkeypatch):
     brain.provider.replies += ["Hi."]
     turn(brain, "milk", "hello")
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
-    mind.presence("milk", 1)
+    mind.seen("milk", 1)
     now = time.time()
 
     def winners(**levels):
@@ -533,6 +533,44 @@ def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain):
     assert len(urges()) == 2
 
 
+def test_an_unanswered_message_stings_only_after_they_were_free_to_answer_it(brain):
+    mind = mind_on(brain)  # the user: asleep with the laptop on, they cannot answer; how long depends on what
+    sensitivity, presence = mind.body.temperament.sensitivity, mind.presence  # they are doing
+    now = time.time()
+    presence.report(idle=0, now=now)
+    mind.self["contact"] = {"app": "milk", "session": "main", "at": now - 3 * 3600}
+    mind.self["urge"] = {"at": now, "want": "tell", "app": "milk", "session": "main", "text": "hey",
+                         "mark": presence.now(now)}
+    patience = mind.patience()
+    assert 15 * 60 < patience < 60 * 60  # three times the 10 min they are thought to take, before she knows
+
+    def live(start, minutes, **seen):
+        for minute in range(minutes):  # the app reports as it polls, her mind ticks
+            at = start + minute * 60
+            presence.report(now=at, **{**seen, "idle": seen["idle"](at) if callable(seen.get("idle")) else seen.get("idle")})
+            mind._sting(at)
+    with mind._lock:
+        mind.body.levels["reward"] = 0.0
+    live(now + 60, 8 * 60, idle=lambda at: at - (now + 60))  # they went to bed a minute after she wrote
+    assert not mind.self["urge"].get("stung") and mind.body["reward"] == 0.0
+    morning = now + 9 * 3600
+    live(morning, int(patience / 60) + 2, idle=3, busy=True)  # up, but a game has them fullscreen
+    assert not mind.self["urge"].get("stung")
+    live(morning + patience + 120, int(patience / 60), idle=3, busy=False)  # free at the computer, not answering
+    assert mind.self["urge"]["stung"] and mind.body["reward"] < -0.2 * sensitivity
+
+
+def test_she_learns_how_long_they_take_to_answer_her(brain):
+    mind = mind_on(brain)
+    brain.provider.replies += ["Hi.", "Sure."]
+    turn(brain, "milk", "hello")
+    wait_for(lambda: mind.self.get("said"))  # her message is out
+    before = mind.patience()
+    mind.presence.clock += 90  # they answer within a minute and a half of being free to
+    turn(brain, "milk", "how are you?")
+    assert 80 < math.exp(mind.self["answers"]) < 200 and mind.patience() < before
+
+
 def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain):
     mind = mind_on(brain)
     brain.provider.replies += ["Hi.", "Tomatoes stop growing below 10 C."]
@@ -547,6 +585,24 @@ def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain):
     assert "tomato cold tolerance" in json.dumps(task)
     told = [n["type"] for n in brain.store.notifications("milk", 0)]
     assert not {"task.completed", "task.failed", "mind.urge"} & set(told)  # MilkChan would start a turn
+
+
+def test_what_she_means_to_do_she_does_whatever_the_thought_and_whatever_else_is_going_on(brain):
+    mind = mind_on(brain)  # the user: "if she has a thought to do something, she shouldn't be limited in doing it"
+    brain.provider.replies += ["Hi.", "Made it: notes/ideas.md."]
+    turn(brain, "milk", "hello")  # they are talking with her
+    wait_for(lambda: not brain.brain.session_busy("milk", "main"))
+    mind.self["urge"] = {"at": time.time(), "want": "tell", "app": "milk", "session": "main", "text": "hey"}
+    mind.apps_seen.clear()  # and the app is not even there
+    with mind._lock:
+        mind.body.levels["energy"] = 0.2  # spent
+    brain.provider.mind_replies["think"] = [json.dumps({
+        "thought": "I keep losing my ideas.", "feeling": "restless", "want": "do",
+        "do": "start a file of my ideas in my folder"})]
+    mind._think("wonder", None)  # a wandering thought, not something she put off
+    task = wait_for(lambda: [t for t in brain.client.tasks("milk") if t["status"] == "completed"])[0]
+    assert "start a file of my ideas" in json.dumps(task) and "nobody asked" in json.dumps(task)
+    wait_for(lambda: "task.completed" in [n["type"] for n in brain.store.notifications("milk", 0)])  # what she did is told
 
 
 def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
@@ -572,7 +628,9 @@ def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
     path = decided["path"]  # the way the message went through her, step by step
     assert path["said"] == "Could you tidy my notes?" and set(path["senses"]) >= {"contact", "timing", "novelty"}
     assert set(path["read"]) == {"company", "capable", "free"} and set(path["met"]["pushes"]) >= {"social"}
-    assert path["met"]["gained"] - path["met"]["expected"] == pytest.approx(path["met"]["moved"]["reward"], abs=0.01)
+    met = path["met"]  # dopamine: better than expected, with what happens to them and what it is about, to its bound
+    pushed = met["gained"] - met["expected"] + met["shared"] + 0.3 * met["liked"]
+    assert met["moved"]["reward"] == pytest.approx(min(pushed, 1.0), abs=0.01)
     assert [o["act"] for o in path["options"] if o["picked"]] == ["do"] and "cost" in path["options"][0]["parts"]
     assert path["temperature"] > 0 and "lost" in path["threat"] and path["learned"] is None
     assert decided["outcome"]["status"] == "completed" and "free" in decided["outcome"]["measured"]
