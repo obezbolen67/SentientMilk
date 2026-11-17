@@ -1049,7 +1049,7 @@ class Panel(App):
         self.main.query_one("#app-model", Input).value = settings.get("model", "")
         self.main.query_one("#app-roots", Input).value = ", ".join(settings.get("roots", []))
         declared = []
-        for kit in ["memory", "ways"] + declaration.get("toolkits", []):  # every app has these, listed or not
+        for kit in ["memory", "ways", "inward"] + declaration.get("toolkits", []):  # every app has these, listed or not
             declared += [k for k in kits["toolkits"] if k.startswith("mcp:")] if kit == "mcp:*" else [kit]
         off_everywhere = set(self.settings.get("disabled_toolkits", []))
         off_here = set(settings.get("disabled_toolkits", []))
@@ -1196,8 +1196,14 @@ class Panel(App):
         put_off = "\n".join(f"- {escape(c['what'])} [{MUTED}]({when(c['at'])})[/]" for c in state["concerns"])
         people = "\n".join(f"- {escape(p['name'])} [{MUTED}]({escape(p['pronoun'] or 'they')})[/] {escape(p['gist'] or '')}"
                            for p in state.get("people") or [])
+        looked = state.get("looked")  # introspection (0.35): what she knows of herself, when she last looked
         self.main.query_one("#mind-self", Static).update(
-            f"[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
+            f"[{MUTED}]What she knows about herself[/] "
+            + (escape(state.get("self_view") or "") or f"[{MUTED}]nothing yet: her sleep learns it from her days[/]")
+            + f"\n[{MUTED}]Last looked inward[/] "
+            + ((when(looked["at"]) + (f" [{MUTED}]for[/] {escape(looked['about'])}" if looked.get("about") else ""))
+               if looked else f"[{MUTED}]never yet[/]")
+            + f"\n[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
             + f"\n[{MUTED}]Feelings she named[/] "
             + (escape(", ".join(f["word"] for f in sorted(state["feelings"], key=lambda f: -f["count"]))) or "-")
             + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else "")

@@ -268,8 +268,9 @@ class Brain:
         disabled = set(values["disabled_toolkits"]) | set(settings.get("disabled_toolkits", [])) | \
             set(session_settings.get("disabled_toolkits", []))
         known = self.toolkit_names()
-        # every chat keeps its own memory, and her ways hold in every chat; the user may still switch them off
-        wanted = ["memory", "ways"]
+        # every chat keeps its own memory, her ways hold in every chat and she can look inward in any; the user
+        # may still switch them off
+        wanted = ["memory", "ways", "inward"]
         for name in declaration.get("toolkits", DEFAULT_TOOLKITS):
             wanted += [k for k in known if k.startswith("mcp:")] if name == "mcp:*" else [name]
         wanted += self.plugins.offered()  # installed for every app; an app or session may switch one off

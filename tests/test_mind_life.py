@@ -749,6 +749,30 @@ def _wants_to_tell(brain, mind):
     return _urges(brain)[-1]
 
 
+def test_what_she_meant_to_say_outlasts_a_nap_but_not_a_night(brain):
+    """Slept on is what her sleep went over (``slept``), not any sleep: a message that woke her from a doze set
+    her last sleep's end to that moment, and what she had wanted to say passed unsaid (0.34)."""
+    mind = mind_on(brain)
+    _wants_to_tell(brain, mind)
+    now = time.time()
+    with mind._lock:
+        mind.self["slept"] = now - 8 * 3600  # her sleep went over her day this morning
+        mind.body.asleep, mind.body.slept_at = True, now - 900  # she dozed off; the message wakes her
+    brain.provider.replies += ["Mm?"]
+    turn(brain, "milk", "you awake?")
+
+    def note(said):  # the message as she read it, with her note
+        return next(m["content"] for r in reversed(brain.provider.sent) for m in r["messages"]
+                    if m["role"] == "user" and isinstance(m["content"], str) and said in m["content"])
+    assert "You've been wanting to tell the user: How are the tomatoes doing?" in note("you awake?")
+    _wants_to_tell(brain, mind)
+    with mind._lock:
+        mind.self["slept"] = time.time() + 1  # a night went over her day since she wanted to: it passed
+    brain.provider.replies += ["Morning."]
+    turn(brain, "milk", "good morning")
+    assert "You've been wanting to tell" not in note("good morning")
+
+
 def test_what_the_app_does_not_let_her_say_she_keeps_for_when_they_write(brain):
     """MilkChan with "speak up on her own" off drops every urge of hers. The brain took each for said: she waited
     on an answer to a message never shown, was hurt by the silence ("reached out and got no answer", the user's

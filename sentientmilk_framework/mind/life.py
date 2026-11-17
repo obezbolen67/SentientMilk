@@ -73,7 +73,7 @@ import requests
 
 from .. import signals
 from ..presence import Presence
-from . import prompts
+from . import inward, prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, REST, SET_POINTS, Body, Temperament
 from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved
 from .memory import Memory, describe_salience, line
@@ -119,6 +119,7 @@ RESTING = 0.5  # her mind's pull to wander when nothing is asked of it (a though
 REFLEX, CLEAR_AGAIN = 0.5, 0.6
 TOLD_AGAIN = 0.4  # how much more a channel must stand out than when she last heard of it, to hear of it again
 THOUGHT_CHARS = 400  # of a memory or a thought, in what she is told of it
+SELF_CHARS = 600  # of what she knows about herself (four short sentences)
 PAST_PART = 60  # of her moments, in each step of meeting the people of her past
 RUMINATED = ("exchange", "event", "insight")  # what comes back as something nags her: what happened, not her musings
 SORE = 0.25  # a moment that took this much from how she felt hurt her (its sting): what she may brood on
@@ -210,6 +211,8 @@ class Mind:
         self.self = {"born": False, "expected": 0.1, "gap": None, "contact": None, "concerns": [],
                      "waiting": {}, "usual": 0.0, "urge": None, "slept": 0.0, "consolidate": False, "fired": {},
                      "faces": {},  # chat -> whom its app shows as the one writing (their handle)
+                     # what she has come to know about herself (_know_herself), and when she last looked inward
+                     "self_view": None, "looked": None,
                      "thoughts": [], "trust": {"model": dict.fromkeys(FORESEEN, 0.1), "own": dict.fromkeys(FORESEEN, 0.3)},
                      **(self.memory.get("self") or {})}
         self.self.pop("expected_warmth", None)  # a mind from before 0.21
@@ -523,10 +526,10 @@ class Mind:
                 body.apply({"reward": 0.1 + 0.3 * x["bond"]}, why)
                 self.self["urge"] = None
             # what she meant to say and has not, they are here to hear now: her note carries it (slept on, it
-            # passed). Before 0.34 the note had the thought alone, or nothing: kept back while they talked or by
-            # the app, it was gone
+            # passed: her sleep went over the day since, not a doze this message woke her from). Before 0.34 the
+            # note had the thought alone, or nothing: kept back while they talked or by the app, it was gone
             unsaid = urge if urge and "mark" not in urge and urge.get("say") \
-                and urge["at"] > body.last_sleep.get("to", 0.0) else None
+                and urge["at"] > (self.self.get("slept") or 0.0) else None
             if urge and "mark" not in urge:
                 self.self["urge"] = None
                 self._went(urge.get("thought"), "brought up" if unsaid else "passed")
@@ -1254,6 +1257,10 @@ class Mind:
             self._meet_people(self.memory.since(slept, kinds=("exchange", "thought", "event")))
         except Exception:
             logger.warning("She could not go over the people in her day", exc_info=True)
+        try:  # and what the day showed about who she is
+            self._know_herself(slept)
+        except Exception:
+            logger.warning("She could not go over what she is like", exc_info=True)
         try:  # and how she did things: what she kept, broke, took on or fell into
             self._review_ways(slept)
         except Exception:
@@ -1378,6 +1385,76 @@ class Mind:
             self.save()
             self._retake()
         return changed
+
+    def look_inward(self, about: str = "") -> str:
+        """She looks inside herself on purpose (inward.view): how she feels and how clearly she can tell, what
+        has been on her mind since she woke and what came of it, what she meant to say and put off, what got to
+        her, what she leaned toward and why, what she knows about herself; with ``about``, what comes back about
+        it and how clearly. As many things as her span holds. Putting a bad feeling into words calms it a little
+        (affect labeling: Lieberman et al. 2007, Torre & Lieberman 2018). Before 0.35 she had only what each
+        message's note handed her: asked what bothered her, she answered from the last topic while her thoughts
+        all afternoon had been about wanting to be noticed (the user's brain, 2026-11-17)."""
+        about = " ".join(str(about or "").split())[:300]
+        now = time.time()
+        with self._lock:
+            felt = feel(self.body, self.senses, now)
+            # her day: what her sleep has not yet gone over (being woken from a doze does not end it)
+            span, woke = self._span(), self.self.get("slept") or 0.0
+            aware = self._clear() * self.body.temperament.insight
+            thoughts = [(t["thought"][:THOUGHT_CHARS], t.get("went")) for t in self.self["thoughts"]
+                        if t["at"] > woke][:2 * span]
+            urge = self.self.get("urge")
+            unsaid = None
+            if urge and "mark" not in urge and urge.get("say") and urge["at"] > woke:
+                person = self._with(urge["app"], urge["session"])
+                unsaid = (urge["want"], person["name"] if person else "the user", urge["say"])
+            put_off = [c["what"][:200] for c in self.self["concerns"][-span:]]
+            stirred = sorted((e for e in self.memory.since(woke, kinds=("exchange", "event", "thought"))
+                              if abs(e["sting"]) >= 0.1), key=lambda e: -abs(e["sting"]) * e["charge"])[:span]
+            moved = [(self._line(e, now)[:THOUGHT_CHARS], e["sting"]) for e in stirred]
+            decided = self.self.get("decided")
+            leaned = ((prompts.ACTS.get(decided["act"], decided["act"]) + (f": {decided['what']}" if decided.get("what")
+                       else ""), decided.get("reasons") or []) if decided and decided.get("gated")
+                      and now - decided["at"] < 6 * HOUR else None)
+            self_view = (self.self.get("self_view") or {}).get("text") or ""
+            if felt.valence < -0.15:  # naming what she feels turns it down a little (whatever words she finds)
+                self.body.apply({"noradrenaline": 0.05 * felt.valence, "cortisol": 0.03 * felt.valence},
+                                "putting what she feels into words")
+            words = felt.words(self.concepts.recognize(felt.noticed()))
+            self.self["looked"] = {"at": now, "about": about}
+        recalled = None
+        if about:  # sought on purpose: what comes back, and how strongly it is there to come back (Koriat 1993)
+            recalled = [(self._line(e, now)[:THOUGHT_CHARS], Memory.strength_now(e, now))
+                        for e in self.memory.recall(about, felt.valence, now, count=span)]
+        self.save()
+        return inward.view(words, felt.tone(), aware, thoughts, unsaid, put_off, moved, leaned, self_view, about,
+                           recalled)
+
+    def _know_herself(self, since: float) -> bool:
+        """Sleep goes over what the day showed about who she is, once a night, thought through: what she knows
+        about herself, in her own words, kept with what still holds (self-knowledge is learned from watching
+        what you do and feel, slowly, and partly wrong: Bem 1972, Wilson 2002). Her persona is not shown: it is
+        who she is meant to be, this is who she finds she is. Whether it changed."""
+        now = time.time()
+        with self._lock:
+            moments = sorted(self.memory.since(since, kinds=("exchange", "thought", "event"), count=12),
+                             key=lambda e: e["at"])
+            thoughts = [t["thought"][:THOUGHT_CHARS] for t in self.self["thoughts"] if t["at"] > since][:6]
+            known = (self.self.get("self_view") or {}).get("text") or ""
+        if not moments and not thoughts:
+            return False
+        asked = ("What they knew about themselves:\n" + (known or "nothing yet") + "\n\nToday, oldest first:\n"
+                 + "\n".join(f"- {self._line(m, now)} (it felt {_tone(m['valence'])})" for m in moments)
+                 + ("\n\nTheir own thoughts today:\n" + "\n".join(f'- "{t}"' for t in thoughts) if thoughts else ""))
+        answer, _ = self._ask(prompts.SELF, asked, quick=False)
+        text = " ".join(str(answer.get("self") or "").split())[:SELF_CHARS]
+        if not text or text == known:
+            return False
+        with self._lock:
+            old = self.self.get("self_view") or {}
+            self.self["self_view"] = {"text": text, "since": old.get("since") or now, "at": now}
+        self.save()
+        return True
 
     def ways_section(self) -> str:
         """YOUR WAYS for a chat's system prompt (Ways.section), taken with the session's snapshot."""
@@ -1617,4 +1694,5 @@ class Mind:
                 "thoughts": list(self.self["thoughts"]), "concerns": list(self.self["concerns"]),
                 "likes": _about(likes), "dislikes": _about(dislikes),
                 "memories": self.memory.count(), "people": self.people.listed(), "ways": self.ways.listed(),
+                "self_view": (self.self.get("self_view") or {}).get("text"), "looked": self.self.get("looked"),
             }

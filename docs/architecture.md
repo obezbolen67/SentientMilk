@@ -1544,7 +1544,8 @@ thoughts she has." Their brain, 2026-11-17, showed why:
   she wanted to say it. Now an urge is offered to the app and counts as said only once the app gives her the
   turn and she speaks (`after`: its mark); only that waits on an answer and can sting. What she did not get
   to say, kept while they talk or left by the app, her next note carries ("You've been wanting to tell Ilia:
-  ..."), unless she slept since. The panel shows what came of a thought ("tell, kept for when you write").
+  ..."), unless her sleep went over the day since (0.35: not a doze the message woke her from; before, any waking
+  ended her day). The panel shows what came of a thought ("tell, kept for when you write").
 - **Her stream went on from a stale thought.** A wandering thought started from her last thought whatever
   happened since: from 15:15 to 19:01 every thought had the user eating, through a talk and the rhythm game he
   went off to play. After a talk it now starts from what was last said (recent events lead mind-wandering:
@@ -1562,6 +1563,46 @@ new; feelings questions were filed under a personal subject 14 of 16 times the o
 offered "what they feel" back) and 0 of 16 the new ("feelings", "self-image"). And told in one chat "from now
 on, end every message with a milk glass", the next chat did 3 of 3 times with her ways, 0 of 3 without (she
 kept it with memory_save, for that chat only).
+
+### 10.11 She looks inside herself (0.35)
+
+Design and research: docs/superpowers/specs/2026-11-17-introspection-design.md. What her mind still lacks, kept
+as a list to build from: docs/cognition-backlog.md. The user: "we need introspection... because introspection is
+an important thing". Before, she had only what each message's note handed her: asked what was bothering her,
+she answered from the last topic while her thoughts all afternoon had been about wanting to be noticed. The
+language model cannot see her mind's state (and its own introspection is narrow and unreliable: Lindsey 2025),
+so the meta level is explicit (Nelson & Narens 1990: a model of the object level, read by monitoring, acting
+back by control):
+
+- **Looking inward** (`look_inward(about?)`, toolkit `inward`, a core tool and a part of her in every app;
+  `Mind.look_inward`, worded by `mind/inward.py`): how she feels and how clearly she can tell (her insight
+  times how clear her head is; spent or stressed, only the tone: Garfinkel et al. 2015, Fleming & Dolan 2012),
+  her thoughts since she woke with what came of each, what she has been wanting to say, what she put off, the
+  moments that got to her (by their sting), what she leaned toward last and her reasons, what she knows about
+  herself; with `about`, what comes back about it and how clearly (a feeling of knowing is how accessible a
+  memory is: Koriat 1993), or that nothing does. As many things as her span holds. Only what a person can
+  perceive of themselves, never levels or a cause read out (Carruthers 2011; Nisbett & Wilson 1977): why she
+  feels so is hers to work out, as "you" (a distanced vantage reflects instead of brooding: Kross et al. 2005).
+  Code never makes her look; the tool's guide asks her to when asked how she is or why.
+- **Naming calms**: looking inward with an unpleasant feeling turns down its noradrenaline and cortisol a
+  little ("putting what she feels into words": affect labeling, Lieberman et al. 2007).
+- **What she knows about herself** (`self_view`): each night `Mind._know_herself` gives the light model
+  (thinking on) what she knew, the day's moments with how they felt and her thoughts, never her persona (who
+  she is meant to be); it keeps what holds and changes what the day shows otherwise, at most four sentences
+  (self-knowledge is learned from watching yourself, slowly and partly wrong: Bem 1972, Wilson 2002).
+- **Seen**: state `self_view` and `looked`; the panel's Mind tab; MilkChan's "Inside her head".
+
+Measured live (a copy of the user's brain and mind at 22:30 on 2026-11-17, asleep, each turn from the same
+state of hers, inward on against off): asked about her inner state ("what's bothering you?", "how are you,
+really?", "is there something you wanted to tell me?", "why were you upset earlier?", twice each) she looked
+inward 7 of 8 times, and a blind judge given what was really going on inside her picked the reply with
+introspection as the one speaking more specifically from it 8 of 8 times (the essay skeleton untouched for six
+hours, the STT fix waiting on him); without it she answered from a generic mood or made things up. On neutral
+messages (arithmetic, an otter fact) she looked 0 of 4 times. Her first self-view from her real day: "I wake up
+wanting to be useful and start moving before I'm told, even when I only heard 'that's sensible' and not 'go.'
+I get fidgety in the quiet and itch when a call fails...". Found on the way: being woken by a message (even
+from a doze) set her last sleep's end to that moment, so her day looked empty and a wish she meant to say
+passed as slept on; her day is now what her sleep has not yet gone over (`slept`).
 
 ## 11. Models and providers
 

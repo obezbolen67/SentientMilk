@@ -260,6 +260,8 @@ def test_her_mind_shows_in_its_tab(brain):
                                           "want": "nothing"},
                                          {"at": time.time() - 60, "kind": "wonder", "thought": "I miss them.",
                                           "want": "tell", "went": "kept"}]
+    brain.brain.mind.self["self_view"] = {"text": "I sulk when ignored.", "since": time.time(), "at": time.time()}
+    brain.brain.mind.self["looked"] = {"at": time.time(), "about": "the clock"}
 
     async def scenario(panel, pilot):
         panel.action_tab("mind")
@@ -269,6 +271,8 @@ def test_her_mind_shows_in_its_tab(brain):
         assert "Clouds are odd." in str(panel.query_one("#mind-thoughts").render())
         assert "tell, kept for when you write" in str(panel.query_one("#mind-thoughts").render())  # what came of it
         assert "Likes" in str(panel.query_one("#mind-self").render())
+        assert "I sulk when ignored." in str(panel.query_one("#mind-self").render())  # what she knows of herself
+        assert "for the clock" in str(panel.query_one("#mind-self").render())  # and when she last looked inward
         assert not panel.query("#mind-on")  # always on: there is no switch
     run(brain, scenario)
 
