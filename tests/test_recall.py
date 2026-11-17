@@ -2,6 +2,7 @@
 and go when they are deleted (docs/superpowers/specs/2026-11-17-long-term-memory-design.md)."""
 
 import json
+import sqlite3
 import time
 from types import SimpleNamespace
 
@@ -9,9 +10,19 @@ import pytest
 from conftest import Meaning, turn, use
 
 from sentientmilk_framework.exceptions import BrainError
-from sentientmilk_framework.recall import CHUNK, HEADER, chunks
+from sentientmilk_framework.recall import CHUNK, HEADER, Recall, chunks
 from sentientmilk_framework.toolkits import ToolError
 from sentientmilk_framework.toolkits import sessions as sessions_kit
+
+
+def test_stop_releases_the_profile_database(brain, tmp_path):
+    path = tmp_path / "second-recall.sqlite3"
+    recall = Recall(brain.brain, path)
+    recall.start()
+    recall.stop()
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        recall._db.execute("SELECT 1")
+    path.rename(path.with_suffix(".closed"))
 
 FILLER = ["the weather was grey all week", "we fixed the printer driver", "a recipe for lentil soup",
           "notes about the quarterly budget", "she read about volcanoes", "music for focus playlists",

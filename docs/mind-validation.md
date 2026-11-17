@@ -26,6 +26,8 @@ The dialogue check sent synthetic text to the configured model with a short comp
 
 The raw paired replies and model identifier are available for independent grading. Run `python -m scripts.source_trials OUTPUT --holdout` to repeat the dialogue procedure. Keep the generated order keys separate until replies are rated. Run `python -m pytest -q tests/test_mind_evidence.py` for the causal, restart and calibration regressions. [Held-out replies](verification/2026-11-18-source-memory.json)
 
+Two disposable HTTP servers also exercised release compatibility. The 0.36 client read both brief and detailed state from the previous 0.35 brain. The previous client read both shapes from the new brain. A separate restart check submitted a phone turn, inspected the detailed trace, reopened its stored episode, shut down and removed the profile directory on Windows.
+
 ## Limits of this release
 
 An exact tool name and literal target can establish an operation. Aliases for the same path, uninstrumented external effects, user satisfaction and the correctness of arbitrary deliverables may still be unresolved. The control loop uses the available app and tool observations. It has no access to the language model's weights or internal activations.

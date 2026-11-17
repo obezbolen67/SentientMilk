@@ -131,19 +131,26 @@ class Recall:
         self._wake.set()
         if self._thread:
             self._thread.join(timeout=10)
+        else:
+            with self._lock:
+                self._db.close()
 
     def wake(self) -> None:
         """Something new may be there (a turn ended): take it in now."""
         self._wake.set()
 
     def _loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                self.sweep()
-            except Exception:
-                logger.exception("Her long-term memory could not take in what is new")
-            self._wake.wait(SWEEP_EVERY)
-            self._wake.clear()
+        try:
+            while not self._stop.is_set():
+                try:
+                    self.sweep()
+                except Exception:
+                    logger.exception("Her long-term memory could not take in what is new")
+                self._wake.wait(SWEEP_EVERY)
+                self._wake.clear()
+        finally:
+            with self._lock:
+                self._db.close()
 
     def status(self) -> dict:
         embedder = self.refresh()
