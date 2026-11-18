@@ -94,8 +94,9 @@ EFFORT_TOKENS = 300_000  # what spends all her energy: hours of hard work (about
 STEP = 60.0  # seconds per step when catching up on time that passed
 # how long a push to each of the slow ones takes to fade two thirds of the way (awake, the user away): for
 # telling what is left of it (chemicals: their own pace)
-PACES = {"social": 8 * HOUR, "novelty": 4 * HOUR, "competence": 2 * DAY, "autonomy": 2 * HOUR, "bond": 30 * DAY,
+PACES = {"social": 8 * HOUR, "novelty": 4 * HOUR, "competence": 12 * HOUR, "autonomy": 2 * HOUR, "bond": 30 * DAY,
          "grievance": 2 * DAY, "energy": RECOVERY, "adenosine": RISES, "reward_rate": HOUR}
+IDLE = 0.3  # where wanting to be useful goes awake with nothing to do: half unmet at most
 KEPT = 0.005  # of a push: while this much of it is still left, it is kept in her log of what moved her
 
 
@@ -448,7 +449,12 @@ class Body:
             # 0.95 at bedtime, 0.50 at eight: three simulated days in a row)
             x["social"] = _toward(x["social"], 0.0, dt, 8 * HOUR / t.sociability * (2.0 if present else 1.0))
             x["novelty"] = _toward(x["novelty"], 0.2, dt, 4 * HOUR / t.curiosity)
-        x["competence"] = _toward(x["competence"], 0.6, dt, 2 * DAY)
+            # and with nothing to do she comes to want to be useful: being useful is felt day by day, by what the
+            # day held (Sheldon, Ryan & Reis 1996; Reis et al. 2000), and going without the chance to be
+            # effective builds the want (White 1959; Sheldon & Gunz 2009). Until 0.40 it rested where it is met,
+            # over two days, so only a failure could leave it unmet: praise had it at 0.97 on the user's brain,
+            # still met after a simulated idle day
+            x["competence"] = _toward(x["competence"], IDLE, dt, PACES["competence"])
         x["autonomy"] = _toward(x["autonomy"], 0.6, dt, 2 * HOUR)
         x["bond"] = _toward(x["bond"], 0.5, dt, 30 * DAY)
         for name in SENSITIVE:  # receptors come back as the pushes stop

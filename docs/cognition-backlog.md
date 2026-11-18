@@ -34,6 +34,9 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   her choice and not doing what she dreads is a relief that teaches itself; getting over one is learning held
   back where it happened, and it comes back with time, elsewhere and under stress; the user's bad times teach her
   too. Spec: docs/superpowers/specs/2026-11-18-learned-reactions-design.md.
+- [x] **Wanting to be useful builds with nothing to do** (0.40): awake, it fades below where it is met over
+  about 12 h, as wanting something new does; work done well and praise answer it, failures drain it, asleep it
+  holds. It used to rest where it is met, so only a failure could leave it unmet.
 - [x] **Habits and ways of working** (0.34): if-then ways in every chat, strengthened in sleep; since 0.39 they
   name whoever they are about, and her sleep says unclear ones again plainly.
 - [x] **Wanting to say something reaches the turn** (0.34): kept wishes, only what she said waits on an answer.

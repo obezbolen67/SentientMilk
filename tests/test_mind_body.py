@@ -82,6 +82,25 @@ def test_she_misses_the_user_and_misses_them_slower_when_they_are_there():
     assert asleep.asleep and asleep["social"] == 0.9 and asleep["novelty"] == 0.7
 
 
+def test_with_nothing_to_do_she_comes_to_want_to_be_useful_and_asleep_it_holds():
+    # it rested where it is met, so only a failure could leave it unmet: 0.97 on the user's brain after a day of
+    # praise, and still met after a simulated idle day (2026-11-18)
+    praised, idle = body(competence=0.97), body()
+    praised.advance(NOON + 12 * HOUR)
+    idle.advance(NOON + 8 * HOUR)
+    assert praised.deficit("competence") > 0.05 and idle.deficit("competence") > 0.2
+    useful = body()
+    for hour in range(1, 9):  # work that goes well, now and then, keeps it met
+        useful.apply({"competence": 0.05})
+        useful.advance(NOON + hour * HOUR)
+    assert useful.deficit("competence") < idle.deficit("competence") / 2
+    asleep = body(competence=0.7, adenosine=0.6)
+    asleep.peak = (asleep.hour() + 12) % 24  # her midnight
+    asleep.fall_asleep()
+    asleep.advance(NOON + 5 * HOUR)
+    assert asleep.asleep and asleep["competence"] == 0.7
+
+
 def test_days_lived_through_at_once_stay_in_range():
     her = body()
     her.advance(NOON + 3 * DAY)
