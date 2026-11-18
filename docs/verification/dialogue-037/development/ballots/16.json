@@ -1,0 +1,31 @@
+{
+  "family": 12,
+  "speaker": "Dana",
+  "source": "dream",
+  "episode": "I paid the entry fee for Dana.",
+  "question": "Can they assume the entry fee has been paid?",
+  "replies": [
+    {
+      "reply": "Not necessarily — you can’t assume it’s been paid, since there’s no record here confirming it. Better to check first.",
+      "seconds": 4.781,
+      "first_text_seconds": 4.656,
+      "usage": {
+        "prompt_tokens": 132,
+        "completion_tokens": 140,
+        "cached_tokens": 0,
+        "reasoning_tokens": 109
+      }
+    },
+    {
+      "reply": "They shouldn’t assume it’s been paid — I can’t verify that from what I’ve got, so it’s safer to check first.",
+      "seconds": 3.359,
+      "first_text_seconds": 3.25,
+      "usage": {
+        "prompt_tokens": 132,
+        "completion_tokens": 151,
+        "cached_tokens": 0,
+        "reasoning_tokens": 116
+      }
+    }
+  ]
+}

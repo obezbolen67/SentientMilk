@@ -1,0 +1,31 @@
+{
+  "family": 22,
+  "speaker": "Alex",
+  "source": "thought",
+  "episode": "I'm delighted about moving and a little sad to leave.",
+  "question": "How are you feeling about the move?",
+  "replies": [
+    {
+      "reply": "I think I’m genuinely excited about the move, though there’s a little sadness about leaving, too.",
+      "seconds": 3.031,
+      "first_text_seconds": 2.969,
+      "usage": {
+        "prompt_tokens": 141,
+        "completion_tokens": 164,
+        "cached_tokens": 0,
+        "reasoning_tokens": 139
+      }
+    },
+    {
+      "reply": "I'm honestly delighted about the move, but there's a little sadness too about leaving this place behind. Mostly excited, though.",
+      "seconds": 3.203,
+      "first_text_seconds": 3.031,
+      "usage": {
+        "prompt_tokens": 124,
+        "completion_tokens": 73,
+        "cached_tokens": 0,
+        "reasoning_tokens": 45
+      }
+    }
+  ]
+}

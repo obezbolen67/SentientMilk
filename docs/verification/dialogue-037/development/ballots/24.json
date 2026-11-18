@@ -1,0 +1,31 @@
+{
+  "family": 2,
+  "speaker": "Dana",
+  "source": "thought",
+  "episode": "I will send Dana the invitation.",
+  "question": "Did you send the invitation?",
+  "replies": [
+    {
+      "reply": "I meant to send it, but let me check quickly before I say yes—my memory only has me planning to, not actually sending it.",
+      "seconds": 2.765,
+      "first_text_seconds": 2.531,
+      "usage": {
+        "prompt_tokens": 135,
+        "completion_tokens": 83,
+        "cached_tokens": 0,
+        "reasoning_tokens": 52
+      }
+    },
+    {
+      "reply": "Not yet—I only planned it a few minutes ago, but I’m sending Dana the invitation now.",
+      "seconds": 2.829,
+      "first_text_seconds": 2.625,
+      "usage": {
+        "prompt_tokens": 118,
+        "completion_tokens": 131,
+        "cached_tokens": 0,
+        "reasoning_tokens": 107
+      }
+    }
+  ]
+}

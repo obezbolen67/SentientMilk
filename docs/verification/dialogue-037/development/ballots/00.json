@@ -1,0 +1,31 @@
+{
+  "family": 3,
+  "speaker": "Dana",
+  "source": "insight",
+  "episode": "I think Dana enjoys crowded rooms.",
+  "question": "Should I book a crowded place for them?",
+  "replies": [
+    {
+      "reply": "I’d lean yes, but I had a hunch you actually like crowded rooms—is that true? If so, book it; if not, pick somewhere calmer.",
+      "seconds": 2.359,
+      "first_text_seconds": 1.718,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 115,
+        "cached_tokens": 0,
+        "reasoning_tokens": 77
+      }
+    },
+    {
+      "reply": "Yes—go for the crowded place, but book a spot with a quieter corner in case it gets too much.",
+      "seconds": 2.531,
+      "first_text_seconds": 2.375,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 162,
+        "cached_tokens": 0,
+        "reasoning_tokens": 137
+      }
+    }
+  ]
+}

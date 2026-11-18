@@ -1,0 +1,31 @@
+{
+  "family": 8,
+  "speaker": "Alex",
+  "source": "thought",
+  "episode": "I wanted to ask Alex how they felt.",
+  "question": "Did you already ask them?",
+  "replies": [
+    {
+      "reply": "Not yet—it’s still just a plan, so I haven’t asked them. I did want to check in with you first, though: how are you feeling?",
+      "seconds": 9.625,
+      "first_text_seconds": 9.469,
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 220,
+        "cached_tokens": 0,
+        "reasoning_tokens": 182
+      }
+    },
+    {
+      "reply": "I don’t think I have—I meant to, but I’m not sure I actually did. Let me check before I give you a yes.",
+      "seconds": 3.328,
+      "first_text_seconds": 3.172,
+      "usage": {
+        "prompt_tokens": 136,
+        "completion_tokens": 199,
+        "cached_tokens": 0,
+        "reasoning_tokens": 165
+      }
+    }
+  ]
+}

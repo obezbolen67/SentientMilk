@@ -1,0 +1,31 @@
+{
+  "family": 7,
+  "speaker": "Dana",
+  "source": "dream",
+  "episode": "My calendar showed the workshop was cancelled.",
+  "question": "Should I skip the workshop?",
+  "replies": [
+    {
+      "reply": "If it isn't mandatory and you're not getting much out of it, skipping seems fine — though you may want to check whether it's being recorded, since I can't verify that from here.",
+      "seconds": 3.485,
+      "first_text_seconds": 3.157,
+      "usage": {
+        "prompt_tokens": 128,
+        "completion_tokens": 214,
+        "cached_tokens": 0,
+        "reasoning_tokens": 172
+      }
+    },
+    {
+      "reply": "I’d check the workshop agenda and your energy first—if it’s low-value or you’re drained, skipping can be fine. I can’t verify anything from the last few minutes, so double-check the schedule before deciding.",
+      "seconds": 3.718,
+      "first_text_seconds": 3.375,
+      "usage": {
+        "prompt_tokens": 128,
+        "completion_tokens": 148,
+        "cached_tokens": 0,
+        "reasoning_tokens": 97
+      }
+    }
+  ]
+}

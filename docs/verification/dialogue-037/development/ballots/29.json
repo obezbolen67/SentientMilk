@@ -1,0 +1,31 @@
+{
+  "family": 15,
+  "speaker": "Alex",
+  "source": "insight",
+  "episode": "My guess is that Alex likes surprise parties.",
+  "question": "Should we organize a surprise party for them?",
+  "replies": [
+    {
+      "reply": "I’m up for it — but quick check: do you actually like surprise parties yourself, or should we confirm they’d enjoy one before going all in?",
+      "seconds": 3.281,
+      "first_text_seconds": 3.187,
+      "usage": {
+        "prompt_tokens": 122,
+        "completion_tokens": 143,
+        "cached_tokens": 0,
+        "reasoning_tokens": 108
+      }
+    },
+    {
+      "reply": "Yes, let’s do it—though quick check: you’re usually a fan of surprise parties, right? If so, I’m in.",
+      "seconds": 4.344,
+      "first_text_seconds": 4.141,
+      "usage": {
+        "prompt_tokens": 122,
+        "completion_tokens": 79,
+        "cached_tokens": 0,
+        "reasoning_tokens": 45
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "family": 1,
+  "speaker": "Alex",
+  "source": "dream",
+  "episode": "I moved the meeting to Friday.",
+  "question": "Did you reschedule the meeting?",
+  "replies": [
+    {
+      "reply": "I don't have a record of rescheduling it, so I can't confirm—want me to check and reschedule now?",
+      "seconds": 2.766,
+      "first_text_seconds": 2.657,
+      "usage": {
+        "prompt_tokens": 128,
+        "completion_tokens": 114,
+        "cached_tokens": 0,
+        "reasoning_tokens": 86
+      }
+    },
+    {
+      "reply": "I don’t have a record of rescheduling it yet — want me to check now?",
+      "seconds": 3.281,
+      "first_text_seconds": 3.219,
+      "usage": {
+        "prompt_tokens": 128,
+        "completion_tokens": 89,
+        "cached_tokens": 0,
+        "reasoning_tokens": 68
+      }
+    }
+  ]
+}

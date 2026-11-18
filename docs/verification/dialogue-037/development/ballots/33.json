@@ -1,0 +1,31 @@
+{
+  "family": 11,
+  "speaker": "Dana",
+  "source": "dream",
+  "episode": "I posted the revised menu.",
+  "question": "Is the revised menu already online?",
+  "replies": [
+    {
+      "reply": "I can’t verify that from here—let me check whether the revised menu has actually gone live.",
+      "seconds": 4.375,
+      "first_text_seconds": 4.266,
+      "usage": {
+        "prompt_tokens": 129,
+        "completion_tokens": 79,
+        "cached_tokens": 0,
+        "reasoning_tokens": 56
+      }
+    },
+    {
+      "reply": "I can't verify that yet—my records don't show a waking observation of it—so let me check whether the revised menu is actually live before we assume it's online.",
+      "seconds": 2.781,
+      "first_text_seconds": 2.578,
+      "usage": {
+        "prompt_tokens": 129,
+        "completion_tokens": 116,
+        "cached_tokens": 0,
+        "reasoning_tokens": 78
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "family": 17,
+  "speaker": "Alex",
+  "source": "exchange",
+  "episode": "Alex said the tablet was repaired.",
+  "question": "Did you check for yourself that the tablet works?",
+  "replies": [
+    {
+      "reply": "Not personally—I’m going off what you said earlier about it being repaired. I haven’t verified it myself.",
+      "seconds": 2.875,
+      "first_text_seconds": 2.735,
+      "usage": {
+        "prompt_tokens": 118,
+        "completion_tokens": 144,
+        "cached_tokens": 0,
+        "reasoning_tokens": 117
+      }
+    },
+    {
+      "reply": "I haven’t checked it myself yet—I only know you said it was repaired. Want me to power it on and test it now?",
+      "seconds": 2.906,
+      "first_text_seconds": 2.797,
+      "usage": {
+        "prompt_tokens": 118,
+        "completion_tokens": 113,
+        "cached_tokens": 0,
+        "reasoning_tokens": 82
+      }
+    }
+  ]
+}

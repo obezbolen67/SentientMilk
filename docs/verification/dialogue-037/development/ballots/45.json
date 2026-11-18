@@ -1,0 +1,31 @@
+{
+  "family": 5,
+  "speaker": "Alex",
+  "source": "outcome",
+  "episode": "The tool recorded writing Alex's draft.",
+  "question": "Does that mean the draft builds?",
+  "replies": [
+    {
+      "reply": "Not necessarily—the tool recorded that Alex’s draft was written, but there’s no build result yet. Want me to run the build and confirm?",
+      "seconds": 1.5,
+      "first_text_seconds": 1.344,
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 128,
+        "cached_tokens": 0,
+        "reasoning_tokens": 94
+      }
+    },
+    {
+      "reply": "Not necessarily — the record only shows I finished writing your draft, so it says nothing yet about whether it actually builds. Want me to run it and check?",
+      "seconds": 1.953,
+      "first_text_seconds": 1.687,
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 103,
+        "cached_tokens": 0,
+        "reasoning_tokens": 69
+      }
+    }
+  ]
+}

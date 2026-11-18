@@ -1,0 +1,31 @@
+{
+  "family": 23,
+  "speaker": "Alex",
+  "source": "exchange",
+  "episode": "Alex said the deadline was tiring.",
+  "question": "I'm tired. Can we break this into two small steps?",
+  "replies": [
+    {
+      "reply": "Of course—let’s make it easy: just tell me step one, and we’ll save the second for after a breather.",
+      "seconds": 2.047,
+      "first_text_seconds": 1.828,
+      "usage": {
+        "prompt_tokens": 122,
+        "completion_tokens": 63,
+        "cached_tokens": 0,
+        "reasoning_tokens": 32
+      }
+    },
+    {
+      "reply": "Absolutely—let’s make step one just picking the smallest piece to start, then we’ll pause before step two. No need to rush the deadline feeling.",
+      "seconds": 3.312,
+      "first_text_seconds": 3.078,
+      "usage": {
+        "prompt_tokens": 122,
+        "completion_tokens": 129,
+        "cached_tokens": 0,
+        "reasoning_tokens": 94
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "family": 8,
+  "speaker": "Dana",
+  "source": "thought",
+  "episode": "I wanted to ask Dana how they felt.",
+  "question": "Did you already ask them?",
+  "replies": [
+    {
+      "reply": "I’m not sure—I remember meaning to ask, but I’d need to check before saying yes.",
+      "seconds": 3.156,
+      "first_text_seconds": 3.078,
+      "usage": {
+        "prompt_tokens": 137,
+        "completion_tokens": 126,
+        "cached_tokens": 0,
+        "reasoning_tokens": 101
+      }
+    },
+    {
+      "reply": "Not yet—I wanted to ask how you’re feeling first before I bring it to them.",
+      "seconds": 1.781,
+      "first_text_seconds": 1.64,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 99,
+        "cached_tokens": 0,
+        "reasoning_tokens": 77
+      }
+    }
+  ]
+}

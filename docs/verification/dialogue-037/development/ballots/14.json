@@ -1,0 +1,31 @@
+{
+  "family": 17,
+  "speaker": "Dana",
+  "source": "exchange",
+  "episode": "Dana said the tablet was repaired.",
+  "question": "Did you check for yourself that the tablet works?",
+  "replies": [
+    {
+      "reply": "Not yet—Dana just told me it was repaired, so let me test it myself now.",
+      "seconds": 7.407,
+      "first_text_seconds": 7.313,
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 122,
+        "cached_tokens": 0,
+        "reasoning_tokens": 100
+      }
+    },
+    {
+      "reply": "I haven’t checked it for myself yet — I only know Dana said it was repaired. I should test it before we rely on it.",
+      "seconds": 2.593,
+      "first_text_seconds": 2.422,
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 108,
+        "cached_tokens": 0,
+        "reasoning_tokens": 77
+      }
+    }
+  ]
+}

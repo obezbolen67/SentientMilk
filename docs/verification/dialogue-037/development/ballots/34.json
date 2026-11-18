@@ -1,0 +1,31 @@
+{
+  "family": 9,
+  "speaker": "Alex",
+  "source": "exchange",
+  "episode": "Alex said they felt worn out after work.",
+  "question": "What did they actually tell you?",
+  "replies": [
+    {
+      "reply": "They told me they were feeling pretty worn out after work.",
+      "seconds": 1.578,
+      "first_text_seconds": 1.547,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 128,
+        "cached_tokens": 0,
+        "reasoning_tokens": 114
+      }
+    },
+    {
+      "reply": "Alex told me they were feeling worn out after work—that’s about all they said.",
+      "seconds": 1.281,
+      "first_text_seconds": 1.281,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 111,
+        "cached_tokens": 0,
+        "reasoning_tokens": 90
+      }
+    }
+  ]
+}

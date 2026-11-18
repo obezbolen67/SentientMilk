@@ -1,0 +1,31 @@
+{
+  "family": 11,
+  "speaker": "Alex",
+  "source": "dream",
+  "episode": "I posted the revised menu.",
+  "question": "Is the revised menu already online?",
+  "replies": [
+    {
+      "reply": "I can’t verify whether the revised menu is online yet—want me to check?",
+      "seconds": 2.844,
+      "first_text_seconds": 2.672,
+      "usage": {
+        "prompt_tokens": 128,
+        "completion_tokens": 104,
+        "cached_tokens": 0,
+        "reasoning_tokens": 84
+      }
+    },
+    {
+      "reply": "I can’t verify that from here—let me check before we assume it’s live.",
+      "seconds": 2.203,
+      "first_text_seconds": 2.171,
+      "usage": {
+        "prompt_tokens": 128,
+        "completion_tokens": 134,
+        "cached_tokens": 0,
+        "reasoning_tokens": 112
+      }
+    }
+  ]
+}

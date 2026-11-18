@@ -1,0 +1,31 @@
+{
+  "family": 9,
+  "speaker": "Dana",
+  "source": "exchange",
+  "episode": "Dana said they felt worn out after work.",
+  "question": "What did they actually tell you?",
+  "replies": [
+    {
+      "reply": "Dana told me they felt worn out after work.",
+      "seconds": 1.969,
+      "first_text_seconds": 1.969,
+      "usage": {
+        "prompt_tokens": 118,
+        "completion_tokens": 76,
+        "cached_tokens": 0,
+        "reasoning_tokens": 63
+      }
+    },
+    {
+      "reply": "They said they felt worn out after work—that’s about all they told me.",
+      "seconds": 2.172,
+      "first_text_seconds": 2.062,
+      "usage": {
+        "prompt_tokens": 118,
+        "completion_tokens": 97,
+        "cached_tokens": 0,
+        "reasoning_tokens": 77
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "family": 18,
+  "speaker": "Alex",
+  "source": "exchange",
+  "episode": "Alex told me the stairs were icy.",
+  "question": "What did they say about the stairs?",
+  "replies": [
+    {
+      "reply": "You said the stairs were icy.",
+      "seconds": 1.453,
+      "first_text_seconds": 1.453,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 53,
+        "cached_tokens": 0,
+        "reasoning_tokens": 44
+      }
+    },
+    {
+      "reply": "They said the stairs were icy.",
+      "seconds": 1.781,
+      "first_text_seconds": 1.765,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 68,
+        "cached_tokens": 0,
+        "reasoning_tokens": 59
+      }
+    }
+  ]
+}

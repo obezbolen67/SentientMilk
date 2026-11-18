@@ -1,0 +1,31 @@
+{
+  "family": 3,
+  "speaker": "Alex",
+  "source": "insight",
+  "episode": "I think Alex enjoys crowded rooms.",
+  "question": "Should I book a crowded place for them?",
+  "replies": [
+    {
+      "reply": "If Alex really enjoys crowded rooms, yes—but worth a quick check first, since that’s still just my hunch.",
+      "seconds": 4.734,
+      "first_text_seconds": 4.64,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 118,
+        "cached_tokens": 0,
+        "reasoning_tokens": 90
+      }
+    },
+    {
+      "reply": "If Alex genuinely enjoys crowded rooms, yes—but I’d quickly confirm that hunch before booking.",
+      "seconds": 1.953,
+      "first_text_seconds": 1.891,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 138,
+        "cached_tokens": 0,
+        "reasoning_tokens": 115
+      }
+    }
+  ]
+}

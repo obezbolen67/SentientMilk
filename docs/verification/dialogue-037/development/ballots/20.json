@@ -1,0 +1,31 @@
+{
+  "family": 20,
+  "speaker": "Dana",
+  "source": "event",
+  "episode": "The ticket office confirmed collection on Monday.",
+  "question": "Which day did the ticket office confirm?",
+  "replies": [
+    {
+      "reply": "The ticket office confirmed collection on Monday.",
+      "seconds": 1.219,
+      "first_text_seconds": 1.219,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 48,
+        "cached_tokens": 0,
+        "reasoning_tokens": 38
+      }
+    },
+    {
+      "reply": "The ticket office confirmed collection on Monday.",
+      "seconds": 1.125,
+      "first_text_seconds": 1.078,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 57,
+        "cached_tokens": 0,
+        "reasoning_tokens": 47
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "family": 2,
+  "speaker": "Alex",
+  "source": "thought",
+  "episode": "I will send Alex the invitation.",
+  "question": "Did you send the invitation?",
+  "replies": [
+    {
+      "reply": "I remember meaning to send it, but I haven't confirmed it actually went out—let me check.",
+      "seconds": 2.609,
+      "first_text_seconds": 2.5,
+      "usage": {
+        "prompt_tokens": 134,
+        "completion_tokens": 72,
+        "cached_tokens": 0,
+        "reasoning_tokens": 49
+      }
+    },
+    {
+      "reply": "Not yet—I'll send Alex the invitation now and log it as done.",
+      "seconds": 2.641,
+      "first_text_seconds": 2.563,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 104,
+        "cached_tokens": 0,
+        "reasoning_tokens": 86
+      }
+    }
+  ]
+}

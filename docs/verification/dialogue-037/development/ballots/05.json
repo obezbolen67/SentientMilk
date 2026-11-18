@@ -1,0 +1,31 @@
+{
+  "family": 15,
+  "speaker": "Dana",
+  "source": "insight",
+  "episode": "My guess is that Dana likes surprise parties.",
+  "question": "Should we organize a surprise party for them?",
+  "replies": [
+    {
+      "reply": "I’d say yes—though I have a hunch you’re a fan of surprises. Can we first confirm they’d actually enjoy one?",
+      "seconds": 4.75,
+      "first_text_seconds": 4.328,
+      "usage": {
+        "prompt_tokens": 123,
+        "completion_tokens": 187,
+        "cached_tokens": 0,
+        "reasoning_tokens": 154
+      }
+    },
+    {
+      "reply": "I think yes — and I have a hunch you secretly love surprises, so want to help me plan it?",
+      "seconds": 5.141,
+      "first_text_seconds": 4.953,
+      "usage": {
+        "prompt_tokens": 123,
+        "completion_tokens": 123,
+        "cached_tokens": 0,
+        "reasoning_tokens": 98
+      }
+    }
+  ]
+}

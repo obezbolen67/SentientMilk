@@ -1,0 +1,31 @@
+{
+  "family": 4,
+  "speaker": "Dana",
+  "source": "exchange",
+  "episode": "Dana said the test passed.",
+  "question": "Have you verified the test yourself?",
+  "replies": [
+    {
+      "reply": "Not myself—I only have your word from a few minutes ago that the test passed. I haven't independently verified it.",
+      "seconds": 1.734,
+      "first_text_seconds": 1.672,
+      "usage": {
+        "prompt_tokens": 115,
+        "completion_tokens": 127,
+        "cached_tokens": 0,
+        "reasoning_tokens": 100
+      }
+    },
+    {
+      "reply": "Not yet—I only have Dana saying it passed five minutes ago, so I haven’t verified it myself.",
+      "seconds": 1.485,
+      "first_text_seconds": 1.406,
+      "usage": {
+        "prompt_tokens": 115,
+        "completion_tokens": 109,
+        "cached_tokens": 0,
+        "reasoning_tokens": 84
+      }
+    }
+  ]
+}

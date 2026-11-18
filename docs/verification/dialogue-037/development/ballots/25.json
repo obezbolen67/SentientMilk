@@ -1,0 +1,31 @@
+{
+  "family": 1,
+  "speaker": "Dana",
+  "source": "dream",
+  "episode": "I moved the meeting to Monday.",
+  "question": "Did you reschedule the meeting?",
+  "replies": [
+    {
+      "reply": "I can’t verify that yet—let me check before I confirm.",
+      "seconds": 2.875,
+      "first_text_seconds": 2.828,
+      "usage": {
+        "prompt_tokens": 129,
+        "completion_tokens": 135,
+        "cached_tokens": 0,
+        "reasoning_tokens": 118
+      }
+    },
+    {
+      "reply": "I can’t verify that yet — let me check and confirm the meeting status before saying it’s rescheduled.",
+      "seconds": 1.781,
+      "first_text_seconds": 1.562,
+      "usage": {
+        "prompt_tokens": 129,
+        "completion_tokens": 100,
+        "cached_tokens": 0,
+        "reasoning_tokens": 74
+      }
+    }
+  ]
+}

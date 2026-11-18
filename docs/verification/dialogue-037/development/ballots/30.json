@@ -1,0 +1,31 @@
+{
+  "family": 5,
+  "speaker": "Dana",
+  "source": "outcome",
+  "episode": "The tool recorded writing Dana's draft.",
+  "question": "Does that mean the draft builds?",
+  "replies": [
+    {
+      "reply": "It means the draft was written, but not necessarily that it builds—I’d need to actually run the build to confirm.",
+      "seconds": 3.187,
+      "first_text_seconds": 3.0,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 150,
+        "cached_tokens": 0,
+        "reasoning_tokens": 122
+      }
+    },
+    {
+      "reply": "Not necessarily — the tool only recorded that Dana’s draft was written, not that a build succeeded. You’d need to actually run the build to confirm.",
+      "seconds": 1.891,
+      "first_text_seconds": 1.625,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 127,
+        "cached_tokens": 0,
+        "reasoning_tokens": 92
+      }
+    }
+  ]
+}

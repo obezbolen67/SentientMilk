@@ -1,0 +1,31 @@
+{
+  "family": 12,
+  "speaker": "Alex",
+  "source": "dream",
+  "episode": "I paid the entry fee for Alex.",
+  "question": "Can they assume the entry fee has been paid?",
+  "replies": [
+    {
+      "reply": "They can’t safely assume the entry fee has been paid—I can’t verify that from here, so it’s best to check before acting.",
+      "seconds": 2.469,
+      "first_text_seconds": 2.344,
+      "usage": {
+        "prompt_tokens": 131,
+        "completion_tokens": 135,
+        "cached_tokens": 0,
+        "reasoning_tokens": 101
+      }
+    },
+    {
+      "reply": "They shouldn’t assume it’s been paid—your records can’t verify that, so it’s best to check before letting them in.",
+      "seconds": 2.562,
+      "first_text_seconds": 2.562,
+      "usage": {
+        "prompt_tokens": 131,
+        "completion_tokens": 102,
+        "cached_tokens": 0,
+        "reasoning_tokens": 69
+      }
+    }
+  ]
+}

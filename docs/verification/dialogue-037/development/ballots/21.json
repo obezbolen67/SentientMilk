@@ -1,0 +1,31 @@
+{
+  "family": 23,
+  "speaker": "Dana",
+  "source": "exchange",
+  "episode": "Dana said the deadline was tiring.",
+  "question": "I'm tired. Can we break this into two small steps?",
+  "replies": [
+    {
+      "reply": "Of course—let’s split it into two small steps, especially since that deadline’s already wearing you down. Tell me the first tiny piece you want to tackle.",
+      "seconds": 1.734,
+      "first_text_seconds": 1.344,
+      "usage": {
+        "prompt_tokens": 123,
+        "completion_tokens": 70,
+        "cached_tokens": 0,
+        "reasoning_tokens": 33
+      }
+    },
+    {
+      "reply": "Sure—let’s do one small step now and save the second for after a breather. Which piece feels easiest to start with?",
+      "seconds": 1.985,
+      "first_text_seconds": 1.797,
+      "usage": {
+        "prompt_tokens": 123,
+        "completion_tokens": 97,
+        "cached_tokens": 0,
+        "reasoning_tokens": 67
+      }
+    }
+  ]
+}

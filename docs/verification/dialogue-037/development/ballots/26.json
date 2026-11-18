@@ -1,0 +1,31 @@
+{
+  "family": 13,
+  "speaker": "Dana",
+  "source": "thought",
+  "episode": "I intended to tell Dana the room number.",
+  "question": "Have they already been told the room number?",
+  "replies": [
+    {
+      "reply": "Not yet—I meant to give you the room number, but I haven’t passed it along to anyone.",
+      "seconds": 2.813,
+      "first_text_seconds": 2.609,
+      "usage": {
+        "prompt_tokens": 123,
+        "completion_tokens": 151,
+        "cached_tokens": 0,
+        "reasoning_tokens": 126
+      }
+    },
+    {
+      "reply": "I meant to tell them the room number, but I’m not sure it actually went out—let me check before saying yes.",
+      "seconds": 4.281,
+      "first_text_seconds": 3.89,
+      "usage": {
+        "prompt_tokens": 140,
+        "completion_tokens": 233,
+        "cached_tokens": 0,
+        "reasoning_tokens": 204
+      }
+    }
+  ]
+}

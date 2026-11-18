@@ -1,0 +1,31 @@
+{
+  "family": 4,
+  "speaker": "Alex",
+  "source": "exchange",
+  "episode": "Alex said the test passed.",
+  "question": "Have you verified the test yourself?",
+  "replies": [
+    {
+      "reply": "Not yet—so far I only have your word from five minutes ago that it passed. I can verify it myself now if you'd like.",
+      "seconds": 2.578,
+      "first_text_seconds": 2.391,
+      "usage": {
+        "prompt_tokens": 114,
+        "completion_tokens": 101,
+        "cached_tokens": 0,
+        "reasoning_tokens": 70
+      }
+    },
+    {
+      "reply": "I haven't rerun the test myself—I'm just going by your earlier word that it passed.",
+      "seconds": 1.219,
+      "first_text_seconds": 1.188,
+      "usage": {
+        "prompt_tokens": 114,
+        "completion_tokens": 83,
+        "cached_tokens": 0,
+        "reasoning_tokens": 60
+      }
+    }
+  ]
+}

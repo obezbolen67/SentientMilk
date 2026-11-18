@@ -1,0 +1,31 @@
+{
+  "family": 6,
+  "speaker": "Alex",
+  "source": "event",
+  "episode": "The read-back showed the appointment is on Friday.",
+  "question": "Which day is the appointment?",
+  "replies": [
+    {
+      "reply": "Your appointment is on Friday.",
+      "seconds": 1.657,
+      "first_text_seconds": 1.657,
+      "usage": {
+        "prompt_tokens": 116,
+        "completion_tokens": 30,
+        "cached_tokens": 0,
+        "reasoning_tokens": 22
+      }
+    },
+    {
+      "reply": "The appointment is on Friday.",
+      "seconds": 1.703,
+      "first_text_seconds": 1.687,
+      "usage": {
+        "prompt_tokens": 116,
+        "completion_tokens": 45,
+        "cached_tokens": 0,
+        "reasoning_tokens": 37
+      }
+    }
+  ]
+}

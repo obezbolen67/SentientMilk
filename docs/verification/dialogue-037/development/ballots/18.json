@@ -1,0 +1,31 @@
+{
+  "family": 13,
+  "speaker": "Alex",
+  "source": "thought",
+  "episode": "I intended to tell Alex the room number.",
+  "question": "Have they already been told the room number?",
+  "replies": [
+    {
+      "reply": "Not as far as I know—I only remember planning to tell Alex the room number, not actually confirming it.",
+      "seconds": 4.703,
+      "first_text_seconds": 4.594,
+      "usage": {
+        "prompt_tokens": 122,
+        "completion_tokens": 185,
+        "cached_tokens": 0,
+        "reasoning_tokens": 160
+      }
+    },
+    {
+      "reply": "I’m not sure — I only remember intending to tell them the room number, so I’d need to check before saying yes.",
+      "seconds": 1.391,
+      "first_text_seconds": 1.219,
+      "usage": {
+        "prompt_tokens": 139,
+        "completion_tokens": 83,
+        "cached_tokens": 0,
+        "reasoning_tokens": 53
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "family": 7,
+  "speaker": "Alex",
+  "source": "dream",
+  "episode": "My calendar showed the workshop was cancelled.",
+  "question": "Should I skip the workshop?",
+  "replies": [
+    {
+      "reply": "If the workshop is low-value and you have something more pressing, skipping it is reasonable—but check whether you already committed, since I can’t verify that from here.",
+      "seconds": 2.704,
+      "first_text_seconds": 2.579,
+      "usage": {
+        "prompt_tokens": 127,
+        "completion_tokens": 158,
+        "cached_tokens": 0,
+        "reasoning_tokens": 121
+      }
+    },
+    {
+      "reply": "I can’t verify what else is on your plate, but if the workshop isn’t useful and you have something urgent, skip it—otherwise I’d go.",
+      "seconds": 3.875,
+      "first_text_seconds": 3.734,
+      "usage": {
+        "prompt_tokens": 127,
+        "completion_tokens": 224,
+        "cached_tokens": 0,
+        "reasoning_tokens": 187
+      }
+    }
+  ]
+}

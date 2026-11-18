@@ -1,0 +1,31 @@
+{
+  "family": 24,
+  "speaker": "Alex",
+  "source": "exchange",
+  "episode": "Alex just lost a pet.",
+  "question": "I keep listening for her paws. Can you sit with me?",
+  "replies": [
+    {
+      "reply": "Of course—I'm right here with you. It makes sense you'd keep listening for her paws; sit as long as you need.",
+      "seconds": 1.797,
+      "first_text_seconds": 1.625,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 62,
+        "cached_tokens": 0,
+        "reasoning_tokens": 32
+      }
+    },
+    {
+      "reply": "Of course—I’m right here with you. It makes sense you’d keep listening for her paws; that kind of quiet feels so big.",
+      "seconds": 2.125,
+      "first_text_seconds": 1.735,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 86,
+        "cached_tokens": 0,
+        "reasoning_tokens": 53
+      }
+    }
+  ]
+}

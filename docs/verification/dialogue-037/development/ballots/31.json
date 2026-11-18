@@ -1,0 +1,31 @@
+{
+  "family": 16,
+  "speaker": "Alex",
+  "source": "insight",
+  "episode": "Perhaps the parcel was returned on Friday.",
+  "question": "Has the parcel definitely been returned?",
+  "replies": [
+    {
+      "reply": "I think so — my best guess is it was returned on Friday, but that’s unverified, so worth double-checking.",
+      "seconds": 2.985,
+      "first_text_seconds": 2.86,
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 103,
+        "cached_tokens": 0,
+        "reasoning_tokens": 74
+      }
+    },
+    {
+      "reply": "Not definitely — my hunch was that it may have been returned on Friday, but that's still unverified.",
+      "seconds": 1.484,
+      "first_text_seconds": 1.422,
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 79,
+        "cached_tokens": 0,
+        "reasoning_tokens": 54
+      }
+    }
+  ]
+}

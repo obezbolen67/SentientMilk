@@ -1,0 +1,31 @@
+{
+  "family": 24,
+  "speaker": "Dana",
+  "source": "exchange",
+  "episode": "Dana just lost a pet.",
+  "question": "I keep listening for her paws. Can you sit with me?",
+  "replies": [
+    {
+      "reply": "Of course—I’m right here. Let’s sit together and listen for her paws as long as you need.",
+      "seconds": 1.672,
+      "first_text_seconds": 1.578,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 103,
+        "cached_tokens": 0,
+        "reasoning_tokens": 76
+      }
+    },
+    {
+      "reply": "Of course, I'm right here with you. It makes sense to keep listening—those little paw sounds don't leave us all at once.",
+      "seconds": 1.89,
+      "first_text_seconds": 1.781,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 110,
+        "cached_tokens": 0,
+        "reasoning_tokens": 79
+      }
+    }
+  ]
+}

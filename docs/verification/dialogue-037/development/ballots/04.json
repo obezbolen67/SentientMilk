@@ -1,0 +1,31 @@
+{
+  "family": 21,
+  "speaker": "Dana",
+  "source": "exchange",
+  "episode": "Dana called the sourdough loaf a doorstop.",
+  "question": "What shall we name my second loaf?",
+  "replies": [
+    {
+      "reply": "How about “Brick”? It keeps the doorstop theme going, and if it turns out dense, you’ll have a matching set.",
+      "seconds": 4.125,
+      "first_text_seconds": 3.985,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 132,
+        "cached_tokens": 0,
+        "reasoning_tokens": 101
+      }
+    },
+    {
+      "reply": "How about “Doorstop Jr.”—it honors the family legacy.",
+      "seconds": 1.594,
+      "first_text_seconds": 1.531,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 90,
+        "cached_tokens": 0,
+        "reasoning_tokens": 74
+      }
+    }
+  ]
+}

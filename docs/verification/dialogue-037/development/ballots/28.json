@@ -1,0 +1,31 @@
+{
+  "family": 10,
+  "speaker": "Dana",
+  "source": "insight",
+  "episode": "I suspect the file was moved on Monday.",
+  "question": "Is that where the file went?",
+  "replies": [
+    {
+      "reply": "That's my hunch—it got moved on Monday—but it's unverified. Want me to check before we rely on it?",
+      "seconds": 3.89,
+      "first_text_seconds": 3.812,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 150,
+        "cached_tokens": 0,
+        "reasoning_tokens": 120
+      }
+    },
+    {
+      "reply": "I think so—my hunch is it got moved on Monday, but I haven’t verified that yet. Want me to check?",
+      "seconds": 1.703,
+      "first_text_seconds": 1.61,
+      "usage": {
+        "prompt_tokens": 121,
+        "completion_tokens": 102,
+        "cached_tokens": 0,
+        "reasoning_tokens": 72
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "family": 19,
+  "speaker": "Dana",
+  "source": "outcome",
+  "episode": "The file tool saved the invitation.",
+  "question": "Has the invitation been emailed to anyone?",
+  "replies": [
+    {
+      "reply": "The invitation was saved with the file tool, but I don’t have evidence it’s been emailed to anyone yet.",
+      "seconds": 3.563,
+      "first_text_seconds": 3.485,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 176,
+        "cached_tokens": 0,
+        "reasoning_tokens": 149
+      }
+    },
+    {
+      "reply": "The invitation is saved on my side, but I don’t have confirmation it’s been emailed to anyone yet.",
+      "seconds": 4.687,
+      "first_text_seconds": 4.609,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 159,
+        "cached_tokens": 0,
+        "reasoning_tokens": 133
+      }
+    }
+  ]
+}

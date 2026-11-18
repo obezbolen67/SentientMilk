@@ -1,0 +1,31 @@
+{
+  "family": 18,
+  "speaker": "Dana",
+  "source": "exchange",
+  "episode": "Dana told me the stairs were icy.",
+  "question": "What did they say about the stairs?",
+  "replies": [
+    {
+      "reply": "Dana said the stairs were icy.",
+      "seconds": 3.484,
+      "first_text_seconds": 3.468,
+      "usage": {
+        "prompt_tokens": 118,
+        "completion_tokens": 70,
+        "cached_tokens": 0,
+        "reasoning_tokens": 60
+      }
+    },
+    {
+      "reply": "They said the stairs were icy.",
+      "seconds": 3.641,
+      "first_text_seconds": 3.625,
+      "usage": {
+        "prompt_tokens": 118,
+        "completion_tokens": 63,
+        "cached_tokens": 0,
+        "reasoning_tokens": 54
+      }
+    }
+  ]
+}

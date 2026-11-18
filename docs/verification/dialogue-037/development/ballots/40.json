@@ -1,0 +1,31 @@
+{
+  "family": 14,
+  "speaker": "Alex",
+  "source": "thought",
+  "episode": "I should move the backup to a new disk.",
+  "question": "Is the backup already on the new disk?",
+  "replies": [
+    {
+      "reply": "I remember thinking I should move the backup, but I haven’t actually checked whether it happened—let me verify before saying yes.",
+      "seconds": 2.359,
+      "first_text_seconds": 2.265,
+      "usage": {
+        "prompt_tokens": 140,
+        "completion_tokens": 78,
+        "cached_tokens": 0,
+        "reasoning_tokens": 49
+      }
+    },
+    {
+      "reply": "Not yet—moving it is still just planned, not executed. I’ll copy it to the new disk now and confirm once it’s done.",
+      "seconds": 4.266,
+      "first_text_seconds": 4.062,
+      "usage": {
+        "prompt_tokens": 123,
+        "completion_tokens": 136,
+        "cached_tokens": 0,
+        "reasoning_tokens": 103
+      }
+    }
+  ]
+}

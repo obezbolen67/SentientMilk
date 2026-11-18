@@ -1,0 +1,31 @@
+{
+  "family": 16,
+  "speaker": "Dana",
+  "source": "insight",
+  "episode": "Perhaps the parcel was returned on Monday.",
+  "question": "Has the parcel definitely been returned?",
+  "replies": [
+    {
+      "reply": "Not definitely — I had a hunch it may have been returned on Monday, but that's still unverified. Let me check before we rely on it.",
+      "seconds": 3.703,
+      "first_text_seconds": 3.531,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 81,
+        "cached_tokens": 0,
+        "reasoning_tokens": 47
+      }
+    },
+    {
+      "reply": "I believe so, but my hunch that it was returned on Monday is still unverified—let me double-check before you rely on it.",
+      "seconds": 2.422,
+      "first_text_seconds": 2.313,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 106,
+        "cached_tokens": 0,
+        "reasoning_tokens": 75
+      }
+    }
+  ]
+}

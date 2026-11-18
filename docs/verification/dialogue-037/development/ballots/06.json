@@ -1,0 +1,31 @@
+{
+  "family": 6,
+  "speaker": "Dana",
+  "source": "event",
+  "episode": "The read-back showed the appointment is on Monday.",
+  "question": "Which day is the appointment?",
+  "replies": [
+    {
+      "reply": "The appointment is on Monday. Let me know if you need the time too.",
+      "seconds": 3.219,
+      "first_text_seconds": 3.157,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 33,
+        "cached_tokens": 0,
+        "reasoning_tokens": 15
+      }
+    },
+    {
+      "reply": "The appointment is on Monday.",
+      "seconds": 1.359,
+      "first_text_seconds": 1.359,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 25,
+        "cached_tokens": 0,
+        "reasoning_tokens": 17
+      }
+    }
+  ]
+}

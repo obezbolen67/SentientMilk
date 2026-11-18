@@ -1,0 +1,31 @@
+{
+  "family": 21,
+  "speaker": "Alex",
+  "source": "exchange",
+  "episode": "Alex called the sourdough loaf a doorstop.",
+  "question": "What shall we name my second loaf?",
+  "replies": [
+    {
+      "reply": "How about “Doorstop Jr.” to honor its predecessor? Or “Second Door” if you want a slightly classier sequel.",
+      "seconds": 1.516,
+      "first_text_seconds": 1.344,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 77,
+        "cached_tokens": 0,
+        "reasoning_tokens": 49
+      }
+    },
+    {
+      "reply": "How about **Doorstop Jr.**—or **Brick**, so the pair sounds intentional.",
+      "seconds": 2.078,
+      "first_text_seconds": 1.937,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 105,
+        "cached_tokens": 0,
+        "reasoning_tokens": 84
+      }
+    }
+  ]
+}

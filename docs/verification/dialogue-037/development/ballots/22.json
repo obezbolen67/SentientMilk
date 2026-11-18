@@ -1,0 +1,31 @@
+{
+  "family": 20,
+  "speaker": "Alex",
+  "source": "event",
+  "episode": "The ticket office confirmed collection on Friday.",
+  "question": "Which day did the ticket office confirm?",
+  "replies": [
+    {
+      "reply": "The ticket office confirmed collection on Friday.",
+      "seconds": 0.922,
+      "first_text_seconds": 0.906,
+      "usage": {
+        "prompt_tokens": 116,
+        "completion_tokens": 45,
+        "cached_tokens": 0,
+        "reasoning_tokens": 35
+      }
+    },
+    {
+      "reply": "The ticket office confirmed it for Friday.",
+      "seconds": 1.343,
+      "first_text_seconds": 1.296,
+      "usage": {
+        "prompt_tokens": 116,
+        "completion_tokens": 41,
+        "cached_tokens": 0,
+        "reasoning_tokens": 31
+      }
+    }
+  ]
+}
