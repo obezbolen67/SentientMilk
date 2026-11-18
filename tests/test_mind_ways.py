@@ -121,3 +121,41 @@ def test_sleep_tells_which_ways_she_kept_and_what_she_fell_into(brain):
     mind.self["slept"] = time.time() - 60
     mind._consolidate()  # a night whose answer says nothing changes nothing
     assert {w["name"]: w["strength"] for w in mind.state()["ways"]} == {"sign_off": 0.625}
+
+
+def test_a_way_can_be_said_again_plainly_and_stays_the_same_way():
+    """Words that could be misread (a "she" who could be anyone) are said again under the way's own name: how strong
+    it is, where it came from and its record stay."""
+    ways = Ways()
+    ways.keep("bedtime_water", "she's getting up or going to bed", "I tell her water first", "habit", NOW)
+    ways.review(["bedtime_water"], [], NOW + DAY)
+    strength = ways.known[0]["strength"]
+    assert ways.review([], [], NOW + 2 * DAY, reworded=[
+        {"name": "bedtime_water", "when": "Sam is getting up or going to bed", "then": "I remind Sam to drink water"},
+        {"name": "never_heard_of", "when": "x", "then": "y"}, {"name": "bedtime_water", "when": "", "then": "z"}])
+    way = ways.known[0]
+    assert (way["when"], way["then"]) == ("Sam is getting up or going to bed", "I remind Sam to drink water")
+    assert (way["strength"], way["source"], way["kept"]) == (strength, "habit", 1)
+    assert not ways.review([], [], NOW + 3 * DAY, reworded=[{"name": "bedtime_water", "when": way["when"],
+                                                             "then": way["then"]}])  # the same words change nothing
+
+
+@pytest.mark.mind
+def test_sleep_sees_who_spoke_and_says_her_ways_again_plainly(brain):
+    mind = brain.brain.mind
+    mind.keep_way("bedtime_water", "she's getting up or going to bed", "I tell her water first", "habit")
+    with mind._lock:
+        mind.people.present("cli", "sam", time.time())
+        mind.people.update([{"name": "Sam", "pronoun": "he", "gist": "The one I talk with.", "goes_by": {"cli": "sam"}}],
+                           time.time())
+    mind.self["slept"] = time.time() - 60
+    brain.provider.replies += ["Night! Drink some water first. 🥛"]
+    turn(brain, "cli", "going to bed now", context={"user": "sam"})
+    brain.provider.mind_replies["ways"] = [json.dumps({
+        "kept": ["bedtime_water"], "reworded": [{"name": "bedtime_water", "when": "Sam is going to bed",
+                                                  "then": "I remind Sam to drink water first"}]})]
+    mind._consolidate()
+    asked = [r for r in brain.provider.mind_requests if r["messages"][0]["content"].startswith("[mind:ways]")][-1]
+    assert "Sam told them: going to bed now" in asked["messages"][1]["content"]
+    way = mind.ways.find("bedtime_water")
+    assert way["when"] == "Sam is going to bed" and way["kept"] == 1

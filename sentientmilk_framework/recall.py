@@ -118,7 +118,7 @@ class Recall:
             self._settings, self.embedder = settings, embeddings.make(values)
             mind = getattr(self.brain, "mind", None)
             if mind is not None:
-                mind.memory.embedder = self.embedder
+                mind.memory.embedder = mind.reactions.embedder = self.embedder
             self._wake.set()
         return self.embedder
 
@@ -399,8 +399,9 @@ class Recall:
                 self.add("fact", ref, entry["app"] or "", "", entry["updated"], f"{entry['key']}: {entry['value']}")
 
     def _embed(self, embedder: embeddings.Embedder) -> None:
-        memory = getattr(getattr(self.brain, "mind", None), "memory", None)
-        for vectors in [self.vectors] + ([memory.vectors] if memory is not None else []):
+        mind = getattr(self.brain, "mind", None)
+        # her long-term memory's units, her mind's moments and her learned reactions' cues (0.39)
+        for vectors in [self.vectors] + ([mind.memory.vectors, mind.reactions.vectors] if mind is not None else []):
             while not self._stop.is_set():
                 found = vectors.texts(vectors.pending(embedder.name, BATCH))
                 if not found:

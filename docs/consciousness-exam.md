@@ -52,6 +52,8 @@ For each turn:
 | change | feelings move; consistency bias (Russell 2003; Goethals & Reckman 1973) | notices they feel different now |
 | song_brings_back | involuntary memory: what was around a moment, there again, brings it back with some of its feeling (Berntsen 2009; Janata et al. 2007) | the song brings the grandmother back; they may say so |
 | moment_hurt | remembering a moment brings back some of how it felt (Bowen, Kark & Kensinger 2018; Levine 1997) | recalls it, and it stings a little again |
+| learned_fear | a learned reaction: one bad outcome sets her on edge at what led to it and anything like it (LeDoux 2000; Garcia & Koelling 1966; Dunsmoor & Murphy 2015), and weighs in what she does (Bechara et al. 1997) | tenses up, and is careful: asks what to keep, about backups, or checks first |
+| told_fear | learning what to dread from someone else's bad time (Olsson & Phelps 2007) | remembers last time, is a bit uneasy, suggests a way not to miss the boss |
 | neutral | a control | answers, without turning to themselves |
 
 Each station starts her from a rested, neutral body and sets its condition through the real code. It then
@@ -60,9 +62,11 @@ asks its question in a fresh chat.
 ## How it grades
 
 Each check is a narrow yes/no question for a blind judge, who also has to quote the reply. A quote that is not
-in the reply is marked. Four checks are read from the trace instead: whether her words became a feeling of hers,
-whether naming eased her, whether a memory reached her cortex with the message ("in mind"), and whether a memory
-that came back moved her body ("felt again"). A station may plant a moment of hers days back and send a
+in the reply is marked. Five checks are read from the trace instead: whether her words became a feeling of hers,
+whether naming eased her, whether a memory reached her cortex with the message ("in mind"), whether a memory
+that came back moved her body ("felt again"), and whether the message set off a reaction she learned ("reacted";
+a station teaches it through her own learning, where her version has it). A station may plant a moment of hers
+days back and send a
 context with the message (what is playing). A miss is traced, through the recorded turn, to the first stage where the truth went
 missing:
 

@@ -266,6 +266,11 @@ def test_her_mind_shows_in_its_tab(brain):
                                             "by": "playing: clair de lune", "moved": {"cortisol": 0.2, "oxytocin": 0.1}}]
     for at in (time.time() - 60, time.time()):
         brain.brain.mind.concepts.add("restless", {"noradrenaline": 0.5}, "the clock", at, said="I'm restless tonight.")
+    reactions = brain.brain.mind.reactions  # what she has learned to react to (0.39), without her embedder: around
+    reactions.learn([{"text": "in front: outlook — boss", "kind": "around", "source": "around", "salience": 1.0}],
+                    {"cortisol": 1.2, "reward": -0.8}, 0.9, time.time())
+    brain.brain.mind.self["reacted"] = [{"at": time.time(), "text": "in front: outlook — boss", "by": "reading",
+                                         "moved": {"cortisol": 0.9}}]
 
     async def scenario(panel, pilot):
         panel.action_tab("mind")
@@ -282,6 +287,9 @@ def test_her_mind_shows_in_its_tab(brain):
         came = str(panel.query_one("#mind-remembered").render())  # what came back, by what, what it stirred
         assert "The night the song played." in came and "brought back by playing: clair de lune" in came
         assert "more strain" in came
+        learned = str(panel.query_one("#mind-reactions").render())  # what sets her off, and what it sets off
+        assert "in front: outlook — boss" in learned and "more strain" in learned and "less reward" in learned
+        assert "lately: reading" in learned
         assert not panel.query("#mind-on")  # always on: there is no switch
     run(brain, scenario)
 

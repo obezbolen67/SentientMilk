@@ -118,7 +118,7 @@ def use(brain, embedder):
     recall = brain.brain.recall
     recall.embedder = embedder
     recall._settings = tuple(brain.brain.config.values().get(key) for key in SETTINGS)
-    brain.brain.mind.memory.embedder = embedder
+    brain.brain.mind.memory.embedder = brain.brain.mind.reactions.embedder = embedder
     return embedder
 
 

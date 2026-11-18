@@ -15,7 +15,8 @@ def _told(way: dict) -> str:
 
 @tool(core=True, policy="auto", guide=GUIDE, only_in=("turn",), args={
     "name": "A short name for it, such as test_first or no_messaging_first.",
-    "when": "The kind of moment, in your words: \"I finish a piece of code\", \"nobody has spoken to me\".",
+    "when": "The kind of moment, in your words: \"I finish a piece of code\", \"nobody has spoken to me\". "
+            "Whoever it is about by name, or someone, never he, she or they: your ways hold in every chat.",
     "then": "What you do then, in the first person: \"I run it before I say it's done\"."})
 def ways_keep(ctx: ToolContext, name: str, when: str, then: str):
     """Keep a way you act in every chat from now on: what the user asks you to always (or never) do, or a way

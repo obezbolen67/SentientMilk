@@ -43,10 +43,14 @@ Answer with one JSON array only, short:
 ["what happens to them, a few words", "company", "capable", "free", "how things are for the one who writes",
  "chat|question|request",
  "what it is about",
+ "what led to it",
  ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...]
 What it is about is the subject a person would file it under, one or two plain words, never this message's
 details and never he, she, they or you ("feelings", not "what they feel"): one of the subjects they know when
 it is about that, a new one only when it is about none of them.
+What led to it: when the message tells of something that went well or badly, for them or for the one who writes,
+what led to it as a person would name it asked why it happened, in a few plain words and never he, she, they or
+you ("leaving the oven on", "a late train"); "" when it tells of no such thing or what led to it is not plain.
 The options come only when the message asks them to do something that takes work (a request): 2 or 3 that a
 real person in their place might take, each starting with one act: doing it, and what else they might
 really do (part of it, later, decline, talk it over first). Anything else gets no options: what they say
@@ -128,14 +132,19 @@ used in order, what they answered.
 
 Answer with JSON only:
 {"kept": ["name"], "broken": ["name"], "new": [{"name": "short_name", "when": "...", "then": "...",
-"from": "told|habit", "runs": [supporting run IDs]}], "dropped": ["name"]}
+"from": "told|habit", "runs": [supporting run IDs]}], "dropped": ["name"],
+"reworded": [{"name": "name", "when": "...", "then": "..."}]}
 
 kept and broken: their ways whose moment came today, and whether they did as the way says; a way whose moment
 did not come is in neither. new: a way of doing things they took on today and do not have yet: one the one they
 talk with asked of them from now on ("told"), or one they fell into, doing the same thing in the same kind of
 moment again and again, or after being corrected for not doing it ("habit"). Only how they do things: never a
 fact, a plan or a one-time request. "when": the kind of moment; "then": what they do in it, in the first person
-("I ..."); one short sentence each. dropped: ways they were asked to stop. Leave out what today does not show."""
+("I ..."); one short sentence each. Their ways hold in every chat, with anyone: whoever a way is about is named
+by name, or as "someone" or "the one I'm talking with" when it is anyone, never he, she, they or you ("someone says
+goodnight", "asked about files"). dropped: ways they were asked to stop. reworded: any way of theirs, met today or
+not, whose words could be misread (a he, she, they or you who could be anyone), said again plainly under its own
+name, meaning the same. Leave out what today does not show."""
 
 SELF = """[mind:self]
 You are someone's mind while they sleep, going over what today showed about who they are. Below: what they knew
@@ -255,12 +264,16 @@ def imagined(text: str) -> dict:
     theirs = THEIRS.get(words[0].strip().lower()) if words and isinstance(words[0], str) else None
     if theirs is not None:
         words = words[1:]
-    intent, tag = (words + ["", ""])[:2]
+    # what led to it, as her cortex reads it (0.39: the cue a learned reaction is tied to, reactions.py); live, an
+    # object appended for it was never written (0 of 4 stories that told what led to what), a place of its own was
+    intent, tag, cause = (words + ["", "", ""])[:3]
+    cause = cause if isinstance(cause, str) else ""
     tags = tag if isinstance(tag, list) else [tag]
     company, capable, free = (_need(head[index]) for index in needs)
     return {"appraisal": {"company": company, "capable": capable, "free": free, "intent": intent, "tags": tags,
                           "theirs": theirs or 0.0},
-            "happens": happens, "options": options, "feedback": feedback, "correction": correction}
+            "happens": happens, "options": options, "feedback": feedback, "correction": correction,
+            "cause": " ".join(cause.split())[:200]}
 
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),

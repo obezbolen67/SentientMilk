@@ -574,6 +574,8 @@ class Panel(App):
                     yield Static(id="mind-thoughts")
             with Vertical(classes="card", id="mind-remembered-card"):
                 yield Static(id="mind-remembered")
+            with Vertical(classes="card", id="mind-reactions-card"):
+                yield Static(id="mind-reactions")
             with Vertical(classes="card", id="mind-self-card"):
                 yield Static(id="mind-self")
             with Vertical(classes="card", id="mind-ways-card"):
@@ -673,6 +675,7 @@ class Panel(App):
                             ("toolkits-card", "Toolkits"),
                             ("mind-card", "Now"), ("mind-body-card", "Her body"),
                             ("mind-thoughts-card", "Her thoughts"), ("mind-remembered-card", "What came back to her"),
+                            ("mind-reactions-card", "What she has learned to react to"),
                             ("mind-self-card", "What she has come to like, and who she knows"),
                             ("runtime-card", "Runtime and permissions"), ("browser-card", "Her browser"),
                             ("mcp-card", "MCP servers"),
@@ -1204,6 +1207,19 @@ class Panel(App):
                 for item in state.get("remembered") or []]
         self.main.query_one("#mind-remembered", Static).update(
             "\n\n".join(came) or f"[{MUTED}]Nothing yet. A memory that comes back brings some of how it felt.[/]")
+        # what she has learned to react to (0.39): each cue, what it sets off now, how much getting over it holds
+        # back, and what taught it; then what set her off lately
+        by = {"cause": "what led to it", "option": "what she chose", "action": "what she did", "around": "around her"}
+        learned = [f"{escape(item['text'])}\n[{MUTED}]{by.get(item['source'], item['source'])}"
+                   + (f" · {stirred(item['now'])}" if any(item["now"].values()) else "")
+                   + (f" · {round(100 * item['held'])}% held back" if item["held"] else "")
+                   + (f" · learned from: {escape(item['taught'])}" if item.get("taught") else "") + "[/]"
+                   for item in state.get("reactions") or []]
+        lately = [f"[{MUTED}]{when(item['at'])} · lately: {item['by']} · {stirred(item['moved'])}[/]\n"
+                  f"{escape(item['text'])}" for item in (state.get("reacted") or [])[:3]]
+        self.main.query_one("#mind-reactions", Static).update(
+            "\n\n".join(learned + lately) or f"[{MUTED}]Nothing yet. What went well or badly teaches her what to "
+            f"expect from what led to it.[/]")
 
         def about(names) -> str:
             return escape(", ".join(names)) or f"[{MUTED}]nothing yet[/]"

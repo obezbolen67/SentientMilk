@@ -79,9 +79,10 @@ from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, REST, SET_POINTS, Body, T
 from .feel import CHANNELS, MOOD_PLACES, Concepts, Interoception, core, face, feel, moved, noticed
 from .memory import Memory, cue, describe_salience, line, moment_cues
 from .people import People
+from .reactions import Reactions, anxious
 from .values import Values, features, subjects
 from .ways import Ways
-from .will import FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
+from .will import DOING, FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,10 @@ RUMINATED = ("exchange", "event", "insight")  # what comes back as something nag
 SORE = 0.25  # a moment that took this much from how she felt hurt her (its sting): what she may brood on
 HURTS = 0.5  # how hard a hurt pulls her back to it, per unit of its sting still charged
 QUOTED = 60  # of a message, in what her log of what moved her says pushed her
+# what an app's context says that is not around her: who writes and where from (a moment keeps them as "with" and
+# "device": moment_cues) and what she last drew. Until 0.39 each was kept as a surrounding too, and "user: plays" in
+# every moment set off a learned reaction with every message (the exam, 2026-11-18)
+NOT_AROUND = ("user", "writes from", "origin", "your last visual")
 # what a moment that comes back moves again: her chemistry and a grievance, the feeling of it; not her needs,
 # her energy or her sleep pressure (remembering a talk does not keep her company, feed her or tire her)
 REFELT = (*CHEMICALS, "grievance")
@@ -218,6 +223,9 @@ class Mind:
         self.concepts = Concepts(self.memory.get("concepts") or [])
         self.people = People(self.memory.get("people"))  # the people in her life (people.py)
         self.ways = Ways(self.memory.get("ways"))  # how she does things, in every chat (ways.py)
+        # what cues have come to set off in her body, learned from what followed them (reactions.py, 0.39)
+        self.reactions = Reactions(self.memory._db, self.memory._lock)
+        self._tools_by_name: Optional[dict] = None
         # expected: what a message from the user does for her needs, as she has come to expect; gap: the log
         # of her usual time between messages; trust: each guide's running error (her own record starts unproven);
         # waiting: per chat, her last decision there, until the next message in that chat says what followed;
@@ -611,6 +619,22 @@ class Mind:
         # by this quick pass, the most pleasing one chosen, and called her decision)
         options = [o for o in (Option.read(d) for d in (answer.get("options") or [])[:4]) if o] \
             if seen.intent == "request" else []
+        # what led to it, as her reading names it (0.39): a cue her learned reactions are tied to
+        cause = answer.get("cause") if isinstance(answer.get("cause"), str) else ""
+        with self._lock:
+            nervous = anxious(self.body.levels)
+        # each cue says what it stands for: one with no words is left out, and the rest keep theirs
+        alike = self.reactions.prepare([{"text": said, "kind": "meaning", "for": None},
+                                        {"text": cause, "kind": "meaning", "for": None}]
+                                       + [{"text": o.what, "kind": "meaning", "for": n} for n, o in enumerate(options)],
+                                       nervous)
+        reading, weighed = {}, {}
+        for item in alike:
+            if item["for"] is None:  # the message, and what led to it
+                for rid, likeness in (item["found"] or {}).items():
+                    reading[rid] = max(reading.get(rid, 0.0), likeness)
+            else:
+                weighed[id(options[item["for"]])] = item["found"] or {}
         with self._lock:
             now = time.time()
             if came["revision"] != self._revision:
@@ -636,16 +660,45 @@ class Mind:
                     pending.setdefault("resolved", []).append(dimension)
             levels = dict(self.body.levels)
             self._refeel(came["back"], now)  # what came back moves her: part of what reading it did
+            context, surroundings = self._cues(run, now), self._surroundings(run, now)
+            reacted = self._react(reading, surroundings, context, now, "reading")  # what it calls up, she reacts to
             met = self._met(seen, company, timing, why, social)
             hour = self.body.hour(now)
 
             def found(option):
                 return features(option.act, seen.tags, seen.intent, hour, run["app"])
+
+            def dreaded(option):
+                """What the thought of doing it would do to how she feels: what doing it would set off (as much as
+                the act does it), valued in her body as it would be with it (an as-if body: Damasio 1994)."""
+                ahead = self.reactions.predict(weighed.get(id(option), {}), now, context, anxious(self.body.levels))
+                share = DOING.get(option.act, 0.0)
+                if not share or not any(ahead.values()):
+                    return 0.0
+                imagined = {**self.body.levels}
+                for name, lots in ahead.items():
+                    imagined[name] = imagined.get(name, 0.0) + share * lots * CHANNELS[name][1]
+                return round(core(imagined)[0] - core(self.body.levels)[0], 3)
             for proposed in options:
                 proposed.calibrate(self.self.get("operations", {}).get(run["app"], {}))
-            choice = choose(options, seen, self.body, self.values, found, self.rng) if options else None
+            choice = choose(options, seen, self.body, self.values, found, self.rng, dreaded) if options else None
             # nothing to choose: she talks (or, asked for work her imagining gave no options for, does it)
             option = choice.option if choice else Option("do" if seen.intent == "request" else "talk", chance=0.8)
+            uneasy = core({**self.body.levels, **{n: self.body.levels[n] - v * CHANNELS[n][1] for n, v in reacted.items()}})[0] \
+                - core(self.body.levels)[0] if reacted else 0.0
+            spared = 1.0 - DOING.get(option.act, 0.0)
+            if seen.intent == "request" and uneasy > 0 and spared:  # asked to do what she dreads, and not doing it
+                # (now): a relief, as much as she spares herself, and the relief teaches what she did instead
+                # (avoidance pays in fear let go: Mowrer's two factors; Krypotos et al. 2015)
+                before_relief = core(self.body.levels)[0]
+                eased = self.body.apply({name: -spared * lots * CHANNELS[name][1] for name, lots in reacted.items()},
+                                        f"relief: {LEANINGS[option.act]}")
+                relief = core(self.body.levels)[0] - before_relief
+                reacted = {name: round(reacted.get(name, 0.0) + eased.get(name, 0.0) / CHANNELS[name][1], 4)
+                           for name in {*reacted, *eased}}
+                if relief > 0:
+                    self.values.reinforce([f for f in found(option) if f.startswith("act:")], min(1.0, 3.0 * relief),
+                                          self._rate())
             old_drive = self.body.stress_drive
             threat = self._threat(seen, option, why)
             impact = core(self.body.levels)[0] - core(levels)[0]  # how the message felt to her, in her body
@@ -678,6 +731,12 @@ class Mind:
                         # her body as the message came: what the whole moment did by its end is kept (after)
                         "levels": {name: round(value, 4) for name, value in levels.items()},
                         "at": now, "with": came["with"]["name"] if came["with"] else None}
+            # what she chose and did in her last turn here (to this one, within the day): this message is what
+            # followed it, for her learned reactions (after)
+            previous = self.self["waiting"].get(chat) or {}
+            then = {"option": previous.get("option") or "", "actions": previous.get("actions") or []} \
+                if previous.get("actor") == actor and now - previous.get("at", 0.0) < DAY else None
+            decision.update(cause=cause, then=then, reacted=reacted, context=context, surroundings=surroundings)
             # Preserve each prediction until its own observation arrives or its window expires.
             self.self["waiting"][chat] = {"at": now, "actor": actor, "run": run["id"], "chat": chat,
                                           "cue": said[:120], "act": option.act, "features": decision["features"],
@@ -699,7 +758,10 @@ class Mind:
                                "evidence": round(came["evidence"], 3)},
                     "learned": learned, "foreseen": foreseen, "met": met,
                     "options": choice.considered if choice else [], "temperature": choice.temperature if choice else None,
-                    "threat": threat}
+                    "threat": threat,
+                    # what reading it called up among her learned reactions, and what that set off (less the relief
+                    # of not doing what she dreads)
+                    "reacted": {"text": self.self["reacted"][0]["text"], "moved": reacted} if reacted else None}
             self.self["decided"] = {**{key: decision[key] for key in ("act", "what", "gated", "reasons", "chances", "at")},
                                     "run": run["id"], "app": run["app"], "session": run["session"], "path": path, "outcome": None}
             if option.act == "later":
@@ -745,6 +807,13 @@ class Mind:
             came = self._arrives(run, said, pictures, now, candidates)
         answer = self._foresee(run, profile, came, said, pictures, working=True)
         seen = Appraisal.read(answer.get("appraisal"))
+        # what it is alike to among her learned reactions, as for any message (her embedder: outside her lock)
+        cause = answer.get("cause") if isinstance(answer.get("cause"), str) else ""
+        reading = {}
+        for item in self.reactions.prepare([{"text": said, "kind": "meaning"}, {"text": cause, "kind": "meaning"}],
+                                           anxious(self.body.levels)):
+            for rid, likeness in (item["found"] or {}).items():
+                reading[rid] = max(reading.get(rid, 0.0), likeness)
         with self._lock:
             now = time.time()
             if came["revision"] != self._revision:
@@ -753,6 +822,13 @@ class Mind:
             seen.novelty = came["novelty"]
             levels = dict(self.body.levels)
             self._refeel(came["back"], now)
+            done = self._working.setdefault(run["id"], {"tokens": 0, "calls": 0, "errors": 0, "told": {}})
+            reacted = done.setdefault("reacted", {})  # what her reactions did in the turn is not what it taught
+            for name, lots in self._react(reading, self._surroundings(run, now), self._cues(run, now), now,
+                                          "reading").items():
+                reacted[name] = round(reacted.get(name, 0.0) + lots, 4)
+            if cause:  # learned with how the turn went (after)
+                done.setdefault("causes", []).append(cause)
             why = self._why(run, said)
             self._met(seen, 0.05, 0.0, why)  # they are with her already: the contact itself is a little
             decided = run["options"].get("mind") or {}
@@ -771,16 +847,69 @@ class Mind:
 
     def _cues(self, run: Optional[dict], now: float, app: str = "") -> List[str]:
         """What is around a moment of hers (``memory.cue``): its time, where and with whom (``moment_cues``),
-        what the app could tell of her surroundings (what came with the message, else what it saw on its last
-        look: what is playing, the window in front) and whether the user was there."""
+        what the app could tell of her surroundings (``_surroundings``) and whether the user was there."""
+        found = moment_cues(now, run["app"] if run else app, self._device(run) if run else None,
+                            self._face(run).casefold() if run else None)
+        there = "away" if not self.presence.here(now) else "absorbed" if self.presence.busy else "there"
+        return found + self._surroundings(run, now) + [cue("they", there)]
+
+    def _surroundings(self, run: Optional[dict], now: float) -> List[str]:
+        """What the app could tell of her surroundings, as cues: what came with the message, else what it saw on
+        its last look (what is playing, the window in front). What a learned reaction can be to, besides words:
+        the time, the app and who she is with are around every moment and set nothing off by themselves."""
         around = dict(self.presence.surroundings(now))
         if run:
             around.update({key: value for key, value in (run["options"].get("context") or {}).items()
                            if isinstance(value, str)})
-        found = moment_cues(now, run["app"] if run else app, self._device(run) if run else None,
-                            self._face(run).casefold() if run else None)
-        there = "away" if not self.presence.here(now) else "absorbed" if self.presence.busy else "there"
-        return found + [cue(key, value) for key, value in around.items()] + [cue("they", there)]
+        return [cue(key, value) for key, value in around.items() if key not in NOT_AROUND]
+
+    def _react(self, found: Dict[int, float], surroundings: List[str], context: List[str], now: float,
+               by: str) -> Dict[str, float]:
+        """What the reactions called up (``found``: by meaning, id -> likeness; and those to ``surroundings``) set
+        off in her body now (under her lock), as part of what reading, doing or thinking did: each channel in
+        lots, and kept for apps to show. What is held back by getting over it is held back where (``context``)
+        and when she got over it, less under stress."""
+        present = {**found}
+        for rid, likeness in self.reactions.around(surroundings).items():
+            present[rid] = max(present.get(rid, 0.0), likeness)
+        if not present:
+            return {}
+        each = self.reactions.each(present, now, context, anxious(self.body.levels))
+        lots = {}
+        for moved_by in each.values():
+            for name, amount in moved_by.items():
+                lots[name] = lots.get(name, 0.0) + amount
+        lots = {name: round(amount, 4) for name, amount in lots.items() if abs(amount) >= 0.005}
+        if not lots:
+            return {}
+        texts = self.reactions.texts(present)
+        # named by what moved her most: a surrounding is matched whole, a cue by meaning only so far, and a whole
+        # match that sets off little is not what set her off
+        strongest = max(each, key=lambda rid: sum(value * value for value in each[rid].values()))
+        before = core(self.body.levels)[0]
+        self.body.apply({name: value * CHANNELS[name][1] for name, value in lots.items()},
+                        f"reacting to: {texts.get(strongest, '')[:QUOTED]}")
+        self.reactions.called(present, now)
+        # pleasant: how it moved how pleasant her body is (an app shows dread apart from a pull by it)
+        self.self["reacted"] = ([{"at": now, "text": texts.get(strongest, ""), "by": by, "moved": lots,
+                                  "pleasant": round(core(self.body.levels)[0] - before, 3)}]
+                                + self.self.get("reacted", []))[:SHOWN_THOUGHTS]
+        return lots
+
+    def _deed(self, event: dict) -> str:
+        """An action of hers in words: what the tool says it does, and what it acted on (live, "Run a command:
+        Remove-Item ...thesis.docx" was 0.65 alike to "deleting the thesis file", the bare call 0.20)."""
+        if self._tools_by_name is None or event.get("name") not in self._tools_by_name:  # a plugin or MCP tool since
+            from ..toolkits import builtin
+            kits = {**builtin(), **self.brain.plugins.toolkits(), **self.brain.mcp.toolkits()}
+            self._tools_by_name = {tool.name: tool for kit in kits.values() for tool in kit.tools}
+        tool = self._tools_by_name.get(event.get("name"))
+        arguments = event.get("arguments") or {}
+        said = re.split(r"(?<=[.;])\s", (tool.description if tool else event.get("name") or ""), maxsplit=1)[0]
+        said = said.rstrip(".;").replace("{shell}", "a shell")
+        target = arguments.get(tool.rule_arg) if tool and tool.rule_arg else None
+        target = target if isinstance(target, str) else next((v for v in arguments.values() if isinstance(v, str)), "")
+        return " ".join(f"{said}: {target}".split())[:200] if target else said[:200]
 
     def _candidates(self, run, said, now):
         with self._lock:
@@ -1168,10 +1297,24 @@ class Mind:
         tokens, calls, errors = self._work(events)
         if not calls:
             return  # nothing done yet: she has just been told how she is (before)
+        # what she has just done, in words, and what it is alike to among her learned reactions (her embedder:
+        # outside her lock)
+        acted = set(self._working.get(run["id"], {}).get("acted", ()))
+        deeds = [(e.get("id"), self._deed(e)) for e in events if e["type"] == "tool" and e.get("id") not in acted]
+        found = self.reactions.prepare([{"text": text, "kind": "meaning"} for _, text in deeds],
+                                       anxious(self.body.levels)) if deeds else []
         with self._lock:
             now = time.time()
             self._live_until(now)
             done = self._lived(run["id"], tokens, calls, errors)
+            for (event, text), item in zip(deeds, found):  # as she does it, what it is alike to sets her off
+                if event in done.setdefault("acted", []):
+                    continue
+                done["acted"].append(event)
+                done.setdefault("actions", []).append(text)
+                reacted = done.setdefault("reacted", {})
+                for name, lots in self._react(item["found"] or {}, [], self._cues(run, now), now, "doing").items():
+                    reacted[name] = round(reacted.get(name, 0.0) + lots, 4)
             if run["kind"] != "turn":
                 return
             felt = feel(self.body, self.senses, now)
@@ -1222,6 +1365,15 @@ class Mind:
         moment = self._task_moment(run) if run["kind"] == "task" and run["status"] != "cancelled" else None
         newness = self.memory.newness(moment, time.time()) if moment else None
         looked = [e for e in events if e["type"] == "tool" and e.get("name") == "look_inward"]
+        # what this moment followed and what led to it, by meaning (her embedder: outside her lock), for her learned
+        # reactions to learn from how the moment went
+        followed_on = (decision or {}).get("then") or {}
+        heard = list(self._working.get(run["id"], {}).get("causes", ()))  # what led to what they said as she worked
+        taught = self.reactions.prepare(
+            [{"text": text, "kind": "meaning", "source": "cause"} for text in [(decision or {}).get("cause") or ""] + heard]
+            + [{"text": followed_on.get("option") or "", "kind": "meaning", "source": "option"}]
+            + [{"text": text, "kind": "meaning", "source": "action"} for text in followed_on.get("actions") or []],
+            anxious(self.body.levels), keep=True) if decision else []
         named = {}
         if run["kind"] == "turn" and reply and looked and not any((e.get("arguments") or {}).get("naming") for e in looked):
             named, _ = self._ask(prompts.NAMED, reply)
@@ -1351,15 +1503,15 @@ class Mind:
             # brood on (_drives), whatever her mood
             sting = decision.get("lasting", decision.get("felt", 0.0)) + _lasting(ending, body.levels)
             sting -= decision.get("stress_input", 0.0) * 0.3
+            whole = moved(decision["levels"], body.levels) if decision.get("levels") else None
             episode = self.memory.add("exchange", text, valence, aroused,
                                       describe_salience(abs(surprise), aroused, decision.get("stakes", 0.5)),
                                       app=run["app"], session=run["session"], at=now, sting=round(sting, 3),
                                       run_id=run["id"], actor=decision.get("actor"), device=decision.get("device"),
                                       event_id=next((e["id"] for e in events if e["type"] == "input"), None),
                                       attention=attended, cues=self._cues(run, now),
-                                      felt=peak_end(decision.get("way") or {},
-                                                    moved(decision["levels"], body.levels) if decision.get("levels")
-                                                    else None))
+                                      felt=peak_end(decision.get("way") or {}, whole))
+            learned_reactions = self._learn_reactions(decision, done, taught, whole, episode, now)
             if decision.get("corrects"):
                 self.memory.supersede(decision["corrects"], episode)
                 self._revise_derived({decision["corrects"]})
@@ -1369,7 +1521,11 @@ class Mind:
                 self.memory.follow(episode, measured)
             pending = self.self["waiting"].get(_chat(run["app"], run["session"]))
             if pending and pending.get("run") == run["id"]:  # the user has not written again in this chat yet
-                pending.update(episode=episode, measured=measured, act=act, features=learned)
+                # what she chose and did here, for what the next message here says followed it (her reactions)
+                pending.update(episode=episode, measured=measured, act=act, features=learned,
+                               # what she chose to do, done or failed: the next message answers her choice
+                               option=decision.get("what") or "" if leaned in ("do", "part") and decision.get("gated") else "",
+                               actions=done.get("actions") or [])
             forecast = self.self.get("forecasts", {}).get(str(run["id"]))
             if forecast:
                 forecast.update(episode=episode, measured=measured, act=act, features=learned)
@@ -1378,13 +1534,38 @@ class Mind:
                 decided["outcome"] = {"did": act, "evidence": evidence, "receipts": receipts,
                                       "predicted_operation": check or None, "resolved_by": observed["id"] if observed else None,
                                       "delivery": "unknown", "status": run["status"], "calls": calls, "errors": errors,
-                                      "denied": denied,
+                                      "denied": denied, "reactions": learned_reactions,
                                       "steered": steered, "surprise": round(surprise, 3), "expressed": expressed,
                                       "sting": round(sting, 3),
                                       "measured": {name: round(change, 3) for name, change in measured.items()}}
             self.save()
             if decision.get("corrects"):
                 self._retake()
+
+    def _reactions_seen(self, now: float) -> List[dict]:
+        """Her strongest learned reactions as they are now, with the moment that taught each (while she keeps it)."""
+        shown = self.reactions.strongest(SHOWN_THOUGHTS, now, self._cues(None, now), anxious(self.body.levels))
+        taught = {e["id"]: e["text"] for e in self.memory.by_ids([r["episode"] for r in shown if r["episode"]])}
+        return [{**r, "taught": taught.get(r["episode"], "")[:THOUGHT_CHARS]} for r in shown]
+
+    def _learn_reactions(self, decision: dict, done: dict, taught: List[dict], whole: Optional[Dict[str, float]],
+                         episode: int, now: float) -> List[dict]:
+        """How the moment went teaches her learned reactions (under her lock): what led to it (as her reading named
+        it), what she chose and did in her last turn here, and what was around (as far as each is rare); the
+        outcome is how the moment moved her less what her reactions themselves did in it (a reaction is not taught
+        by its own push). What changed."""
+        read, doing = decision.get("reacted") or {}, done.get("reacted") or {}
+        way = {name: change - read.get(name, 0.0) for name, change in {**read, **(decision.get("way") or {})}.items()}
+        rest = {name: change - read.get(name, 0.0) - doing.get(name, 0.0)
+                for name, change in {**read, **doing, **(whole or {})}.items()} if whole is not None else None
+        outcome = peak_end(way, rest)
+        surroundings = decision.get("surroundings") or []
+        rare = self.memory.cue_strength(surroundings)
+        cues = list(taught) + [{"text": text, "kind": "around", "source": "around", "salience": rare.get(text, 0.0)}
+                               for text in surroundings]
+        aroused = max(self.body.levels["noradrenaline"], (decision.get("levels") or {}).get("noradrenaline", 0.0))
+        return self.reactions.learn(cues, outcome, aroused, now, decision.get("context") or [], episode,
+                                    anxious(self.body.levels))
 
     def _express(self, run: dict) -> Optional[dict]:
         """What she showed as she answered comes back into her body. The mood of the expression she chose (one
@@ -1507,12 +1688,15 @@ class Mind:
         want = str(answer.get("want") or "nothing").lower()
         urge, task = None, None
         newness = self.memory.newness(thought, time.time()) if kind == "wonder" else None
+        alike = self.reactions.prepare([{"text": thought, "kind": "meaning"}], anxious(self.body.levels))[0]["found"]
         with self._lock:
             if self._revision != revision:
                 return
             now = time.time()
             body = self.body
             body.exert(usage.get("completion_tokens") or 0)
+            # a thought of what went badly sets her off as the thing would (worry), of what went well, it pulls
+            self._react(alike or {}, self._surroundings(None, now), cues, now, "thinking")
             if kind == "wonder":  # a new thought fills her want of something new, going round one thing does not
                 # (boredom: too little new to engage with, Eastwood et al. 2012). Until 0.38 any wandering thought
                 # filled it by 0.15: on her vectors a repeat (cosine 0.75-0.86 to her last thoughts) as much as a new
@@ -1731,6 +1915,7 @@ class Mind:
             if gone.intersection(person.get("origins", [])):
                 person.update(gist="", origins=[])
         self.ways.known[:] = [w for w in self.ways.known if not gone.intersection(w.get("origins", []))]
+        self.reactions.withdraw(gone)  # what a moment taken back taught her body to expect (0.39)
 
     def invalidate(self, app, session, *, delete=False, event=None, since=None):
         chat = _chat(app, session)
@@ -1842,8 +2027,10 @@ class Mind:
                     tools.append([name, 1])
             used = ", ".join(name + (f" x{count}" if count > 1 else "") for name, count in tools) or "none"
             reply = " ".join(signals.split(str((run.get("result") or {}).get("reply") or ""))[1].split())
-            head = f"They were told: {' '.join(said.split())[:300]}" if said else \
-                f"A task of theirs: {' '.join(str(run['options'].get('goal') or '').split())[:300]}"
+            # who said it, by the name she knows them by (a way that is about them names them, never a "she")
+            who = (run["options"].get("mind") or {}).get("with")
+            head = (f"{who} told them" if who else "They were told") + f": {' '.join(said.split())[:300]}" if said \
+                else f"A task of theirs: {' '.join(str(run['options'].get('goal') or '').split())[:300]}"
             lines.append(f"Run {run['id']}. ({time.strftime('%H:%M', time.localtime(run['created']))}, in "
                          f"{run['app']}) {head} | Tools: {used}" + (f" | They answered: {reply[:300]}" if reply else ""))
         return lines
@@ -1875,8 +2062,10 @@ class Mind:
                     item["origins"] = [m["id"] for m in observed if m.get("run_id") in cited and m["kind"] in ("exchange", "event")]
                 new = [item for item in new if item.get("from") == "told" and item["origins"] or
                        len(set(item["origins"])) >= 2]
+            reworded = [item for item in answer.get("reworded") or [] if isinstance(item, dict)] \
+                if isinstance(answer.get("reworded"), list) else []
             changed = self.ways.review(names(answer.get("kept")), names(answer.get("broken")), now, new,
-                                       names(answer.get("dropped")))
+                                       names(answer.get("dropped")), reworded)
             changed = bool(self.ways.fade(now)) or changed
             if batch:
                 for item in new:
@@ -2288,6 +2477,7 @@ class Mind:
                 "fatigue": round(body.fatigue(), 3), "temperament": body.temperament.to_dict(),
                 "thoughts": list(self.self["thoughts"]), "concerns": list(self.self["concerns"]),
                 "remembered": list(self.self.get("remembered", [])),
+                "reactions": self._reactions_seen(now), "reacted": list(self.self.get("reacted", [])),
                 "likes": _about(likes), "dislikes": _about(dislikes),
                 "memories": self.memory.count(), "people": self.people.listed(), "ways": self.ways.listed(),
                 "self_evidence": self.self.get("self_view"),

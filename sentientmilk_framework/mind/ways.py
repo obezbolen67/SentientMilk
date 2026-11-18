@@ -67,10 +67,11 @@ class Ways:
         return way is not None
 
     def review(self, kept: Iterable[str], broken: Iterable[str], now: float, new: Iterable[dict] = (),
-               dropped: Iterable[str] = ()) -> bool:
+               dropped: Iterable[str] = (), reworded: Iterable[dict] = ()) -> bool:
         """A night's going over the day: the ways she kept and broke when their moment came, ways she took on
-        and did not keep yet ({name, when, then, from: told or habit}) and ways she was told to stop. Whether
-        anything changed."""
+        and did not keep yet ({name, when, then, from: told or habit}), ways she was told to stop and ways of hers
+        said again plainly ({name, when, then}: the same way, its strength and record kept). Whether anything
+        changed."""
         changed = False
         for names, kept_it in ((kept, True), (broken, False)):
             for name in names or ():
@@ -89,6 +90,12 @@ class Ways:
                 self.keep(item["name"], item["when"], item["then"], "told" if item.get("from") == "told" else "habit",
                           now)
                 changed = True
+        for item in reworded or ():  # words that could be misread (a "she" who could be anyone), said plainly
+            way = self.find(item.get("name")) if isinstance(item, dict) else None
+            if way is not None and _clean(item.get("when")) and _clean(item.get("then")):
+                before = (way["when"], way["then"])
+                self.keep(way["name"], item["when"], item["then"], way["source"], now)
+                changed = changed or (way["when"], way["then"]) != before
         for name in dropped or ():
             changed = self.drop(name) or changed
         return changed

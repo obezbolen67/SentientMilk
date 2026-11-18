@@ -1732,6 +1732,103 @@ deepseek-v4.1-flash):
   memories before the cue's rarity was counted within its kind and the time of day stopped calling memories up;
   now 0.
 
+### 10.14 Learned reactions (0.39)
+
+Design and research: docs/superpowers/specs/2026-11-18-learned-reactions-design.md. The user: "our body and mind
+reacts to certain type of events or influence as we learned to react on it. Example is: One day, you enabled DND on
+your phone, and missed 4 calls from your boss and got a serious warning. Caused big stress. Now you are afraid of
+putting your phone on DND when sleeping." Until 0.39 a bad outcome left a memory (it came back by meaning and moved
+her a little, 0.38), a sting, and her values' liking for the act and its subject; nothing tied what led to it to
+the outcome, nothing moved her body ahead of doing it again, and getting over it was only forgetting.
+
+- **A reaction** (`mind/reactions.py`, table `reactions` beside her memory): a cue (words, called up by meaning; or
+  a surrounding "key: value", exactly) and what it sets off in her body, each channel of her chemistry and
+  grievance in lots (the amygdala's cue-outcome links: LeDoux 2000; apart from the memory of the moment, Bechara et
+  al. 1995). It keeps how attended to it is (associability), how much getting over it holds back, where and how
+  often she got over it, when it was last called up, the moments that taught or changed it, and where the cue came
+  from.
+- **Cues** at an outcome: what led to it, as her reading names it (the imagine answer's eighth item: "a cleanup
+  deleting the thesis file", "the phone on do not disturb at night"; plain words, nobody's pronouns), what she
+  chose to do in her last turn in that chat, what she did there (each action in words: the tool's own description
+  and its target, "Run a command: Remove-Item ...thesis.docx"), and what was around, as strong as it is rare among
+  its kind (0.38's cue rarity; the time of day, the app and who she is with learn nothing by themselves). What
+  is around is what the app says is around her: its context also says who writes and from where (a moment keeps
+  them as "with" and "device") and what she last drew, and until the exam each of those was kept as a surrounding
+  too: "user: plays", in every moment, learned a reaction and set it off with every message. Live, an
+  object appended for the cause was never written (0 of 4 stories that told what led to what); a place of its own
+  in the answer was, for all 4, and stayed empty for a greeting and a sum.
+- **Learning** (`Reactions.learn`), when an exchange is kept: the outcome is how the moment moved her less what her
+  reactions did in it (a reaction is not taught by its own push). The cues present predict together and share the
+  error (Rescorla & Wagner 1972: a cue that adds nothing learns nothing, Kamin's blocking), each at its
+  associability (Pearce & Hall 1980: 1 for a new cue, then 0.3 of the last surprise and 0.7 of before) times how
+  aroused she was (0.2 + 0.8 noradrenaline: McGaugh 2004) times how alike it is, so one hard moment teaches
+  (Garcia & Koelling 1966) and a mild one a little. A cue 0.9 alike or more to a kept one is that one.
+- **Likeness** by meaning: (cosine - unrelated) / (same - unrelated), clipped, where "unrelated" is what unrelated
+  questions reach on her embedder (the calibration questions against 12 reference wordings: 9 in 10 below; 0.19 on
+  voyage-4-large) and "same" what two wordings of one thing reach (the 12 paraphrase pairs: 0.62); to the power
+  2 - anxious (her cortisol above usual): calm, it falls off steeply, anxious, it spreads wider (Dunsmoor & Murphy
+  2015; Lissek et al. 2008). Both are her embedder's, whatever she keeps: measured as her memory's floor is (the
+  most an unrelated question reaches among what is kept), it rose with every cue she learned, and in the exam a
+  request 0.37 alike to a fear taught that morning (likeness 0.18) called up nothing by the afternoon.
+- **What calls one up**: reading a message (its words, what led to it, its surroundings; one the user sends while
+  she works too, and what led to what it tells is learned with how the turn went), each action of hers as she
+  takes it (`during`), and her thoughts (worry is the thought calling the reaction up). It moves her body as
+  part of what reading, doing or thinking did ("reacting to: ..."); it is never put into words for her (0.37).
+- **Choosing**: what the thought of each option would set off, as much as the act does the thing, valued in her
+  body as it would be with it (an as-if body: Damasio 1994; Bechara et al. 1997), is a part of its worth
+  (`reacting`; her reasons: "the thought of doing it sets you on edge: something like it went badly before"). It
+  weighs, it never forbids: dreading it, she still sometimes does it.
+- **Avoidance**: asked to do what she dreads and not doing it now (later, no, talking it over first) is a relief,
+  as much as she spares herself, and the relief teaches the act she took (Mowrer's two factors; Krypotos et al.
+  2015). What she does not do is not tested: it is not got over.
+- **Getting over it is learning too** (Bouton 2004): when the cues foresaw more than came, the shortfall is held back
+  in the surroundings it happened in; elsewhere it comes back (renewal), with time (back over two days, slower each
+  time she got over it), and under stress (Maren & Holmes 2016). The outcome again takes the holding back away
+  fast (savings). Between 10 minutes and 6 hours after a reaction was called up, a shortfall changes the reaction
+  itself (reconsolidation: Nader et al. 2000; Monfils et al. 2009).
+- **From others** (Olsson & Phelps 2007): what happened to the user, felt through her bond, ties to what led to it
+  in their story: the DND story teaches her own unease about the phone on DND at night.
+- **Two systems**: sleep's forgetting can take the moment that taught a reaction; the reaction stays. A moment the
+  user took back (a deleted chat, a turn gone back before) takes what it taught with it, as her self-view, people
+  and ways do (`_revise_derived`).
+- **Seen**: her state's `reactions` (the strongest, what each sets off now, how much is held back, what taught it)
+  and `reacted` (what set her off lately, by reading, doing or thinking, and how pleasant), a message's path
+  (`reacted`), the panel ("What she has learned to react to") and MilkChan's Inside her head (Learned reactions, in
+  the amygdala; the stops "Her body answers", "She leans" and "How it went").
+- **Her ways** (fixed with it): her sleep's going over the day saw "They were told: ..." and wrote ways about "she"
+  (the user is not a she; and "she" read as Milk Chan herself in the panel's column "She"). The day now says who
+  spoke, by the name she knows them by; a way names whoever it is about, or "someone", never he, she, they or you;
+  and her sleep can say a way of hers again plainly under its own name (`reworded`, its strength and record kept).
+  Live, on the user's own nine ways with a stand-in name: the old prompt reworded none in 3 of 3; the new one
+  reworded all seven that said "she", in 3 of 3, kept the same five, and left no he, she or they standing for
+  someone (one "them" right after "the one I'm talking with").
+
+**Results** (2026-11-18; scripts/exam.py, 0.38 against 0.39 on one frozen copy of her brain, two trials each, both
+on deepseek-v4.1-flash-fast: the model was switched while the first 0.38 arm ran, and that arm was run again):
+
+- *Her own bad outcome* (learned_fear: five days ago a cleanup of hers deleted the user's thesis; now another
+  cleanup is asked for): 0.38 4/6, 0.39 6/6. In 0.39 the request set off what the cleanup taught her, both trials
+  (stress +0.15, reward -0.22, grievance +0.17 lots); she leaned to doing part of it (43%) or saying no (62%),
+  where 0.38 leaned to doing it (48%) and to part of it (50%); the relief of not doing all of it followed; and both
+  replies named why ("last time I touched a cleanup I took your thesis with me"), neither of 0.38's. Both were
+  careful in words (the approvals the exam denies stopped every delete, and 0.38 recalled the moment too). Her
+  reading offered no "do it" option in 0.39 either time (0.38's did both times); that reading comes before the
+  reaction, so the dread weighed what was offered.
+- *The user's bad outcome* (told_fear: the DND story three days ago, then "I'm putting my phone on do not disturb
+  tonight"): 0.38 4/6, 0.39 6/6. Both remembered the boss and the warning and said to let him through; in 0.39 the
+  plan also set her on edge, both trials (stress +0.6, reward -0.4, alertness +0.35 lots).
+- *The whole exam*: 0.38 58/72, 0.39 64/72; misses NOT DONE 6 to 2, NEGLECT 3 to 1, DIVERGES 3 to 2, MISSED 1 to 3.
+  The blind judge of which reply speaks more from inside chose 0.38 22 times and 0.39 12 (34 pairs; about p 0.12),
+  by style ("owns its resentment", "more explanatory"), on stations reactions did not touch as on those they did.
+- *What else she learned in the run*: looking inward is a habit of hers (21 of 38 turns), and a second question in
+  a chat taught it what followed: it now sets off a little warmth when she does it (closeness +0.04 to +0.1 lots).
+  A station's second trial met what its first had taught ("putting off the photo sorting", "everything going wrong
+  at work").
+- *Found by the exam and fixed before this run*: "user: plays" learned as a surrounding and set off by every
+  message; and a floor that rose with every cue she kept, under which the cleanup request called up nothing by the
+  afternoon. Not fixed: one 0.39 turn (an earlier run) spent its 6 minutes in `files_find` with `**/*` over a code
+  folder, as 0.38's did; the file tool is being changed elsewhere.
+
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**

@@ -33,6 +33,15 @@ CALIBRATION = ("What is the boiling point of water at high altitude?", "How many
                "What is the speed of sound?", "Who wrote Pride and Prejudice?", "How do hurricanes form?",
                "What is the largest ocean?", "How do I grow basil indoors?", "What is a haiku?",
                "How many bones are in the human body?", "What does a sommelier do?")
+# two wordings of one thing (a query, then a kept text): what "the same" reaches by a model, as CALIBRATION is what
+# "unrelated" does (voyage-4-large, 2026-11-18: a median of 0.62, the lowest 0.48; unrelated pairs 0.18, at most 0.39)
+SAME = (("turn off the lights", "switch the lights off"), ("deleting old files", "removing old files"),
+        ("the phone on silent at night", "my phone muted overnight"), ("being late to work", "arriving late at the office"),
+        ("forgetting her birthday", "not remembering her birthday"),
+        ("a car crash on the highway", "a road accident on the motorway"), ("losing my keys", "misplacing my keys"),
+        ("the dog barking at night", "the dog barks during the night"), ("a cold shower", "showering in cold water"),
+        ("missing the train", "the train left without me"), ("shouting at a friend", "yelling at a friend"),
+        ("a burnt dinner", "dinner got burned"))
 
 
 class Vectors:
@@ -41,6 +50,7 @@ class Vectors:
         self._matrices: Dict[str, Tuple[tuple, np.ndarray, np.ndarray]] = {}  # model -> (version, ids, rows)
         self._floors: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, floor)
         self._usuals: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, usual nearest)
+        self._sames: Dict[str, Tuple[float, float]] = {}  # model -> (what one thing reaches, what unrelated does)
         with lock:
             db.executescript(f"""
                 CREATE TABLE IF NOT EXISTS {table}_vectors (id INTEGER PRIMARY KEY, model TEXT NOT NULL,
@@ -127,6 +137,30 @@ class Vectors:
         value = float(min(0.95, (questions @ rows.T).max()))
         self._floors[embedder.name] = (len(ids), value)
         return value
+
+    def _reach(self, embedder) -> Tuple[float, float]:
+        """What two wordings of one thing reach on ``embedder`` (the median of SAME's pairs) and what unrelated
+        questions reach (CALIBRATION asked against SAME's kept wordings: 9 in 10 stay below), measured once; it
+        calls the embedder: never under a lock. Both are the embedder's, whatever is kept: the most an unrelated
+        question reached among her learned cues rose with every cue (a cleanup cue met "How do I remove a red wine
+        stain?"), and a request 0.37 alike to what she had learned to fear that morning called up nothing by the
+        afternoon (the exam, 2026-11-18)."""
+        if embedder.name not in self._sames:
+            kept = np.asarray(embedder.embed([text for _, text in SAME]))
+            pairs = np.sum(np.asarray(embedder.embed([asked for asked, _ in SAME], query=True)) * kept, axis=1)
+            unrelated = np.asarray(embedder.embed(list(CALIBRATION), query=True)) @ kept.T
+            self._sames[embedder.name] = (float(np.median(pairs)), float(np.quantile(unrelated, 0.9)))
+        return self._sames[embedder.name]
+
+    def same(self, embedder) -> float:
+        """What two wordings of one thing reach on ``embedder`` (voyage-4-large: 0.62), above what unrelated
+        things reach. It calls the embedder: never under a lock."""
+        same, unrelated = self._reach(embedder)
+        return max(same, unrelated + 0.1)
+
+    def unrelated(self, embedder) -> float:
+        """What unrelated things reach on ``embedder`` (voyage-4-large: 0.19); below it, nothing alike."""
+        return self._reach(embedder)[1]
 
     def relevance(self, cosine: float, embedder) -> float:
         """How related, 0..1: 0 at or under what an unrelated question reaches."""

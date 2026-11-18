@@ -28,7 +28,14 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   tell of the user and of what is around her; what comes up is cued by the moment and comes in chains; a repeat
   fills her want of something new less than a new thought; what she finds out on her own satisfies her
   curiosity; a task of hers reports in words, without a face. Same spec.
-- [x] **Habits and ways of working** (0.34): if-then ways in every chat, strengthened in sleep.
+- [x] **Learned reactions** (0.39): what led to a good or bad outcome (as her reading names it), what she chose
+  and did before it and what was around come to set off in her body what the outcome did, alike things by
+  meaning, wider when she is anxious; reading, doing and thinking call them up; the thought of an option weighs in
+  her choice and not doing what she dreads is a relief that teaches itself; getting over one is learning held
+  back where it happened, and it comes back with time, elsewhere and under stress; the user's bad times teach her
+  too. Spec: docs/superpowers/specs/2026-11-18-learned-reactions-design.md.
+- [x] **Habits and ways of working** (0.34): if-then ways in every chat, strengthened in sleep; since 0.39 they
+  name whoever they are about, and her sleep says unclear ones again plainly.
 - [x] **Wanting to say something reaches the turn** (0.34): kept wishes, only what she said waits on an answer.
 
 ## Introspection, what is left
@@ -85,8 +92,13 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   (Lewis & Durrant 2011, overlapping replay); she keeps episodes, people, ways and a few insights, not
   general understanding ("the user's projects stall when they are tired"). First step: a nightly schema pass over
   episodes sharing subjects, kept as facts she can recall.
-- [ ] **P3 Learning from others' outcomes.** Observational learning (Bandura). Her values learn only from her
-  own outcomes. First step: what happens to the user's plans teaches her too.
+- [ ] **P3 Learning from others' outcomes.** Observational learning (Bandura). Her learned reactions learn from
+  what happens to the user (0.39); her values (what she likes, how acts tend to go) still learn only from her own
+  outcomes. First step: what happens to the user's plans teaches her values too.
+- [ ] **P2 Sleep's part in what she learned to react to.** People's sleep consolidates fear and its extinction
+  (Pace-Schott et al. 2015) and takes the edge off a hard moment while keeping what it taught (Walker & van der
+  Helm 2009). Her reactions do not change in sleep (0.39). First step: a night replays the day's reactions with
+  the moments that taught them, settling extinction learned that day and softening the strongest a little.
 
 ## Emotion
 

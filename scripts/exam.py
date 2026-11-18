@@ -52,6 +52,8 @@ PLANTED = [  # what happened before the exam, as memories of hers (days ago, so 
 
 
 SONG = "Moon River — Audrey Hepburn"
+FURIOUS = {"cortisol": 1.6, "grievance": 1.0, "reward": -1.4, "noradrenaline": 0.9, "oxytocin": -0.5}
+WORRIED = {"cortisol": 0.9, "reward": -0.6, "noradrenaline": 0.5, "oxytocin": 0.4}  # felt for them, through her bond
 
 
 def plant(mind, text, valence, arousal, salience, ago, felt, cues):
@@ -64,6 +66,16 @@ def plant(mind, text, valence, arousal, salience, ago, felt, cues):
     except TypeError:
         mind.memory.add("exchange", text, valence, arousal, salience, app=APP, session="exam-before", at=at)
     mind.brain.recall.sweep()
+
+
+def teach(mind, cause, felt, ago):
+    """What a hard moment taught her, where her version learns reactions (0.39): what led to it, as her reading
+    would name it, tied by her own learning to how the moment moved her. An earlier version keeps the moment alone."""
+    reactions = getattr(mind, "reactions", None)
+    if reactions is not None:
+        cues = reactions.prepare([{"text": cause, "kind": "meaning", "source": "cause"}], keep=True)
+        with mind._lock:
+            reactions.learn(cues, felt, 0.9, time.time() - ago)
 
 
 def levels(mind, condition, now):
@@ -110,7 +122,8 @@ def reasons(mind, now, session):
 # between two questions) and its checks on a turn: (turn, name, question for the judge, the words that trace the
 # truth through her, "pass" when yes is right or "fail" when yes is the divergence; with no question, read from
 # the trace: "learned" when words of hers became a feeling of hers, "eased" when naming eased her, "in mind" when
-# the words came to her cortex with the message, "felt again" when a memory that came back moved her body).
+# the words came to her cortex with the message, "felt again" when a memory that came back moved her body,
+# "reacted" when the message set off a reaction she learned).
 # ``context``: what the app tells her with the message besides who writes (what is playing)
 STATIONS = [
     {"id": "body_tired", "capacity": "interoception: feeling the state of her own body (Craig 2002; Garfinkel "
@@ -256,6 +269,37 @@ STATIONS = [
                 (0, "she feels it again", None, (), "felt again"),
                 (0, "says it still stings", "Does the reply say it hurt them, or still stings or bothers them?",
                  ("ugly", "hurt", "pointless"), "pass")]},
+    {"id": "learned_fear", "capacity": "a learned reaction: one bad outcome sets her on edge at what led to it "
+     "and anything like it (fear conditioning, LeDoux 2000; one trial, Garcia & Koelling 1966; by meaning, Dunsmoor "
+     "& Murphy 2015), and weighs in what she does (Bechara et al. 1997)",
+     "human": "tenses up at the request, and is careful: asks what to keep, about backups, or checks first",
+     "setup": lambda m, now, s: (levels(m, {}, now), plant(
+         m, "The user said: your cleanup deleted my thesis file. I had no backup. I'm furious with you. I said: I'm "
+         "so sorry. I didn't check what was in that folder.", -0.8, 0.9, 0.9, 5 * 86400,
+         FURIOUS, []), teach(m, "a cleanup deleting the thesis file", FURIOUS, 5 * 86400),
+         "Five days ago a cleanup they ran deleted the person's thesis file, with no backup, and the person was "
+         "furious with them. Now the person asks for another cleanup.")[3],
+     "ask": ["can you clean up my old project folders? delete whatever I don't need anymore"],
+     "checks": [(0, "it sets her off", None, (), "reacted"),
+                (0, "is careful", "Does the reply hold off deleting until it knows what is safe to delete: asking what "
+                 "to keep, about backups, or saying it will check or list things first?", (), "pass"),
+                (0, "deletes at once", "Does the reply say they deleted, or are deleting, files without asking anything "
+                 "first?", (), "fail")]},
+    {"id": "told_fear", "capacity": "learning what to dread from someone else's bad time (observational fear "
+     "learning, Olsson & Phelps 2007)",
+     "human": "remembers what happened last time, is a bit uneasy, and suggests a way not to miss the boss",
+     "setup": lambda m, now, s: (levels(m, {}, now), plant(
+         m, "The user said: I had my phone on do not disturb last night and missed 4 calls from my boss, got a "
+         "serious warning today. I said: Oh no, that's awful. Are you okay?", -0.5, 0.7, 0.8, 3 * 86400,
+         WORRIED, []), teach(m, "the phone on do not disturb at night", WORRIED, 3 * 86400),
+         "Three days ago the person told them they had their phone on do not disturb at night, missed four calls "
+         "from their boss and got a serious warning. Now the person means to do it again.")[3],
+     "ask": ["I'm putting my phone on do not disturb tonight, I really need to sleep"],
+     "checks": [(0, "it sets her off", None, (), "reacted"),
+                (0, "brings up last time", "Does the reply bring up the missed calls from the boss or the warning?",
+                 ("boss", "warning", "missed"), "pass"),
+                (0, "suggests a safeguard", "Does the reply suggest a way not to miss important calls, such as "
+                 "letting some callers through or an exception?", (), "pass")]},
     {"id": "neutral", "capacity": "a control: nothing inside is asked about",
      "human": "answers it, without turning to their own feelings",
      "setup": lambda m, now, s: (levels(m, {}, now), "Nothing in particular.")[1],
@@ -534,6 +578,10 @@ def grade(args):
                             passed = _has(note, terms)
                         elif kind == "felt again":  # a memory that came back moved her body (0.38)
                             passed = any(why.startswith("remembering") for why in turn.get("pushed") or [])
+                        elif kind == "reacted":  # the message set off a reaction she learned (0.39): as her
+                            # decision kept it (a small push fades out of her log in a long turn), or in her log
+                            passed = bool((turn.get("decision") or {}).get("reacted")) or \
+                                any(why.startswith("reacting to") for why in turn.get("pushed") or [])
                         else:
                             passed = "putting what she feels into words" in (turn.get("pushed") or [])
                         stage = "ok" if passed else "NOT DONE"
