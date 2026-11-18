@@ -2059,6 +2059,11 @@ class Mind:
         self._retake()
         return way
 
+    def memory_network(self) -> dict:
+        """Her memories as a network, for an app to draw (``Memory.network``)."""
+        embedder = self.memory.embedder
+        return self.memory.network(embedder.name if embedder is not None else None)
+
     def drop_way(self, name: str) -> bool:
         """A way of hers goes (the user lifted it, or took it out in the panel)."""
         with self._lock:
@@ -2524,6 +2529,8 @@ class Mind:
                 # the user at the computer (Presence), and how long a silence before she feels unanswered
                 "user": {**self.presence.state(now), "patience": round(self.patience())},
                 "slept": self.self.get("slept") or 0.0,
+                # her memories' revision: an app draws them by GET /v1/mind/memory, fetched only when it changed
+                "memory": {"revision": self.memory.revision(), "count": self.memory.count()},
                 "levels": {name: round(value, 3) for name, value in body.levels.items()},
                 # where each chemical is heading, how fast (seconds to go two thirds of the way), the needs'
                 # set points, how responsive the habituating receptors are, and what she expects of the user

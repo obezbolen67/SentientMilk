@@ -213,6 +213,8 @@ class _Handler(BaseHTTPRequestHandler):
             around = surroundings(query["around"]) if query.get("around") not in (None, "") else None
             self._send(200, brain.mind.state(app, idle, brief=query.get("brief") == "1", locked=locked, busy=busy,
                                              around=around))
+        elif route == ["mind", "memory"] and method == "GET":  # her memories as a network, to draw
+            self._send(200, brain.mind.memory_network())
         elif head == "mind" and len(rest) == 2 and rest[0] == "ways" and method == "DELETE":  # the user takes one out
             brain.mind.drop_way(rest[1])
             self._send(200, {"status": "ok"})

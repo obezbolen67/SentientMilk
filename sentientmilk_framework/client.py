@@ -165,6 +165,12 @@ class BrainClient:
                                           if around is not None else "") if part)
         return self._call("GET", "/mind" + (f"?{query}" if query else ""))
 
+    def memory_network(self) -> dict:
+        """Her memories as a network (0.41): ``episodes`` (each with its values: kind, text, how it felt, strength,
+        charge, recalls...), ``links`` ([a, b, kind, weight]: then, origin, corrected, cue, meaning) and the
+        ``revision`` ``mind()["memory"]`` reports, so it is fetched again only when that changes."""
+        return self._call("GET", "/mind/memory")
+
     def forget_way(self, name: str) -> None:
         """Take one of her ways out of her (``mind()["ways"]``: how she does things in every chat)."""
         self._call("DELETE", f"/mind/ways/{quote(name, safe='')}")

@@ -28,6 +28,7 @@ import random
 import sqlite3
 import threading
 import time
+import zlib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -548,6 +549,73 @@ class Memory:
     def count(self) -> int:
         with self._lock:
             return self._db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
+
+    def revision(self) -> int:
+        """A number that changes whenever her memories do (one is kept, recalled, felt again, softened, reworded,
+        corrected, forgotten, or understood by meaning), for an app that draws them to fetch only then."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COUNT(*), COALESCE(MAX(id), 0), ROUND(COALESCE(SUM(strength), 0), 5), "
+                "ROUND(COALESCE(SUM(charge), 0), 5), COALESCE(SUM(recalls), 0), COALESCE(MAX(recalled), 0), "
+                "ROUND(COALESCE(SUM(valence), 0), 5), COALESCE(SUM(superseded_by), 0), COALESCE(SUM(LENGTH(text)), 0), "
+                "(SELECT COUNT(*) FROM episode_cues), (SELECT revision FROM episodes_vector_revision WHERE id = 1) "
+                "FROM episodes").fetchone()
+        return zlib.crc32(repr(tuple(row)).encode())
+
+    def network(self, model: Optional[str] = None) -> dict:
+        """Her memories as a network, as they are kept: every episode with its values, and its links to
+        others: ``then`` (the next moment of the same chat), ``origin`` (an insight or dream to what it was made
+        from), ``corrected`` (a memory to the one that set it right), ``cue`` (what was around both, weighed by
+        how strongly it calls them up: ``cue_strength``; kept from half way) and ``meaning`` (how much of one's
+        meaning the other holds, on the scale her sleep forgets by: ``Vectors.held``, 0 at how near a memory's
+        nearest usually is, 1 the same; from her vectors of ``model``, no embedder called). Links as
+        [a, b, kind, weight]."""
+        with self._lock:
+            revision = self.revision()
+            rows = [dict(row) for row in self._db.execute(
+                "SELECT id, at, kind, text, app, session, valence, encoding_valence, arousal, salience, strength, "
+                "recalls, recalled, charge, sting, superseded_by, origin_ids, felt FROM episodes ORDER BY id")]
+            kept_cues = self._db.execute("SELECT episode, cue FROM episode_cues").fetchall()
+        known = {row["id"] for row in rows}
+        cues_of: Dict[int, List[str]] = {}
+        sharing: Dict[str, List[int]] = {}
+        for episode, found in kept_cues:
+            cues_of.setdefault(episode, []).append(found)
+            sharing.setdefault(found, []).append(episode)
+        links: Dict[Tuple[int, int, str], float] = {}
+        chats: Dict[Tuple[str, str], List[dict]] = {}
+        for row in rows:
+            if row["app"] or row["session"]:
+                chats.setdefault((row["app"] or "", row["session"] or ""), []).append(row)
+            for origin in json.loads(row["origin_ids"] or "[]"):
+                if origin in known:
+                    links[(row["id"], origin, "origin")] = 1.0
+            if row["superseded_by"] in known:
+                links[(row["id"], row["superseded_by"], "corrected")] = 1.0
+        for chat in chats.values():
+            chat.sort(key=lambda row: (row["at"], row["id"]))
+            for before, after in zip(chat, chat[1:]):
+                links[(before["id"], after["id"], "then")] = 1.0
+        rarity = self.cue_strength([found for found, episodes in sharing.items() if len(episodes) > 1])
+        for found, episodes in sharing.items():
+            weight = rarity.get(found, 0.0)
+            if len(episodes) > 1 and weight >= 0.5:
+                for i, a in enumerate(sorted(episodes)):
+                    for b in sorted(episodes)[i + 1:]:
+                        links[(a, b, "cue")] = max(links.get((a, b, "cue"), 0.0), round(weight, 3))
+        if model:
+            for a, b, weight in self.vectors.holding(model):
+                if a in known and b in known:
+                    links[(a, b, "meaning")] = round(weight, 3)
+        episodes = [{"id": row["id"], "at": row["at"], "kind": row["kind"], "text": row["text"],
+                     "valence": row["valence"], "encoding_valence": row["encoding_valence"],
+                     "arousal": row["arousal"], "salience": row["salience"], "strength": row["strength"],
+                     "recalls": row["recalls"], "recalled": row["recalled"], "charge": row["charge"],
+                     "sting": row["sting"], "superseded_by": row["superseded_by"],
+                     "origins": json.loads(row["origin_ids"] or "[]"), "felt": json.loads(row["felt"] or "{}"),
+                     "cues": sorted(cues_of.get(row["id"], ()))} for row in rows]
+        return {"revision": revision, "episodes": episodes,
+                "links": [[a, b, kind, weight] for (a, b, kind), weight in links.items()]}
 
 
 def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:

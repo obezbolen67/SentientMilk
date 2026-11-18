@@ -122,6 +122,23 @@ class Vectors:
         top = np.argsort(-scores)[:count]
         return [(int(ids[i]), float(scores[i])) for i in top if np.isfinite(scores[i])]
 
+    def holding(self, model: str, block: int = 512) -> List[Tuple[int, int, float]]:
+        """Every pair of rows where one holds some of the other's meaning, on ``held``'s scale: (a, b, how
+        much) with a < b, 0 at ``usual`` (how near a row's nearest usually is), 1 the same. In blocks, so
+        thousands of rows never need all their cosines at once."""
+        ids, rows = self._matrix(model)
+        found: List[Tuple[int, int, float]] = []
+        if len(ids) < 2:
+            return found
+        floor = self.usual(model)
+        for start in range(0, len(ids), block):
+            cosines = rows[start:start + block] @ rows.T
+            for i, j in zip(*np.nonzero(cosines > floor)):
+                a, b = int(ids[start + i]), int(ids[j])
+                if a < b:
+                    found.append((a, b, float(min(1.0, (cosines[i, j] - floor) / (1.0 - floor)))))
+        return found
+
     def floor(self, embedder) -> float:
         """The most an unrelated question reaches among these vectors of ``embedder``'s (1.0: none yet).
         It raises what the embedder raises when it cannot embed the questions now."""
