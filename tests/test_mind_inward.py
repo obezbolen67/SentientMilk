@@ -2,14 +2,11 @@
 Before, she had only what each message's note handed her: asked what was bothering her, she answered from the
 last topic while her thoughts all afternoon had been about wanting to be noticed (the user's brain, 2026-11-17)."""
 
-import json
 import re
 import time
 
 import pytest
-from conftest import Meaning, turn, use, wait_for
-
-from sentientmilk_framework.testing import tool_call
+from conftest import Meaning, use
 
 pytestmark = pytest.mark.mind  # her mind lives in these tests
 

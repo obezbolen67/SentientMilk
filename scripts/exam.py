@@ -330,6 +330,7 @@ def run(args):
     else:
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import requests
+
     import sentientmilk_framework
     from sentientmilk_framework.client import BrainClient
     from sentientmilk_framework.config import BrainConfig
@@ -527,6 +528,7 @@ def _has(text, terms):
 def grade(args):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import requests
+
     from sentientmilk_framework.config import BrainConfig
     from sentientmilk_framework.mind.prompts import parse
 
@@ -660,7 +662,7 @@ def grade(args):
                     lines += [f"- **asked:** {turn['question']}",
                               f"  - her quick reading: {path.get('happens') or '-'}; act {decision.get('act')}",
                               f"  - note: {turn['note'][:700] or '-'}",
-                              f"  - tools: " + ("; ".join(f"{t['name']}({json.dumps(t.get('arguments'), ensure_ascii=False)[:80]})"
+                              "  - tools: " + ("; ".join(f"{t['name']}({json.dumps(t.get('arguments'), ensure_ascii=False)[:80]})"
                                                           f" -> {str(t.get('result'))[:300]}" for t in turn["tools"]) or "-"),
                               f"  - reasoning: {' '.join(turn['reasoning'].split())[:900] or '-'}",
                               f"  - **reply:** {turn['reply'] or turn.get('error')}",

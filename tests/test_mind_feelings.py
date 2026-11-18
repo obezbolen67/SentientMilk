@@ -6,14 +6,12 @@ something that is not in the list, then what?" (the user)."""
 
 import json
 import re
-import time
 
 import pytest
 from conftest import Meaning, turn, use, wait_for
 
-from sentientmilk_framework.testing import tool_call
-
 from sentientmilk_framework.mind.feel import CHANNELS, Concepts, Felt, _amounts, core
+from sentientmilk_framework.testing import tool_call
 
 TENSE = {"cortisol": 0.8, "noradrenaline": 0.85, "serotonin": 0.3, "reward": -0.4}
 

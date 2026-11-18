@@ -42,10 +42,10 @@ from textual.widgets import (
 
 from . import __version__, autostart, embeddings
 from .claudecode import EFFORT_NAMES
-from .mind.feel import CHANNELS
 from .client import BrainClient, connect, start_command
 from .config import DEFAULT_BASE_URL, DEFAULT_MODEL, SHELLS
 from .exceptions import BrainError
+from .mind.feel import CHANNELS
 from .thinking import THINKING_MODES
 
 OK, WARN, BAD, MUTED, ACCENT = "#7bd88f", "#f2c35b", "#ff6b7a", "#8b8fa3", "#b3a4ff"
