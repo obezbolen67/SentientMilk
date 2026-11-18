@@ -65,3 +65,21 @@ def _time(call):
     start = time.perf_counter()
     call()
     return time.perf_counter() - start
+
+
+def test_one_matter_is_what_the_closest_few_pairs_of_her_own_rows_reach():
+    # measured on her memories (voyage-4-large, 2026-11-18): the closest 3 in 100 pairs from 0.59; the milk she
+    # buys and its correction 0.77, an essay skeleton and its deletion 0.63, an unrelated pair 0.38 in the middle
+    db, vectors = store()
+    rng = np.random.default_rng(1)
+    rows = [(i + 1, vector) for i, vector in enumerate(unit(rng.normal(size=(40, 16)).astype(np.float32)))]
+    vectors.put(rows, "m")
+    floor = vectors.matter("m")
+    cosines = np.stack([v for _, v in rows]) @ np.stack([v for _, v in rows]).T
+    pairs = cosines[np.triu_indices(40, 1)]
+    assert abs(floor - float(np.quantile(pairs, 0.97))) < 1e-6
+    assert vectors.vector(7, "m") is not None and np.allclose(vectors.vector(7, "m"), rows[6][1])
+    assert vectors.vector(99, "m") is None and vectors.vector(7, "other") is None
+    small = store()[1]
+    small.put(rows[:5], "m")
+    assert small.matter("m") == 1.0  # a few rows tell nothing of what is usual among them

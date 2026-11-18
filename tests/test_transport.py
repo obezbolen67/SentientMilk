@@ -149,6 +149,20 @@ def test_a_header_after_junk_is_found_and_taken_out(text, header, reply):
     assert signals.split(text)[0] is None  # without the names nothing later counts
 
 
+@pytest.mark.parametrize("text, header, reply", [
+    # run 652: a header with a pose not on the list, the model's correction on its line, then the header again
+    ('{"expression": "arms_down/playful"} — wait, playful isn\'t on arms_down. Use arms_crossed/playful.\n'
+     '{"expression": "arms_crossed/playful"}\n\nYou say that like it settles it.',
+     {"expression": "arms_crossed/playful"}, "You say that like it settles it."),
+    # the same without a second try: the header is what it began with, its line goes whole
+    ('{"expression": "arms_down/playful"} — wait, that one is not listed.\n\nYou say that like it settles it.',
+     {"expression": "arms_down/playful"}, "You say that like it settles it."),
+    ('{"tone": "calm"} {"tone": "warm"}\nHi', {"tone": "warm"}, "Hi"),
+])
+def test_a_line_that_begins_with_a_header_is_a_header_line_whole(text, header, reply):
+    assert signals.split(text, SPEC) == (header, reply)
+
+
 def test_signal_values_are_checked_against_the_declared_options():
     assert signals.check({"expression": "arms_down/smile", "tone": "calm"}, SPEC) == (
         {"expression": "arms_down/smile", "tone": "calm"}, [])

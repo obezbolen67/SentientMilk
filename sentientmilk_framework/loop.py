@@ -508,6 +508,10 @@ class Loop:
                 self._result(run, call, name, arguments, result, status, emit)
                 attachments.extend(result.images)
 
+        try:  # before they run: a call that changes something can be her choosing to act (Mind.acting)
+            self.brain.mind.acting(run, [(name, arguments, tool_) for _, name, tool_, arguments in ready])
+        except Exception:
+            logger.warning("Her mind could not take in what she is about to do", exc_info=True)
         groups: List[list] = []  # in the model's order: reads next to each other run together
         for item in ready:
             if item[2].readonly and groups and groups[-1][-1][2].readonly:

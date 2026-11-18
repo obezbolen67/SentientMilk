@@ -3,13 +3,14 @@
 The model is her cortex here: it foresees (what a message does to her needs, and, asked for work, the facts
 of what she could do) and thinks (her thoughts between messages, her dreams). It never decides and never
 rates how she should feel: her body does (life.py, will.py), and it never writes what she will say: her
-answer is her own, and what it shows comes back into her body (life.py ``_express``). Every prompt starts with
+answer is her own, and the face it shows moves nothing inside her. Every prompt starts with
 ``[mind:<kind>]`` so a stand-in provider can tell them apart.
 """
 
 import json
 import re
-from typing import List, Optional
+import time
+from typing import List, Optional, Tuple
 
 MARK = "[mind:"
 
@@ -100,11 +101,29 @@ sentence they said it in, exactly"}]}, or {"named": []} when they put no name to
 
 SLEEP = """[mind:sleep]
 You are someone's mind while they sleep. Below: who they are and the moments of the day that stayed with
-them, the strongest first. Go over them as sleep does.
+them, the strongest first, each with its number. Go over them as sleep does.
 
 Answer with JSON only:
-{"insights": ["what they learned or understood, in their own words (one sentence each, 0 to 3)"],
-"dream": "a short dream, two to four sentences, made of the day's pieces, strange as dreams are"}"""
+{"insights": [{"text": "what they learned or understood, in their own words (one sentence)", "from": [the numbers
+of the moments it comes from]}],
+"dream": {"text": "a short dream, two to four sentences, made of the day's pieces, strange as dreams are",
+"from": [the numbers of the moments it is made of]}}
+0 to 3 insights. "from": only the moments each one truly comes from."""
+
+# what happened since, against what she had in mind before (life.py _overtaken): set right in her sleep, by what
+# showed otherwise, as a memory recalled with new evidence is updated (Nader et al. 2000; Lee 2009)
+UPDATES = """[mind:updates]
+You are someone's mind while they sleep, going over what they had in mind before against what happened since.
+Below: what happened (T1, T2, ...), what they had in mind before that it may bear on (O1, O2, ...) and what they
+had put off to do later (P1, P2, ...).
+
+Answer with JSON only:
+{"outdated": [{"old": "O1", "by": "T2"}], "settled": ["P1"]}
+
+An old one is outdated when something that happened since shows it is no longer so: set right, done, undone,
+called off, answered or no longer wanted. Not when what happened only adds to it or brings it up again.
+Something put off is settled when what happened shows it was done or is no longer wanted. List only what plainly
+shows it; leave out the rest."""
 
 # what she knows of the people in her life, settled in sleep (people.py); the same step meets the people of her
 # past once
@@ -279,18 +298,25 @@ def imagined(text: str) -> dict:
 
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),
-          thoughts: List[str] = (), people: List[str] = (), unsaid: Optional[tuple] = None, did: List[str] = (),
-          going: List[str] = ()) -> str:
+          thoughts: List[Tuple[float, str]] = (), people: List[str] = (), unsaid: Optional[tuple] = None,
+          did: List[str] = (), going: List[str] = (), when: str = "") -> str:
     """The note she reads before answering (it goes with the user's message, never shown to them).
-    ``thoughts``: what she thought while nobody wrote, so her time alone is hers when they are back; ``did``:
+    ``when``: when each of them last wrote, the computer was last touched and she slept, each its own time
+    (0.43: back after 3 hours 8 minutes, she said "two hours and change", counting from her own message);
+    ``thoughts``: (when, what) she thought while nobody wrote, the older first, so her time alone is hers when
+    they are back, each with its time (a guess made at 17:49 is not a fact at 20:05); ``did``:
     what she did since (a task's end, a job's, as she keeps them), all of it; ``going``: what of hers is still
     going, wherever it began (until 0.42 neither: asked about a job her own task left running, she searched her
     conversations for it in vain);
     ``people``: those she knows that the message names, as they come to her mind (people.py); ``unsaid``:
     (tell or ask, to whom, what) she meant to say and has not had the chance to."""
     parts = [felt.rstrip(".") + "."]
+    if when:
+        parts.append("When: " + when.rstrip(".") + ".")
     if thoughts:
-        parts.append("Since you last talked you were thinking: " + " ".join(f'"{thought}"' for thought in thoughts))
+        parts.append("Since you last talked you were thinking, " + " ".join(
+            f'{"At" if index else "at"} {time.strftime("%H:%M", time.localtime(at))}: "{thought}"'
+            for index, (at, thought) in enumerate(thoughts)))
     if did:
         parts.append("What you did since you last talked: " + "; ".join(d.rstrip(".") for d in did) + ".")
     if going:

@@ -150,3 +150,18 @@ def test_her_body_comes_as_amounts_she_puts_into_words_herself_never_a_feelings_
     for name in CHANNELS:  # every amount reads right however strong
         for far in (-1.5, -0.8, -0.5, 0.5, 0.8, 1.5):
             assert re.fullmatch(r"(?:a little |much )?(?:more|less) [a-z ]+", _amounts([(name, far)]))
+
+
+def test_a_message_that_hardly_moved_her_is_told_as_little_changed():
+    # run 660: the user's reassurance moved her body too little to tell, her note said only how her body stood
+    # ("unpleasant on the whole"), and she said "the whole worry fell off the second you said it": nothing told
+    # her the message had changed little, and the gap was filled. Told, "that helped" and "the worry is gone"
+    # have something to be told apart by
+    reading = {"noradrenaline": 0.8, "cortisol": 0.7}
+    usual = {"noradrenaline": 0.35, "cortisol": 0.3}
+    felt = Felt(*core(reading), reading, used=usual)
+    for little in ({"reward": 0.2, "oxytocin": -0.1}, {}):
+        said = felt.words(moved_by=little)
+        assert said.startswith("Reading it: little changed from a moment ago. Underneath: ")
+        assert "more strain" in said.split("Underneath: ")[1]  # what is still there is said as still there
+    assert felt.words().startswith("Your body: ")  # no message: how her body stands, as before

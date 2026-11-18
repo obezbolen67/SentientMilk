@@ -38,7 +38,8 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
          unsaid: Optional[Tuple[str, str, str]] = None, put_off: Sequence[str] = (),
          moved: Sequence[Tuple[str, float, Optional[str]]] = (), leaned: Optional[Tuple[str, Sequence[str]]] = None,
          self_view: str = "", about: str = "", recalled: Optional[Sequence[Tuple[str, float]]] = None,
-         familiar: Sequence[Tuple[str, str, str]] = (), did: Sequence[str] = (), going: Sequence[str] = ()) -> str:
+         familiar: Sequence[Tuple[str, str, str]] = (), did: Sequence[str] = (), going: Sequence[str] = (),
+         whose: Sequence[str] = ()) -> str:
     """What she finds looking inward, in words. ``felt``: her body in body words (Felt.words: never a feeling's
     name); ``tone``: Felt.tone(), all she can tell when ``aware`` is under AWARE; ``familiar``: feelings she has
     named herself that her body feels like now, (word, her own words then, when): the memory of saying it, never
@@ -46,7 +47,8 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
     (tell or ask, to whom, what); ``put_off``: what she put off; ``moved``: (the moment as it comes back, its
     sting, what she called it if she put it into words); ``leaned``: (the way she leaned, her reasons); ``about`` and ``recalled``: what she looked for and
     what came back, (memory, its strength now); ``did``: what she did since she woke, as she keeps it, oldest
-    first; ``going``: what of hers is still going (0.42)."""
+    first; ``going``: what of hers is still going (0.42); ``whose``: where the feeling words she looked for came
+    from, hers or given to her (0.43)."""
     parts: List[str] = []
     if aware >= AWARE:
         parts.append(felt.rstrip(".") + ".")
@@ -84,4 +86,5 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
         parts.append(f"You looked for: {about}. " + ("What comes back about it: " + "; ".join(
             f"{memory.rstrip('.')} (you remember it {clearly(strength)})" for memory, strength in recalled) + "."
             if recalled else "Nothing comes back about it."))
+        parts.extend(whose)
     return "Looking inward: " + " ".join(parts)

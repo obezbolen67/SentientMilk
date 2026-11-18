@@ -197,14 +197,15 @@ class Felt:
         tone, pace = self.tone()
         whole = f"{tone} on the whole, with {pace}."
         found = self.standing_out() if out is None else out
-        if moved_by:
+        if moved_by is not None:
             now = sorted(((name, far) for name, far in moved_by.items() if name in CHANNELS and abs(far) >= 0.4),
                          key=lambda item: -abs(item[1]))[:3]
-            if now:
-                under = [(name, far) for name, far in found if name not in dict(now)][:3]
-                return (f"Reading it: {_amounts(now)} than a moment ago. "
-                        + (f"Underneath: {_amounts(under)} than you're used to; {whole}" if under
-                           else f"Underneath, {whole}"))
+            under = [(name, far) for name, far in found if name not in dict(now)][:3]
+            # a message that moved her too little to tell is told as that (until 0.43 nothing was said of it, and
+            # reassured, she said "the whole worry fell off" with her strain where it was: run 660)
+            return (f"Reading it: {_amounts(now) + ' than' if now else 'little changed from'} a moment ago. "
+                    + (f"Underneath: {_amounts(under)} than you're used to; {whole}" if under
+                       else f"Underneath, {whole}"))
         return (f"Your body: {_amounts(found)} than you're used to; {whole}" if found
                 else f"Nothing stands out in your body: {whole}")
 

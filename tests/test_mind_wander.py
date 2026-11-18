@@ -47,7 +47,10 @@ def test_her_last_thought_comes_with_when_it_was_and_what_she_can_tell_of_the_us
     think(brain, "It's gone quiet.")
     seen = asked(brain)
     assert 'Your last thought, 3 hours ago: "He\'s still eating."' in seen
-    assert "What they can tell of the user: away from the computer, untouched for 2 hours" in seen
+    # what the computer shows, not where the user is: a computer nobody touches cannot tell someone away from
+    # someone reading or on their phone, and her thoughts made "he's just gone" of it (the audit, finding 7)
+    assert "What they can tell of the user: nobody has touched the computer for 2 hours" in seen
+    assert "away" not in seen.split("What they can tell of the user: ")[1].split("\n")[0]
     assert "Around them: playing: Clair de Lune — Debussy" in seen
 
 

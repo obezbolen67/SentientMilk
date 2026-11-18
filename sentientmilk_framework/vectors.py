@@ -51,6 +51,7 @@ class Vectors:
         self._floors: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, floor)
         self._usuals: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, usual nearest)
         self._sames: Dict[str, Tuple[float, float]] = {}  # model -> (what one thing reaches, what unrelated does)
+        self._matters: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, what one matter reaches)
         with lock:
             db.executescript(f"""
                 CREATE TABLE IF NOT EXISTS {table}_vectors (id INTEGER PRIMARY KEY, model TEXT NOT NULL,
@@ -121,6 +122,29 @@ class Vectors:
             scores = np.where(np.isin(ids, np.fromiter(where, np.int64, len(where))), scores, -np.inf)
         top = np.argsort(-scores)[:count]
         return [(int(ids[i]), float(scores[i])) for i in top if np.isfinite(scores[i])]
+
+    def vector(self, row: int, model: str) -> Optional[np.ndarray]:
+        """The vector a row keeps for ``model`` (None: none)."""
+        ids, rows = self._matrix(model)
+        found = np.flatnonzero(ids == row)
+        return rows[found[0]] if len(found) else None
+
+    def matter(self, model: str) -> float:
+        """What two rows about one matter reach: the closest 3 in 100 of all pairs of these rows (on her memories,
+        voyage-4-large, 2026-11-18: from 0.59; the milk she buys and its correction 0.77, an essay skeleton and its
+        deletion 0.63, a question about a watcher and "forget that thing" 0.64; an unrelated pair 0.38 in the
+        middle). Measured again when their number has doubled; 1.0 (nothing is one matter) under ten rows: a few
+        rows tell nothing of what is usual among them."""
+        ids, rows = self._matrix(model)
+        measured = self._matters.get(model)
+        if measured and len(ids) < 2 * measured[0]:
+            return measured[1]
+        if len(ids) < 10:
+            return 1.0
+        sample = rows if len(ids) <= 1024 else rows[np.random.default_rng(0).choice(len(ids), 1024, replace=False)]
+        value = float(np.quantile((sample @ sample.T)[np.triu_indices(len(sample), 1)], 0.97))
+        self._matters[model] = (len(ids), value)
+        return value
 
     def holding(self, model: str, block: int = 512) -> List[Tuple[int, int, float]]:
         """Every pair of rows where one holds some of the other's meaning, on ``held``'s scale: (a, b, how

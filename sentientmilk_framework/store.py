@@ -435,6 +435,12 @@ class Store:
         with self._db() as db:
             return _run(db.execute(f"SELECT {_RUN_COLUMNS} FROM runs WHERE id = ?", (run,)).fetchone())
 
+    def child_runs(self, run: int) -> List[dict]:
+        """The runs a run started (its helpers, its tasks), the oldest first."""
+        with self._db() as db:
+            return [_run(row) for row in db.execute(f"SELECT {_RUN_COLUMNS} FROM runs WHERE parent = ? ORDER BY id",
+                                                    (run,))]
+
     def runs(self, app: Optional[str] = None, kind: Optional[str] = None, statuses: Optional[tuple] = None,
              limit: int = 100, session: Optional[str] = None) -> List[dict]:
         """The newest first."""

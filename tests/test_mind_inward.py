@@ -92,3 +92,20 @@ def test_looking_inward_she_meets_her_own_words_for_what_she_feels(brain):
     seen = mind.look_inward()
     assert "It is like when you said \"so happy you're back\" (an hour ago)" in seen
     assert "happy" not in seen.split("It is like")[0]  # her body in sensations, her words only in her own mouth
+
+
+def test_looking_inward_about_a_word_she_finds_where_it_came_from(brain):
+    # the audit, finding 4: "permission" was given to a moment of hers by the naming before 0.37 and never said by
+    # her; looking inward it came as something "you have called" it, she tried to explain it from experience and
+    # only searching her history showed where it came from. Asked about, a word says whose it is
+    mind = brain.brain.mind
+    given = time.mktime(time.strptime("2026-11-17 13:10", "%Y-%m-%d %H:%M"))
+    with mind._lock:
+        mind.concepts.named.append({"word": "permission", "moved": {"oxytocin": 0.3}, "about": {}, "count": 1,
+                                    "back": 0, "at": given, "said": [], "hers": False})
+        mind._name("worn flat", "I feel worn flat after all that", time.time() - 3600)
+    seen = mind.look_inward("where does the word permission come from")
+    assert '"permission" is not a word you chose' in seen
+    assert "Nov 17 at 13:10" in seen and "you have never said it as yours" in seen
+    mine = mind.look_inward("what I mean by worn flat")
+    assert '"worn flat" is your own word' in mine and '"I feel worn flat after all that" (an hour ago)' in mine

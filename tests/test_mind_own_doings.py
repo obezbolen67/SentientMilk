@@ -14,6 +14,7 @@ import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework.mind.memory import cue
+from sentientmilk_framework.testing import tool_call
 from sentientmilk_framework.toolkits import ToolContext
 from sentientmilk_framework.toolkits import sessions as kit
 from sentientmilk_framework.toolkits.shell import job_ended
@@ -25,7 +26,8 @@ SONG = cue("playing", "Clair de Lune — Debussy")
 
 def talked(brain, said="hello", session="main"):
     brain.provider.replies += ["Hi."]
-    turn(brain, "milk", said, session=session)
+    result = turn(brain, "milk", said, session=session)
+    wait_for(lambda: brain.brain.mind.memory.recorded(result["run"]))  # kept once the run has ended, a moment on
     wait_for(lambda: not brain.brain.session_busy("milk", session))
     brain.client.mind("milk", idle=5)  # the app is there
 
@@ -180,7 +182,8 @@ def test_what_she_did_and_kept_nothing_of_is_taken_in_when_she_starts(brain):
     deed = [e for e in mind.memory.recent(-1, ("event",)) if e["run_id"] == lost][0]
     assert deed["at"] == ended and deed["session"] == f"task-{lost}"
     assert deed["text"] == ("Out of my own curiosity I looked up: why do youtube thumbnails look the same. "
-                            f"How it went: They copy what gets clicks. Jobs I started: {sweep} (sleep 60).")
+                            f"How it went: They copy what gets clicks. What my tools did: started job {sweep} "
+                            "(sleep 60) (still going).")
     assert store.run(lost)["options"]["own"] == {"want": "look_up", "what": "why do youtube thumbnails look the same",
                                                  "thought": "", "episode": None}
     assert store.run(filed)["options"]["own"]["thought"] == "tidy up"
@@ -202,3 +205,29 @@ def test_what_she_thought_in_a_chat_comes_back_there_and_what_was_said_does_not(
                        session="main", at=now - 3600, cues=[SONG])
     back = {e["id"] for e in memory.recall("song", 0.0, now, count=4, cues=[SONG], held=("milk", "main", 0.0))}
     assert mused in back and said not in back  # what was said is in her context; what she thought is not
+
+
+def test_her_task_s_memory_says_what_her_tools_did_and_what_it_started(brain):
+    # the audit (finding 1): task 638 made 34 calls, a question about one address became work on other addresses,
+    # and its memory kept only what it set out to do and how it went; asked, she began "Something asked me"
+    mind = brain.brain.mind
+    brain.provider.replies += ["Hi."]
+    said = turn(brain, "cli", "hello")
+    wait_for(lambda: mind.memory.recorded(said["run"]))
+    brain.provider.replies += [tool_call("shell_run", {"command": "nslookup 92.5.89.27"}, "t1"),
+                               tool_call("shell_run", {"command": "nslookup -type=PTR 92.5.89.1", "background": True},
+                                         "t2"),
+                               "It's an Oracle Cloud machine; a sweep of its neighbours is still running."]
+    brain.provider.mind_replies["think"] = [json.dumps({
+        "thought": "I wonder about 92.5.89.27.", "feeling": "curious", "want": "look_up", "look_up": "92.5.89.27"})]
+    mind._think("wonder", None)
+    for call in ("t1", "t2"):  # the user allows each, as on the day (18 allows)
+        task = wait_for(lambda: [t for t in brain.store.runs(app="cli", kind="task")
+                                 if t["status"] == "input_required"])[0]
+        brain.client.answer(task["id"], call_id=call, decision="allow")
+    task = wait_for(lambda: [t for t in brain.store.runs(app="cli", kind="task") if t["status"] == "completed"])[0]
+    text = wait_for(lambda: mind.memory.of_run(task["id"]))["text"]
+    assert text.startswith("Out of my own curiosity I looked up: 92.5.89.27.")
+    assert "What my tools did: " in text and "shell_run nslookup 92.5.89.27 (in " in text
+    sweep = brain.store.run_jobs(task["id"])[0]
+    assert f"started job {sweep['id']} (nslookup -type=PTR 92.5.89.1) (" in text

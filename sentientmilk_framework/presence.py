@@ -89,16 +89,20 @@ class Presence:
             return dict(self.around) if now - self.reported <= STALE else {}
 
     def words(self, now: Optional[float] = None) -> str:
-        """What she can tell of them, in words ("" when nobody can tell)."""
+        """What she can tell of them, in words ("" when nobody can tell): what the computer shows, never where
+        they are. A computer nobody touches cannot tell someone away from someone reading or on their phone;
+        told "away from the computer", her thoughts made "he's just gone" of it (2026-11-18). ``here`` and the
+        clocks still take a long stillness as away: what she senses is hers to make sense of."""
         now = time.time() if now is None else now
         if not self.touched and now - self.reported > STALE:
             return ""
         untouched = _ago(now - self.touched) if self.touched else ""
         if self.locked:
-            return "the screen is locked" + (f"; they last touched the computer {untouched} ago" if untouched else "")
-        if not self.here(now):
-            return f"away from the computer, untouched for {untouched}" if untouched else "away from the computer"
-        return "at the computer, absorbed in something fullscreen" if self.busy else "at the computer"
+            return "the screen is locked" + (f"; the computer was last touched {untouched} ago" if untouched else "")
+        if not self.touched or now - self.touched >= STILL_THERE:
+            return (f"nobody has touched the computer for {untouched}" if untouched else "nobody is touching the computer") \
+                + ("; something fullscreen is in front" if self.busy else "")
+        return "the computer is in use" + (", something fullscreen in front" if self.busy else "")
 
     def now(self, now: Optional[float] = None) -> float:
         """The clock's reading now, to measure from (``since``)."""

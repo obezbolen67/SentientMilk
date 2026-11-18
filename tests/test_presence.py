@@ -48,3 +48,20 @@ def test_its_clock_runs_only_while_they_could_answer():
     counted = seen.since(mark, T + 1200)
     seen.report(idle=0, now=T + 1200 + GAP + 3600)  # the machine slept an hour: nobody saw anything
     assert seen.since(mark, T + 1200 + GAP + 3600) == counted
+
+
+def test_in_words_it_tells_what_the_computer_shows_never_where_the_user_is():
+    # thought 305 took a quiet computer for an absence ("he's just gone"); a computer nobody touches cannot tell
+    # someone away from someone reading or on another device (the audit, finding 7)
+    presence, now = Presence(), 1000.0
+    presence.report(idle=13 * 60, locked=False, busy=False, now=now)
+    assert presence.words(now) == "nobody has touched the computer for 13 minutes"
+    presence.report(idle=13 * 60, locked=False, busy=True, now=now)
+    assert presence.words(now) == "nobody has touched the computer for 13 minutes; something fullscreen is in front"
+    presence.report(idle=5, locked=False, busy=False, now=now)
+    assert presence.words(now) == "the computer is in use"
+    presence.report(idle=5, locked=False, busy=True, now=now)
+    assert presence.words(now) == "the computer is in use, something fullscreen in front"
+    locked = Presence()
+    locked.report(idle=300, locked=True, busy=False, now=now)
+    assert locked.words(now) == "the screen is locked; the computer was last touched 5 minutes ago"

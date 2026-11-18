@@ -43,7 +43,9 @@ def test_she_feels_and_decides_before_she_answers_and_the_user_never_sees_it(bra
     run = brain.store.run(result["run"])
     assert run["options"]["mind"]["act"] == "do"
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]  # once the run has ended
-    assert "Can you sum up my notes?" in episode["text"] and "Completion was unverified" in episode["text"]
+    # asked and answered in words: what they wanted is for their next message to tell, not "unverified" (run 655)
+    assert "Can you sum up my notes?" in episode["text"] and "I answered it in words" in episode["text"]
+    assert "unverified" not in episode["text"]
 
 
 def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from(brain):
@@ -58,7 +60,8 @@ def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from
     outcome = wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))
     assert outcome["did"] == "do"
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]
-    assert "My tool recorded files_write" in episode["text"] and "I did it" not in episode["text"]
+    assert "I leaned toward putting it off, then acted anyway" in episode["text"]
+    assert f"changed files_write {brain.work / 'ip.txt'}" in episode["text"] and "I did it" not in episode["text"]
     assert "capable" not in outcome["measured"]  # writing the IP does not verify changing a server allow list
     assert "act:later" not in mind.values.weights
     assert not mind.self["concerns"]  # done after all: nothing put off to come back to
@@ -84,25 +87,23 @@ def test_a_chat_is_hers_to_answer_nothing_is_decided_for_her_or_kept_from_her(br
     assert episode["text"].startswith("The user said: i got the strawberry one. I said: Strawberry is fine")
 
 
-def test_what_she_shows_as_she_answers_comes_back_into_her_body(brain):
-    mind = mind_on(brain)  # her words and her body were two beings: mad on her face, pleasant in her chemistry
+def test_the_face_she_shows_is_what_she_shows_and_leaves_her_feelings_alone(brain):
+    # until 0.43 the mood of her sprite pulled her chemistry toward it: a reassuring front over hurt calmed her,
+    # and a restrained neutral face over a pleasant body stressed her (run 673, +0.037 cortisol). The user: what
+    # she shows and how she feels inside should not be tied; sprites do not hold all a feeling can be
+    mind = mind_on(brain)
     brain.client.declare_app("pet", name="Pet", environment="A desk.", toolkits=["memory"], signals={
-        "expression": {"description": "how you look", "options": ["mad", "smile"]}})
-
-    def shown(mood):
-        with mind._lock:
-            mind.body.levels.update(cortisol=0.25, endorphin=0.1, noradrenaline=0.35, reward=0.0)
+        "expression": {"description": "how you look", "options": ["mad", "smile", "neutral"]}})
+    for mood in ("mad", "smile", "neutral"):
         brain.provider.mind_replies["imagine"] = [BANTER]
         brain.provider.replies += [f'{{"expression": "{mood}"}}\nHm.']
         turn(brain, "pet", "you big idiot")
-        return wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))["expressed"]
-    mad, glad = shown("mad"), shown("smile")
-    assert mad["mood"] == "mad" and mad["valence"] < -0.5 and mad["moved"]["cortisol"] > 0.02
-    assert mad["moved"]["noradrenaline"] > 0 and "endorphin" not in mad["moved"]
-    assert glad["moved"].get("cortisol", 0.0) < mad["moved"]["cortisol"] / 2
-    brain.provider.replies += ["Plain."]  # an app with no expressions: nothing comes back, nothing breaks
-    turn(brain, "cli", "hello")
-    assert wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))["expressed"] is None
+        outcome = wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))
+        assert "expressed" not in outcome
+        with mind._lock:
+            assert not any("mood she showed" in why for entries in mind.body.pushed_now().values()
+                           for _, why, _, _ in entries)
+            mind.self["decided"]["outcome"] = None
 
 
 def test_worn_out_she_answers_on_reflex_and_a_run_does_not_think_itself_clear_again(brain):
@@ -230,7 +231,8 @@ def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought
     assert "your mind wanders" in asked and "my tomatoes died last winter" in asked  # replayed, unbidden
     turn(brain, "cli", "my tomatoes died again")  # calls up what is like it
     note = brain.provider.last_user_text().split("[Inside you:")[1]
-    assert 'Since you last talked you were thinking: "Tomatoes mind the cold more than I thought."' in note
+    assert 'Since you last talked you were thinking, at ' in note
+    assert ': "Tomatoes mind the cold more than I thought."' in note
     assert "my tomatoes died last winter" in note and "how do tomatoes grow" not in note
     brain.provider.mind_replies["think"] = [json.dumps({"thought": "And frost?", "feeling": "idle", "want": "nothing"})]
     wait_for(lambda: "died again" in mind.memory.recent(1, kinds=("exchange",))[0]["text"])
@@ -253,7 +255,7 @@ def test_a_turn_nobody_wrote_still_comes_with_how_she_feels(brain):
     brain.provider.replies += ['{"expression": "arms_down/smile"}\nOh nice, it worked.']
     result = turn(brain, "milk", None, items=[{"type": "event", "name": "job.finished", "text": "The upload ended."}])
     wait_for(lambda: brain.store.run(result["run"])["status"] == "completed" and result["run"] not in mind._working)
-    assert mind.body["endorphin"] > 0.11  # what she showed comes back into her body on a turn of her own too
+    assert mind.body["endorphin"] <= 0.1  # the face she shows moves nothing inside her, on a turn of her own too
 
 
 def test_what_she_puts_off_she_keeps_in_mind(brain):
@@ -832,3 +834,48 @@ def test_after_a_talk_her_mind_goes_on_from_what_was_said_not_from_her_old_thoug
     assert "now let me play my rhythm game" in asked() and "He's still eating." not in asked()
     mind._think("wonder", None)  # nothing said since: her stream goes on from her last thought
     assert 'Your last thought, just now: "I wonder how the user is doing."' in asked()
+
+
+def test_her_note_tells_when_each_of_them_last_wrote_and_when_she_thought_what(brain):
+    # turn 671: back after 3 hours 8 minutes, she said "two hours and change", counting from her own message at
+    # 18:05; her note said nothing of when anyone wrote, and her thoughts came without their times (finding 7)
+    mind = mind_on(brain)
+    brain.provider.replies += ["See you."]
+    turn(brain, "cli", "going to the shop, back in an hour")
+    wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
+    now = time.time()
+    with mind._lock:
+        for people in mind.self["contacts"].values():
+            for person in people.values():
+                person["at"] = now - (3 * 3600 + 8 * 60)
+        mind.self["contact"]["at"] = now - (3 * 3600 + 8 * 60)
+        mind.self["said"] = {**mind.self["said"], "at": now - (2 * 3600 + 5 * 60)}
+        mind.self["thoughts"] = [
+            {"at": now - 1800, "kind": "wonder", "thought": "Still quiet.", "want": "nothing"},
+            {"at": now - 2 * 3600, "kind": "wonder", "thought": "The shop is far.", "want": "nothing"}]
+        mind.body.last_sleep = {"from": now - 22 * 60, "to": now - 1, "awakenings": 0}
+    mind.presence.report(idle=4, locked=False, busy=False, now=now)
+    brain.provider.replies += ["Welcome back."]
+    turn(brain, "cli", "hey, I'm back")
+    note = brain.provider.last_user_text().split("[Inside you:")[1]
+    clock = lambda ago: time.strftime("%H:%M", time.localtime(now - ago))
+    assert f"they last wrote here 3 hours 8 minutes ago, at {clock(3 * 3600 + 8 * 60)}" in note
+    assert f"you last wrote 2 hours 5 minutes ago, at {clock(2 * 3600 + 5 * 60)}" in note
+    assert f"you slept from {clock(22 * 60)} to {clock(1)}" in note
+    assert "the computer was last touched a moment ago" in note
+    # what she thought, each with when, the older first
+    assert (f'Since you last talked you were thinking, at {clock(2 * 3600)}: "The shop is far." '
+            f'At {clock(1800)}: "Still quiet."') in note
+
+
+def test_a_thought_keeps_whom_it_grew_from(brain):
+    # thoughts 141-163 called the user "she", then "he", with nothing linking them to who had spoken (finding 7)
+    mind = mind_on(brain)
+    brain.provider.replies += ["Sure."]
+    turn(brain, "milk", "the assignment is a mock interpreting call", context={"user": "Alex"})
+    wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
+    brain.provider.mind_replies["think"] = [json.dumps({
+        "thought": "A mock call, so there is nothing for me to write.", "feeling": "calm", "want": "nothing"})]
+    mind._think("wonder", None)
+    thought = mind.memory.recent(1, kinds=("thought",))[0]
+    assert thought["actor"] == "alex"

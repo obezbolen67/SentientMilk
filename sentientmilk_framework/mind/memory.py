@@ -80,7 +80,7 @@ class Memory:
             for name, sql_type in (("run_id", "INTEGER"), ("event_id", "INTEGER"), ("actor", "TEXT"),
                                    ("device", "TEXT"), ("superseded_by", "INTEGER"), ("encoding_valence", "REAL"),
                                    ("origin_ids", "TEXT"), ("attention", "TEXT"), ("felt", "TEXT"),
-                                   ("grew_from", "TEXT")):
+                                   ("grew_from", "TEXT"), ("first_text", "TEXT")):
                 if name not in columns:
                     self._db.execute(f"ALTER TABLE episodes ADD COLUMN {name} {sql_type}")
             self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS episode_run ON episodes(run_id) WHERE run_id IS NOT NULL")
@@ -92,6 +92,16 @@ class Memory:
                 CREATE TRIGGER IF NOT EXISTS episode_number AFTER INSERT ON episodes BEGIN
                     UPDATE episode_sequence SET last_id = MAX(last_id, NEW.id) WHERE id = 1;
                 END;
+            """)
+            # her body's record (0.43): every push and her levels at each message, thought and sleep, kept for
+            # good, for audits and for replaying her days through a changed model (she is never shown it)
+            self._db.executescript("""
+                CREATE TABLE IF NOT EXISTS body_pushes (at REAL NOT NULL, why TEXT NOT NULL, moved TEXT NOT NULL,
+                                                        chat TEXT);
+                CREATE INDEX IF NOT EXISTS body_push_at ON body_pushes(at);
+                CREATE TABLE IF NOT EXISTS body_levels (at REAL NOT NULL, moment TEXT NOT NULL, levels TEXT NOT NULL,
+                                                        chat TEXT);
+                CREATE INDEX IF NOT EXISTS body_level_at ON body_levels(at);
             """)
             cued = self._db.execute("SELECT 1 FROM sqlite_master WHERE name = 'episode_cues'").fetchone()
             self._db.executescript("""
@@ -215,7 +225,9 @@ class Memory:
                 else math.log(totals[kinds[c]] / counts[c]) / math.log(totals[kinds[c]]) for c in cues}
 
     def _around(self, episodes: List[dict], now: float) -> List[dict]:
-        """These moments with what was distinctive around them (``around``), while each is vivid enough to keep it."""
+        """These moments with what was distinctive around them (``around``), while each is vivid enough to keep it,
+        and what came of each (``later``, came_of)."""
+        self.came_of(episodes)
         vivid = [e for e in episodes if self.strength_now(e, now) >= VIVID]
         kept = self.cues(e["id"] for e in vivid)
         strength = self.cue_strength(c for found in kept.values() for c in found)
@@ -224,6 +236,56 @@ class Memory:
                                         if c.startswith(RECURS) or strength.get(c, 0.0) >= CUED),
                                        key=lambda c: (not c.startswith(RECURS), c))
         return episodes
+
+    def came_of(self, episodes: List[dict]) -> None:
+        """What came of each of these moments (``later``): the nearest thing said or done after it about the same
+        matter (Vectors.matter, by the vectors already kept: no call to the service). A memory comes back with
+        how it turned out, as one recalls an errand with whether it got done: until 0.43 her guess that the user
+        buys 2% milk came back twice and their "it's 3.2%" never, and a thought of hers had an essay skeleton
+        still in its folder hours after she had deleted it as asked (the audit, finding 3). Her own later
+        thoughts are not what came of it, nor a dream."""
+        embedder = self.embedder
+        if embedder is None:
+            return
+        try:
+            floor = self.vectors.matter(embedder.name)
+        except Exception:  # cannot tell now: it comes back as it is
+            return
+        for episode in episodes:
+            if episode.get("kind") == "dream" or "later" in episode:
+                continue
+            vector = self.vectors.vector(episode["id"], embedder.name)
+            if vector is None:
+                continue
+            with self._lock:
+                after = {row[0] for row in self._db.execute(
+                    "SELECT id FROM episodes WHERE at > ? AND id != ? AND kind IN ('exchange', 'event') "
+                    "AND superseded_by IS NULL", (episode["at"], episode["id"]))}
+            nearest = self.vectors.nearest(vector, embedder.name, 1, after) if after else []
+            if nearest and nearest[0][1] >= floor:
+                episode["later"] = (self.by_ids([nearest[0][0]]) or [None])[0]
+
+    def earlier(self, episode: dict, count: int = 3) -> List[dict]:
+        """What she had in mind before this moment about the same matter (Vectors.matter, by the vectors kept):
+        the nearest earlier moments, thoughts and insights not yet set right, best first; for her sleep to go over
+        against it (Mind._overtaken)."""
+        embedder = self.embedder
+        if embedder is None:
+            return []
+        vector = self.vectors.vector(episode["id"], embedder.name)
+        if vector is None:
+            return []
+        try:
+            floor = self.vectors.matter(embedder.name)
+        except Exception:
+            return []
+        with self._lock:
+            before = {row[0] for row in self._db.execute(
+                "SELECT id FROM episodes WHERE at < ? AND id != ? AND superseded_by IS NULL "
+                "AND kind IN ('exchange', 'event', 'thought', 'insight')", (episode["at"], episode["id"]))}
+        found = [row for row, cosine in (self.vectors.nearest(vector, embedder.name, count, before) if before else [])
+                 if cosine >= floor]
+        return sorted(self.by_ids(found), key=lambda row: found.index(row["id"]))
 
     @staticmethod
     def strength_now(episode: dict, now: float) -> float:
@@ -277,7 +339,10 @@ class Memory:
                             continue
                         key = current["id"]
                         if key not in found or found[key]["relevance"] < alike[row["id"]]:
-                            found[key] = {**current, "relevance": alike[row["id"]]}
+                            # set right: it comes back as it is now, with what it was (a question about
+                            # the past finds what she used to think; a question about now, what is so)
+                            found[key] = {**current, "relevance": alike[row["id"]],
+                                          **({"was": row["text"]} if row["superseded_by"] else {})}
             strength_of = self.cue_strength(c for c in cues if not _cue(c).startswith(RECURS))
             shared: Dict[int, Dict[str, float]] = {}
             if strength_of:
@@ -482,7 +547,43 @@ class Memory:
             row = self._db.execute("SELECT text FROM episodes WHERE id = ?", (episode_id,)).fetchone()
             if row is None or row["text"] == text:
                 return
-            self._db.execute("UPDATE episodes SET text = ? WHERE id = ?", (text, episode_id))
+            # what it first said stays (0.43): of the 75 episodes in the backup of 2026-11-17, 22 kept their
+            # words, and nothing told what the others had said (the audit, finding 11)
+            self._db.execute("UPDATE episodes SET first_text = COALESCE(first_text, text), text = ? WHERE id = ?",
+                             (text, episode_id))
+
+    # ============== Her body's record ==============
+
+    def log_push(self, at: float, why: str, moved: Dict[str, float], chat: Optional[str] = None) -> None:
+        """A push to her body as it happened (Body.on_push): when, why, how far each level moved, of what chat."""
+        moved = {name: round(change, 6) for name, change in moved.items() if change}
+        with self._lock:
+            self._db.execute("INSERT INTO body_pushes(at, why, moved, chat) VALUES (?, ?, ?, ?)",
+                             (at, why, json.dumps(moved), chat))
+
+    def log_levels(self, at: float, moment: str, levels: Dict[str, float], chat: Optional[str] = None) -> None:
+        """Her levels as they were at a moment ("message", "turn ended", "thought", "fell asleep", "woke")."""
+        with self._lock:
+            self._db.execute("INSERT INTO body_levels(at, moment, levels, chat) VALUES (?, ?, ?, ?)",
+                             (at, moment, json.dumps({k: round(v, 6) for k, v in levels.items()}), chat))
+
+    def body_record(self, since: float = 0.0, until: Optional[float] = None) -> Dict[str, List[dict]]:
+        """Her body's record between two times, oldest first: {"pushes": [{at, why, moved, chat}], "levels":
+        [{at, moment, levels, chat}]}."""
+        until = math.inf if until is None else until
+        with self._lock:
+            pushes = self._db.execute("SELECT * FROM body_pushes WHERE at >= ? AND at <= ? ORDER BY at, rowid",
+                                      (since, until)).fetchall()
+            levels = self._db.execute("SELECT * FROM body_levels WHERE at >= ? AND at <= ? ORDER BY at, rowid",
+                                      (since, until)).fetchall()
+        return {"pushes": [{**dict(row), "moved": json.loads(row["moved"])} for row in pushes],
+                "levels": [{**dict(row), "levels": json.loads(row["levels"])} for row in levels]}
+
+    def forget_pushes(self, chat: str, since: Optional[float] = None) -> None:
+        """A chat deleted (or taken back to a message): its pushes, which quote it, go from her body's record."""
+        with self._lock:
+            self._db.execute("DELETE FROM body_pushes WHERE chat = ? AND at >= ?",
+                             (chat, -math.inf if since is None else since))
 
     def recent(self, count: int = 10, kinds: Iterable[str] = ()) -> List[dict]:
         kinds = list(kinds)
@@ -639,13 +740,20 @@ class Memory:
                 "links": [[a, b, kind, weight] for (a, b, kind), weight in links.items()]}
 
 
-def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:
+def ago(at: float, now: float) -> str:
+    """How long ago, as she would say it: "just now", "3 hours ago", "2 days ago"."""
+    since = max(0.0, now - at)
+    return ("just now" if since < 120 else f"{int(since // 60)} minutes ago" if since < 3600 else
+            "an hour ago" if since < 7200 else f"{int(since // 3600)} hours ago" if since < 86400 else
+            "a day ago" if since < 2 * 86400 else f"{int(since // 86400)} days ago")
+
+
+def line(episode: dict, now: float, *, waking_evidence: bool = False, width: Optional[int] = None) -> str:
     """An episode as it comes back to her: how long ago, what was distinctive around it while it is vivid
-    (``around``, from recall), what brought it back if what is around her now did (``through``), and what."""
-    ago = max(0.0, now - episode["at"])
-    when = ("just now" if ago < 120 else f"{int(ago // 60)} minutes ago" if ago < 3600 else
-            "an hour ago" if ago < 7200 else f"{int(ago // 3600)} hours ago" if ago < 86400 else
-            "a day ago" if ago < 2 * 86400 else f"{int(ago // 86400)} days ago")
+    (``around``, from recall), what brought it back if what is around her now did (``through``), and what; set
+    right, what it was (``was``); and what came of it (``later``, Memory.came_of). ``width``: of it at most
+    that, and of what came of it half as much again, so how it turned out is never cut off."""
+    when = ago(episode["at"], now)
     if episode.get("around"):
         when += "; " + ", ".join(episode["around"])
     if waking_evidence and episode.get("kind") == "dream":
@@ -664,7 +772,11 @@ def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:
         "outcome": "Remembered outcome. Check its original evidence before relying on a more specific claim.",
     }.get(episode.get("kind"))
     brought = f"What brings it back: {episode['through']}. " if episode.get("through") else ""
-    return f"({when}) " + brought + (f"{source} " if source else "") + episode["text"]
+    was = f" Before it was set right: {episode['was']}" if episode.get("was") else ""
+    later = episode.get("later")
+    came = f" What came of it ({ago(later['at'], now)}): {later['text']}" if later else ""
+    told = f"({when}) " + brought + (f"{source} " if source else "") + episode["text"] + was
+    return told[:width] + came[:width // 2 if width else None]
 
 
 def cue(key: str, value) -> str:

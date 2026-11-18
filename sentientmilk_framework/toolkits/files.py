@@ -220,15 +220,20 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
     if rg:
         command = [rg, "--line-number", "--no-heading", "--color", "never", "--max-columns", "300"]
         command += (["-i"] if ignore_case else []) + (["--glob", glob] if glob else []) + ["-e", pattern, str(base)]
-        output = _until_stopped(ctx, command).splitlines()
         home = os.path.normcase(str(Path(ctx.brain.home).resolve()))  # ripgrep skips hidden folders, not others
-        output = [line for line in output if not os.path.normcase(line).startswith(home)]
-        matches = [_relative(ctx, line) for line in output]
+
+        def found(output: str) -> List[str]:
+            return [_relative(ctx, line) for line in output.splitlines() if not os.path.normcase(line).startswith(home)]
+        try:
+            matches = found(_until_stopped(ctx, command))
+        except _Stopped as stopped:
+            raise ToolError(_how_far(base, pattern, None, found(stopped.output)))
     else:
         files = [base] if base.is_file() else _walk(ctx, base)
+        searched = 0
         for file in files:
             if ctx.attention.stopped.is_set():
-                raise ToolError(STOPPED_BY_USER)
+                raise ToolError(_how_far(base, pattern, searched, matches))
             if glob and not file.match(glob):
                 continue
             try:
@@ -238,6 +243,7 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
                 text = _read_text(file)
             except OSError:
                 continue
+            searched += 1
             for number, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
                     matches.append(f"{_relative(ctx, str(file))}:{number}: {line.strip()[:300]}")
@@ -246,8 +252,25 @@ def files_search(ctx: ToolContext, pattern: str, path: str = ".", glob: str = ""
     return cap(ctx, "\n".join(matches), "search")
 
 
+class _Stopped(Exception):
+    """The user stopped a search; ``output``: what it had printed by then."""
+
+    def __init__(self, output: str):
+        super().__init__(STOPPED_BY_USER)
+        self.output = output
+
+
+def _how_far(base: Path, pattern: str, searched: Optional[int], matches: List[str]) -> str:
+    """A stopped search, as far as it got: where it searched, how many files (when known) and what it had found.
+    Until 0.43 it said only that it was stopped, and she told the user she had read every Python file on the disk
+    when the receipt could not say (the audit, finding 12)."""
+    files_part = f" after searching {searched} file{'s' * (searched != 1)}" if searched is not None else ""
+    found = f"{len(matches)} match{'es' * (len(matches) != 1)} so far" + (":\n" + "\n".join(matches) if matches else "")
+    return f"{STOPPED_BY_USER} The search for {pattern!r} in {base} was stopped{files_part}, with {found}."
+
+
 def _until_stopped(ctx: ToolContext, command: list) -> str:
-    """A search's output, however long it takes; the user's stop ends it."""
+    """A search's output, however long it takes; the user's stop ends it (``_Stopped``, with what it had found)."""
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                                encoding="utf-8", errors="replace")
     while True:
@@ -256,8 +279,7 @@ def _until_stopped(ctx: ToolContext, command: list) -> str:
         except subprocess.TimeoutExpired:
             if ctx.attention.stopped.is_set():
                 process.kill()
-                process.communicate()
-                raise ToolError(STOPPED_BY_USER)
+                raise _Stopped(process.communicate()[0] or "")
 
 
 def _relative(ctx: ToolContext, text: str) -> str:

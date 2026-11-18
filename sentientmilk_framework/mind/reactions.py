@@ -38,7 +38,7 @@ SAME_CUE = 0.9  # a likeness from which a cue is a kept one, not a new one
 KEEPS = 0.7  # of a cue's associability kept at each outcome (the rest is how much that outcome surprised)
 OPENS, CLOSES = 600.0, 6 * 3600.0  # s after a reaction is called up when a mismatch changes it (reconsolidation)
 RECOVERS = 2 * 86400.0  # s for a getting-over to wear off (times how many times it was learned)
-TEXT_CHARS = 200
+TEXT_CHARS = 400  # a deed and what it was for (0.43: 200 held the deed alone)
 TABLE = """
 CREATE TABLE IF NOT EXISTS reactions (
     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL,

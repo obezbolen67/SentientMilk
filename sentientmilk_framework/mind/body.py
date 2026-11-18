@@ -204,6 +204,10 @@ class Body:
 
     def __post_init__(self):
         self._rng = random.Random(self.temperament.seed * 7919 + int(self.at))
+        # her body's record (0.43): each push as it happens, kept by whoever keeps it (her mind: Memory.log_push),
+        # with the chat it was of (``where``, set by her mind while it reads or lives a chat's turn)
+        self.on_push: Optional[Callable[[float, str, Dict[str, float], Optional[str]], None]] = None
+        self.where: Optional[str] = None
 
     # ============== Reading ==============
 
@@ -486,6 +490,8 @@ class Body:
             self.levels[name] = _clip(before + amount, low, high)
             moved[name] = self.levels[name] - before
         self._log(why, moved)
+        if self.on_push and any(moved.values()):
+            self.on_push(self.at, why, moved, self.where)
         return moved
 
     def pace(self, name: str) -> float:

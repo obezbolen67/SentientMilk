@@ -186,3 +186,35 @@ def test_of_two_alike_faint_memories_the_one_the_other_holds_goes(tmp_path):
     embedded(mind, Meaning())
     assert mind.forget_faint(NOW) == 1
     assert sorted(e["text"] for e in mind.recent(5)) == ["the tax deadline in April", "we said hi and hello"]
+
+
+OTHER = ["We talked about taxes and the deadline in April", "The user showed me a platformer level they built",
+         "Their cat knocked a glass off the desk", "They asked how to keep basil alive on a windowsill",
+         "We planned a walk to the river on Sunday", "They said the new keyboard clicks too loudly",
+         "I read about how bread rises overnight", "They were annoyed that the train was late again",
+         "We argued about which film to watch tonight", "They fixed the wobbly chair with a folded card"]
+
+
+def test_an_old_memory_comes_back_with_what_came_of_it_and_a_set_right_one_with_what_it_was(tmp_path):
+    # the audit (finding 3): her guess that the user buys 2% milk came back twice and the user's "it's 3.2%" never;
+    # at 20:46 a thought of hers had the essay skeleton still in the folder two hours after she deleted it as asked
+    mind = memory(tmp_path)
+    for index, text in enumerate(OTHER):
+        mind.add("exchange", text, 0.0, 0.3, 0.3, at=NOW - 5 * DAY + index)
+    guess = mind.add("exchange", "They asked when the interpreter job starts. I said: in May, I think",
+                     0.2, 0.4, 0.5, at=NOW - DAY)
+    mind.add("thought", "The interpreter job in May, I am sure of it", 0.0, 0.3, 0.3, at=NOW - DAY + 60)
+    fixed = mind.add("exchange", "They said: the interpreter job starts in June, not May", 0.3, 0.4, 0.5,
+                     at=NOW - DAY + 120)
+    embedded(mind, mind.embedder)
+    came = {e["id"]: e for e in mind.recall("when does their interpreter job start", 0.0, NOW, count=4,
+                                            strengthen=False)}
+    assert came[guess]["later"]["id"] == fixed  # what came of it: what was said after, not her own later thought
+    assert not came[fixed].get("later")
+    told = line(came[guess], NOW)
+    assert "What came of it (" in told and "June" in told.split("What came of it")[1]
+    mind.supersede(guess, fixed)  # set right (by a correction, or in her sleep): the guess is what it was
+    back = mind.recall("when does their interpreter job start", 0.0, NOW, count=4, strengthen=False)
+    assert guess not in [e["id"] for e in back]
+    now_kept = next(e for e in back if e["id"] == fixed)
+    assert "in May, I think" in now_kept["was"] and "Before it was set right: " in line(now_kept, NOW)

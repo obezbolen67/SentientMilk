@@ -7,7 +7,7 @@ import requests
 from conftest import wait_for
 
 from sentientmilk_framework import BrainError, permissions, toolkits
-from sentientmilk_framework.toolkits import RESULT_CAP, ToolContext, ToolError, cap, files, shell, todo, web
+from sentientmilk_framework.toolkits import RESULT_CAP, STOPPED_BY_USER, ToolContext, ToolError, cap, files, shell, todo, web
 from sentientmilk_framework.toolkits import memory as memory_kit
 
 
@@ -295,3 +295,44 @@ def test_sentientmilks_own_folder_is_closed_to_the_file_tools(brain, tmp_path, m
     assert "config.json" not in files.files_find.func(ctx, "**/*.json", ".")
     saved = ctx.save_output("a long output", "out")
     assert "a long output" in files.files_read.func(ctx, str(saved))  # its saved outputs stay readable
+
+
+@pytest.mark.parametrize("ripgrep", [False, True])
+def test_a_stopped_search_says_how_far_it_got(brain, ctx, monkeypatch, ripgrep):
+    # the audit (finding 12): a search of the user's whole home folder was stopped, its receipt said only that it
+    # was, and she told the user she had read every Python file on the disk
+    for index in range(3):
+        (brain.work / f"note{index}.txt").write_text("needle here\n", encoding="utf-8")
+    if not ripgrep:
+        monkeypatch.setattr(files.shutil, "which", lambda name: None)
+        seen = []
+        real = files._read_text
+
+        def reading(file):  # the user stops it as the second file is read
+            seen.append(file)
+            if len(seen) == 2:
+                ctx.attention.stop()
+            return real(file)
+        monkeypatch.setattr(files, "_read_text", reading)
+    else:  # ripgrep, as it runs: it has printed three matches and goes on searching when the user stops it
+        killed = []
+
+        class Ripgrep:
+            def __init__(self, command, **kwargs):
+                self.args = command
+
+            def communicate(self, timeout=None):
+                if not killed:
+                    ctx.attention.stop()
+                    raise files.subprocess.TimeoutExpired(self.args, timeout)
+                return "".join(f"{brain.work / f'note{n}.txt'}:1:needle here\n" for n in range(3)), ""
+
+            def kill(self):
+                killed.append(True)
+        monkeypatch.setattr(files.shutil, "which", lambda name: "rg")
+        monkeypatch.setattr(files.subprocess, "Popen", Ripgrep)
+    with pytest.raises(ToolError) as stopped:
+        files.files_search.func(ctx, "needle")
+    told = str(stopped.value)
+    assert told.startswith(STOPPED_BY_USER) and str(brain.work) in told and "needle here" in told
+    assert ("2 files" in told) if not ripgrep else ("3 matches" in told)

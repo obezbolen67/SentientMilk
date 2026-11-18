@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from . import embeddings, mentions
-from .mind.memory import intensity, line
+from .mind.memory import ago, intensity
 from .vectors import Vectors
 
 logger = logging.getLogger(__name__)
@@ -244,9 +244,34 @@ class Recall:
             found.append({**row, "relevance": round(relevance, 3)})
             if len(found) >= count:
                 break
+        self._came_of(found, embedder)
         if strengthen:
             self.attended(found)
         return found
+
+    def _came_of(self, hits: List[dict], embedder: embeddings.Embedder) -> None:
+        """What came of each (``later``): the nearest round or note after it, of another round, about the same
+        matter (Vectors.matter, by the vectors already kept). Until 0.43 her note brought back "my watcher's still
+        dead, want me to kick it back on?" a day after the user had said not to touch it and to forget it (the
+        audit, 2026-11-18); that was in her memory too, and never came with it."""
+        try:
+            floor = self.vectors.matter(embedder.name)
+        except Exception:  # cannot tell now: each comes back as it is
+            return
+        for hit in hits:
+            vector = self.vectors.vector(hit["id"], embedder.name)
+            if vector is None:
+                continue
+            with self._lock:
+                after = {row["id"] for row in self._db.execute(
+                    "SELECT id, ref FROM units WHERE at > ? AND source IN ('turn', 'note')", (hit["at"],))
+                    if _base(row["ref"]) != _base(hit["ref"])}
+            nearest = self.vectors.nearest(vector, embedder.name, 1, after) if after else []
+            if nearest and nearest[0][1] >= floor:
+                with self._lock:
+                    row = self._db.execute("SELECT * FROM units WHERE id = ?", (nearest[0][0],)).fetchone()
+                if row is not None:
+                    hit["later"] = dict(row)
 
     def attended(self, hits):
         with self._lock:
@@ -270,18 +295,20 @@ class Recall:
 
     def render(self, app, hits):
         now, lines, titles = time.time(), [], {}
-        for hit in hits:
-            when = line({"at": hit["at"], "text": ""}, now).strip()[1:-1]
-            if hit["source"] == "fact":
-                lines.append(f"- {when}, something you kept: {hit['text'][:SHOWN_CHARS]}")
-                continue
-            chat = (hit["app"], hit["session"])
+
+        def told(unit):
+            when = ago(unit["at"], now)
+            if unit["source"] == "fact":
+                return f"{when}, something you kept: {unit['text'][:SHOWN_CHARS]}"
+            chat = (unit["app"], unit["session"])
             if chat not in titles:
                 found = self.brain.store.find_session(*chat) or {}
-                titles[chat] = (found.get("settings") or {}).get("title") or hit["session"]
-            where = f'"{titles[chat]}"' + ("" if hit["app"] == app else f" ({hit['app']})")
-            lines.append(f"- {when}, {'your note about' if hit['source'] == 'note' else 'in'} {where}: "
-                         f"{hit['text'][:SHOWN_CHARS]}")
+                titles[chat] = (found.get("settings") or {}).get("title") or unit["session"]
+            where = f'"{titles[chat]}"' + ("" if unit["app"] == app else f" ({unit['app']})")
+            return (f"{when}, {'your note about' if unit['source'] == 'note' else 'in'} {where}: "
+                    f"{unit['text'][:SHOWN_CHARS]}")
+        for hit in hits:
+            lines.append(f"- {told(hit)}" + (f"\n  what came of it: {told(hit['later'])}" if hit.get("later") else ""))
         return HEADER + "\n" + "\n".join(lines)
 
     # ============== Letting go ==============

@@ -265,3 +265,20 @@ def test_a_round_that_moved_her_outlasts_one_alike_that_did_not(brain):
     recall.sweep()
     assert recall.forget(now, sleep_review=True) == 1
     assert {r[0] for r in recall._db.execute("SELECT ref FROM units WHERE source = 'turn'")} == {"1#0"}
+
+
+def test_a_round_comes_back_with_what_came_of_it_in_a_later_chat(brain):
+    # the audit ("What recurred"): her note brought back "my watcher's still dead, want me to kick it back on?"
+    # a day after the user had said "don't touch it, forget that thing"; what came of it was in her memory too
+    recall = filled(brain)
+    use(brain, Meaning())
+    now = time.time()
+    recall.add("turn", "w1", "milk", "night", now - 2 * 86400, "you: the game level watcher stopped")
+    recall.add("turn", "w2", "milk", "later", now - 2 * 86400 + 600, "they: forget the game level watcher")
+    recall.sweep()
+    hits = recall.search("game level watcher", count=8)
+    first = next(hit for hit in hits if hit["ref"].startswith("w1"))
+    assert first["later"]["ref"].startswith("w2") and not next(
+        hit for hit in hits if hit["ref"].startswith("w2")).get("later")
+    shown = recall.render("milk", [first])
+    assert "what came of it" in shown and "forget the game level watcher" in shown.split("what came of it")[1]

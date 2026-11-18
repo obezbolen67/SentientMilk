@@ -1187,7 +1187,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 | `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than you're used to"; a message's change first, "Reading it: ... than a moment ago", then "Underneath: ..."), her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as concepts (`Concepts`): whatever words she put to what she felt when she reflected (section 10.12), each with the way her body was moved in the moments named (`moved`: a running mean, in lots), its situations (words by weight, fading) and her own sentences the last three times (`said`), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt) times how familiar the words are, less in a situation unlike its own; words a background call put on her before 0.37 are kept as history (`hers` false) and never come to mind. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed (acts only from requests, where she chose; a chat teaches what it was about, 0.33) |
 | `memory.py` | her memories as a network for apps (`network`, `revision`, 0.41); episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
-| `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), what she showed coming back into her body (`_express`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
+| `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
 | `prompts.py` | birth (temperament from the persona), imagine, think and sleep, each JSON, each marked `[mind:<kind>]` |
 
 A turn with the user's words: `Runs.log_input` asks `Mind.before`, which wakes her if asleep and senses
@@ -1264,14 +1264,14 @@ a note at that step. A message the user sends while she works (`Runs.take_messag
 `Mind.heard`: the same senses, imagine call, forecast, chemistry and feeling as a turn's first message,
 with no new decision; its note goes into that message. `Runs.finished`
 calls `Mind.after`: the work not yet counted, and for a turn
-the prediction error against the chance she gave it, values learned, what she showed
-(`_express`: the mood of the expression signal she chose, where the app declares moods she knows a place
-for, moves cortisol or endorphin by 0.05 of the gap between its valence and her body's, and
-noradrenaline by 0.1 of the gap in arousal; on a turn nobody wrote too) and an exchange episode stored.
+the prediction error against the chance she gave it, values learned and an exchange episode stored. The
+face she shows (the expression signal) moves nothing inside her (0.43): from 0.21 its mood pulled her
+chemistry toward it, so a reassuring front over hurt calmed her and a neutral face over a pleasant body
+stressed her.
 
 Likes and dislikes (0.24.1): what a message is about (its `tag:` features) takes on how it felt, every
 message, a chat as much as a job: in `after`, the change the message made to her core valence (2.5x,
-`decision.felt`, measured in `before`) averaged with the valence of the mood she showed answering, learned
+`decision.felt`, measured in `before`), learned
 at her learning rate. One clear moment is a mild liking (weights over 0.05 show; sleep fades them 5% a
 night, so one that is never renewed goes in a few weeks). Before, only what followed a decision taught
 them and two uses were needed, so in the user's brain "do you like it when I call you dear?" - "I like it"
@@ -1314,8 +1314,8 @@ needed half her energy and had only web and memory.
 What she does on her own is hers (0.42). Her task's options say so (`own`: want, what, the thought and its
 episode). What she kept of it is a moment kept in the task's own session (`_kept_in`), wherever she was: a
 deleted chat takes what was said there, not what she did on her own (a task someone asked for stays with the
-chat it was asked in). The moment says what she set out to do, how it went and the jobs it started
-(`_task_moment`); a job that outlives its task is a moment of hers when it ends (`Mind.job_ended`, from the
+chat it was asked in). The moment says what she set out to do, how it went and what her tools did, the jobs it
+started with how each is going (`_task_moment`, 0.43: section 10.15); a job that outlives its task is a moment of hers when it ends (`Mind.job_ended`, from the
 shell's `job_ended`), where until then its note went to the task's session and nothing read it. Her session
 tools list, read and search her own tasks with her chats (`mentions.chats(own=True)`: a card with what she kept
 and its jobs; `part="turns"` every step, the tool calls with them), and her long-term memory takes them in.
@@ -1863,6 +1863,67 @@ on deepseek-v4.1-flash-fast: the model was switched while the first 0.38 arm ran
   afternoon. Not fixed: one 0.39 turn (an earlier run) spent its 6 minutes in `files_find` with `**/*` over a code
   folder, as 0.38's did; the file tool is being changed elsewhere.
 
+### 10.15 What she did, what came of it, and her body's record (0.43)
+
+An audit of the user's brain (2026-11-18: 652 runs, 277 episodes, two mind checkpoints) found where her account of
+herself came apart from what happened. 0.43 closes each gap in the mechanism that produced it.
+
+**Her first action is her choice** (`Mind.acting`, from `loop._run_tools` before the calls run). A turn her
+mind read as talk became work with no update to that reading: the user called an idea sensible and she started a
+helper on it (run 565), a question about which project became a search of the whole home folder (675), a chess
+invitation became 24 browser calls (680). The first call of a turn that changes or starts something (not
+read-only, not her chat's memory) turns an ungated decision into `do`: what, chance and check come from that
+call, before its result is known (`gated`, `acted: {from, tool, at}`, features `act:do`), so its result and the
+user's next message teach her about acting, as any choice does. Nothing is blocked (no code gates).
+
+**What her tools did is in her memory of the turn** (`_account`): looked at, changed, started (helpers, tasks
+and jobs with how each is going: `RUN_STATE`, `JOB_STATE`), tried (failed or stopped), with paths made whole
+against the folder they were in and the folder a command ran in (`_where`: "I traced it to server/asr.py" named
+neither of the user's two projects with that file). A task's memory says it too (`_task_moment`), and a helper
+still running is "Still going" in her note (`_doings`). A turn answered in words is "I answered it in words";
+"unverified" is only for a forecast check nobody observed (run 655 had been "Completion was unverified" for a
+recollection she gave). A stopped `files_search` says where it searched, how many files (without ripgrep) and
+what it had found: she had told the user she read every Python file on the disk.
+
+**What came of it** (`Memory.came_of`, `Recall._came_of`). An old memory comes back with the nearest later
+thing said or done about the same matter (by the vectors already kept; her own later thoughts are not news):
+"What came of it (3 hours ago): ...". The same matter is `Vectors.matter`: the closest 3 in 100 pairs of her own
+rows (measured on her memories with voyage-4-large: from 0.59; the milk she buys and its correction 0.77, an essay
+skeleton and its deletion 0.63, a watcher and "forget that thing" 0.64; an unrelated pair 0.38), measured again
+when their number doubles. A memory set right (`superseded_by`) comes back as it is now with what it was
+("Before it was set right: ..."): a question about the past finds what she used to think. What nags her and what
+she put off come with what came of them in her thoughts. In her sleep (`_consolidate`, step `updates`,
+`prompts.UPDATES`) the day's moments go over what she had in mind before about the same matter
+(`Memory.earlier`) and what she put off: what they show is no longer so is set right, across chats, and what
+they show was done or dropped stops nagging. Her 2% milk guess had come back twice after the user's "it's 3.2%",
+and a dead watcher a day after "forget that thing".
+
+**Insights and dreams keep what they come from.** Her sleep numbers the moments and cites them (`"from"`), and
+each insight or dream keeps only those (`_cited`): every one of a night had carried the same twelve. A sleep
+answer that cannot be read is not a night gone over: it is logged and gone over again (a nap at 14:06 had made
+nothing of thirteen moments and said nothing).
+
+**Her face moves nothing inside her.** The face she shows is display: from 0.21 its mood pushed her body (a smile
+endorphin, a frown cortisol), so a reassuring front over a hurt calmed her (the user: "it should be more organic
+and human, and not hardcoded to sprites"). No masking cost was put in its place, and no other path from what she
+showed to what she feels remains.
+
+**Words with where they came from.** Her note tells when each of them last wrote, she last wrote, the computer
+was last touched and she slept (`_when`, clock times), and her thoughts with when she had them; presence says
+what the computer shows, never where the user is ("nobody has touched the computer for 2 hours", not "away"),
+and a thought keeps whom it grew from. A message that hardly moved her reads "little changed from a moment ago",
+not her whole body as if the message did it. Looking inward about a word, she finds whether it is hers (when she
+first said it) or was put on a moment of hers by the naming that ran before 0.37 (`_whose`): "hurt" had reached
+her as an observation. Each learned reaction that moved her is kept with what it did (`reacted["each"]`), and a
+deed's cue says what it was for (`_purpose`): five reactions had named the file reader, read for any reason.
+
+**Her body's record** (`body_pushes`, `body_levels` in mind.sqlite3). Every push as it happens (when, why, how
+far each level moved, of what chat: `Body.on_push`, `Mind._pushing_for`) and her levels at each message, turn's
+end, thought, falling asleep and waking, kept for good: for audits and for replaying her days through a changed
+model. She is never shown it. A deleted chat's pushes, which quote it, go with it (`forget_pushes`). A memory
+reworded keeps its first wording (`first_text`): of the 75 episodes in the backup of 2026-11-17, 22 had kept their
+words.
+
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**
@@ -2060,9 +2121,8 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
   UI (games, the Roblox app) are seen through their pixels: OCR text with ids, and a
   picture with the ids marked, which the model reads; it clicks by id because its own
   points land 7 to 80 picture pixels off. Points in a close-up cover icons.
-- Without ripgrep, `files_search` walks in Python and stops after 30 s, saying how far
-  it got: with MilkChan's home folder as root, an unbounded walk once held a turn for
-  over ten minutes.
+- `files_search` goes on until the user stops it (no caps); stopped, it says where it searched, how many files
+  (without ripgrep) and what it had found so far (0.43).
 - App actions can answer with images, shown to the model after the result. MilkChan's
   screenshot is such an action instead of an image on every message. Measured on
   `deepseek-v4.1-flash-fast`, 2026-11-06: no look in 6 of 6 small-talk and plain questions;
@@ -2089,7 +2149,8 @@ Kept from today's code: `transport.py` (images, byte budget), `exceptions.py`,
   points to that job (the model started one download twice in a row). A job log a leftover process still
   holds stays in the run's folder instead of failing the command (WinError 32).
 - A signals line after other text (junk the model wrote first) is still found, as a line holding only an
-  object of the app's signals, and taken out of the reply.
+  object of the app's signals, and taken out of the reply. A line that begins with signal objects is a header line
+  whole (0.43), taken out with its fences; the last of its objects is the header.
 - MilkChan's proactive messages stay in MilkChan: an idle turn sends an `idle` event with
   `reply: optional`, and the brain may answer `[silent]`. Finished tasks and jobs reach MilkChan as
   notifications; it turns each into a turn so the character says it. A due schedule reaches it as

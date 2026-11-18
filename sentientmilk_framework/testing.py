@@ -23,6 +23,7 @@ MIND_ANSWERS = {
     "imagine": '["asked for a hand", "more", "more", "same", "request", "work", ["do", "it", 0.2, 0.9, 1]]',
     "think": '{"thought": "I wonder how the user is doing.", "want": "nothing"}',
     "sleep": '{"insights": [], "dream": ""}',
+    "updates": '{"outdated": [], "settled": []}',
     "people": '{"people": []}',
     "ways": '{"kept": [], "broken": [], "new": [], "dropped": []}',
     "self": '{"self": null}',

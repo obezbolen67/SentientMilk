@@ -251,3 +251,35 @@ def test_what_set_her_off_is_named_by_what_moved_her_most(brain, mind, monkeypat
     brain.provider.replies += ["Hm."]
     turn(brain, "cli", "should I be deleting the thesis file?", context={"in front": "outlook"})
     assert mind.state()["reacted"][0]["text"] == FEARED
+
+
+@pytest.mark.mind
+def test_each_reaction_that_moved_her_is_kept_with_what_it_did(brain, mind):
+    # the audit (finding 6): the push was named by the strongest reaction only, so one learned from coming back
+    # from a shower was "the cause" of work, thought and reading alike; what each did is what tells recognition
+    # from spillover
+    taught(mind)
+    taught(mind, "the thesis file is gone", {"cortisol": 1.6, "reward": -1.2, "noradrenaline": 0.8})
+    brain.provider.replies += ["Hm."]
+    turn(brain, "cli", "should I be deleting the thesis file?")
+    shown = mind.state()["reacted"][0]
+    each = shown["each"]
+    assert len(each) == 2 and {item["text"] for item in each} == {FEARED, "the thesis file is gone"}
+    assert all(item["id"] and 0 < item["likeness"] <= 1 and item["moved"] for item in each)
+    assert each[0]["text"] == shown["text"] == FEARED  # the most moving first, and the one it is named by
+    named = {why for _, why, _ in reacting(mind)}
+    assert {f"reacting to: {FEARED}", "reacting to: the thesis file is gone"} <= named  # each its own push
+
+
+@pytest.mark.mind
+def test_what_she_did_is_kept_with_what_she_did_it_for(brain, mind, tmp_path):
+    # the same file reader is one deed for every purpose when only the tool and its target are kept (finding 6:
+    # five successive reactions named the generic file reader)
+    diary = tmp_path / "diary.txt"
+    diary.write_text("dear diary", encoding="utf-8")
+    for asked in ("can you open my diary.txt?", "check the diary for the date of the party"):
+        brain.provider.replies += [tool_call("files_read", {"path": str(diary)}), "Done."]
+        turn(brain, "cli", asked)
+        wait_for(lambda: mind.memory.recent(1, ("exchange",)) and asked in mind.memory.recent(1, ("exchange",))[0]["text"])
+        actions = next(iter(mind.self["waiting"].values()))["actions"]
+        assert any(str(diary) in action and action.endswith(f"for: {asked}") for action in actions)

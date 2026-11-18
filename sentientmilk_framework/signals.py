@@ -74,17 +74,41 @@ def split(text: str, names: Iterable[str] = ()) -> Tuple[Optional[dict], str]:
     header = _object(first.strip())
     if header is not None:
         return header, rest.strip()
-    lines = stripped.splitlines()
+    if not names:
+        return None, text.strip()
+    # A line that begins with an object of these signals is a header line, all of it: run 652 began with a
+    # pose not on the list, the model's correction to itself on that line ("wait, playful isn't on arms_down"),
+    # then the header again; the first line stayed in the reply. The last header given is the one meant.
+    lines, dropped = stripped.splitlines(), set()
     for index, line in enumerate(lines):
-        header = _object(line.strip())
-        if header and names and set(header) <= set(names):
-            before, after = lines[:index], lines[index + 1:]
-            if before and before[-1].strip().startswith("```"):  # its fence
-                before = before[:-1]
-            if after and after[0].strip() == "```":
-                after = after[1:]
-            return header, "\n".join(before + after).strip()
-    return None, text.strip()
+        objects = [one for one in _leading(line.strip()) if set(one) <= set(names)]
+        if not objects:
+            continue
+        header = objects[-1]
+        dropped.add(index)
+        if index and lines[index - 1].strip().startswith("```"):  # its fence
+            dropped.add(index - 1)
+        if index + 1 < len(lines) and lines[index + 1].strip() == "```":
+            dropped.add(index + 1)
+    if header is None:
+        return None, text.strip()
+    return header, "\n".join(line for index, line in enumerate(lines) if index not in dropped).strip()
+
+
+def _leading(text: str) -> List[dict]:
+    """The JSON objects a line begins with, one after another."""
+    objects, at, decoder = [], 0, json.JSONDecoder()
+    while text[at:at + 1] == "{":
+        try:
+            value, at = decoder.raw_decode(text, at)
+        except ValueError:
+            break
+        if not isinstance(value, dict):
+            break
+        objects.append(value)
+        while text[at:at + 1].isspace():
+            at += 1
+    return objects
 
 
 def _object(text: str) -> Optional[dict]:
