@@ -262,6 +262,8 @@ def test_her_mind_shows_in_its_tab(brain):
                                           "want": "tell", "went": "kept"}]
     brain.brain.mind.self["self_view"] = {"text": "I sulk when ignored.", "since": time.time(), "at": time.time()}
     brain.brain.mind.self["looked"] = {"at": time.time(), "about": "the clock"}
+    brain.brain.mind.self["remembered"] = [{"at": time.time(), "episode": 1, "text": "The night the song played.",
+                                            "by": "playing: clair de lune", "moved": {"cortisol": 0.2, "oxytocin": 0.1}}]
     for at in (time.time() - 60, time.time()):
         brain.brain.mind.concepts.add("restless", {"noradrenaline": 0.5}, "the clock", at, said="I'm restless tonight.")
 
@@ -277,6 +279,9 @@ def test_her_mind_shows_in_its_tab(brain):
         assert "for the clock" in str(panel.query_one("#mind-self").render())  # and when she last looked inward
         assert "restless ×2" in str(panel.query_one("#mind-self").render())  # the feelings she named herself
         assert "I'm restless tonight." in str(panel.query_one("#mind-self").render())  # in her own words
+        came = str(panel.query_one("#mind-remembered").render())  # what came back, by what, what it stirred
+        assert "The night the song played." in came and "brought back by playing: clair de lune" in came
+        assert "more strain" in came
         assert not panel.query("#mind-on")  # always on: there is no switch
     run(brain, scenario)
 

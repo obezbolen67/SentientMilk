@@ -147,17 +147,22 @@ class BrainClient:
         return self._call("GET", "/stats")
 
     def mind(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False,
-             locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
+             locked: Optional[bool] = None, busy: Optional[bool] = None,
+             around: Optional[Dict[str, str]] = None) -> dict:
         """How she is now (mind/): ``asleep``, ``felt`` (in words), ``feeling`` (a few words for it), ``face`` for
         ``app`` (``mood`` of its declared ones, ``stance``, ``eyes``, ``asleep``), ``levels``, ``feelings``, ``thoughts``, ``concerns``, ``likes``, ``dislikes``. ``idle``: seconds since the
         user last touched the computer (whether they are there, for her); asking also tells her ``app`` is there
         to hear her. ``brief``: only what a face needs, for frequent looks. ``locked``: the screen is locked;
-        ``busy``: something fullscreen has the user (None: the app cannot tell)."""
+        ``busy``: something fullscreen has the user (None: the app cannot tell). ``around``: what is around her
+        there, short texts by name ({"playing": "...", "in front": "..."}; {}: nothing it can tell), which she
+        keeps with her moments."""
         query = "&".join(part for part in (f"app={app}" if app else "",
                                           f"idle={idle:.0f}" if idle is not None else "",
                                           f"locked={int(locked)}" if locked is not None else "",
                                           f"busy={int(busy)}" if busy is not None else "",
-                                          "brief=1" if brief else "") if part)
+                                          "brief=1" if brief else "",
+                                          "around=" + quote(json.dumps(around, ensure_ascii=False))
+                                          if around is not None else "") if part)
         return self._call("GET", "/mind" + (f"?{query}" if query else ""))
 
     def forget_way(self, name: str) -> None:

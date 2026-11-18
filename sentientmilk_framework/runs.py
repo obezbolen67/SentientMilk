@@ -212,7 +212,9 @@ class Runs:
         options = {"goal": goal, "parent_session": parent_session, "verify": verify, "context_mode": context,
                    **({"quiet": True} if quiet else {}),
                    "input": [{"type": "text", "text": goal}],
-                   "profile": {"instructions": TASK_PROMPT.format(goal=goal), "toolkits": toolkits,
+                   # a task reports in words: no face to show (until 0.38 it was told the app's signals, and its
+                   # report kept the line: the Tasks panel showed {"expression": ...} as how it went)
+                   "profile": {"instructions": TASK_PROMPT.format(goal=goal), "toolkits": toolkits, "signals": False,
                                "allow": allow or [], "from_session": parent_session, "cwd": cwd}}
         if max_steps:
             options["max_steps"] = int(max_steps)

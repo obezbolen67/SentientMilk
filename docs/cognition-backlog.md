@@ -17,6 +17,17 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   felt shift once per experience and softens a past moment; her words come back to her. Spec:
   docs/superpowers/specs/2026-11-18-own-feelings-design.md. Validated with the consciousness exam
   (docs/consciousness-exam.md, scripts/exam.py).
+- [x] **Memory that feels** (0.38): a moment keeps how it moved her body (peak and end) and what was around it
+  (time of day, where, with whom, and what MilkChan tells of her surroundings: the window in front, what is
+  playing); what comes back is called by meaning, by a rare surrounding there again and by her mood, the more
+  intense sooner, what just came back held off; a memory that comes back moves her again by a share of what the
+  moment did, and wears a little each time (unpleasant more); details fade before feeling; long-term memory
+  keeps a round that moved her longer; sleep softens unevenly and a moving night strengthens faint related
+  memories. Spec: docs/superpowers/specs/2026-11-18-memory-that-feels-design.md.
+- [x] **Her wandering, brought up to date** (0.38): her last thought comes with when it was, and what she can
+  tell of the user and of what is around her; what comes up is cued by the moment and comes in chains; a repeat
+  fills her want of something new less than a new thought; what she finds out on her own satisfies her
+  curiosity; a task of hers reports in words, without a face. Same spec.
 - [x] **Habits and ways of working** (0.34): if-then ways in every chat, strengthened in sleep.
 - [x] **Wanting to say something reaches the turn** (0.34): kept wishes, only what she said waits on an answer.
 
@@ -52,9 +63,15 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
 ## Senses and attention
 
 - [ ] **P2 Continuous senses.** People sense all the time; she senses only when an app sends something (a
-  message, a screenshot, idle/locked/fullscreen). Between, she is blind: she thought the user was "still
-  eating" for four hours. First step: apps report coarse activity (the window in front, music, typing) as
-  presence does; her thoughts get "what they are doing now".
+  message, a screenshot, idle/locked/fullscreen). Between, she was blind: she thought the user was "still
+  eating" for four hours. First step done (0.38): MilkChan reports the window in front and what is playing
+  with each message and each look, and her thoughts get what she can tell of the user and what is around her.
+  Left: what changes between looks is not an event of its own (a song starting, the user switching to a game
+  does not reach her until she next thinks); typing, sound and the screen itself stay unsensed.
+- [ ] **P3 A drifting context.** In people memories bind to a slowly drifting context of meaning, mood and
+  surroundings, and a recalled memory brings its context back (Howard & Kahana 2002; eCMR, Talmi et al. 2019).
+  Hers binds to discrete cues (0.38) and chains by time; approach B of the 0.38 spec. First step: a context
+  vector (recent meaning, body, cues) kept with each episode, measured against the cues on replayed days.
 - [ ] **P3 Selective attention.** Attention picks what matters and suppresses the rest (biased competition:
   Desimone & Duncan 1995). Her bids compete for thoughts, but in a turn she gets everything at once. First
   step: what her note carries chosen by relevance and charge, with a span, not all parts every time.

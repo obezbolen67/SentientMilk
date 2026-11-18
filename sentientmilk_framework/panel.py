@@ -42,6 +42,7 @@ from textual.widgets import (
 
 from . import __version__, autostart, embeddings
 from .claudecode import EFFORT_NAMES
+from .mind.feel import CHANNELS
 from .client import BrainClient, connect, start_command
 from .config import DEFAULT_BASE_URL, DEFAULT_MODEL, SHELLS
 from .exceptions import BrainError
@@ -571,6 +572,8 @@ class Panel(App):
                     yield Static(id="mind-body")
                 with Vertical(classes="card", id="mind-thoughts-card"):
                     yield Static(id="mind-thoughts")
+            with Vertical(classes="card", id="mind-remembered-card"):
+                yield Static(id="mind-remembered")
             with Vertical(classes="card", id="mind-self-card"):
                 yield Static(id="mind-self")
             with Vertical(classes="card", id="mind-ways-card"):
@@ -669,7 +672,8 @@ class Panel(App):
                             ("tasks-card", "Background tasks and agents"), ("schedules-card", "Schedules"),
                             ("toolkits-card", "Toolkits"),
                             ("mind-card", "Now"), ("mind-body-card", "Her body"),
-                            ("mind-thoughts-card", "Her thoughts"), ("mind-self-card", "What she has come to like, and who she knows"),
+                            ("mind-thoughts-card", "Her thoughts"), ("mind-remembered-card", "What came back to her"),
+                            ("mind-self-card", "What she has come to like, and who she knows"),
                             ("runtime-card", "Runtime and permissions"), ("browser-card", "Her browser"),
                             ("mcp-card", "MCP servers"),
                             ("plugins-card", "Plugins")):
@@ -1190,6 +1194,16 @@ class Panel(App):
                     + (f", {went[item['went']]}" if item.get("went") in went else "")
                     + f"[/]\n{escape(item['thought'])}" for item in state["thoughts"]]
         self.main.query_one("#mind-thoughts", Static).update("\n\n".join(thoughts) or f"[{MUTED}]None yet.[/]")
+
+        def stirred(moved: dict) -> str:  # what feeling it again did to her, the most first
+            return ", ".join(f"{'more' if lots > 0 else 'less'} {CHANNELS[name][0]}"
+                             for name, lots in sorted(moved.items(), key=lambda item: -abs(item[1]))[:3])
+        came = [f"[{MUTED}]{when(item['at'])} · " + {"itself": "by itself", "meaning": "by its meaning"}.get(
+                    item["by"], f"brought back by {escape(item['by'])}")
+                + (f" · {stirred(item['moved'])}" if item["moved"] else "") + f"[/]\n{escape(item['text'])}"
+                for item in state.get("remembered") or []]
+        self.main.query_one("#mind-remembered", Static).update(
+            "\n\n".join(came) or f"[{MUTED}]Nothing yet. A memory that comes back brings some of how it felt.[/]")
 
         def about(names) -> str:
             return escape(", ".join(names)) or f"[{MUTED}]nothing yet[/]"

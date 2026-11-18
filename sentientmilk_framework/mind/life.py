@@ -76,8 +76,8 @@ from .. import signals
 from ..presence import Presence
 from . import inward, prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, REST, SET_POINTS, Body, Temperament, restore_random
-from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved, noticed
-from .memory import Memory, describe_salience, line
+from .feel import CHANNELS, MOOD_PLACES, Concepts, Interoception, core, face, feel, moved, noticed
+from .memory import Memory, cue, describe_salience, line, moment_cues
 from .people import People
 from .values import Values, features, subjects
 from .ways import Ways
@@ -126,6 +126,10 @@ RUMINATED = ("exchange", "event", "insight")  # what comes back as something nag
 SORE = 0.25  # a moment that took this much from how she felt hurt her (its sting): what she may brood on
 HURTS = 0.5  # how hard a hurt pulls her back to it, per unit of its sting still charged
 QUOTED = 60  # of a message, in what her log of what moved her says pushed her
+# what a moment that comes back moves again: her chemistry and a grievance, the feeling of it; not her needs,
+# her energy or her sleep pressure (remembering a talk does not keep her company, feed her or tire her)
+REFELT = (*CHEMICALS, "grievance")
+REFELT_SHARE = 0.3  # of what a moment did that it does again, fully charged, vivid and fully called up
 LOGIC = 1  # the logic her saved state follows (_bring_up_to_date sets right what an older one left)
 # shortcut: her quick reading is shown her 24 most met subjects, any other still counts when it is named again;
 # show them by likeness to the message once she knows hundreds
@@ -178,6 +182,14 @@ def _lasting(before: Dict[str, float], after: Dict[str, float]) -> float:
     grievance, her needs. Until 0.33 the burst counted too, and a goodnight after a warm evening stung more than
     being told she got it wrong (-0.49 against -0.34, simulated): she brooded on it all the next day."""
     return core({**after, "reward": before["reward"]})[0] - core(before)[0]
+
+
+def peak_end(peak: Dict[str, float], end: Optional[Dict[str, float]]) -> Dict[str, float]:
+    """How a moment is kept in her body: by its peak and its end (Fredrickson & Kahneman 1993), each channel the
+    mean of what its height did (reading the message) and what the whole moment had done by its end."""
+    if end is None:
+        return dict(peak)
+    return {name: round((peak.get(name, 0.0) + end.get(name, 0.0)) / 2, 3) for name in {*peak, *end}}
 
 
 def _ago(seconds: float) -> str:
@@ -281,14 +293,15 @@ class Mind:
         return self.presence.here(now)
 
     def seen(self, app: str, idle: Optional[float], locked: Optional[bool] = None,
-             busy: Optional[bool] = None) -> None:
+             busy: Optional[bool] = None, around: Optional[Dict[str, str]] = None) -> None:
         """An app asked how she is: it is there to hear her, and says what it sees of the user (``idle``:
-        seconds since they last touched the computer; ``locked``; ``busy``: something fullscreen has them)."""
+        seconds since they last touched the computer; ``locked``; ``busy``: something fullscreen has them) and
+        what is around her there (``around``: what is playing, the window in front)."""
         now = time.time()
         with self._lock:
             self.apps_seen[app] = now
-        if any(value is not None for value in (idle, locked, busy)):
-            self.presence.report(idle, locked, busy, now)
+        if any(value is not None for value in (idle, locked, busy, around)):
+            self.presence.report(idle, locked, busy, now, around)
 
     def _live(self) -> None:
         last_bid = last_save = time.time()
@@ -622,6 +635,7 @@ class Mind:
                     learned = self._settle(pending, {dimension: 1.0 if verdict == "positive" else -1.0})
                     pending.setdefault("resolved", []).append(dimension)
             levels = dict(self.body.levels)
+            self._refeel(came["back"], now)  # what came back moves her: part of what reading it did
             met = self._met(seen, company, timing, why, social)
             hour = self.body.hour(now)
 
@@ -661,6 +675,8 @@ class Mind:
                         "chances": choice.chances if choice else {}, "said": said[:300], "felt": round(impact, 3),
                         "way": {name: round(change, 3) for name, change in way.items() if abs(change) >= 0.05},
                         "lasting": round(lasting, 3),
+                        # her body as the message came: what the whole moment did by its end is kept (after)
+                        "levels": {name: round(value, 4) for name, value in levels.items()},
                         "at": now, "with": came["with"]["name"] if came["with"] else None}
             # Preserve each prediction until its own observation arrives or its window expires.
             self.self["waiting"][chat] = {"at": now, "actor": actor, "run": run["id"], "chat": chat,
@@ -736,6 +752,7 @@ class Mind:
             self._forecast(seen, came["followed"], came["evidence"])
             seen.novelty = came["novelty"]
             levels = dict(self.body.levels)
+            self._refeel(came["back"], now)
             why = self._why(run, said)
             self._met(seen, 0.05, 0.0, why)  # they are with her already: the contact itself is a little
             decided = run["options"].get("mind") or {}
@@ -752,14 +769,28 @@ class Mind:
                 self.save()
             return note
 
+    def _cues(self, run: Optional[dict], now: float, app: str = "") -> List[str]:
+        """What is around a moment of hers (``memory.cue``): its time, where and with whom (``moment_cues``),
+        what the app could tell of her surroundings (what came with the message, else what it saw on its last
+        look: what is playing, the window in front) and whether the user was there."""
+        around = dict(self.presence.surroundings(now))
+        if run:
+            around.update({key: value for key, value in (run["options"].get("context") or {}).items()
+                           if isinstance(value, str)})
+        found = moment_cues(now, run["app"] if run else app, self._device(run) if run else None,
+                            self._face(run).casefold() if run else None)
+        there = "away" if not self.presence.here(now) else "absorbed" if self.presence.busy else "there"
+        return found + [cue(key, value) for key, value in around.items()] + [cue("they", there)]
+
     def _candidates(self, run, said, now):
         with self._lock:
             revision = self._revision
-            valence = feel(self.body, self.senses, now).valence
+            felt = feel(self.body, self.senses, now)
         summed = self.brain.store.last_compaction(run["app"], run["session"])
         held = (run["app"], run["session"], summed["at"] if summed else 0.0)
         known = self.memory.known(said, before=now)
-        episodes = self.memory.recall(said, valence, now, count=8, before=now - 30, held=held, strengthen=False)
+        episodes = self.memory.recall(said, felt.valence, now, count=8, before=now - 30, held=held, strengthen=False,
+                                      cues=self._cues(run, now), arousal=felt.arousal)
         recall = getattr(self.brain, "recall", None)
         hits = []
         available = known[0] is not None
@@ -794,10 +825,11 @@ class Mind:
                 continue
             ranked.append((item["relevance"], "transcript", event, item))
         for item in episodes:
-            cue_gain = 0.10 * self.body["acetylcholine"] * item["relevance"]
+            item["quality"] = self._quality(item)  # how fully the moment called it up (since 0.38)
+            cue_gain = 0.10 * self.body["acetylcholine"] * item["quality"]
             alert = 0.05 * self.body["noradrenaline"] * item["salience"]
-            ranked.append((item["relevance"] + cue_gain + alert, "episode", item["event_id"], item))
-        memories, selected, used = [], [], set()
+            ranked.append((item["quality"] + cue_gain + alert, "episode", item["event_id"], item))
+        memories, selected, used, back = [], [], set(), []
         for _, source, event, item in sorted(ranked, key=lambda row: (-row[0], row[1], row[3]["id"])):
             identity = ("event", event) if event else (source, item["id"])
             if identity in used:
@@ -805,6 +837,7 @@ class Mind:
             used.add(identity)
             if source == "episode":
                 self.memory.attended([item], now, felt.valence)
+                back.append((item, item["quality"]))
                 words = line(item, now, waking_evidence=True)[:THOUGHT_CHARS]
                 if item.get("follows") and item["kind"] == "exchange":
                     for channel, delta in json.loads(item["follows"]).items():
@@ -816,6 +849,8 @@ class Mind:
             else:
                 self.brain.recall.attended([item])
                 words = self.brain.recall.render(run["app"], [item])
+                # the round of a conversation that comes back is the moment it was: that moment's feeling with it
+                back += [(moment, item["relevance"]) for moment in self.memory.by_events([event] if event else [])]
             memories.append(words)
             selected.append({"source": source, "kind": item.get("kind") or item.get("source"),
                              "id": item["id"], "event": event, "at": item["at"]})
@@ -833,7 +868,7 @@ class Mind:
                 "revision": revision, "selected": selected, "retrieval": "available" if available else "unknown",
                 "likeness": likeness, "followed": followed, "evidence": evidence,
                 "novelty": 1.0 - likeness if likeness is not None else (0.5 if pictures else 0.0),
-                "felt": felt, "memories": memories}
+                "felt": felt, "memories": memories, "back": back}
 
     def _foresee(self, run: dict, profile: dict, came: dict, said: str, pictures: int, working: bool = False) -> dict:
         """Her quick, wordless reading of a message (the imagine call, thinking off): what it does to her
@@ -1184,6 +1219,8 @@ class Mind:
         # (the exam, 0.37), asked to put it into words she looked and said it in her reply, and the naming the
         # tool offers went unused: nothing became hers, nothing eased
         reply = (run.get("result") or {}).get("reply") or ""
+        moment = self._task_moment(run) if run["kind"] == "task" and run["status"] != "cancelled" else None
+        newness = self.memory.newness(moment, time.time()) if moment else None
         looked = [e for e in events if e["type"] == "tool" and e.get("name") == "look_inward"]
         named = {}
         if run["kind"] == "turn" and reply and looked and not any((e.get("arguments") or {}).get("naming") for e in looked):
@@ -1226,8 +1263,8 @@ class Mind:
                 else:  # she thought better of it: nothing to wait on, nothing to keep
                     self.self["urge"] = None
                     self._went(urge.get("thought"), "let go")
-            if run["kind"] == "task" and run["status"] != "cancelled":
-                self._remember_task(run, now)
+            if moment:
+                self._remember_task(run, now, moment, newness)
                 self.save()
             if not decision:
                 return
@@ -1319,7 +1356,10 @@ class Mind:
                                       app=run["app"], session=run["session"], at=now, sting=round(sting, 3),
                                       run_id=run["id"], actor=decision.get("actor"), device=decision.get("device"),
                                       event_id=next((e["id"] for e in events if e["type"] == "input"), None),
-                                      attention=attended)
+                                      attention=attended, cues=self._cues(run, now),
+                                      felt=peak_end(decision.get("way") or {},
+                                                    moved(decision["levels"], body.levels) if decision.get("levels")
+                                                    else None))
             if decision.get("corrects"):
                 self.memory.supersede(decision["corrects"], episode)
                 self._revise_derived({decision["corrects"]})
@@ -1414,7 +1454,8 @@ class Mind:
             on_mind = ON_MIND["wander" if wandering else kind].format(
                 about=subject, who=person["name"] if person else "the user",
                 since=f" You last talked {_ago(now - contact['at'])}." if contact else "")
-            if kind == "wonder":  # her stream goes on from her last thought, and two memories come up unbidden
+            cues = self._cues(None, now, (contact or {}).get("app", ""))
+            if kind == "wonder":  # her stream goes on from her last thought, and memories come up unbidden
                 last = self.self["thoughts"][0] if self.self["thoughts"] else None
                 talked = (self.memory.recent(1, kinds=("exchange",)) or [None])[0] \
                     if contact and (not last or contact["at"] > last["at"]) else None
@@ -1422,19 +1463,29 @@ class Mind:
                     # wandering: Smallwood & Schooler 2015). Until 0.34 the old stream went on: from 15:15 to 19:01
                     # her every thought had the user eating, through a talk and the game he went off to play
                     on_mind += f" What you last talked about: {self._line(talked, now)[:THOUGHT_CHARS]}"
-                elif last:
-                    on_mind += f' Your last thought was: "{last["thought"][:THOUGHT_CHARS]}"'
-                came = self.memory.replay(2)
-                cue = " ".join(e["text"] for e in came)
+                elif last:  # with when it was: until 0.38 it came as "your last thought was", and what was true
+                    # then read as true now (four hours on, her thoughts still had the user eating)
+                    on_mind += f' Your last thought, {_ago(now - last["at"])}: "{last["thought"][:THOUGHT_CHARS]}"'
+                came = self._unbidden(talked["text"] if talked else last["thought"] if last else "", cues, felt,
+                                      last, talked, now)
             else:
-                cue = subject or (self.memory.recent(1, kinds=("exchange",)) or [{"text": ""}])[0]["text"]
+                topic = subject or (self.memory.recent(1, kinds=("exchange",)) or [{"text": ""}])[0]["text"]
                 # what nags her is before her already: it does not come back as a memory of itself, nor do her
                 # own thoughts on it (they did, and she went round and round one thing: the user, 2026-11-17;
                 # an old thought that called him "she" was copied by 5 of 6 new ones). What happened comes back.
-                came = [e for e in self.memory.recall(cue, felt.valence, now, count=self._span() + 1,
-                                                      kinds=() if kind != "ruminate" else RUMINATED)
+                came = [e for e in self.memory.recall(topic, felt.valence, now, count=self._span() + 1,
+                                                      kinds=() if kind != "ruminate" else RUMINATED, cues=cues,
+                                                      arousal=felt.arousal)
                         if e["id"] != (about or {}).get("id")][:self._span()]
+                for episode in came:
+                    episode["quality"] = self._quality(episode)
             memories = [self._line(e, now)[:THOUGHT_CHARS] for e in came]
+            levels = dict(self.body.levels)  # before the thought: what thinking it did is kept with it
+            self._refeel([(e, e["quality"]) for e in came], now)
+            if kind == "ruminate" and self.memory.felt(about):
+                self._refeel([(about, 1.0)], now)  # what nags her comes back whole, and wears a little each time
+            name = person["name"] if person else "the user"
+            told, around = self.presence.words(now), self.presence.surroundings(now)
             others = self.people.mentioned(" ".join([subject, *memories]), besides=[person])
             liked, disliked = (", ".join(_about(found)) for found in self.values.leanings())
             ways = self.ways.lines()  # how she does things holds in her thoughts too (when nobody spoke to her...)
@@ -1443,7 +1494,9 @@ class Mind:
                  + (f"Who they talk with: {People.line(person)}\n" if person else "")
                  + (f"Others who come to mind: {'; '.join(People.line(other) for other in others)}\n" if others else "")
                  + f"It is {time.strftime('%A %H:%M')}. How they feel: {felt.words()}\n"
-                 f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
+                 + (f"What they can tell of {name}: {told}\n" if told else "")
+                 + (f"Around them: {'; '.join(f'{key}: {value}' for key, value in around.items())}\n" if around else "")
+                 + f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
                  + (f"What they've come to like: {liked}.\n" if liked else "")
                  + (f"What they've come to dislike: {disliked}.\n" if disliked else "")
                  + (f"How they do things: {'; '.join(ways)}.\n" if ways else ""))
@@ -1453,17 +1506,23 @@ class Mind:
             return
         want = str(answer.get("want") or "nothing").lower()
         urge, task = None, None
+        newness = self.memory.newness(thought, time.time()) if kind == "wonder" else None
         with self._lock:
             if self._revision != revision:
                 return
             now = time.time()
             body = self.body
             body.exert(usage.get("completion_tokens") or 0)
-            if kind == "wonder":
-                body.apply({"novelty": 0.15, "dopamine": 0.03}, "her mind wandered")
-            elif kind == "ruminate":  # going over it stirs it up again, as much as it still hurts, and wears it
-                # down a little. A fixed stir fed itself until 0.33: brooding kept her stressed, stress made her
-                # brood, and on a third rough day she brooded every 30 minutes (stress from it 0.32, 0.76, 1.15 a day)
+            if kind == "wonder":  # a new thought fills her want of something new, going round one thing does not
+                # (boredom: too little new to engage with, Eastwood et al. 2012). Until 0.38 any wandering thought
+                # filled it by 0.15: on her vectors a repeat (cosine 0.75-0.86 to her last thoughts) as much as a new
+                # subject (0.62-0.65). Without the service: as before
+                fresh = 0.5 if newness is None else newness
+                body.apply({"novelty": 0.3 * fresh, "dopamine": 0.06 * fresh}, "her mind wandered")
+            elif kind == "ruminate" and not self.memory.felt(about):  # a moment from before 0.38 kept only its
+                # sting: going over it stirs that up again and wears it down a little. A fixed stir fed itself until
+                # 0.33: brooding kept her stressed, stress made her brood, and on a third rough day she brooded
+                # every 30 minutes (stress from it 0.32, 0.76, 1.15 a day)
                 body.apply({"cortisol": 0.06 * max(0.0, -about["sting"]) * about["charge"]}, "brooding on what hurt")
                 self.memory.soften([about["id"]], 0.1)
             felt = feel(body, self.senses, now)
@@ -1472,7 +1531,7 @@ class Mind:
                 self._name(named, thought, now, moment=about if kind == "ruminate" else None, situation=thought)
             episode = self.memory.add("thought", thought, felt.valence, felt.arousal, 0.25 + (0.2 if kind == "ruminate" else 0.0),
                             at=now, origins=[e["id"] for e in came], app=(contact or {}).get("app", ""),
-                            session=(contact or {}).get("session", ""))
+                            session=(contact or {}).get("session", ""), felt=moved(levels, body.levels), cues=cues)
             mine = {"episode": episode, "at": now, "kind": kind, "thought": thought, "want": want}
             self.self["thoughts"] = ([mine] + self.self["thoughts"])[:SHOWN_THOUGHTS]
             say = " ".join(str(answer.get("say") or "").split())[:600] or thought
@@ -1529,6 +1588,67 @@ class Mind:
             app, session, goal, quiet = task
             self.brain.runs.start_task(app, session, goal, quiet=quiet)
 
+    def _unbidden(self, stream: str, cues: List[str], felt, last: Optional[dict], talked: Optional[dict],
+                  now: float) -> List[dict]:
+        """What comes up by itself as her mind wanders (under her lock): a memory the moment calls up (what she
+        was thinking, what is around her, her mood: an involuntary memory has a cue, Berntsen 2009); the
+        neighbour in time of a memory that came up in her last thought (they come in chains, Mace 2005: a
+        recalled moment brings its context back, Howard & Kahana 2002), likelier the sooner this thought follows
+        it; and one drawn at random, the strong and charged more often (two that never met: what a new idea is
+        made of). What is before her already (the talk she goes back over, her last thought and what came up in
+        it) does not come back as a memory. Until 0.38 two were drawn at random, nothing about the moment
+        calling them."""
+        before_her = {talked["id"]} if talked else set()
+        origins: List[int] = []
+        if last and last.get("episode"):
+            before_her.add(last["episode"])
+            origins = [o for e in self.memory.by_ids([last["episode"]]) for o in json.loads(e.get("origin_ids") or "[]")]
+            before_her.update(origins)
+        # what happened within the hour is before her still: it does not come back as a memory
+        came = [e for e in self.memory.recall(stream, felt.valence, now, count=4, strengthen=False, cues=cues,
+                                              arousal=felt.arousal, before=now - HOUR)
+                if e["id"] not in before_her][:1]
+        for episode in came:
+            episode["quality"] = self._quality(episode)
+        self.memory.attended(came, now, felt.valence)
+        if origins and self.rng.random() < math.exp(-(now - last["at"]) / HOUR):
+            came += [dict(e, quality=1.0) for e in self.memory.near(origins, 30 * MINUTE, now)
+                     if e["id"] not in before_her | {c["id"] for c in came}][:1]
+        taken = before_her | {c["id"] for c in came}
+        spare = max(1, 2 - len(came))  # one by itself, two when nothing called one up
+        return came + [dict(e, quality=1.0) for e in self.memory.replay(spare + len(taken), now)
+                       if e["id"] not in taken][:spare]
+
+    def _quality(self, episode: dict) -> float:
+        """How fully a memory was called up: its likeness in meaning, or what it shares with now as far as her
+        attention is free. A focused mind holds off what only the surroundings call up (acetylcholine favours what
+        is attended over associative retrieval: Hasselmo 2006); memories come by themselves as attention drifts
+        (Berntsen 2009)."""
+        return max(episode.get("relevance", 0.0),
+                   min(1.0, episode.get("cued", 0.0)) * (1.0 - self.body.levels["acetylcholine"]))
+
+    def _refeel(self, back, now: float) -> None:
+        """Memories that came back move her again (under her lock), each by a share of what its moment did to
+        her chemistry (``REFELT``): as far as it is still charged, as vividly as it comes (its strength now) and
+        as fully as it was called up (by meaning or by what it shares with now; one that came by itself comes
+        whole). Retrieval brings back the pattern of the moment, the more for an arousing one (Bowen, Kark &
+        Kensinger 2018), and each coming back wears its charge a little, an unpleasant moment's more (the fading
+        affect bias: Walker, Skowronski & Thompson 2003). A memory from before 0.38 kept no feeling: it moves
+        nothing."""
+        for episode, quality in back:
+            felt = self.memory.felt(episode)
+            share = REFELT_SHARE * episode["charge"] * self.memory.strength_now(episode, now) * min(1.0, quality)
+            again = {name: round(felt[name] * share, 3) for name in REFELT if felt.get(name)} if share > 0 else {}
+            if again:
+                self.body.apply({name: lots * CHANNELS[name][1] for name, lots in again.items()},
+                                f"remembering: {episode['text'][:QUOTED]}")
+                self.memory.reevoked(episode)
+            # what came back lately, what brought it (what is around her, meaning, or nothing: by itself) and what
+            # it did to her (each channel, in lots), for apps and her panel to show
+            by = episode.get("through") or ("meaning" if episode.get("relevance") else "itself")
+            self.self["remembered"] = ([{"at": now, "episode": episode["id"], "text": episode["text"][:THOUGHT_CHARS],
+                                         "by": by, "moved": again}] + self.self.get("remembered", []))[:SHOWN_THOUGHTS]
+
     def _went(self, at: Optional[float], how: str) -> None:
         """What came of a thought she wanted to say (under her lock), as apps show it."""
         for thought in self.self["thoughts"]:
@@ -1559,8 +1679,10 @@ class Mind:
                 continue
             if step == "narrative" and self.brain.provider_problem():
                 return
-            answer = {}
-            if step == "narrative" and moments:
+            answer, reaching = {}, []
+            if step == "local":  # what moved her today, and the faint memories like it (by meaning: the service)
+                reaching = self.memory.related(batch["ids"])
+            elif step == "narrative" and moments:
                 persona = self._persona(contact["app"], contact["session"]) if contact else ""
                 listed = "\n".join(self._line(m, batch["to"]) for m in moments)
                 answer, _ = self._ask(prompts.SLEEP, f"Who they are:\n{persona[:6000]}\n\nThe moments:\n{listed}")
@@ -1576,6 +1698,7 @@ class Mind:
                 if self._revision != revision or self.self.get("review") is not batch:
                     return
                 if step == "local":
+                    self.memory.tag_related(reaching, batch["to"])  # what moved her reaches back, then softens
                     self.memory.soften(batch["ids"])
                     self.values.fade(0.05)
                     keep = set(batch["ids"])
@@ -1591,7 +1714,7 @@ class Mind:
                         for entry in entries:
                             if isinstance(entry, str) and entry.strip():
                                 self.memory.add(kind, entry.strip()[:800], felt.valence, 0.4, 0.45,
-                                                at=batch["to"], origins=batch["ids"])
+                                                at=batch["to"], origins=batch["ids"], cues=moment_cues(batch["to"]))
                 if step not in batch["done"]:
                     batch["done"].append(step)
                 self.save()
@@ -1624,6 +1747,7 @@ class Mind:
             if delete or event is not None:
                 gone = self.memory.retract(app, session, event, since)
                 self.self["thoughts"] = [t for t in self.self["thoughts"] if t.get("episode") not in gone]
+                self.self["remembered"] = [r for r in self.self.get("remembered", []) if r["episode"] not in gone]
                 self._revise_derived(gone)
             for key in ("decided", "contact", "urge"):
                 item = self.self.get(key) or {}
@@ -1836,6 +1960,7 @@ class Mind:
         with self._lock:
             if revision != self._revision:
                 return "The evidence changed while you were looking. Check again."
+            self._refeel([(e, e["relevance"]) for e in came_back], now)  # what she looked for, felt again
         report = inward.view(words, felt.tone(), aware, thoughts, unsaid, put_off, moved, leaned, self_view, about,
                              recalled, familiar)
         naming = " ".join(str(naming or "").split())[:300]
@@ -1931,9 +2056,20 @@ class Mind:
         if store is not None:
             store.drop_snapshots(app, sessions)
 
-    def _remember_task(self, run: dict, now: float) -> None:
+    def _remember_task(self, run: dict, now: float, text: str, newness: Optional[float]) -> None:
         """A task ended (under her lock): what she did is a moment of hers. Until 0.30 the journal's notes of
-        it were; without them what she did and found on her own was gone from both her memories."""
+        it were; without them what she did and found on her own was gone from both her memories. What was new
+        to her in it fills her want of something new (resolving curiosity is itself rewarding: Kang et al. 2009,
+        Gruber, Gelman & Ranganath 2014); until 0.38 what she found out on her own left her as bored as before."""
+        valence, aroused = core(self.body.levels)
+        levels = dict(self.body.levels)
+        self.body.apply({"novelty": 0.3 * (0.5 if newness is None else newness)}, "new to her: " + text[:QUOTED])
+        self.memory.add("event", text, valence, aroused, 0.4, app=run["app"],
+                        session=run["options"].get("parent_session") or run["session"], at=now, run_id=run["id"],
+                        felt=moved(levels, self.body.levels), cues=self._cues(None, now, run["app"]))
+
+    def _task_moment(self, run: dict) -> str:
+        """What a task of hers was, as she keeps it: what she set out to do and how it went."""
         goal = " ".join(str(run["options"].get("goal") or "").split())
         for mark, said in (("you decided to do it: ", "I decided on my own to "),
                            ("look this up for yourself: ", "Out of my own curiosity I looked up: ")):
@@ -1943,11 +2079,8 @@ class Mind:
         else:
             goal = "I worked on: " + goal
         reply = " ".join(signals.split(str((run.get("result") or {}).get("reply") or ""))[1].split())
-        text = _said(f"{goal[:300].rstrip('.')}. " + (f"How it went: {reply[:500]}" if reply else f"It {run['status']}")
+        return _said(f"{goal[:300].rstrip('.')}. " + (f"How it went: {reply[:500]}" if reply else f"It {run['status']}")
                      + ".")
-        valence, aroused = core(self.body.levels)
-        self.memory.add("event", text, valence, aroused, 0.4, app=run["app"],
-                        session=run["options"].get("parent_session") or run["session"], at=now, run_id=run["id"])
 
     def _meet_people(self, moments, facts=(), batch=None) -> bool:
         """What she knows of the people in ``moments`` (and in ``facts``: what she kept before 0.30) settles,
@@ -2073,7 +2206,8 @@ class Mind:
         return prompts.INNER_LIFE
 
     def state(self, app: Optional[str] = None, idle: Optional[float] = None, brief: bool = False,
-              locked: Optional[bool] = None, busy: Optional[bool] = None) -> dict:
+              locked: Optional[bool] = None, busy: Optional[bool] = None,
+              around: Optional[Dict[str, str]] = None) -> dict:
         """How she is now: her face for ``app`` (from its declared expressions), what she feels, her levels,
         thoughts, concerns, likes and dislikes; for drawing her brain, every feeling she has named (``feelings``), her
         body's channels as she senses them (``sensed``: how far from usual, in units of a lot), what wants her
@@ -2081,8 +2215,8 @@ class Mind:
         now (``wiring``: [level, what it drives, weight]). ``idle``: seconds since the user last touched
         the computer. ``brief``: only what a face needs (``asleep``, ``present``, ``felt``, ``feeling``: a
         few words for it, ``valence``, ``arousal``, ``face``): an app's frequent look, kept small as she grows."""
-        if app and any(value is not None for value in (idle, locked, busy)):
-            self.seen(app, idle, locked, busy)
+        if app and any(value is not None for value in (idle, locked, busy, around)):
+            self.seen(app, idle, locked, busy, around)
         options = {}
         if app:
             signals = ((self.brain.store.app(app) or {}).get("declaration") or {}).get("signals") or {}
@@ -2153,6 +2287,7 @@ class Mind:
                           for guide, errors in self.self["trust"].items()},
                 "fatigue": round(body.fatigue(), 3), "temperament": body.temperament.to_dict(),
                 "thoughts": list(self.self["thoughts"]), "concerns": list(self.self["concerns"]),
+                "remembered": list(self.self.get("remembered", [])),
                 "likes": _about(likes), "dislikes": _about(dislikes),
                 "memories": self.memory.count(), "people": self.people.listed(), "ways": self.ways.listed(),
                 "self_evidence": self.self.get("self_view"),

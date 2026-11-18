@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from . import embeddings, mentions
-from .mind.memory import line
+from .mind.memory import intensity, line
 from .vectors import Vectors
 
 logger = logging.getLogger(__name__)
@@ -290,12 +290,22 @@ class Recall:
     def weighed(self, now: Optional[float] = None) -> Dict[Tuple[str, str], float]:
         """Each round and note, as (source, ref) -> what she may need it for times what of it no memory she
         needs more already holds (its strongest piece). The facts kept before 0.30 are not weighed: what she
-        knew of the user, few and short; they hold what is near them."""
+        knew of the user, few and short; they hold what is near them.
+
+        A round whose moment moved her is needed more, by how much it moved her as far as it is still charged
+        (her mind's episode of that moment, ``felt``): what was felt is bound to a memory more lastingly than its
+        details (Yonelinas & Ritchey 2015). Until 0.38 a round was weighed by its use and age alone."""
         embedder, now = self.refresh(), now or time.time()
         with self._lock:
             rows = [dict(row) for row in self._db.execute(
                 "SELECT id, source, ref, at, uses FROM units WHERE source IN ('turn', 'note') AND at <= ?", (now,))]
-        needs = {row["id"]: need(row["uses"], (now - row["at"]) / 86400.0) for row in rows}
+        mind = getattr(self.brain, "mind", None)
+        events = {int(_base(row["ref"])) for row in rows if row["source"] == "turn" and _base(row["ref"]).isdecimal()}
+        moved = {e["event_id"]: e["charge"] * min(intensity(mind.memory.felt(e)), 2.0)
+                 for e in mind.memory.by_events(events)} if mind is not None and events else {}
+        needs = {row["id"]: need(row["uses"], (now - row["at"]) / 86400.0)
+                 * (1.0 + (moved.get(int(_base(row["ref"])), 0.0) if row["source"] == "turn"
+                           and _base(row["ref"]).isdecimal() else 0.0)) for row in rows}
         held = self.vectors.held(needs, embedder.name)
         weights: Dict[Tuple[str, str], float] = {}
         for row in rows:

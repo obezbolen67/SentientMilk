@@ -51,6 +51,16 @@ def _number(value, what: str) -> int:
         raise ValueError(f"{what} must be a number")
 
 
+def surroundings(text: str) -> dict:
+    """What an app says is around her (``/mind?around=``): a JSON object of a few short texts by name."""
+    found = json.loads(text)
+    if not isinstance(found, dict) or len(found) > 8 or not all(
+            isinstance(key, str) and isinstance(value, str) and 0 < len(key) <= 40 and len(value) <= 300
+            for key, value in found.items()):
+        raise ValueError("around must be a JSON object of up to 8 short texts by name")
+    return {key: value for key, value in found.items() if value.strip()}
+
+
 def _short(event: dict) -> dict:
     """A logged event for streaming: big contents cut, images left out."""
     shown = {}
@@ -200,7 +210,9 @@ class _Handler(BaseHTTPRequestHandler):
             app = validate_name(query["app"], "app") if query.get("app") else None
             idle = float(query["idle"]) if query.get("idle") not in (None, "") else None
             locked, busy = ({"1": True, "0": False}.get(query.get(key) or "") for key in ("locked", "busy"))
-            self._send(200, brain.mind.state(app, idle, brief=query.get("brief") == "1", locked=locked, busy=busy))
+            around = surroundings(query["around"]) if query.get("around") not in (None, "") else None
+            self._send(200, brain.mind.state(app, idle, brief=query.get("brief") == "1", locked=locked, busy=busy,
+                                             around=around))
         elif head == "mind" and len(rest) == 2 and rest[0] == "ways" and method == "DELETE":  # the user takes one out
             brain.mind.drop_way(rest[1])
             self._send(200, {"status": "ok"})

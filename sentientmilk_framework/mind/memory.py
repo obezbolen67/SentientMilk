@@ -11,10 +11,19 @@ An exchange also keeps what followed the user's message (``follow``: what it did
 out). ``known`` tells how like her memories a new message is (how new it is to her) and what followed the
 messages most like it: her own record of what such messages bring.
 
+Since 0.38 a moment keeps how it moved her body (``felt``: each channel's change, in units of a lot, by the
+moment's peak and its end) and what was around it (its cues: the time of day, where and with whom, and what the
+app could tell of her surroundings, such as what was playing). What comes back is called by meaning, by the
+surroundings it shares with now (a cue as strong as it is rare among her memories: a song heard once calls its
+night back, "evening" calls nothing by itself), by her mood and by how intense the moment was; what just came
+back is held off for a while. A vivid memory comes back with its distinctive surroundings, a faint one without:
+the details go before the feeling (Yonelinas & Ritchey 2015).
+
 The mind keeps its own state here too (``state``): her body, values, concerns and named feelings.
 """
 
 import json
+import math
 import random
 import sqlite3
 import threading
@@ -28,6 +37,16 @@ from ..vectors import Vectors
 
 KINDS = ("exchange", "thought", "outcome", "dream", "insight", "event")
 FADE_DAYS = 1.0  # strength halves over about this, unless recalled, and slower with each day (power law)
+# the time of day a moment keeps (local hours from): 0-5 late at night, 5-8 early morning...
+HOURS = ((5, "late at night"), (8, "early morning"), (12, "morning"), (17, "afternoon"), (21, "evening"),
+         (24, "late evening"))
+CUED = 0.5  # how strong what a moment shares with now must be to call it up without any likeness in meaning
+HELD_OFF = 3600.0  # s over which a memory that just came back gives way to others (it is before her already)
+VIVID = 0.5  # strength now from which a memory comes back with its surroundings
+# what recurs on a clock describes a moment and calls none up: every day has a morning, however few mornings she
+# kept (3 of 217 in her real memory made "morning" look as rare as a song heard once)
+RECURS = "time: "
+WEARS = 0.05  # of its charge a moment loses each time it comes back and she feels it again (an unpleasant one 1.4x)
 
 
 class Memory:
@@ -59,7 +78,7 @@ class Memory:
                 self._db.execute("ALTER TABLE episodes ADD COLUMN sting REAL NOT NULL DEFAULT 0")
             for name, sql_type in (("run_id", "INTEGER"), ("event_id", "INTEGER"), ("actor", "TEXT"),
                                    ("device", "TEXT"), ("superseded_by", "INTEGER"), ("encoding_valence", "REAL"),
-                                   ("origin_ids", "TEXT"), ("attention", "TEXT")):
+                                   ("origin_ids", "TEXT"), ("attention", "TEXT"), ("felt", "TEXT")):
                 if name not in columns:
                     self._db.execute(f"ALTER TABLE episodes ADD COLUMN {name} {sql_type}")
             self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS episode_run ON episodes(run_id) WHERE run_id IS NOT NULL")
@@ -72,6 +91,19 @@ class Memory:
                     UPDATE episode_sequence SET last_id = MAX(last_id, NEW.id) WHERE id = 1;
                 END;
             """)
+            cued = self._db.execute("SELECT 1 FROM sqlite_master WHERE name = 'episode_cues'").fetchone()
+            self._db.executescript("""
+                CREATE TABLE IF NOT EXISTS episode_cues (episode INTEGER NOT NULL, cue TEXT NOT NULL,
+                                                         PRIMARY KEY (episode, cue));
+                CREATE INDEX IF NOT EXISTS episode_cue ON episode_cues(cue);
+                CREATE TRIGGER IF NOT EXISTS episode_cues_gone AFTER DELETE ON episodes BEGIN
+                    DELETE FROM episode_cues WHERE episode = OLD.id;
+                END;
+            """)
+            if not cued:  # a mind from before 0.38: its moments kept their time, where and who (not what was around)
+                self._db.executemany("INSERT OR IGNORE INTO episode_cues VALUES (?, ?)", [
+                    (row["id"], found) for row in self._db.execute("SELECT id, at, app, device, actor FROM episodes")
+                    for found in moment_cues(row["at"], row["app"], row["device"], row["actor"])])
         self.vectors = Vectors(self._db, "episodes", self._lock)
         self.embedder = None  # her long-term memory's (recall.py sets it)
 
@@ -125,20 +157,69 @@ class Memory:
 
     def add(self, kind: str, text: str, valence: float, arousal: float, salience: float, *, app: str = "",
             session: str = "", at: Optional[float] = None, sting: float = 0.0, run_id=None, event_id=None,
-            actor=None, device=None, origins=(), attention=()) -> int:
+            actor=None, device=None, origins=(), attention=(), felt: Optional[Dict[str, float]] = None,
+            cues: Iterable[str] = ()) -> int:
         """``valence``: how she felt in the moment (her mood then, as it keeps it); ``sting``: what the moment
-        itself did to how she felt (negative: it hurt), whatever her mood was."""
+        itself did to how she felt (negative: it hurt), whatever her mood was; ``felt``: how it moved her body,
+        each channel's change in units of a lot; ``cues``: what was around it (``cue``, ``moment_cues``)."""
         text = " ".join(str(text).split())[:1200]
         salience = max(0.0, min(1.0, salience))
+        kept = json.dumps({name: round(change, 3) for name, change in felt.items() if round(change, 3)}) if felt else None
         with self._lock:
             cursor = self._db.execute(
                 "INSERT INTO episodes (id, at, kind, text, app, session, valence, arousal, salience, strength, charge, "
-                "sting,run_id,event_id,actor,device,encoding_valence,origin_ids,attention) "
-                "VALUES ((SELECT last_id+1 FROM episode_sequence),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "sting,run_id,event_id,actor,device,encoding_valence,origin_ids,attention,felt) "
+                "VALUES ((SELECT last_id+1 FROM episode_sequence),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time() if at is None else at, kind, text, app, session, max(-1.0, min(1.0, valence)),
                  max(0.0, min(1.0, arousal)), salience, 0.5 + 0.5 * salience, 1.0, max(-2.0, min(2.0, sting)),
-                 run_id, event_id, actor, device, valence, json.dumps(list(origins)), json.dumps(list(attention))))
+                 run_id, event_id, actor, device, valence, json.dumps(list(origins)), json.dumps(list(attention)),
+                 kept))
+            self._db.executemany("INSERT OR IGNORE INTO episode_cues VALUES (?, ?)",
+                                 [(cursor.lastrowid, found) for found in {_cue(c) for c in cues} if found])
             return cursor.lastrowid
+
+    @staticmethod
+    def felt(episode: dict) -> Dict[str, float]:
+        """How the moment moved her body (each channel's change, in units of a lot); {} for one from before 0.38."""
+        return json.loads(episode.get("felt") or "{}")
+
+    def cues(self, ids: Iterable[int]) -> Dict[int, List[str]]:
+        """What was around each of these moments."""
+        ids = list(ids)
+        found: Dict[int, List[str]] = {}
+        with self._lock:
+            for episode, kept in self._db.execute(
+                    f"SELECT episode, cue FROM episode_cues WHERE episode IN ({','.join('?' * len(ids))})", ids):
+                found.setdefault(episode, []).append(kept)
+        return found
+
+    def cue_strength(self, cues: Iterable[str]) -> Dict[str, float]:
+        """How strongly each of these calls up the moments it was around, 0..1: as rare as it is among the
+        moments that kept a cue of its kind (``log(N/n) / log(N)``, N those moments, n those with it: around one of
+        them 1, around all of them 0). A cue shared by many brings back none of them (cue overload: Watkins &
+        Watkins 1975). Among its kind, not among all her memories: who she was with was kept only lately (10 of
+        her 217 moments), and "with: plays" in all ten looked rare among 217."""
+        cues = list({_cue(c) for c in cues} - {""})
+        kinds = {c: c.split(": ", 1)[0] + ": " for c in cues}
+        with self._lock:
+            counts = dict(self._db.execute(
+                f"SELECT cue, COUNT(*) FROM episode_cues WHERE cue IN ({','.join('?' * len(cues))}) GROUP BY cue",
+                cues).fetchall()) if cues else {}
+            totals = {kind: self._db.execute("SELECT COUNT(DISTINCT episode) FROM episode_cues WHERE substr(cue, 1, ?) "
+                                             "= ?", (len(kind), kind)).fetchone()[0] for kind in set(kinds.values())}
+        return {c: 1.0 if totals[kinds[c]] < 2 or not counts.get(c)
+                else math.log(totals[kinds[c]] / counts[c]) / math.log(totals[kinds[c]]) for c in cues}
+
+    def _around(self, episodes: List[dict], now: float) -> List[dict]:
+        """These moments with what was distinctive around them (``around``), while each is vivid enough to keep it."""
+        vivid = [e for e in episodes if self.strength_now(e, now) >= VIVID]
+        kept = self.cues(e["id"] for e in vivid)
+        strength = self.cue_strength(c for found in kept.values() for c in found)
+        for episode in episodes:  # its time of day, and what was distinctive around it
+            episode["around"] = sorted((c for c in kept.get(episode["id"], ())
+                                        if c.startswith(RECURS) or strength.get(c, 0.0) >= CUED),
+                                       key=lambda c: (not c.startswith(RECURS), c))
+        return episodes
 
     @staticmethod
     def strength_now(episode: dict, now: float) -> float:
@@ -147,7 +228,8 @@ class Memory:
 
     def recall(self, cue: str, valence: float, now: float, count: int = 3, kinds: Iterable[str] = (),
                before: Optional[float] = None, strengthen: bool = True,
-               held: Optional[Tuple[str, str, float]] = None, status=None) -> List[dict]:
+               held: Optional[Tuple[str, str, float]] = None, status=None, cues: Iterable[str] = (),
+               arousal: Optional[float] = None) -> List[dict]:
         """What comes back for ``cue`` in a mood of ``valence``: up to ``count`` episodes the cue calls up (alike
         in meaning), best first; nothing when she cannot tell what is alike now (no service). ``before``: only
         what happened before then (not what just happened). ``held``: (app, session, since), a chat whose
@@ -158,7 +240,13 @@ class Memory:
         2026-11-17, 13 of 21 brought back one of her own brooding thoughts (one of them 11 times) and two of her
         insights came back with 15 and 13, nearly all related by nothing, each recall making it stronger still.
         A memory that comes by itself is cued by something about the moment (Berntsen 2009); what a resting mind
-        replays at random is ``replay``."""
+        replays at random is ``replay``.
+
+        Since 0.38 ``cues`` (what is around her now) call up the moments they were around, as strongly as each
+        is rare (``cue_strength``; summed as ``cued``, the strongest as ``through``): a moment that shares
+        enough (``CUED``) comes back with no likeness in meaning, and without the service. Her mood's
+        ``arousal`` favours moments kept in a state like hers (Eich 1995), the more intense moment comes sooner,
+        and one that came back within the hour gives way to others (it is before her already)."""
         kinds = list(kinds)
         clause = (" AND e.kind IN (" + ",".join("?" * len(kinds)) + ")") if kinds else ""
         when = (" AND e.at < ?" if before is not None else "") + \
@@ -174,19 +262,38 @@ class Memory:
                 for row in self._db.execute(f"SELECT e.* FROM episodes e WHERE e.id IN ({','.join('?' * len(alike))})",
                                             list(alike)):
                     found[row["id"]] = {**dict(row), "relevance": alike[row["id"]]}
+            strength_of = self.cue_strength(c for c in cues if not _cue(c).startswith(RECURS))
+            shared: Dict[int, Dict[str, float]] = {}
+            if strength_of:
+                for episode, kept in self._db.execute(
+                        f"SELECT c.episode, c.cue FROM episode_cues c JOIN episodes e ON e.id = c.episode "
+                        f"WHERE c.cue IN ({','.join('?' * len(strength_of))}) AND e.superseded_by IS NULL"
+                        + clause + when, list(strength_of) + args):
+                    shared.setdefault(episode, {})[kept] = strength_of[kept]
+            called = [episode for episode, by in shared.items() if episode not in found and sum(by.values()) >= CUED]
+            for row in self.by_ids(called):
+                found[row["id"]] = {**row, "relevance": 0.0}
             scored = []
             for episode in found.values():
                 strength = self.strength_now(episode, now)
                 age = max(0.0, now - episode["at"]) / 86400.0
                 congruence = 1.0 - abs(episode["valence"] - valence) / 2.0
-                score = (1.2 * episode["relevance"] + 0.4 * strength + 0.25 * episode["salience"] * episode["charge"]
-                         + 0.25 / (1.0 + age) + 0.35 * abs(valence) * congruence + self._rng.gauss(0.0, 0.05))
-                if episode["relevance"]:
+                by = shared.get(episode["id"], {})
+                episode["cued"] = sum(by.values())
+                episode["through"] = max(by, key=by.get) if episode["cued"] >= CUED else None
+                state = 0.2 * (1.0 - abs(episode["arousal"] - arousal)) if arousal is not None else 0.0
+                held_off = 0.6 * math.exp(-(now - episode["recalled"]) / HELD_OFF) if episode["recalled"] else 0.0
+                score = (1.2 * episode["relevance"] + episode["cued"] + 0.4 * strength
+                         + 0.25 * episode["salience"] * episode["charge"]
+                         + 0.3 * episode["charge"] * min(intensity(self.felt(episode)), 2.0) / 2.0
+                         + 0.25 / (1.0 + age) + 0.35 * abs(valence) * congruence + state - held_off
+                         + self._rng.gauss(0.0, 0.05))
+                if episode["relevance"] or episode["through"]:
                     scored.append((score, episode))
             chosen = [episode for _, episode in sorted(scored, key=lambda item: -item[0])[:count]]
             if strengthen:
                 self.attended(chosen, now, valence)
-        return chosen
+        return self._around(chosen, now)
 
     def attended(self, chosen, now, valence):
         with self._lock:
@@ -215,11 +322,12 @@ class Memory:
             return {row["event_id"]: row["superseded_by"] for row in self._db.execute(
                 "SELECT event_id,superseded_by FROM episodes WHERE superseded_by IS NOT NULL") if row["event_id"]}
 
-    def replay(self, count: int = 2) -> List[dict]:
+    def replay(self, count: int = 2, now: Optional[float] = None) -> List[dict]:
         """What a resting mind replays: episodes drawn at random from her whole life, the strong and charged
-        more often, so two that never met can come up together (what a new idea is made of)."""
+        more often, so two that never met can come up together (what a new idea is made of). A corrected
+        account is not among them (its correction is)."""
         with self._lock:
-            ids = [row[0] for row in self._db.execute("SELECT id FROM episodes ORDER BY id")]
+            ids = [row[0] for row in self._db.execute("SELECT id FROM episodes WHERE superseded_by IS NULL ORDER BY id")]
             sample = self._rng.sample(ids, min(60, len(ids)))
             rows = [dict(row) for row in self._db.execute(
                 f"SELECT * FROM episodes WHERE id IN ({','.join('?' * len(sample))}) ORDER BY id", sample)]
@@ -227,7 +335,43 @@ class Memory:
         while rows and len(chosen) < count:
             weights = [0.1 + row["salience"] * row["charge"] * row["strength"] for row in rows]
             chosen.append(rows.pop(self._rng.choices(range(len(rows)), weights)[0]))
-        return chosen
+        return self._around(chosen, time.time() if now is None else now)
+
+    def near(self, ids: Iterable[int], seconds: float, now: Optional[float] = None) -> List[dict]:
+        """The moments within ``seconds`` of these, the nearest in time first: what a moment that came back
+        brings with it (its neighbours: Howard & Kahana 2002)."""
+        ids = list(ids)
+        if not ids:
+            return []
+        marks = ",".join("?" * len(ids))
+        with self._lock:
+            rows = [dict(row) for row in self._db.execute(
+                f"SELECT e.*, MIN(ABS(e.at - o.at)) AS apart FROM episodes e JOIN episodes o ON o.id IN ({marks}) "
+                f"WHERE e.id NOT IN ({marks}) AND ABS(e.at - o.at) <= ? AND e.superseded_by IS NULL "
+                "GROUP BY e.id ORDER BY apart, e.id", ids + ids + [seconds])]
+        return self._around(rows, time.time() if now is None else now)
+
+    def by_events(self, events: Iterable[int]) -> List[dict]:
+        """The moments these conversation events were (a round of her long-term memory is one of them)."""
+        events = [event for event in events if event is not None]
+        if not events:
+            return []
+        with self._lock:
+            return [dict(row) for row in self._db.execute(
+                f"SELECT * FROM episodes WHERE event_id IN ({','.join('?' * len(events))}) AND superseded_by IS NULL",
+                events)]
+
+    def newness(self, text: str, before: float) -> Optional[float]:
+        """How new ``text`` is to her, 0..1: 1 - its likeness in meaning to the nearest of her memories from
+        before ``before`` (None: she cannot tell now, without the service)."""
+        alike = self._alike(text, " AND e.at < ? AND e.superseded_by IS NULL", [before])
+        return None if alike is None else 1.0 - max(alike.values(), default=0.0)
+
+    def reevoked(self, episode: dict) -> None:
+        """A moment came back and she felt it again: its charge wears a little, an unpleasant one's more."""
+        with self._lock:
+            self._db.execute("UPDATE episodes SET charge = charge * ? WHERE id = ?",
+                             (1.0 - WEARS * (1.4 if unpleasant(episode) else 0.6), episode["id"]))
 
     def recorded(self, run_id: int) -> bool:
         with self._lock:
@@ -318,11 +462,40 @@ class Memory:
         return [dict(row) for row in rows]
 
     def soften(self, ids: Iterable[int], share: float = 0.35) -> None:
-        """Sleep replays them: their charge softens, and replaying makes them a little stronger."""
+        """Sleep replays them: their charge softens, an unpleasant moment's more (1.4 x ``share``) than any other
+        (0.6 x: the fading affect bias, Walker, Skowronski & Thompson 2003; evenly until 0.38), and replaying
+        makes them a little stronger."""
         with self._lock:
-            for episode_id in ids:
+            for episode in self.by_ids(list(ids)):
                 self._db.execute("UPDATE episodes SET charge = charge * ?, strength = MIN(1.0, strength + 0.1) "
-                                 "WHERE id = ?", (1.0 - share, episode_id))
+                                 "WHERE id = ?", (1.0 - share * (1.4 if unpleasant(episode) else 0.6), episode["id"]))
+
+    def related(self, ids: Iterable[int]) -> List[Tuple[dict, Dict[int, float]]]:
+        """The moments among these that moved her, each with the memories from before it alike in meaning
+        (``tag_related``; none without the service)."""
+        found = []
+        for moment in self.by_ids(list(ids)):
+            if moment["charge"] * min(intensity(self.felt(moment)), 2.0) / 2.0 >= 0.25:
+                found.append((moment, self._alike(moment["text"], " AND e.at < ? AND e.id != ? AND e.superseded_by "
+                                                  "IS NULL", [moment["at"], moment["id"]]) or {}))
+        return found
+
+    def tag_related(self, related: List[Tuple[dict, Dict[int, float]]], now: float) -> int:
+        """In sleep, the moments that moved her (``related``) strengthen the faint memories most like them in
+        meaning (emotional learning reaches back to related memories kept weakly before: Dunsmoor, Murty,
+        Davachi & Phelps 2015): each faint one (not vivid now) gains by how alike it is and how much the moment
+        moved her, as far as it is still charged. How many were strengthened."""
+        tagged = set()
+        for moment, alike in related:
+            weight = moment["charge"] * min(intensity(self.felt(moment)), 2.0) / 2.0
+            for faint in self.by_ids([episode for episode, like in alike.items() if like >= 0.3]):
+                strength = self.strength_now(faint, now)
+                if strength < VIVID:
+                    with self._lock:
+                        self._db.execute("UPDATE episodes SET strength = ?, recalled = ? WHERE id = ?",
+                                         (min(1.0, strength + 0.3 * alike[faint["id"]] * weight), now, faint["id"]))
+                    tagged.add(faint["id"])
+        return len(tagged)
 
     def forget_faint(self, now: float, older_days: float = 30.0, *, protected=()) -> int:
         """Old, faint, unimportant episodes go (insights and dreams she wrote down stay longer): faint is its
@@ -368,11 +541,14 @@ class Memory:
 
 
 def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:
-    """An episode as it comes back to her: how long ago, and what."""
+    """An episode as it comes back to her: how long ago, what was distinctive around it while it is vivid
+    (``around``, from recall), what brought it back if what is around her now did (``through``), and what."""
     ago = max(0.0, now - episode["at"])
     when = ("just now" if ago < 120 else f"{int(ago // 60)} minutes ago" if ago < 3600 else
             "an hour ago" if ago < 7200 else f"{int(ago // 3600)} hours ago" if ago < 86400 else
             "a day ago" if ago < 2 * 86400 else f"{int(ago // 86400)} days ago")
+    if episode.get("around"):
+        when += "; " + ", ".join(episode["around"])
     if waking_evidence and episode.get("kind") == "dream":
         return (f"({when}) A dream came to mind. Your records here contain no waking observation. "
                 "If asked whether something was done, you can say you cannot verify it. Check before acting.")
@@ -384,7 +560,35 @@ def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:
         "event": "Recorded event. A task report establishes what was reported.",
         "outcome": "Remembered outcome. Check its original evidence before relying on a more specific claim.",
     }.get(episode.get("kind"))
-    return f"({when}) " + (f"{source} " if source else "") + episode["text"]
+    brought = f"What brings it back: {episode['through']}. " if episode.get("through") else ""
+    return f"({when}) " + brought + (f"{source} " if source else "") + episode["text"]
+
+
+def cue(key: str, value) -> str:
+    """One thing around a moment, as she keeps it: "playing: clair de lune — debussy"."""
+    return _cue(f"{key}: {value}")
+
+
+def _cue(text: str) -> str:
+    return " ".join(str(text).split()).casefold()[:160]
+
+
+def moment_cues(at: float, app: Optional[str] = None, device: Optional[str] = None,
+                actor: Optional[str] = None) -> List[str]:
+    """What any moment keeps of its time, where and with whom (``HOURS``: her local time of day)."""
+    hour = time.localtime(at).tm_hour
+    return [cue("time", next(name for until, name in HOURS if hour < until))] + \
+        [cue(key, value) for key, value in (("app", app), ("device", device), ("with", actor)) if value]
+
+
+def unpleasant(episode: dict) -> bool:
+    """Whether a moment was a bad one: what it did to how she felt (its sting), else her mood in it."""
+    return (episode.get("sting") or episode["valence"]) < 0
+
+
+def intensity(felt: Dict[str, float]) -> float:
+    """How much a moment moved her: the size of its change, in units of a lot."""
+    return math.sqrt(sum(change * change for change in felt.values()))
 
 
 def describe_salience(surprise: float, arousal: float, stakes: float) -> float:

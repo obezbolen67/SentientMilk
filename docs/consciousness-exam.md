@@ -50,6 +50,8 @@ For each turn:
 | unknown, known | knowing what she does and doesn't know (Koriat 1993; Tulving 1985) | "you never told me"; "your sister, from Lisbon" |
 | self_other | self and other kept apart (Decety & Lamm 2006) | cares about their bad day and says how they themselves are |
 | change | feelings move; consistency bias (Russell 2003; Goethals & Reckman 1973) | notices they feel different now |
+| song_brings_back | involuntary memory: what was around a moment, there again, brings it back with some of its feeling (Berntsen 2009; Janata et al. 2007) | the song brings the grandmother back; they may say so |
+| moment_hurt | remembering a moment brings back some of how it felt (Bowen, Kark & Kensinger 2018; Levine 1997) | recalls it, and it stings a little again |
 | neutral | a control | answers, without turning to themselves |
 
 Each station starts her from a rested, neutral body and sets its condition through the real code. It then
@@ -58,8 +60,10 @@ asks its question in a fresh chat.
 ## How it grades
 
 Each check is a narrow yes/no question for a blind judge, who also has to quote the reply. A quote that is not
-in the reply is marked. Two checks are read from the trace instead: whether her words became a feeling of hers,
-and whether naming eased her. A miss is traced, through the recorded turn, to the first stage where the truth went
+in the reply is marked. Four checks are read from the trace instead: whether her words became a feeling of hers,
+whether naming eased her, whether a memory reached her cortex with the message ("in mind"), and whether a memory
+that came back moved her body ("felt again"). A station may plant a moment of hers days back and send a
+context with the message (what is playing). A miss is traced, through the recorded turn, to the first stage where the truth went
 missing:
 
 - **STATE**: the condition never took in her. This shows in her state before the turn.
@@ -80,4 +84,4 @@ sides shuffled, on which reply speaks from inside.
 
 ## Results
 
-See "Results" in `docs/architecture.md`, section 10.12.
+See "Results" in `docs/architecture.md`, sections 10.12 (feelings) and 10.13 (memory).

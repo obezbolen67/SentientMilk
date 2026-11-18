@@ -241,3 +241,17 @@ def test_in_her_sleep_what_she_no_longer_needs_lets_go_and_stays_gone(brain):
     assert brain.client.stats()["recall"]["forgotten"] == 3
     recall.forget_session("milk", "a")  # a deleted chat leaves nothing, not even what she let go of
     assert brain.client.stats()["recall"]["forgotten"] == 2
+
+
+def test_a_round_that_moved_her_outlasts_one_alike_that_did_not(brain):
+    """Feeling is bound to a memory more lastingly than its details (Yonelinas & Ritchey 2015): of two alike
+    rounds the one whose moment moved her, as far as it is still charged, is the one she keeps."""
+    recall, now, long_ago = brain.brain.recall, time.time(), time.time() - 400 * 86400
+    use(brain, Meaning())
+    recall.add("turn", "1", "milk", "a", long_ago, "they: hi hello\nyou: hey")
+    recall.add("turn", "2", "milk", "b", long_ago, "they: hello hi\nyou: hey")
+    brain.brain.mind.memory.add("exchange", "They said hi the day they came back", 0.6, 0.7, 0.6, at=long_ago,
+                                event_id=1, felt={"oxytocin": 1.5, "reward": 1.0})
+    recall.sweep()
+    assert recall.forget(now, sleep_review=True) == 1
+    assert {r[0] for r in recall._db.execute("SELECT ref FROM units WHERE source = 'turn'")} == {"1#0"}

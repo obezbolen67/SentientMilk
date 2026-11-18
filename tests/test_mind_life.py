@@ -831,4 +831,4 @@ def test_after_a_talk_her_mind_goes_on_from_what_was_said_not_from_her_old_thoug
     mind._think("wonder", None)
     assert "now let me play my rhythm game" in asked() and "He's still eating." not in asked()
     mind._think("wonder", None)  # nothing said since: her stream goes on from her last thought
-    assert 'Your last thought was: "I wonder how the user is doing."' in asked()
+    assert 'Your last thought, just now: "I wonder how the user is doing."' in asked()

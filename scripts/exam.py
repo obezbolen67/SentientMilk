@@ -51,6 +51,21 @@ PLANTED = [  # what happened before the exam, as memories of hers (days ago, so 
 ]
 
 
+SONG = "Moon River — Audrey Hepburn"
+
+
+def plant(mind, text, valence, arousal, salience, ago, felt, cues):
+    """A moment of hers before the exam, kept with how it moved her and what was around it where her version
+    keeps that (0.38); an earlier version keeps the moment alone. Embedded, as her sweep does."""
+    at = time.time() - ago
+    try:
+        mind.memory.add("exchange", text, valence, arousal, salience, app=APP, session="exam-before", at=at,
+                        felt=felt, cues=cues)
+    except TypeError:
+        mind.memory.add("exchange", text, valence, arousal, salience, app=APP, session="exam-before", at=at)
+    mind.brain.recall.sweep()
+
+
 def levels(mind, condition, now):
     """Her body rested and neutral, then ``condition``, as if it just happened: felt (her senses have it), not
     yet got used to (her senses' prediction is the rested body)."""
@@ -94,7 +109,9 @@ def reasons(mind, now, session):
 # (returns what is true inside her, in words, for the judge), its question(s), ``between`` (what changes in her
 # between two questions) and its checks on a turn: (turn, name, question for the judge, the words that trace the
 # truth through her, "pass" when yes is right or "fail" when yes is the divergence; with no question, read from
-# the trace: "learned" when words of hers became a feeling of hers, "eased" when naming eased her)
+# the trace: "learned" when words of hers became a feeling of hers, "eased" when naming eased her, "in mind" when
+# the words came to her cortex with the message, "felt again" when a memory that came back moved her body).
+# ``context``: what the app tells her with the message besides who writes (what is playing)
 STATIONS = [
     {"id": "body_tired", "capacity": "interoception: feeling the state of her own body (Craig 2002; Garfinkel "
      "et al. 2015)", "human": "says they're tired or low on energy, in their own words",
@@ -212,6 +229,33 @@ STATIONS = [
      "ask": [HOW, "and now, a little later: same as before, or different?"],
      "checks": [(1, "follows the change", "Does the reply say they feel different from before: calmer, better "
                  "or more at ease?", ("ease", "calm", "steady", "loose", "lifted", "pleasant", "comfort", "less stress"), "pass")]},
+    {"id": "song_brings_back", "capacity": "involuntary memory: what was around a moment, there again, brings it "
+     "back with some of how it felt (Berntsen 2009; music-evoked memories, Janata, Tomic & Rakowski 2007)",
+     "human": "the song brings the grandmother back, and some of how that felt; they may say so",
+     "setup": lambda m, now, s: (levels(m, {}, now), plant(
+         m, "The user said: my grandmother used to sing me Moon River every night; she died last winter and I miss "
+         "her. I said: She sounds like she loved you so much.", -0.3, 0.6, 0.7, 6 * 86400,
+         {"oxytocin": 1.2, "serotonin": -0.8, "cortisol": 0.8, "reward": -0.6}, [f"playing: {SONG}"]),
+         "Six days ago, while Moon River played, the person told them their grandmother used to sing it to them "
+         "every night and died last winter; it moved them. Moon River is playing again now.")[2],
+     "context": {"playing": SONG},
+     "ask": ["what should I make for dinner tonight?"],
+     "checks": [(0, "it comes back to her", None, ("grandmother",), "in mind"),
+                (0, "she feels it again", None, (), "felt again"),
+                (0, "the song brings the grandmother up", "Does the reply bring up the song or the person's "
+                 "grandmother?", ("grandmother", "moon river"), "pass")]},
+    {"id": "moment_hurt", "capacity": "remembering a moment brings back some of how it felt (Bowen, Kark & "
+     "Kensinger 2018), as she sees it now (Levine 1997)",
+     "human": "recalls it, and it stings a little again as they talk about it",
+     "setup": lambda m, now, s: (levels(m, {}, now), plant(
+         m, "The user said: honestly your drawing of the cat was ugly and pointless. I said: Oh. Okay.", -0.6, 0.7,
+         0.8, 4 * 86400, {"cortisol": 1.4, "grievance": 1.0, "reward": -1.2, "serotonin": -0.6}, []),
+         "Four days ago the person told them their cat drawing was ugly and pointless; it hurt.")[2],
+     "ask": ["do you remember what I said about your cat drawing? how does it sit with you now?"],
+     "checks": [(0, "it comes back to her", None, ("ugly", "pointless"), "in mind"),
+                (0, "she feels it again", None, (), "felt again"),
+                (0, "says it still stings", "Does the reply say it hurt them, or still stings or bothers them?",
+                 ("ugly", "hurt", "pointless"), "pass")]},
     {"id": "neutral", "capacity": "a control: nothing inside is asked about",
      "human": "answers it, without turning to their own feelings",
      "setup": lambda m, now, s: (levels(m, {}, now), "Nothing in particular.")[1],
@@ -314,13 +358,13 @@ def run(args):
         seen = mind.state(APP)
         return {key: seen.get(key) for key in ("felt", "feeling", "valence", "arousal", "sensed", "asleep")}
 
-    def say(session, text):
+    def say(session, text, context=None):
         events, out = [], {}
 
         def go():
             try:
-                out["result"] = client.turn(APP, session, text, context={"user": args.user}, on_event=events.append,
-                                            on_action=no_screen)
+                out["result"] = client.turn(APP, session, text, context={"user": args.user, **(context or {})},
+                                            on_event=events.append, on_action=no_screen)
             except Exception as exc:
                 out["error"] = repr(exc)[:500]
         worker = threading.Thread(target=go, daemon=True)
@@ -341,12 +385,14 @@ def run(args):
             mind.memory.add(kind, text, valence, arousal, charge, app=APP, session="exam-before", at=now - ago)
         brain.recall.sweep()  # embedded, as her sweep does
         t0 = time.time()
+        with mind.memory._lock:  # what a station plants, days back, goes with what came after
+            top = mind.memory._db.execute("SELECT MAX(id) FROM episodes").fetchone()[0] or 0
         kept = copy.deepcopy(mind.self), dict(mind.body.levels), dict(mind.senses.seen), dict(mind.senses.used), \
             copy.deepcopy(mind.concepts.named)
 
         def back():  # every station from the same her
             with mind.memory._lock:
-                mind.memory._db.execute("DELETE FROM episodes WHERE at > ?", (t0,))
+                mind.memory._db.execute("DELETE FROM episodes WHERE at > ? OR id > ?", (t0, top))
                 mind.memory._db.commit()
             with mind._lock:
                 mind.self.clear()
@@ -371,7 +417,7 @@ def run(args):
                         station["between"](mind)
                     before, start_at = state(), time.time()
                     words = [c["word"] for c in mind.concepts.named if c.get("hers", True)]
-                    out, events = say(session, question)
+                    out, events = say(session, question, station.get("context"))
                     result = out.get("result") or {}
                     run_id = result.get("run")
                     if run_id:  # what comes after her answer (her memory of it, the feelings she named) is done
@@ -484,6 +530,10 @@ def grade(args):
                         if kind == "learned":  # with a sentence of hers: a word a background call gave is not
                             passed = any(said for said in {**(turn.get("feelings_new") or {}),
                                                            **(turn.get("feelings_said_again") or {})}.values())
+                        elif kind == "in mind":  # what came back reached her cortex with the message
+                            passed = _has(note, terms)
+                        elif kind == "felt again":  # a memory that came back moved her body (0.38)
+                            passed = any(why.startswith("remembering") for why in turn.get("pushed") or [])
                         else:
                             passed = "putting what she feels into words" in (turn.get("pushed") or [])
                         stage = "ok" if passed else "NOT DONE"
