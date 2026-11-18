@@ -1,6 +1,7 @@
 """Files: read, search, find, edit and write, inside the folders the app opened to the brain."""
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -147,11 +148,24 @@ def _snippet(text: str, index: int, length: int) -> str:
 
 @tool(core=True, readonly=True, rule_arg="path", args={
     "path": "File or folder, absolute or relative to the working folder.",
-    "offset": "First line to show, from 1.", "limit": f"Lines to show (default {READ_LINES})."})
-def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_LINES):
+    "offset": "First line to show, from 1.", "limit": f"Lines to show (default {READ_LINES}).",
+    "sha256": "Optional expected SHA-256. Compare the whole file without returning its contents."})
+def files_read(ctx: ToolContext, path: str, offset: int = 1, limit: int = READ_LINES, sha256: str = ""):
     """Read a text file with line numbers, a window at a time; a folder lists its entries; an image is shown
     to you. Use offset and limit to page through long files. Always read a file before you edit it."""
     target = resolve(ctx, path)
+    if sha256:
+        if not isinstance(sha256, str) or not re.fullmatch("[0-9a-fA-F]{64}", sha256) or not target.is_file():
+            raise ToolError("A content check requires a SHA-256 digest and a regular file.")
+        digest = hashlib.sha256()
+        with target.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                if ctx.attention.stopped.is_set():
+                    raise ToolError("Content check interrupted.")
+                digest.update(block)
+        matched = digest.hexdigest() == sha256.lower()
+        return ToolResult("The bytes on disk match the expected contents." if matched
+                          else "The bytes on disk differ from the expected contents.", matched=matched)
     if target.is_dir():
         entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
         listed = [entry.name + ("/" if entry.is_dir() else "") for entry in entries]

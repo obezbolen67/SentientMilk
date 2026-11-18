@@ -110,7 +110,8 @@ class Option:
     check: Optional[dict] = None  # the tool operation and target whose result would resolve this forecast
 
     def calibrate(self, history: dict) -> None:
-        record = history.get((self.check or {}).get("tool"), {})
+        check = self.check or {}
+        record = history.get("file contents" if check.get("readback") else check.get("tool"), {})
         if record.get("resolved", 0) >= 4:
             self.chance = (1 + record["succeeded"]) / (2 + record["resolved"])
 
@@ -134,7 +135,10 @@ class Option:
         if isinstance(check, dict) and isinstance(check.get("tool"), str) and isinstance(check.get("target"), dict):
             target = {k: v for k, v in check["target"].items()
                       if isinstance(k, str) and isinstance(v, str) and 0 < len(v) <= 500}
+            readback = check.get("readback") is True and check["tool"] == "files_write" and "path" in target
             check = {"tool": check["tool"], "target": target} if target and target == check["target"] else None
+            if check and readback:
+                check["readback"] = True
         else:
             check = None
         return cls(act, str(data.get("what", ""))[:400], _number(data.get("effort"), 0.2),

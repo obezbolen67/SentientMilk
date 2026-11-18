@@ -5,7 +5,8 @@ import time
 import pytest
 from conftest import turn, wait_for
 
-from sentientmilk_framework.mind.body import Body, Temperament
+from sentientmilk_framework.mind.body import CHEMICALS, Body, Temperament
+from sentientmilk_framework.mind.feel import core
 from sentientmilk_framework.mind.life import Mind
 from sentientmilk_framework.mind.memory import line
 from sentientmilk_framework.mind.values import Values
@@ -161,6 +162,42 @@ def test_operation_forecasts_against_held_out_files_and_speakers(brain):
             option.calibrate(frozen)
             errors.append((option.chance - success) ** 2)
     assert len(errors) == 12 and sum(errors) / len(errors) == pytest.approx(83 / 588)
+
+
+@pytest.mark.mind
+@pytest.mark.parametrize("route,changed", [(True, False), (True, True), (False, True)])
+def test_selected_write_triggers_independent_check_and_encodes_its_outcome(brain, monkeypatch, route, changed):
+    mind = brain.brain.mind
+    path = brain.work / "statement.txt"
+    check = {"tool": "files_write", "target": {"path": str(path)}, "readback": True}
+    brain.provider.mind_replies["imagine"] = [json.dumps({
+        "appraisal": {"intent": "request"}, "options": [{"act": "do", "what": "save statement", "check": check}]})]
+    brain.provider.replies.extend([tool_call("files_write", {"path": str(path), "content": "expected\r\n"}),
+                                   "Here is my report."])
+    during = mind.during
+    def intervene(run, events):
+        during(run, events)
+        if events and events[-1]["type"] == "tool" and events[-1]["name"] == "files_write":
+            if changed:
+                path.write_bytes(b"changed independently")
+            if not route:
+                mind._working[run["id"]]["selected"] = []
+    monkeypatch.setattr(mind, "during", intervene)
+    monkeypatch.setattr(brain.brain, "note", lambda *args: None)
+    result = turn(brain, "cli", "Save my statement and check its contents.", on_approval=lambda _: "allow")
+    episode = wait_for(lambda: mind.memory.recent(1, ("exchange",)))[0]
+    events = brain.store.run_events(result["run"])
+    reads = [e for e in events if e["type"] == "tool" and e["name"] == "files_read"]
+    outcome = mind.self["decided"]["outcome"]
+    assert len(reads) == int(route)
+    assert ("capable" in outcome["measured"]) == route
+    if route:
+        assert reads[0]["matched"] == (not changed)
+        assert outcome["resolved_by"] == reads[0]["id"]
+        assert json.loads(episode["attention"])[0]["id"] == reads[0]["id"]
+        assert ("file contents differed" if changed else "file contents matched") in episode["text"]
+    else:
+        assert outcome["resolved_by"] is None and "unverified" in episode["text"]
 
 
 def test_recalled_dream_is_identified_even_if_its_words_sound_factual():
@@ -336,3 +373,38 @@ def test_new_forecast_uses_only_selected_independent_evidence(brain):
         disconnected = access([dreamed])
         assert selected["selected"][0]["id"] == key and selected["followed"] == {"capable": 0.9}
         assert disconnected["followed"] == {} and "broke" not in disconnected["memories"][0]
+
+
+@pytest.mark.parametrize("name", tuple(CHEMICALS))
+def test_channel_impulse_recovery_and_selective_clamp(name):
+    """Drive one channel, withdraw input, and read its actual downstream consumer with matched noise."""
+    def consumer(body):
+        if name == "serotonin":
+            return worth(Option("later", chance=0.9), Appraisal(), body, 0)["patience"]
+        if name in ("dopamine", "cortisol"):
+            return worth(Option("do", effort=0.8), Appraisal(), body, 0)["cost"]
+        if name == "oxytocin":
+            return worth(Option("do", gives=1), Appraisal(), body, 0)["company"]
+        if name in ("noradrenaline", "acetylcholine"):
+            return core(body.levels)[1]
+        return core(body.levels)[0]
+
+    for seed in range(50):
+        quiet = Body(Temperament.born(seed=seed), at=12000)
+        driven = Body.from_dict(quiet.to_dict())
+        baseline = consumer(quiet)
+        driven.apply({name: 0.15})
+        assert abs(consumer(driven) - baseline) > 0.0001
+        pulse = driven[name] - quiet[name]
+        driven.levels[name] = quiet[name]
+        assert consumer(driven) == baseline
+        driven.levels[name] += pulse
+        for _ in range(12):
+            driven.apply({name: 0.15})
+            for body in (driven, quiet):
+                body.advance(body.at + 60)
+        assert CHEMICALS[name].low <= driven[name] <= CHEMICALS[name].high
+        gap = abs(driven[name] - quiet[name])
+        for body in (driven, quiet):
+            body.advance(body.at + 4 * CHEMICALS[name].tau)
+        assert abs(driven[name] - quiet[name]) < gap

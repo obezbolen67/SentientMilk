@@ -60,6 +60,7 @@ she likes is used: a liked subject is a reward in itself (``_met``), her note sa
 thoughts know it.
 """
 
+import hashlib
 import json
 import logging
 import math
@@ -1258,13 +1259,62 @@ class Mind:
         return ("part" if leaned == "part" else "do") if changed else ("talk" if leaned in ("do", "part") else leaned)
 
     @staticmethod
-    def _observed(check, events):
+    def _operation(check, events):
         if not check or not check.get("target"):
             return None
         started = {e["call_id"] for e in events if e["type"] == "tool_start" and e.get("call_id")}
         return next((e for e in reversed(events) if e["type"] == "tool" and e.get("call_id") in started
                      and e["name"] == check["tool"] and all((e.get("arguments") or {}).get(k) == v
                      for k, v in check["target"].items())), None)
+
+    @classmethod
+    def _observed(cls, check, events):
+        operation = cls._operation(check, events)
+        if not operation or not check.get("readback"):
+            return operation
+        if operation.get("status") != "ok":
+            return None
+        target = cls._readback_target(operation)
+        if not target:
+            return None
+        receipt = cls._operation({"tool": "files_read", "target": target},
+                                 [e for e in events if e.get("id", 0) > operation["id"]])
+        if receipt and receipt.get("status") == "ok" and isinstance(receipt.get("matched"), bool):
+            return receipt
+        return None
+
+    @staticmethod
+    def _readback_target(operation):
+        args = operation.get("arguments") or {}
+        if isinstance(args.get("content"), str) and isinstance(args.get("path"), str):
+            return {"path": args["path"], "sha256": hashlib.sha256(args["content"].encode("utf-8")).hexdigest()}
+        return None
+
+    def verify_step(self, run, events):
+        """A selected write can cause a read-only check through the normal permission and event machinery."""
+        decision = run["options"].get("mind") or {}
+        check = decision.get("check") or {}
+        if not check.get("readback"):
+            return None
+        operation = self._operation(check, events)
+        if not operation or operation.get("status") != "ok":
+            return None
+        with self._lock:
+            selected = self._working.get(run["id"], {}).get("selected", [])
+            if (not selected or selected[0]["source"] != "tool" or selected[0]["id"] != operation["id"]
+                    or decision.get("epoch", 0) != self.self.get("epochs", {}).get(_chat(run["app"], run["session"]), 0)):
+                return None
+        call_id = f"readback_{operation['id']}"
+        for e in events:
+            if e.get("id", 0) > operation["id"] and (e["type"] == "input" or e.get("decision") == "deny"):
+                return None
+            if e["type"] == "assistant" and any(c.get("id") == call_id for c in e["message"].get("tool_calls") or []):
+                return None
+        target = self._readback_target(operation)
+        if not target:
+            return None
+        return {"role": "assistant", "content": "", "tool_calls": [
+            {"id": call_id, "type": "function", "function": {"name": "files_read", "arguments": json.dumps(target)}}]}
 
     @staticmethod
     def _work(events: list) -> Tuple[int, int, int]:
@@ -1324,6 +1374,12 @@ class Mind:
                      if far * told.get(name, 0.0) <= 0 or abs(far) - abs(told[name]) >= TOLD_AGAIN]
             decision = run["options"].get("mind") or {}
             receipt = next((e for e in reversed(events) if e["type"] == "tool"), None)
+            check = decision.get("check") or {}
+            if check.get("readback"):
+                operation = self._operation(check, events)
+                readback = next((e for e in reversed(events) if e["type"] == "tool" and operation
+                                 and e.get("call_id") == f"readback_{operation['id']}"), None)
+                receipt = self._observed(check, events) or readback or operation or receipt
             notice = ""
             if receipt and receipt.get("id") != done.get("last_result") and decision:
                 done["last_result"] = receipt.get("id")
@@ -1336,6 +1392,8 @@ class Mind:
                     trace["path"]["selected"] = selected
                 if receipt.get("status") != "ok":
                     notice = f"Your attempt with {receipt['name']} failed. The requested effect is still unverified."
+                elif receipt.get("matched") is False:
+                    notice = "The independent read found different contents. Revise your expectation before reporting success."
             if not fresh and not notice:
                 return
             told.update(fresh)
@@ -1440,14 +1498,18 @@ class Mind:
             attempted = any(e["type"] == "tool_start" for e in events)
             check = decision.get("check") or {}
             observed = self._observed(check, events)
+            if check.get("readback") and not (stopped or denied):
+                evidence = ("file contents unverified" if not observed else
+                            "file contents matched" if observed["matched"] else "file contents differed")
             if leaned in ("do", "part") and observed and not (denied or stopped):
-                success = float(observed["status"] == "ok")
+                success = float(observed.get("matched", observed["status"] == "ok"))
                 confidence = self.self.setdefault("tool_reliability", {"resolved": 0, "correct": 0, "squared_error": 0.0})
                 confidence["resolved"] += 1
                 confidence["correct"] += int(success >= 1)
                 confidence["squared_error"] += (decision["chance"] - success) ** 2
                 operations = self.self.setdefault("operations", {}).setdefault(run["app"], {})
-                record = operations.setdefault(observed["name"], {"succeeded": 0, "resolved": 0})
+                record = operations.setdefault("file contents" if check.get("readback") else observed["name"],
+                                               {"succeeded": 0, "resolved": 0})
                 record["succeeded"] += int(success)
                 record["resolved"] += 1
                 surprise = success - decision["chance"]
@@ -1486,6 +1548,8 @@ class Mind:
                 did = f" I leaned toward {LEANINGS[leaned]}."
             if decision.get("gated") and evidence == "tool effect observed":
                 did = " My tool recorded " + ", ".join(r["tool"] for r in receipts if r["status"] == "ok") + "."
+            elif check.get("readback"):
+                did = f" My check of {check['target']['path']}: {evidence}."
             elif decision.get("gated") and leaned in ("do", "part"):
                 did = f" I intended to {decision.get('what') or 'help'}. Completion was unverified."
             text = (f"{decision.get('with') or 'The user'} said: {decision['said']}{did}"
@@ -2129,7 +2193,7 @@ class Mind:
             self.self["looked"] = {"at": now, "about": about}
             if strategy == "reappraise":
                 trace = self.self.get("reappraisal") or {}
-                if receipt and receipt["status"] == "ok" and run["id"] == (decided or {}).get("run"):
+                if receipt and receipt["status"] == "ok" and receipt.get("matched", True) and run["id"] == (decided or {}).get("run"):
                     if receipt["id"] != trace.get("event"):
                         before = self.body.stress_drive
                         self.body.stress_drive *= 0.85

@@ -33,6 +33,7 @@ class ToolError(Exception):
 class ToolResult:
     text: str
     images: List[str] = field(default_factory=list)  # data URLs, shown to the model after the result
+    matched: Optional[bool] = None  # independent content comparison, when the tool actually made one
 
 
 @dataclass

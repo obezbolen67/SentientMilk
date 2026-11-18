@@ -59,6 +59,8 @@ goes well 0 to 1; gives: how much of what the one who writes asked for it gives 
 When a concrete tool operation and its target are known, append a sixth item to the doing option,
 for example {"tool":"files_write","target":{"path":"draft.txt"}}. Its chance then predicts that operation
 on that target returning successfully. Leave it out when the target or operation is unknown.
+If the goal depends on the file containing the submitted text, add "readback":true to the files_write check.
+This requests a separate content comparison after a successful write. It cannot verify that a program runs.
 If the message explicitly evaluates the identified prior turn, append an object with fields "run" (its numeric ID),
 "quote" (the exact evaluative words in this message), "dimension" (capable, company, or free), and "verdict"
 (positive or negative). Omit it for ambiguous reactions, greetings, and unrelated news. For an explicit factual correction append an object

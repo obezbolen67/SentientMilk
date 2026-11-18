@@ -298,7 +298,13 @@ class Loop:
                     brain.note(run["app"], run["session"], LAST_STEP)
                 if run["kind"] in ("turn", "task"):
                     self.brain.agents.take_mail(run)  # what its agents sent meanwhile
-                self.brain.runs.take_messages(run, emit)
+                steering = self.brain.runs.take_messages(run, emit)
+                if not steering and "files_read" in toolset.by_name and (not budget or steps + 1 < budget):
+                    verification = brain.mind.verify_step(run, events)
+                    if verification:
+                        store.add_event(run["app"], run["session"], run_id, "assistant",
+                                        {"message": verification, "usage": {}, "source": "content verification"})
+                        continue
                 message, usage = self._think(run, profile, toolset, emit)
                 store.add_event(run["app"], run["session"], run_id, "assistant", {"message": message, "usage": usage})
                 self._count(run_id, usage)
@@ -527,7 +533,8 @@ class Loop:
 
     def _result(self, run, call, name, arguments, result: ToolResult, status: str, emit) -> None:
         self.brain.store.add_event(run["app"], run["session"], run["id"], "tool", {
-            "call_id": call["id"], "name": name, "arguments": arguments, "content": result.text, "status": status})
+            "call_id": call["id"], "name": name, "arguments": arguments, "content": result.text, "status": status,
+            **({"matched": result.matched} if isinstance(result.matched, bool) else {})})
         emit({"type": "tool.end", "call_id": call["id"], "name": name, "arguments": arguments, "status": status,
               "result": result.text[:2000]})
 
