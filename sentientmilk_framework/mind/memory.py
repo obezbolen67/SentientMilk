@@ -252,7 +252,7 @@ class Memory:
         when = (" AND e.at < ?" if before is not None else "") + \
             (" AND NOT (e.app = ? AND e.session = ? AND e.at >= ?)" if held else "")
         args = list(kinds) + ([before] if before is not None else []) + list(held or ())
-        alike = self._alike(cue, clause + when + " AND e.superseded_by IS NULL", args)
+        alike = self._alike(cue, clause + when, args)
         if status is not None:
             status["available"] = alike is not None
         alike = alike or {}
@@ -261,7 +261,16 @@ class Memory:
             if alike:
                 for row in self._db.execute(f"SELECT e.* FROM episodes e WHERE e.id IN ({','.join('?' * len(alike))})",
                                             list(alike)):
-                    found[row["id"]] = {**dict(row), "relevance": alike[row["id"]]}
+                    for current in self.replacements([dict(row)]) if row["superseded_by"] else (row,):
+                        if kinds and current["kind"] not in kinds:
+                            continue
+                        if before is not None and current["at"] >= before:
+                            continue
+                        if held and (current["app"], current["session"]) == held[:2] and current["at"] >= held[2]:
+                            continue
+                        key = current["id"]
+                        if key not in found or found[key]["relevance"] < alike[row["id"]]:
+                            found[key] = {**current, "relevance": alike[row["id"]]}
             strength_of = self.cue_strength(c for c in cues if not _cue(c).startswith(RECURS))
             shared: Dict[int, Dict[str, float]] = {}
             if strength_of:
@@ -420,7 +429,8 @@ class Memory:
     def replay_window(self, start, end, pending, limit):
         with self._lock:
             return [dict(r) for r in self._db.execute(
-                "SELECT e.* FROM episodes e WHERE at > ? AND at <= ? AND kind IN ('exchange','event','thought') "
+                "SELECT e.* FROM episodes e WHERE at > ? AND at <= ? AND superseded_by IS NULL "
+                "AND kind IN ('exchange','event','thought') "
                 "ORDER BY EXISTS(SELECT 1 FROM episodes old WHERE old.superseded_by=e.id) DESC, "
                 "e.id IN (SELECT value FROM json_each(?)) DESC, salience * charge DESC, e.id DESC LIMIT ?",
                 (start, end, json.dumps(pending), limit))]
@@ -552,6 +562,10 @@ def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:
     if waking_evidence and episode.get("kind") == "dream":
         return (f"({when}) A dream came to mind. Your records here contain no waking observation. "
                 "If asked whether something was done, you can say you cannot verify it. Check before acting.")
+    if waking_evidence and episode.get("kind") == "thought":
+        return (f"({when}) You remember thinking: «{episode['text']}» "
+                "This recollection tells you only what crossed your mind. Whether the action happened is unknown. "
+                "You would need to check before answering yes or no.")
     source = {
         "dream": "You dreamed this scene while asleep. Its events are imagined. Verify any real-world action separately.",
         "thought": "This was a private thought. Any plan mentioned here still needs an execution record.",
