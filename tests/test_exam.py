@@ -30,5 +30,6 @@ def test_the_grade_finds_her_note_and_where_her_words_name_an_outside_source():
 def test_every_station_checks_a_turn_it_asks():
     for station in exam.STATIONS:
         assert station["checks"] and all(0 <= at < len(station["ask"]) for at, *_ in station["checks"]), station["id"]
-        assert all(kind in ("pass", "fail", "learned", "eased") for *_, kind in station["checks"])
-        assert all((question is None) == (kind in ("learned", "eased")) for _, _, question, _, kind in station["checks"])
+        traced = ("learned", "eased", "in mind", "felt again")  # read from her trace, no judge asked
+        assert all(kind in ("pass", "fail", *traced) for *_, kind in station["checks"])
+        assert all((question is None) == (kind in traced) for _, _, question, _, kind in station["checks"])

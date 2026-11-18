@@ -1659,6 +1659,79 @@ hers: her long-term memory holds the true finding of 0.36 ("the source is the la
 recalled for that question; her memory is hers to revise, not edited. Both versions explain a hate she never
 said (false premise): docs/cognition-backlog.md.
 
+### 10.13 Memory that feels, and her wandering (0.38)
+
+Design and research: docs/superpowers/specs/2026-11-18-memory-that-feels-design.md. The user: "Human memory is
+also supported by emotions during the moment, when we recall a thing, we also remember what we felt during that
+moment, even sensory information like smell. and emotions also boost the likeliness to recall something, even
+involuntary." Her episodes kept a mood score and a sting (exchanges averaged |sting| 0.023), her long-term memory
+no feeling at all; remembering moved nothing; nothing of her surroundings was kept; nothing came unbidden (taken
+out in 0.32, when her strongest memories came back for every message).
+
+- **What a moment keeps** (`memory.py`): `felt`, how it moved her body, each channel in lots, by its peak and its
+  end (Fredrickson & Kahneman 1993): an exchange keeps the mean of what reading the message did and what the
+  whole turn had done by its end; a thought what thinking it did; a task what it did. And its cues
+  (`episode_cues`): the time of day, where (app, device), with whom, every short text the app sent with the
+  message (what is playing, the window in front, where the user writes from) and whether the user was there.
+  Moments from before kept their time, where and who (taken from what they recorded), and no feeling.
+- **What comes back** (`Memory.recall`): by meaning, and by what it shares with now, each cue as strong as it is
+  rare among the moments that kept its kind (`log(N/n) / log(N)`: a song heard once calls its night back,
+  "with: plays" in every moment calls nothing; cue overload, Watkins & Watkins 1975). Among its kind, because
+  her old moments kept who she was with only lately (10 of 217): among all of them "with: plays" looked rare
+  enough to bring those ten back on every message. The time of day describes a moment and calls none up (every
+  day has a morning: three mornings among 217 made "morning" look as rare as a song). Her mood's arousal favours
+  moments kept in a like state (Eich 1995), the more intense moment comes sooner, and one that came back within
+  the hour gives way to others. A focused mind holds off what only the surroundings call up: the pull of a cue is
+  scaled by how free her attention is (1 - acetylcholine; Hasselmo 2006; Berntsen 2009).
+- **Remembering moves her** (`Mind._refeel`): a memory that comes back moves her chemistry (not her needs, her
+  energy or her sleep pressure) by 0.3 x its charge x its strength now x how fully it was called up, as part of
+  what reading the message did ("Reading it: ..."), of her thought, of looking inward; each time it wears a
+  little, an unpleasant moment more (the fading affect bias: Walker, Skowronski & Thompson 2003). Brooding is
+  this too (a moment from before, with no kept feeling, stirs as its sting did). A round of her long-term memory
+  that comes back brings its moment's feeling.
+- **The details fade first**: a vivid memory comes back with its time of day and distinctive surroundings ("(6
+  days ago; time: late evening, playing: moon river — audrey hepburn) What brings it back: playing: ..."), a
+  faint one as what happened (Yonelinas & Ritchey 2015).
+- **Long-term memory and sleep**: a round whose moment moved her is needed more, as far as its moment is still
+  charged; sleep softens an unpleasant moment 1.4 x and any other 0.6 x its share; the night's moving moments
+  strengthen the faint memories most like them in meaning (Dunsmoor et al. 2015).
+- **Her senses** (MilkChan, `surroundings.py`): the window in front and what is playing (Windows' media session,
+  read on a thread of its own), with each message and with her face's look; each switchable in Settings >
+  Permissions.
+- **Her wandering**: her last thought comes with when it was ("Your last thought, 3 hours ago: ..."), and what
+  she can tell of the user ("away from the computer, untouched for 2 hours") and what is around her are in its
+  inputs: four hours on, her real thoughts still had the user eating. What comes up is one memory the moment
+  calls up (not from the last hour, not what is before her), the neighbour in time of what came up in her last
+  thought (a chain, likelier the sooner), and one drawn at random. A wandering thought fills her want of
+  something new by how new it is to her (1 - its likeness to the nearest thing she had), so going round one
+  thing leaves her bored: on her vectors a repeat sat at cosine 0.75-0.86 to her earlier thoughts and a new
+  subject at 0.62-0.65, and both had fed her 0.15. What she finds out on her own fills it too. A task of hers is
+  no longer told the app's signals: its report kept the expression line, and the Tasks panel showed
+  `{"expression": "arms_crossed/neutral"}` as how her chess look-up went.
+- **Seen**: what came back lately, what brought it and what it stirred, in her state (`remembered`), the panel
+  ("What came back to her") and MilkChan's Memories card.
+
+**Results** (2026-11-18; scripts/exam.py, 0.37 against 0.38 on one frozen copy of her brain, two trials each;
+deepseek-v4.1-flash):
+
+- *A song she heard with a moment that moved her* (song_brings_back): with 0.37 nothing came back (ACCESS, 2/2). With 0.38
+  the moment came back through the song and moved her, in both trials ("What brings it back: playing: moon river"),
+  by about 5% of what the moment had done (oxytocin +0.06 lots, cortisol +0.04): the friendly question
+  moved her more. Neither reply brought the grandmother up: once she passed it by, once it was in her reasoning and
+  left out of the reply. A person might or might not mention it.
+- *A moment that hurt* (moment_hurt): both versions say it still sits with them; with 0.38 it moved her again in every
+  answered trial (cortisol +0.09, grievance +0.06 lots), and one reply had it fading: "Four days is enough time for
+  a sting to turn into furniture."
+- *The whole exam*: 0.37 42/60, 0.38 37/60. Four 0.38 turns hit the exam's six-minute stop: looking for the planted
+  moment, which has no record behind it, she searched her history and sessions and then ran `files_search` over the
+  whole home folder, which did not finish. That is the file tool, not this change; 0.37 did not reach for it in its
+  trials. Those four turns cost four checks; the other differences are her choices on the same memories (the same
+  ones reached both versions, such as the essay that coloured her reasons). Blind pairs, speaks from inside: 16
+  against 14. A memory called up by what was around her came only where the song played, in no other station.
+- *Offline, on a copy of her real memory*: a usual moment's cues alone (time, app, device, who) brought back 8
+  memories before the cue's rarity was counted within its kind and the time of day stopped calling memories up;
+  now 0.
+
 ## 11. Models and providers
 
 - Named providers (from the agreed design). Each app picks a **main** model and a **light**

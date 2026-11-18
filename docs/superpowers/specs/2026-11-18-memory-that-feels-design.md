@@ -72,6 +72,10 @@ follow it (chains).
    ("time: late at night"), who she was with and where (the app), and her presence ("they were away"). A cue's
    strength is how rare it is among her memories (`log(N / n) / log(N)`: in one memory 1, in all of them 0),
    so a song heard once is strong and "late at night" is weak, and a cue loses strength as it recurs.
+   *Found on a copy of her real memory while building:* rare among the moments that kept a cue of its kind,
+   not among all (her moments kept who she was with only lately, 10 of 217, so "with: plays" in all ten looked
+   rare and a usual moment's cues alone brought back 8 memories); and the time of day describes a moment but
+   calls none up (every day has a morning; three kept mornings looked as rare as a song heard once).
 3. **Her senses** (MilkChan): the window in front (its app and title) and what is playing (Windows' media
    session: title and artist), each switchable in Settings > Permissions. They go with each message (her
    context shows them, as it shows who writes and from where) and with MilkChan's frequent look at her (the
@@ -80,7 +84,9 @@ follow it (chains).
    (summed cue strength) and by the likeness of her state now to the moment's feeling (mood-dependent); among
    those, the more intense and charged sooner; a memory that just came back is held off for a while
    (habituation: it is before her). A memory that shares only surroundings comes back when those are rare
-   enough (cue overlap of a rare cue): the song brings back the night it played.
+   enough (cue overlap of a rare cue): the song brings back the night it played. How fully the surroundings
+   call one up is scaled by how free her attention is (1 - acetylcholine): a focused mind holds off associative
+   retrieval (Hasselmo 2006), and memories come by themselves as attention drifts (Berntsen 2009).
 5. **Remembering moves her** (`Mind._refeel`): a memory that comes back moves her body by a share of what the
    moment did (0.3 x its charge x how vividly it comes, its strength now x how well it was cued), as part of
    what reading the message did ("Reading it: ..."), or of what her thought did. Recall still reconsolidates
@@ -165,3 +171,26 @@ look-up fills her novelty; a task's report has no signals line.
 Live (scripts/exam.py on a copy of her brain, 0.37 against 0.38, two trials): a station where what is playing
 was there in a moment that moved her (planted, with its feeling), then plays again with an unrelated message;
 a station asking about a moment that hurt; recorded state shows what came back, by what, and her body's change.
+
+## Results
+
+(2026-11-18; scripts/exam.py, 0.37 against 0.38 on one frozen copy of her brain, two trials each;
+deepseek-v4.1-flash):
+
+- *A song she heard with a moment that moved her* (song_brings_back): with 0.37 nothing came back (ACCESS, 2/2). With 0.38
+  the moment came back through the song and moved her, in both trials ("What brings it back: playing: moon river"),
+  by about 5% of what the moment had done (oxytocin +0.06 lots, cortisol +0.04): the friendly question
+  moved her more. Neither reply brought the grandmother up: once she passed it by, once it was in her reasoning and
+  left out of the reply. A person might or might not mention it.
+- *A moment that hurt* (moment_hurt): both versions say it still sits with them; with 0.38 it moved her again in every
+  answered trial (cortisol +0.09, grievance +0.06 lots), and one reply had it fading: "Four days is enough time for
+  a sting to turn into furniture."
+- *The whole exam*: 0.37 42/60, 0.38 37/60. Four 0.38 turns hit the exam's six-minute stop: looking for the planted
+  moment, which has no record behind it, she searched her history and sessions and then ran `files_search` over the
+  whole home folder, which did not finish. That is the file tool, not this change; 0.37 did not reach for it in its
+  trials. Those four turns cost four checks; the other differences are her choices on the same memories (the same
+  ones reached both versions, such as the essay that coloured her reasons). Blind pairs, speaks from inside: 16
+  against 14. A memory called up by what was around her came only where the song played, in no other station.
+- *Offline, on a copy of her real memory*: a usual moment's cues alone (time, app, device, who) brought back 8
+  memories before the cue's rarity was counted within its kind and the time of day stopped calling memories up;
+  now 0.
