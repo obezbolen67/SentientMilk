@@ -279,14 +279,22 @@ def imagined(text: str) -> dict:
 
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),
-          thoughts: List[str] = (), people: List[str] = (), unsaid: Optional[tuple] = None) -> str:
+          thoughts: List[str] = (), people: List[str] = (), unsaid: Optional[tuple] = None, did: List[str] = (),
+          going: List[str] = ()) -> str:
     """The note she reads before answering (it goes with the user's message, never shown to them).
-    ``thoughts``: what she thought while nobody wrote, so her time alone is hers when they are back;
+    ``thoughts``: what she thought while nobody wrote, so her time alone is hers when they are back; ``did``:
+    what she did since (a task's end, a job's, as she keeps them), all of it; ``going``: what of hers is still
+    going, wherever it began (until 0.42 neither: asked about a job her own task left running, she searched her
+    conversations for it in vain);
     ``people``: those she knows that the message names, as they come to her mind (people.py); ``unsaid``:
     (tell or ask, to whom, what) she meant to say and has not had the chance to."""
     parts = [felt.rstrip(".") + "."]
     if thoughts:
         parts.append("Since you last talked you were thinking: " + " ".join(f'"{thought}"' for thought in thoughts))
+    if did:
+        parts.append("What you did since you last talked: " + "; ".join(d.rstrip(".") for d in did) + ".")
+    if going:
+        parts.append("Still going: " + "; ".join(going) + ".")
     if unsaid:
         want, who, say = unsaid
         parts.append(f"You've been wanting to {'ask' if want == 'ask' else 'tell'} {who}: {say}")

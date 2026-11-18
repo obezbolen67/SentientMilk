@@ -38,14 +38,15 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
          unsaid: Optional[Tuple[str, str, str]] = None, put_off: Sequence[str] = (),
          moved: Sequence[Tuple[str, float, Optional[str]]] = (), leaned: Optional[Tuple[str, Sequence[str]]] = None,
          self_view: str = "", about: str = "", recalled: Optional[Sequence[Tuple[str, float]]] = None,
-         familiar: Sequence[Tuple[str, str, str]] = ()) -> str:
+         familiar: Sequence[Tuple[str, str, str]] = (), did: Sequence[str] = (), going: Sequence[str] = ()) -> str:
     """What she finds looking inward, in words. ``felt``: her body in body words (Felt.words: never a feeling's
     name); ``tone``: Felt.tone(), all she can tell when ``aware`` is under AWARE; ``familiar``: feelings she has
     named herself that her body feels like now, (word, her own words then, when): the memory of saying it, never
     a name put on her (0.37); ``thoughts``: since she woke, newest first, (thought, what came of it); ``unsaid``:
     (tell or ask, to whom, what); ``put_off``: what she put off; ``moved``: (the moment as it comes back, its
     sting, what she called it if she put it into words); ``leaned``: (the way she leaned, her reasons); ``about`` and ``recalled``: what she looked for and
-    what came back, (memory, its strength now)."""
+    what came back, (memory, its strength now); ``did``: what she did since she woke, as she keeps it, oldest
+    first; ``going``: what of hers is still going (0.42)."""
     parts: List[str] = []
     if aware >= AWARE:
         parts.append(felt.rstrip(".") + ".")
@@ -62,6 +63,10 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
     if unsaid:
         want, who, say = unsaid
         parts.append(f"You've been wanting to {'ask' if want == 'ask' else 'tell'} {who}: {say}")
+    if did:
+        parts.append("What you did today: " + "; ".join(d.rstrip(".") for d in did) + ".")
+    if going:
+        parts.append("Still going: " + "; ".join(going) + ".")
     if put_off:
         parts.append("What you put off: " + "; ".join(put_off) + ".")
     if moved:

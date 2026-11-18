@@ -61,11 +61,23 @@ def shown(path: Path) -> str:
 
 # ============== Sessions ==============
 
-def chats(brain, app: str) -> List[dict]:
-    """The app's conversations that have something in them, newest first: not its agents' or tasks' sessions."""
+HELPERS = ("task-", "agent-", "summary-")  # sessions that are not conversations of hers
+
+
+def doing(own: dict) -> str:
+    """What a task of hers set out to do on her own (its run's ``own``), in a few words."""
+    return f"looking up {own.get('what')}" if own.get("want") == "look_up" else str(own.get("what") or "")
+
+
+def chats(brain, app: str, own: bool = False) -> List[dict]:
+    """The app's conversations that have something in them, newest first: not its agents' or tasks' sessions.
+    With ``own`` also the tasks she did on her own (each with ``own``: its run; its title what she set out to
+    do), hers as much as what she said (until 0.42 her session tools never showed them)."""
     agents = {session for _, session, _ in brain.store.agent_sessions(app)}
-    found = [s for s in brain.store.sessions(app) if s["last_active"] and s["id"] not in agents
-             and not s["id"].startswith(("task-", "agent-", "summary-"))]
+    mine = {run["session"]: run for run in brain.store.own_tasks(app)} if own else {}
+    found = [{**s, "own": mine[s["id"]], "title": s["title"] or "on your own: " + doing(mine[s["id"]]["options"]["own"])}
+             if s["id"] in mine else s for s in brain.store.sessions(app)
+             if s["last_active"] and s["id"] not in agents and (s["id"] in mine or not s["id"].startswith(HELPERS))]
     return sorted(found, key=lambda s: s["last_active"], reverse=True)
 
 
@@ -74,9 +86,9 @@ def label(session: dict) -> str:
 
 
 def find_session(brain, app: str, ref: str) -> dict:
-    """One of the app's conversations by id, or by its exact title."""
+    """One of the app's conversations, or of the tasks she did on her own, by id or by its exact title."""
     text = str(ref or "").strip()
-    found = chats(brain, app)
+    found = chats(brain, app, own=True)
     match = next((s for s in found if s["id"] == text), None) or next(
         (s for s in found if (s["title"] or "").casefold() == text.casefold()), None)
     if match is None:
@@ -90,10 +102,10 @@ def summary(brain, app: str, session: str) -> str:
     return (compaction or {}).get("summary") or ""
 
 
-def turns(brain, app: str, session: str) -> List[List[dict]]:
-    """Its plain turns (no tool calls): each a user message and the replies after it."""
+def turns(brain, app: str, session: str, tools: bool = False) -> List[List[dict]]:
+    """Its plain turns (with ``tools``, its tool calls too): each a user message and what came after it."""
     grouped: List[List[dict]] = []
-    for entry in brain.history(app, session):
+    for entry in brain.history(app, session, tools=tools):
         if entry["role"] == "user" or not grouped:
             grouped.append([])
         grouped[-1].append(entry)
@@ -104,8 +116,33 @@ def speaker(entry: dict) -> str:
     return "user" if entry["role"] == "user" else "you"
 
 
+def _own_card(brain, app: str, found: dict, kits: set) -> str:
+    """A task she did on her own: what she set out to do, what she kept of it, and the jobs it started."""
+    run = found["own"]
+    lines = [f'[Your task "{label(found)}" ({found["id"]}) · {run["status"]} · last active {stamp(found["last_active"])}]']
+    mind = getattr(brain, "mind", None)
+    kept = mind.memory.of_run(run["id"]) if mind is not None else None
+    reply = ((run.get("result") or {}).get("reply") or "") if run["status"] == "completed" else ""
+    if kept:
+        lines.append("What you kept of it: " + short(kept["text"], SUMMARY_CHARS))
+    else:  # not kept (yet: it still works), or forgotten
+        lines.append("Goal: " + short(run["options"].get("goal"), TURN_CHARS))
+        if reply:
+            lines.append("Report: " + short(reply, SUMMARY_CHARS))
+    jobs = brain.store.run_jobs(run["id"])
+    if jobs:
+        lines.append("Jobs it started: " + "; ".join(
+            f"job {job['id']} ({job['status']}" + (f", exit code {job['exit_code']}" if job["exit_code"] is not None else "")
+            + f"): {short(job['command'], 160)}" for job in jobs))
+    if "sessions" in kits:
+        lines.append(f'Each step of it: sessions_read(session="{found["id"]}", part="turns")')
+    return "\n".join(lines)
+
+
 def _session_card(brain, app: str, session: str, ref: str, kits: set) -> str:
     found = find_session(brain, app, ref)
+    if found.get("own"):
+        return _own_card(brain, app, found, kits)
     entries = brain.history(app, found["id"])
     said = [e for e in entries if e["role"] == "user"]
     lines = [f'[Mentioned session "{label(found)}" ({found["id"]}) · {plural(len(said), "turn")} · '

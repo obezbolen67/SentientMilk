@@ -177,6 +177,42 @@ def _chat(app: str, session: str) -> str:
     return f"{app}\n{session}"
 
 
+# the goal a thought of hers starts a task with: something she decided to do, or something to look up
+DECIDED = ("This comes from you: nobody asked. You were thinking: \"", "\" and you decided to do it: ")
+LOOK_UP = "Out of your own curiosity, look this up for yourself: "
+
+
+def _own(run: dict) -> Optional[dict]:
+    """What a task set out to do if a thought of hers started it (``own``: want, what, the thought, its
+    episode); None if someone asked for it."""
+    return (run.get("options") or {}).get("own") if run.get("kind") == "task" else None
+
+
+def _own_from_goal(goal: str) -> Optional[dict]:
+    """A task from before 0.42 said whose it was only in its goal: in the words her thought started it with."""
+    if goal.startswith(LOOK_UP):
+        return {"want": "look_up", "what": goal[len(LOOK_UP):].rstrip("."), "thought": "", "episode": None}
+    if goal.startswith(DECIDED[0]) and DECIDED[1] in goal:
+        thought, what = goal[len(DECIDED[0]):].split(DECIDED[1], 1)
+        return {"want": "do", "what": what, "thought": thought, "episode": None}
+    return None
+
+
+def _doing(own: dict) -> str:
+    """What she set out to do on her own, in a few words."""
+    return f"looking up {own.get('what')}" if own.get("want") == "look_up" else str(own.get("what") or "")
+
+
+def _command(job: dict) -> str:
+    return " ".join(str(job.get("command") or "").split())[:160]
+
+
+def _kept_in(run: dict) -> str:
+    """Where what a task did is kept: a task of hers in its own session, wherever she was (a chat deleted takes
+    what was said there, not what she did on her own); one someone asked for, in the chat it was asked in."""
+    return run["session"] if _own(run) else run["options"].get("parent_session") or run["session"]
+
+
 def _quote(said: str) -> str:
     said = " ".join(str(said).split())
     return f'"{said[:QUOTED]}..."' if len(said) > QUOTED else f'"{said}"'
@@ -271,6 +307,10 @@ class Mind:
                 self._bring_up_to_date()
             except Exception:
                 logger.exception("Could not set right what an older mind kept")
+            try:
+                self._take_in_deeds()
+            except Exception:
+                logger.exception("Could not take in what she did on her own")
         self._thread = threading.Thread(target=self._live, name="mind", daemon=True)
         self._thread.start()
         if not self.people.met_past:  # once: the people of her life before she knew people (0.31)
@@ -573,9 +613,11 @@ class Mind:
                     urge["run"] = run["id"]  # the app lets her say what she meant to: said once she does (after)
                 felt = feel(body, self.senses, now)
                 self._told(run, felt)
-                return prompts.inner(felt.words())
+                return prompts.inner(felt.words(), going=self._doings(now, now)[1])
             said = said[:SAID_CHARS]
             contact, urge = self.self.get("contact"), self.self.get("urge")
+            # since they last talked: since that chat began her last turn, or (it was deleted) her last message out
+            since = (contact or self.self.get("said") or {}).get("at")
             actor = self._face(run).casefold()
             social = self.self.setdefault("contacts", {}).setdefault(chat, {}).setdefault(actor, {})
             away = now - social["at"] if social.get("at") else None
@@ -607,9 +649,10 @@ class Mind:
             came = self._arrives(run, said, pictures, now, candidates)
             felt, memories, novelty = came["felt"], came["memories"], came["novelty"]
             self._told(run, felt)
-            # her time alone is hers when they are back: what she thought since they last wrote, the newest two
-            thoughts = [t["thought"][:THOUGHT_CHARS] for t in self.self["thoughts"]
-                        if contact and t["at"] > contact["at"]][:2]
+            # her time alone is hers when they are back: what she thought since they last wrote, the newest two;
+            # what she did since, all of it, and what of hers is still going, wherever it began
+            thoughts = [t["thought"][:THOUGHT_CHARS] for t in self.self["thoughts"] if since and t["at"] > since][:2]
+            did, going = self._doings(since or now, now)
             born = self.self["born"]
         if not born:
             self._birth(profile["persona"])
@@ -767,7 +810,7 @@ class Mind:
                                     "run": run["id"], "app": run["app"], "session": run["session"], "path": path, "outcome": None}
             if option.act == "later":
                 self.self["concerns"].append({"what": option.what or said[:200], "app": run["app"],
-                                              "session": run["session"], "at": now})
+                                              "session": run["session"], "at": now, "run": run["id"]})
             self.self["contact"] = {"app": run["app"], "session": run["session"], "actor": self._face(run).casefold(), "at": now}
             likes, dislikes = self.values.fond(subjects(seen.tags))
             felt_words = felt.words(moved_by=way) \
@@ -777,7 +820,7 @@ class Mind:
             note = prompts.inner(felt_words, memories, option.act if choice else None, option.what,
                                  choice.reasons if choice else [], thoughts,
                                  [People.line(person) for person in came["mentioned"]],
-                                 (unsaid["want"], who, unsaid["say"]) if unsaid else None)
+                                 (unsaid["want"], who, unsaid["say"]) if unsaid else None, did, going)
             self.self.setdefault("appraised", {})[chat] = {"run": run["id"], "decision": decision, "note": note}
             self.save()
             self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
@@ -1724,6 +1767,16 @@ class Mind:
                         if e["id"] != (about or {}).get("id")][:self._span()]
                 for episode in came:
                     episode["quality"] = self._quality(episode)
+            # what the thought goes over: the talk, the thought it goes on from, the moment it dwells on, what
+            # she put off (the turn she put it off in). It goes with that if that is taken back (Memory.retract);
+            # until 0.42 a deleted chat took every thought she had while it was the last one she talked in
+            if kind == "wonder":
+                grew = [talked["id"]] if talked else [last["episode"]] if last and last.get("episode") else []
+            elif kind == "ruminate":
+                grew = [about["id"]] if (about or {}).get("id") else []
+            else:
+                put_off = self.memory.of_run(about["run"]) if (about or {}).get("run") else None
+                grew = [put_off["id"]] if put_off else []
             memories = [self._line(e, now)[:THOUGHT_CHARS] for e in came]
             levels = dict(self.body.levels)  # before the thought: what thinking it did is kept with it
             self._refeel([(e, e["quality"]) for e in came], now)
@@ -1779,7 +1832,8 @@ class Mind:
                 self._name(named, thought, now, moment=about if kind == "ruminate" else None, situation=thought)
             episode = self.memory.add("thought", thought, felt.valence, felt.arousal, 0.25 + (0.2 if kind == "ruminate" else 0.0),
                             at=now, origins=[e["id"] for e in came], app=(contact or {}).get("app", ""),
-                            session=(contact or {}).get("session", ""), felt=moved(levels, body.levels), cues=cues)
+                            session=(contact or {}).get("session", ""), felt=moved(levels, body.levels), cues=cues,
+                            grew_from=grew)
             mine = {"episode": episode, "at": now, "kind": kind, "thought": thought, "want": want}
             self.self["thoughts"] = ([mine] + self.self["thoughts"])[:SHOWN_THOUGHTS]
             say = " ".join(str(answer.get("say") or "").split())[:600] or thought
@@ -1812,12 +1866,14 @@ class Mind:
             elif want == "do" and what and where:
                 if kind == "resume":
                     self.self["concerns"] = [c for c in self.self["concerns"] if c != about]
-                task = (*where, f"This comes from you: nobody asked. You were thinking: \"{thought}\" and you decided "
-                        f"to do it: {what}", False)
+                task = (*where, f"{DECIDED[0]}{thought}{DECIDED[1]}{what}", False,
+                        {"want": "do", "what": what, "thought": thought, "episode": episode})
             elif want == "look_up" and where and answer.get("look_up"):
                 # what she finds stays with her as the task's end does (_remember_task)
-                task = (*where, f"Out of your own curiosity, look this up for yourself: {str(answer['look_up'])[:300]}.",
-                        True)  # hers: nobody is told it ended
+                sought = " ".join(str(answer["look_up"]).split())[:300]
+                task = (*where, f"{LOOK_UP}{sought}.",
+                        True,  # hers: nobody is told it ended
+                        {"want": "look_up", "what": sought, "thought": thought, "episode": episode})
             if task:
                 mine["went"] = "task"
             if kind == "resume" and about in self.self["concerns"]:
@@ -1833,8 +1889,8 @@ class Mind:
                               {"want": urge["want"], "text": urge["text"], "thought": thought,
                                "session": urge["session"]})
         if task:
-            app, session, goal, quiet = task
-            self.brain.runs.start_task(app, session, goal, quiet=quiet)
+            app, session, goal, quiet, own = task
+            self.brain.runs.start_task(app, session, goal, quiet=quiet, own=own)
 
     def _unbidden(self, stream: str, cues: List[str], felt, last: Optional[dict], talked: Optional[dict],
                   now: float) -> List[dict]:
@@ -2178,6 +2234,8 @@ class Mind:
                 person = self._with(urge["app"], urge["session"])
                 unsaid = (urge["want"], person["name"] if person else "the user", urge["say"])
             put_off = [c["what"][:200] for c in self.self["concerns"][-span:]]
+            did, going = self._doings(woke, now)  # what she did today, the latest her span holds; what goes on
+            did = did[-2 * span:]
             stirred = sorted((e for e in self.memory.since(woke, kinds=("exchange", "event", "thought"))
                               if abs(e["sting"]) >= 0.1), key=lambda e: -abs(e["sting"]) * e["charge"])[:span]
             called = {one["episode"]: concept["word"] for concept in self.concepts.named if concept["hers"]
@@ -2220,7 +2278,7 @@ class Mind:
                 return "The evidence changed while you were looking. Check again."
             self._refeel([(e, e["relevance"]) for e in came_back], now)  # what she looked for, felt again
         report = inward.view(words, felt.tone(), aware, thoughts, unsaid, put_off, moved, leaned, self_view, about,
-                             recalled, familiar)
+                             recalled, familiar, did, going)
         naming = " ".join(str(naming or "").split())[:300]
         if naming:  # the moment she named: the one that came back for what she looked for, or her now
             answering = ((self.brain.store.run(run["id"]) or {}).get("options") or {}).get("mind") or {} if run else {}
@@ -2322,23 +2380,93 @@ class Mind:
         valence, aroused = core(self.body.levels)
         levels = dict(self.body.levels)
         self.body.apply({"novelty": 0.3 * (0.5 if newness is None else newness)}, "new to her: " + text[:QUOTED])
-        self.memory.add("event", text, valence, aroused, 0.4, app=run["app"],
-                        session=run["options"].get("parent_session") or run["session"], at=now, run_id=run["id"],
-                        felt=moved(levels, self.body.levels), cues=self._cues(None, now, run["app"]))
+        self.memory.add("event", text, valence, aroused, 0.4, app=run["app"], session=_kept_in(run), at=now,
+                        run_id=run["id"], felt=moved(levels, self.body.levels), cues=self._cues(None, now, run["app"]))
 
     def _task_moment(self, run: dict) -> str:
-        """What a task of hers was, as she keeps it: what she set out to do and how it went."""
-        goal = " ".join(str(run["options"].get("goal") or "").split())
-        for mark, said in (("you decided to do it: ", "I decided on my own to "),
-                           ("look this up for yourself: ", "Out of my own curiosity I looked up: ")):
-            if mark in goal:
-                goal = said + goal.split(mark, 1)[1]
-                break
+        """What a task of hers was, as she keeps it: what she set out to do (on her own or asked), how it went,
+        and the jobs it started, which may go on without it (until 0.42 they were not in it: asked what job 447
+        was, she could not tell it was hers)."""
+        own = _own(run)
+        if own:
+            goal = ("Out of my own curiosity I looked up: " if own.get("want") == "look_up"
+                    else "I decided on my own to ") + str(own.get("what") or "")
         else:
-            goal = "I worked on: " + goal
+            goal = "I worked on: " + " ".join(str(run["options"].get("goal") or "").split())
         reply = " ".join(signals.split(str((run.get("result") or {}).get("reply") or ""))[1].split())
+        jobs = self.brain.store.run_jobs(run["id"])
         return _said(f"{goal[:300].rstrip('.')}. " + (f"How it went: {reply[:500]}" if reply else f"It {run['status']}")
-                     + ".")
+                     + "." + (" Jobs I started: " + ", ".join(f"{job['id']} ({_command(job)})" for job in jobs) + "."
+                              if jobs else ""))
+
+    def _doings(self, since: float, now: float) -> Tuple[List[str], List[str]]:
+        """What she did from ``since`` on (her tasks' ends, and the ends of jobs they left running, as she keeps
+        them), oldest first, and what of hers is still going: her tasks, and every job left running (whose it
+        is: a task of hers, on her own or asked, or a chat). One brain does them all, whichever app she is in."""
+        did = [self._line(e, now)[:THOUGHT_CHARS] for e in sorted(
+            self.memory.since(since, kinds=("event",)), key=lambda e: e["at"])]
+        store, going = self.brain.store, []
+        for task in reversed(store.runs(kind="task", statuses=("queued", "working", "input_required"), limit=-1)):
+            own = _own(task)
+            going.append(f"task {task['id']} " + (f"on your own ({_doing(own)})" if own else
+                         f"({' '.join(str(task['options'].get('goal') or '').split())[:160]})")
+                         + f", started {_ago(now - task['created'])}")
+        for job in store.active_jobs():
+            run = store.run(job["run"]) if job.get("run") else None
+            own = _own(run) if run else None
+            whence = (f"from your task {run['id']}" + (f" on your own ({_doing(own)})" if own else "")
+                      if run and run["kind"] == "task" else f"in {job['session']}")
+            going.append(f"job {job['id']}, {whence}: {_command(job)}, started {_ago(now - job['started'])}")
+        return did, going
+
+    def _take_in_deeds(self) -> None:
+        """What she did on her own, set right as she starts: a task of hers from before 0.42 is marked hers (its
+        goal is in the words her thought started it with), what she kept of one under the chat she was in is
+        kept where it happened, and one that ended while nothing took it in becomes a moment of hers as of when
+        it ended (her mind failed to, or a deleted chat took it before 0.42: in the user's brain, 2026-11-18,
+        seven of her twelve finished tasks), with no feeling: how it moved her then is not known. Each task
+        once: one that ended since she last looked."""
+        store = self.brain.store
+        checked = self.self.get("deeds_checked") or 0.0
+        for run in store.runs(kind="task", limit=-1):
+            own = run["options"].get("own") or _own_from_goal(str(run["options"].get("goal") or ""))
+            if not own:
+                continue
+            if "own" not in run["options"]:
+                run["options"] = store.update_run_options(run["id"], lambda options: {**options, "own": own},
+                                                          touch=False)
+            kept = self.memory.of_run(run["id"])
+            if kept and kept["session"] != run["session"]:
+                self.memory.refile(kept["id"], run["session"])
+            if run["status"] in ("completed", "failed") and run["updated"] > checked \
+                    and not self.memory.recorded(run["id"], run["session"]):
+                self.memory.add("event", self._task_moment(run), 0.0, 0.0, 0.4, app=run["app"],
+                                session=run["session"], at=run["updated"], run_id=run["id"],
+                                cues=moment_cues(run["updated"], run["app"]))
+        with self._lock:
+            self.self["deeds_checked"] = time.time()
+            self.save()
+
+    def job_ended(self, job: dict, code: int, stopped: bool, tail: List[str]) -> None:
+        """A job a task left running ended after the task did (while the task works, it reads the job's end
+        itself): what came of it is a moment of hers, kept with the task. Until 0.42 the job's note went to the
+        task's session, where nothing reads it any more, and she never knew."""
+        run = self.brain.store.run(job["run"]) if job.get("run") else None
+        if not run or run["kind"] != "task" or run["status"] not in ("completed", "failed", "cancelled"):
+            return
+        own = _own(run)
+        goal = " ".join(str(run["options"].get("goal") or "").split())
+        whose = f"on my own ({_doing(own)})" if own else f"for a task ({goal[:120]})"
+        lines = " / ".join(" ".join(line_.split()) for line_ in tail if line_.strip())
+        text = (f"The job I left running {whose} ended: job {job['id']} ({_command(job)}) "
+                + ("was stopped" if stopped else f"finished with exit code {code}") + "."
+                + (f" Its last lines: {lines[-400:]}" if lines else ""))
+        with self._lock:
+            now = time.time()
+            valence, aroused = core(self.body.levels)
+            self.memory.add("event", text, valence, aroused, 0.3, app=run["app"], session=_kept_in(run), at=now,
+                            cues=self._cues(None, now, run["app"]))
+            self.save()
 
     def _meet_people(self, moments, facts=(), batch=None) -> bool:
         """What she knows of the people in ``moments`` (and in ``facts``: what she kept before 0.30) settles,

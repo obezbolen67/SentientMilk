@@ -223,9 +223,14 @@ def test_what_the_user_types_reaches_the_page_and_nowhere_else(web, site, caplog
     places = {"events": json.dumps(events, ensure_ascii=False), "errors": " ".join(errors), "logs": caplog.text,
               "transcript": json.dumps(web.client.session("cli", "leak"), ensure_ascii=False),
               "provider": json.dumps(web.provider.sent, ensure_ascii=False)}
-    for name in ("brain.sqlite3", "brain.sqlite3-wal"):  # the database and its journal, as bytes
-        path = web.home / name
-        places[name] = path.read_bytes().decode("utf-8", "replace") if path.exists() else ""
+    # the database and its journal, as bytes: the journal first, the database after it (a checkpoint between the
+    # two moves what was in the journal into the database, and deletes the journal: read in this order nothing
+    # is missed, and a journal gone before it is read is no error)
+    for name in ("brain.sqlite3-wal", "brain.sqlite3"):
+        try:
+            places[name] = (web.home / name).read_bytes().decode("utf-8", "replace")
+        except FileNotFoundError:
+            places[name] = ""
     assert "card_number" in places["brain.sqlite3"] + places["brain.sqlite3-wal"]  # the turn is in there
     for name, text in places.items():
         assert CARD not in text and CARD_PLAIN not in text, name

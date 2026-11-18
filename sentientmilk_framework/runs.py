@@ -55,7 +55,8 @@ How to work:
   be summarized or reset during long work: the plan and the progress notes are what you see then.
 - Verify each part (run it, test it, read the result) before you mark it done.
 - Do not stop until the goal is met or you are truly blocked.
-- Finish with a short report: what you did, what you verified, and anything left open."""
+- Finish with a short report: what you did, what you verified, and anything left open.
+- Write your notes and your report in the language the goal is written in."""
 
 
 class Bus:
@@ -206,11 +207,13 @@ class Runs:
     def start_task(self, app: str, parent_session: Optional[str], goal: str, *, toolkits: Optional[list] = None,
                    verify: bool = False, allow: Optional[list] = None, context: str = "compact",
                    max_steps: Optional[int] = None, parent: Optional[int] = None, cwd: Optional[str] = None,
-                   quiet: bool = False) -> int:
+                   quiet: bool = False, own: Optional[dict] = None) -> int:
+        """``own``: a thought of hers started it, nobody asked (what she wanted, what, the thought and its
+        episode): what she does on her own is hers, wherever she was (mind/life.py)."""
         if context not in ("compact", "reset"):
             raise ValueError("context must be compact or reset")
         options = {"goal": goal, "parent_session": parent_session, "verify": verify, "context_mode": context,
-                   **({"quiet": True} if quiet else {}),
+                   **({"quiet": True} if quiet else {}), **({"own": own} if own else {}),
                    "input": [{"type": "text", "text": goal}],
                    # a task reports in words: no face to show (until 0.38 it was told the app's signals, and its
                    # report kept the line: the Tasks panel showed {"expression": ...} as how it went)

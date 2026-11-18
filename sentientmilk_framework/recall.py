@@ -41,7 +41,6 @@ CANDIDATES = 40  # the nearest, before what is not related is left out
 SHOWN, SHOWN_CHARS = 5, 400  # what comes back in a turn: the tools reach the rest
 SWEEP_EVERY = 30.0
 BATCH = 32
-HELPERS = ("task-", "agent-", "summary-")  # sessions that are not conversations of hers
 HEADER = ("FROM YOUR LONG-TERM MEMORY (what comes back for this message from past chats and what you kept; it "
           "may be out of date):")
 SOURCES = ("turn", "note", "fact")  # rounds of chats; notes and facts kept before 0.30
@@ -359,16 +358,18 @@ class Recall:
         with self._lock:
             marks = {(row["app"], row["session"]): row["last_event"] for row in self._db.execute("SELECT * FROM marks")}
         helpers: Dict[str, set] = {}
+        mine = {run["session"] for run in store.own_tasks()}  # what she did on her own is hers to find (0.42)
         for (app, session), last in store.last_events().items():
             mark = marks.get((app, session), 0)
-            if last <= mark or session.startswith(HELPERS):
+            if last <= mark or (session.startswith(mentions.HELPERS) and session not in mine):
                 continue
             if app not in helpers:
                 helpers[app] = {s for _, s, _ in store.agent_sessions(app)}
             if session not in helpers[app]:
                 for group in mentions.turns(self.brain, app, session):
                     ids = [entry["id"] for entry in group if "id" in entry]
-                    said = [f"{'they' if e['role'] == 'user' else 'you'}: {e['text']}" for e in group
+                    asked = "goal" if session in mine else "they"  # her own task's goal: she set it herself
+                    said = [f"{asked if e['role'] == 'user' else 'you'}: {e['text']}" for e in group
                             if e["role"] in ("user", "assistant") and (e.get("text") or "").strip()]
                     if ids and said and max(ids) > mark:
                         self.add("turn", str(ids[0]), app, session, group[0]["time"], "\n".join(said))
@@ -403,6 +404,8 @@ class Recall:
         # her long-term memory's units, her mind's moments and her learned reactions' cues (0.39)
         for vectors in [self.vectors] + ([mind.memory.vectors, mind.reactions.vectors] if mind is not None else []):
             while not self._stop.is_set():
+                if embedder is not self.embedder:  # the model changed meanwhile: the next sweep embeds with it,
+                    return  # and this one must not take its vectors as old ones (until 0.42 it did)
                 found = vectors.texts(vectors.pending(embedder.name, BATCH))
                 if not found:
                     vectors.drop(other_than=embedder.name)  # all there in this model: the old ones go

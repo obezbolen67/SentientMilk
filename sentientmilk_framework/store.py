@@ -504,18 +504,35 @@ class Store:
                 f"SELECT {_EVENT_COLUMNS} FROM events WHERE run = ? AND id >= coalesce((SELECT MAX(id) FROM events "
                 "WHERE run = ? AND type = 'assistant'), 0) ORDER BY id", (run, run))]
 
-    def update_run_options(self, run: int, change: Callable[[dict], dict]) -> dict:
+    def update_run_options(self, run: int, change: Callable[[dict], dict], touch: bool = True) -> dict:
         """Read-modify-write a run's options in one transaction: runs, steering, stops and agents change
-        them from different threads, and writing back a copy read earlier lost the others' changes."""
+        them from different threads, and writing back a copy read earlier lost the others' changes.
+        ``touch``: it counts as the run's last change (not for what is set right on a run long over)."""
         with self._db() as db:
-            return self._change_options(db, run, change)
+            return self._change_options(db, run, change, touch)
 
     @staticmethod
-    def _change_options(db, run, change):
+    def _change_options(db, run, change, touch=True):
         row = db.execute("SELECT options FROM runs WHERE id = ?", (run,)).fetchone()
         options = change(json.loads(row[0]) if row else {})
-        db.execute("UPDATE runs SET options = ?, updated = ? WHERE id = ?", (dump(options), time.time(), run))
+        if touch:
+            db.execute("UPDATE runs SET options = ?, updated = ? WHERE id = ?", (dump(options), time.time(), run))
+        else:
+            db.execute("UPDATE runs SET options = ? WHERE id = ?", (dump(options), run))
         return options
+
+    def own_tasks(self, app: Optional[str] = None, statuses: Optional[tuple] = None) -> List[dict]:
+        """Her own tasks (a thought of hers started them: their options say ``own``), the newest first."""
+        query, params = f"SELECT {_RUN_COLUMNS} FROM runs WHERE kind = 'task' AND json_extract(options, '$.own') " \
+                        "IS NOT NULL", []
+        if app:
+            query += " AND app = ?"
+            params.append(app)
+        if statuses:
+            query += f" AND status IN ({','.join('?' * len(statuses))})"
+            params += list(statuses)
+        with self._db() as db:
+            return [_run(row) for row in db.execute(query + " ORDER BY id DESC", params)]
 
     def update_run(self, run: int, **fields: Any) -> None:
         columns = {key: dump(value) if key in ("options", "result", "error", "usage") else value
@@ -546,6 +563,19 @@ class Store:
         with self._db() as db:
             rows = db.execute(f"SELECT {', '.join(JOB_KEYS)} FROM jobs WHERE app = ? AND (ended IS NULL OR ended >= ?) "
                               "ORDER BY id DESC LIMIT ?", (app, since, limit)).fetchall()
+        return [dict(zip(JOB_KEYS, row)) for row in rows]
+
+    def run_jobs(self, run: int) -> List[dict]:
+        """The jobs a run started, the oldest first."""
+        with self._db() as db:
+            rows = db.execute(f"SELECT {', '.join(JOB_KEYS)} FROM jobs WHERE run = ? ORDER BY id", (run,)).fetchall()
+        return [dict(zip(JOB_KEYS, row)) for row in rows]
+
+    def active_jobs(self, app: Optional[str] = None) -> List[dict]:
+        """The jobs still running (an app's, or every app's), the oldest first."""
+        with self._db() as db:
+            rows = db.execute(f"SELECT {', '.join(JOB_KEYS)} FROM jobs WHERE status IN ('running', 'stopping') "
+                              + ("AND app = ? " if app else "") + "ORDER BY id", (app,) if app else ()).fetchall()
         return [dict(zip(JOB_KEYS, row)) for row in rows]
 
     def update_job(self, job: int, **fields: Any) -> None:

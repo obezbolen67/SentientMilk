@@ -1,5 +1,6 @@
-"""Sessions: your conversations in this app (not your agents' or tasks'), to draw on what was said
-there: list them, read one's summary or its plain turns, search them, rename or delete one."""
+"""Sessions: your conversations in this app (not your agents' or the tasks you were asked for), and the tasks
+you did on your own: list them, read one's summary or its plain turns (a task of yours: each step), search
+them, rename or delete a conversation."""
 
 import time
 from datetime import datetime
@@ -25,11 +26,17 @@ def _name(found: dict) -> str:
 
 @tool(readonly=True, args={"query": "Words in the title or first message (default: all of them)."})
 def sessions_list(ctx: ToolContext, query: str = ""):
-    """Your conversations in this app, newest first: id, title, turns, when it was last active and a line of
-    its summary. Read one with sessions_read."""
+    """Your conversations in this app and the tasks you did on your own, newest first: id, title, turns (a
+    task: how it went), when it was last active and a line of its summary. Read one with sessions_read."""
     needle, rows = query.strip().casefold(), []
-    for found in mentions.chats(ctx.brain, ctx.app):
+    for found in mentions.chats(ctx.brain, ctx.app, own=True):
         if needle not in f"{found['title'] or ''} {found['preview']} {found['id']}".casefold():
+            continue
+        if found.get("own"):
+            run = found["own"]
+            reply = (run.get("result") or {}).get("reply") or ""
+            rows.append(f"{_name(found)} · {run['status']} · last active {mentions.stamp(found['last_active'])}"
+                        + (f" — {mentions.short(reply, 120)}" if reply else ""))
             continue
         said = sum(e["role"] == "user" for e in ctx.brain.history(ctx.app, found["id"]))
         line = (_name(found) + (" (this one)" if found["id"] == ctx.session else "")
@@ -46,24 +53,37 @@ def sessions_list(ctx: ToolContext, query: str = ""):
     "offset": "For turns: skip this many turns, to read on."})
 def sessions_read(ctx: ToolContext, session: str, part: str = "summary", offset: int = 0):
     """Read one of your conversations, including this one: its summary, or its plain turns (user messages and
-    your replies, without tool calls), a page at a time."""
+    your replies, without tool calls), a page at a time; or a task you did on your own: what you kept of it and
+    the jobs it started, or each of its steps (the goal, every tool call and what came of it, its report)."""
     if part not in ("summary", "turns"):
         raise ToolError("part must be summary or turns.")
     found = _find(ctx, session)
     if part == "summary":
         return mentions.card(ctx.brain, ctx.app, ctx.session, "session", found["id"])
-    grouped = mentions.turns(ctx.brain, ctx.app, found["id"])
+    own = bool(found.get("own"))
+    grouped = mentions.turns(ctx.brain, ctx.app, found["id"], tools=own)
     start = max(0, int(offset or 0))
     page, lines = grouped[start:start + PAGE], []
     for number, entries in enumerate(page, start + 1):
         for index, entry in enumerate(entries):
             lead = f"{number}. " if index == 0 else " " * len(f"{number}. ")
-            lines.append(f"{lead}{mentions.speaker(entry)}: {entry['text']}")
+            lines.append(lead + (_step(entry) if own else f"{mentions.speaker(entry)}: {entry['text']}"))
     if not grouped:
         return f"{_name(found)} has no turns."
     if start + len(page) < len(grouped):
         lines.append(f"[turns {start + 1}-{start + len(page)} of {len(grouped)}; more with offset={start + len(page)}]")
     return cap(ctx, "\n".join(lines), "turns") or f"{_name(found)} has {len(grouped)} turns; offset={start} is past them."
+
+
+def _step(entry: dict) -> str:
+    """One step of a task of hers: the goal it was given, a tool call and what came of it, or what it said."""
+    if entry["role"] == "user":
+        return f"goal: {entry['text']}"
+    if entry["role"] == "tool":
+        target = next((v for v in entry["arguments"].values() if isinstance(v, str)), "")
+        return (f"you used {entry['name']}" + (f" ({mentions.short(target, 160)})" if target else "")
+                + f", {entry['status']}: {mentions.short(entry['text'], SNIPPET)}")
+    return f"you: {entry['text']}"
 
 
 def _date(value: str, name: str):
@@ -85,7 +105,7 @@ def sessions_search(ctx: ToolContext, query: str, after: str = "", before: str =
     if not query.strip():
         raise ToolError("Say what to find, e.g. query='oat milk'.")
     since, until = _date(after, "after"), _date(before, "before")
-    chats = {chat["id"]: chat for chat in mentions.chats(ctx.brain, ctx.app)}
+    chats = {chat["id"]: chat for chat in mentions.chats(ctx.brain, ctx.app, own=True)}
     try:
         hits = ctx.brain.recall.search(query, count=10, sources=("turn",), app=ctx.app, after=since, before=until)
     except Exception as exc:  # no key, the service down: nothing is found by meaning now

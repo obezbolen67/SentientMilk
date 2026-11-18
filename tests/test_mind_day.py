@@ -27,6 +27,7 @@ def stand_in(tmp_path):
         provider=lambda model, thinking=None: SimpleNamespace(complete=complete),
         store=SimpleNamespace(update_run_options=lambda run, change: runs.__setitem__(run, change(runs.get(run, {}))),
                               events=lambda *a, **k: [], last_compaction=lambda app, session: None,
+                              runs=lambda *a, **k: [], active_jobs=lambda *a: [],  # no task of hers is going
                               run_events=lambda run: [
                                   {"type": "assistant", "message": {"tool_calls": [{}] * 12}},
                                   {"type": "tool_start", "call_id": "write"},

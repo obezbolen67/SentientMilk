@@ -408,7 +408,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `mcp:<server>` | the server's tools | Section 8. |
 | `plugins` | `plugin_list`, `plugin_install(folder)`, `plugin_reload(name)` | Section 6.5: a model makes its own tools; installing always asks. |
 | `skills` | `skill_use(name, arguments)`, `skill_list()`, `skill_delete(name)` | Section 6.6. `skill_use` is a core tool. |
-| `sessions` | `sessions_list(query)`, `sessions_read(session, part, offset)`, `sessions_search(query)`, `session_rename(session, title)`, `session_delete(session)` | The app's other conversations (not agents' or tasks'), named by id or exact title. `part="summary"` gives the session's mention card (`mentions.py`: newest journal note or compaction summary, last turns) and its journal notes; `part="turns"` its plain turns, 40 a page. Deleting always asks and refuses the current or a busy session. |
+| `sessions` | `sessions_list(query)`, `sessions_read(session, part, offset)`, `sessions_search(query)`, `session_rename(session, title)`, `session_delete(session)` | The app's other conversations (not agents' or the tasks she was asked for) and the tasks she did on her own (0.42: listed with how each went, read as what she kept of it and the jobs it started, or step by step), named by id or exact title. `part="summary"` gives the session's mention card (`mentions.py`: newest journal note or compaction summary, last turns) and its journal notes; `part="turns"` its plain turns, 40 a page. Deleting always asks and refuses the current or a busy session. |
 | `github` (plugin) | `github_search`, `github_repo`, `github_files`, `github_issues`, `github_issue`, `github_diff`, `github_runs`, `github_run`, `github_get`; asking first: `github_issue_create`, `github_comment`, `github_issue_update`, `github_pr_create`, `github_pr_review`, `github_pr_merge`, `github_api` | Section 6.5. |
 | app actions | declared by the app | Run in the app; the brain waits for the result. |
 
@@ -1205,8 +1205,12 @@ that: `Values.subjects`) and, for a request only, 2 or 3 options with effort, ch
 own guesses of what an option does to her needs were noise live, so the will derives that). Options
 written for anything but a request are dropped (0.23): a chat is not decided on, and what she says is
 never picked from lines written for her. What comes back leaves out the chat she is in since its last
-compaction (`Memory.recall(held=...)`: her context holds it), and the note carries the newest two thoughts
-she had since the user last wrote. A turn nobody wrote (an event, her own urge, a scheduled one) gets her
+compaction (`Memory.recall(held=...)`: her context holds it; only what was said there, since 0.42: what she
+thought or did while that chat was the one she was in comes back), and the note carries the newest two
+thoughts she had since the user last wrote, all she did since ("What you did since you last talked": her
+tasks' ends and the ends of jobs they left running, as she keeps them) and what of hers is still going
+("Still going": her tasks, every job left running and whose it is), whichever chat it began in (since that
+chat's last turn, or, when it was deleted, since her last message out). A turn nobody wrote (an event, her own urge, a scheduled one) gets her
 felt sense and nothing else: no imagine call, no decision. What the message did to her body (`_moved`) is
 her note's "Reading it: ..." in body words, before how she is underneath; by that change the feeling of
 hers it moves her the way of most is counted as felt again (`back`), unnamed. Nothing names her feelings
@@ -1307,6 +1311,21 @@ whether the app is open, the user is talking or an urge waits; its end is told a
 she found). Before 0.28 `do` came only from something put off and only with the app open, and a look-up
 needed half her energy and had only web and memory.
 
+What she does on her own is hers (0.42). Her task's options say so (`own`: want, what, the thought and its
+episode). What she kept of it is a moment kept in the task's own session (`_kept_in`), wherever she was: a
+deleted chat takes what was said there, not what she did on her own (a task someone asked for stays with the
+chat it was asked in). The moment says what she set out to do, how it went and the jobs it started
+(`_task_moment`); a job that outlives its task is a moment of hers when it ends (`Mind.job_ended`, from the
+shell's `job_ended`), where until then its note went to the task's session and nothing read it. Her session
+tools list, read and search her own tasks with her chats (`mentions.chats(own=True)`: a card with what she kept
+and its jobs; `part="turns"` every step, the tool calls with them), and her long-term memory takes them in.
+Each start, `_take_in_deeds` marks a task from before 0.42 hers by the words her thought started it with,
+keeps what she kept of one where it happened, and takes in one that ended with nothing kept, as of when it
+ended and with no feeling (how it moved her then is not known). In the user's brain (2026-11-18) a look-up
+left a reverse-DNS sweep running (job 447); the chat she had last talked in was deleted, and with it every
+thought and task of hers since the morning; asked in a new chat what job 447 was, she searched her
+conversations in vain. On a copy of that brain the start took in the seven tasks nothing kept.
+
 Whether the user is there is `Presence` (`presence.py`, one per brain, for anything that needs it): apps
 report what they see each time they ask `/v1/mind` (`idle`: seconds since the keyboard or mouse; `locked`:
 the screen locked, the screen saver or another user's session; `busy`: something fullscreen), and her
@@ -1391,7 +1410,8 @@ her hippocampi, the path replayed stop by stop).
 they are kept. `episodes`: each with its own values (id, at, kind, text, valence and `encoding_valence`,
 arousal, salience, strength, recalls, recalled, charge, sting, `superseded_by`, `origins`, `felt`, `cues`).
 `links`: [a, b, kind, weight], the links she has: `then` (the next moment of the same chat), `origin` (an
-insight or dream to what sleep made it from), `corrected` (a memory to the one that set it right), `cue` (what
+insight or dream to what sleep made it from; a thought to what came up in it and what it went over,
+`grew_from`), `corrected` (a memory to the one that set it right), `cue` (what
 was around both, weighed by `cue_strength`, kept from 0.5) and `meaning` (how much of one's meaning the other
 holds, on the scale her sleep forgets by: `Vectors.held`, 0 at `usual`, how near a memory's nearest usually is;
 from her stored vectors, no embedder called). On a copy of her real memories (265): 199 then, 118 origin, 28
@@ -1589,7 +1609,7 @@ back by control):
   times how clear her head is; spent or stressed, only the tone: Garfinkel et al. 2015, Fleming & Dolan 2012),
   her thoughts since she woke with what came of each, what she has been wanting to say, what she put off, the
   moments that got to her (by their sting), what she leaned toward last and her reasons, what she knows about
-  herself; with `about`, what comes back about it and how clearly (a feeling of knowing is how accessible a
+  herself, what she did today and what of hers is still going (0.42); with `about`, what comes back about it and how clearly (a feeling of knowing is how accessible a
   memory is: Koriat 1993), or that nothing does. As many things as her span holds. Only what a person can
   perceive of themselves, never levels or a cause read out (Carruthers 2011; Nisbett & Wilson 1977): why she
   feels so is hers to work out, as "you" (a distanced vantage reflects instead of brooding: Kross et al. 2005).

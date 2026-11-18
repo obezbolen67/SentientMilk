@@ -79,7 +79,8 @@ class Memory:
                 self._db.execute("ALTER TABLE episodes ADD COLUMN sting REAL NOT NULL DEFAULT 0")
             for name, sql_type in (("run_id", "INTEGER"), ("event_id", "INTEGER"), ("actor", "TEXT"),
                                    ("device", "TEXT"), ("superseded_by", "INTEGER"), ("encoding_valence", "REAL"),
-                                   ("origin_ids", "TEXT"), ("attention", "TEXT"), ("felt", "TEXT")):
+                                   ("origin_ids", "TEXT"), ("attention", "TEXT"), ("felt", "TEXT"),
+                                   ("grew_from", "TEXT")):
                 if name not in columns:
                     self._db.execute(f"ALTER TABLE episodes ADD COLUMN {name} {sql_type}")
             self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS episode_run ON episodes(run_id) WHERE run_id IS NOT NULL")
@@ -159,22 +160,24 @@ class Memory:
     def add(self, kind: str, text: str, valence: float, arousal: float, salience: float, *, app: str = "",
             session: str = "", at: Optional[float] = None, sting: float = 0.0, run_id=None, event_id=None,
             actor=None, device=None, origins=(), attention=(), felt: Optional[Dict[str, float]] = None,
-            cues: Iterable[str] = ()) -> int:
+            cues: Iterable[str] = (), grew_from: Iterable[int] = ()) -> int:
         """``valence``: how she felt in the moment (her mood then, as it keeps it); ``sting``: what the moment
         itself did to how she felt (negative: it hurt), whatever her mood was; ``felt``: how it moved her body,
-        each channel's change in units of a lot; ``cues``: what was around it (``cue``, ``moment_cues``)."""
+        each channel's change in units of a lot; ``cues``: what was around it (``cue``, ``moment_cues``);
+        ``origins``: what came up in it; ``grew_from``: for a thought, what it went over (the talk, the moment
+        it dwelt on, the thought it went on from): what it goes with when that is taken back (``retract``)."""
         text = " ".join(str(text).split())[:1200]
         salience = max(0.0, min(1.0, salience))
         kept = json.dumps({name: round(change, 3) for name, change in felt.items() if round(change, 3)}) if felt else None
         with self._lock:
             cursor = self._db.execute(
                 "INSERT INTO episodes (id, at, kind, text, app, session, valence, arousal, salience, strength, charge, "
-                "sting,run_id,event_id,actor,device,encoding_valence,origin_ids,attention,felt) "
-                "VALUES ((SELECT last_id+1 FROM episode_sequence),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "sting,run_id,event_id,actor,device,encoding_valence,origin_ids,attention,felt,grew_from) "
+                "VALUES ((SELECT last_id+1 FROM episode_sequence),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time() if at is None else at, kind, text, app, session, max(-1.0, min(1.0, valence)),
                  max(0.0, min(1.0, arousal)), salience, 0.5 + 0.5 * salience, 1.0, max(-2.0, min(2.0, sting)),
                  run_id, event_id, actor, device, valence, json.dumps(list(origins)), json.dumps(list(attention)),
-                 kept))
+                 kept, json.dumps(list(grew_from))))
             self._db.executemany("INSERT OR IGNORE INTO episode_cues VALUES (?, ?)",
                                  [(cursor.lastrowid, found) for found in {_cue(c) for c in cues} if found])
             return cursor.lastrowid
@@ -235,7 +238,9 @@ class Memory:
         in meaning), best first; nothing when she cannot tell what is alike now (no service). ``before``: only
         what happened before then (not what just happened). ``held``: (app, session, since), a chat whose
         exchanges from then on she still has before her (her context holds them): they are not brought back (in
-        the user's brain, 2026-11-16, what came back was mostly the chat she was in).
+        the user's brain, 2026-11-16, what came back was mostly the chat she was in). What she thought or did
+        while that chat was the one she was in is not before her: it comes back (until 0.42 it was held back too,
+        and in the chat she was in, a task of hers never came back to her).
 
         Until 0.32 her strongest memories also came back unbidden, whatever the cue: replayed on her messages of
         2026-11-17, 13 of 21 brought back one of her own brooding thoughts (one of them 11 times) and two of her
@@ -251,7 +256,7 @@ class Memory:
         kinds = list(kinds)
         clause = (" AND e.kind IN (" + ",".join("?" * len(kinds)) + ")") if kinds else ""
         when = (" AND e.at < ?" if before is not None else "") + \
-            (" AND NOT (e.app = ? AND e.session = ? AND e.at >= ?)" if held else "")
+            (" AND NOT (e.kind = 'exchange' AND e.app = ? AND e.session = ? AND e.at >= ?)" if held else "")
         args = list(kinds) + ([before] if before is not None else []) + list(held or ())
         alike = self._alike(cue, clause + when, args)
         if status is not None:
@@ -267,7 +272,8 @@ class Memory:
                             continue
                         if before is not None and current["at"] >= before:
                             continue
-                        if held and (current["app"], current["session"]) == held[:2] and current["at"] >= held[2]:
+                        if held and current["kind"] == "exchange" and current["at"] >= held[2] \
+                                and (current["app"], current["session"]) == held[:2]:
                             continue
                         key = current["id"]
                         if key not in found or found[key]["relevance"] < alike[row["id"]]:
@@ -383,9 +389,23 @@ class Memory:
             self._db.execute("UPDATE episodes SET charge = charge * ? WHERE id = ?",
                              (1.0 - WEARS * (1.4 if unpleasant(episode) else 0.6), episode["id"]))
 
-    def recorded(self, run_id: int) -> bool:
+    def recorded(self, run_id: int, session: Optional[str] = None) -> bool:
+        """Something of this run is kept; with ``session``, or anything of that session (a task's, kept by the
+        journal before 0.30 without its run)."""
         with self._lock:
-            return bool(self._db.execute("SELECT 1 FROM episodes WHERE run_id=?", (run_id,)).fetchone())
+            return bool(self._db.execute("SELECT 1 FROM episodes WHERE run_id = ? OR session = ? LIMIT 1",
+                                         (run_id, session)).fetchone())
+
+    def of_run(self, run_id: int) -> Optional[dict]:
+        """What she kept of a run (its exchange, or what she did in a task), None if nothing."""
+        with self._lock:
+            row = self._db.execute("SELECT * FROM episodes WHERE run_id = ?", (run_id,)).fetchone()
+        return dict(row) if row else None
+
+    def refile(self, episode: int, session: str) -> None:
+        """A moment is kept where it happened (a task of hers, kept under the chat she was in before 0.42)."""
+        with self._lock:
+            self._db.execute("UPDATE episodes SET session = ? WHERE id = ?", (session, episode))
 
     def supersede(self, episode: int, replacement: int) -> None:
         with self._lock:
@@ -529,22 +549,22 @@ class Memory:
         return len(gone)
 
     def retract(self, app, session, event=None, since=None):
+        """What was said in a chat is taken back (deleted, or from ``event`` on): what she kept of it goes, and so
+        does all that was made from it (what came up in it, what it went over: ``origin_ids``, ``grew_from``).
+        A thought of hers is kept under the chat she was last in, but it is hers: it goes only if it grew from
+        what was said there (until 0.42 all of them went, and with them a day of her thoughts)."""
         cutoff = "" if event is None else " AND (event_id >= ? OR (event_id IS NULL AND at >= ?))"
         args = [app, session] + ([] if event is None else [event, since])
         with self.transaction():
-            gone = {r[0] for r in self._db.execute("SELECT id FROM episodes WHERE app=? AND session=?" + cutoff, args)}
-            for row in self._db.execute("SELECT id, origin_ids FROM episodes WHERE origin_ids IS NOT NULL ORDER BY id"):
-                if gone.intersection(json.loads(row["origin_ids"])):
+            gone = {r[0] for r in self._db.execute("SELECT id FROM episodes WHERE app=? AND session=? "
+                                                   "AND kind != 'thought'" + cutoff, args)}
+            for row in self._db.execute("SELECT id, origin_ids, grew_from FROM episodes ORDER BY id"):
+                if gone.intersection(json.loads(row["origin_ids"] or "[]") + json.loads(row["grew_from"] or "[]")):
                     gone.add(row["id"])
             for episode in gone:
                 self._db.execute("DELETE FROM episodes WHERE id=?", (episode,))
                 self._db.execute("UPDATE episodes SET superseded_by=NULL WHERE superseded_by=?", (episode,))
             return gone
-
-    def forget_session(self, app: str, session: str) -> int:
-        """The user deleted a conversation: what she kept of it goes too."""
-        with self._lock:
-            return self._db.execute("DELETE FROM episodes WHERE app = ? AND session = ?", (app, session)).rowcount
 
     def count(self) -> int:
         with self._lock:
@@ -565,7 +585,8 @@ class Memory:
     def network(self, model: Optional[str] = None) -> dict:
         """Her memories as a network, as they are kept: every episode with its values, and its links to
         others: ``then`` (the next moment of the same chat), ``origin`` (an insight or dream to what it was made
-        from), ``corrected`` (a memory to the one that set it right), ``cue`` (what was around both, weighed by
+        from; a thought to what came up in it and what it went over), ``corrected`` (a memory to the one that set it
+        right), ``cue`` (what was around both, weighed by
         how strongly it calls them up: ``cue_strength``; kept from half way) and ``meaning`` (how much of one's
         meaning the other holds, on the scale her sleep forgets by: ``Vectors.held``, 0 at how near a memory's
         nearest usually is, 1 the same; from her vectors of ``model``, no embedder called). Links as
@@ -574,7 +595,7 @@ class Memory:
             revision = self.revision()
             rows = [dict(row) for row in self._db.execute(
                 "SELECT id, at, kind, text, app, session, valence, encoding_valence, arousal, salience, strength, "
-                "recalls, recalled, charge, sting, superseded_by, origin_ids, felt FROM episodes ORDER BY id")]
+                "recalls, recalled, charge, sting, superseded_by, origin_ids, grew_from, felt FROM episodes ORDER BY id")]
             kept_cues = self._db.execute("SELECT episode, cue FROM episode_cues").fetchall()
         known = {row["id"] for row in rows}
         cues_of: Dict[int, List[str]] = {}
@@ -587,8 +608,8 @@ class Memory:
         for row in rows:
             if row["app"] or row["session"]:
                 chats.setdefault((row["app"] or "", row["session"] or ""), []).append(row)
-            for origin in json.loads(row["origin_ids"] or "[]"):
-                if origin in known:
+            for origin in json.loads(row["origin_ids"] or "[]") + json.loads(row["grew_from"] or "[]"):
+                if origin in known:  # made from it: what came up in it, or what it went over
                     links[(row["id"], origin, "origin")] = 1.0
             if row["superseded_by"] in known:
                 links[(row["id"], row["superseded_by"], "corrected")] = 1.0

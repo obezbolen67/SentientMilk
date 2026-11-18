@@ -209,6 +209,16 @@ def test_a_changed_model_embeds_everything_again(brain):
     assert status["embedded"] == status["units"] and recall.vectors.count("stand-in:default@256") == 0
 
 
+def test_a_sweep_with_the_model_she_no_longer_uses_leaves_the_new_one_s_vectors_alone(brain):
+    recall, memory = brain.brain.recall, brain.brain.mind.memory
+    old = recall.refresh()
+    episode = memory.add("exchange", "They said my cat drawing was dumb", -0.4, 0.6, 0.6, app="milk", session="a")
+    new = use(brain, Meaning())  # the model changes while a sweep with the old one is going on
+    memory.vectors.put([(episode, new.embed(["They said my cat drawing was dumb"])[0])], new.name)
+    recall._embed(old)  # that sweep goes on to its end
+    assert memory.vectors.count(new.name) == 1  # until 0.42 it took every vector not of its own model
+
+
 def test_her_mind_and_her_long_term_memory_cannot_be_switched_off(brain):
     for switch in ({"embeddings": "off"}, {"mind": False}, {"session_summaries": False}):
         with pytest.raises(BrainError, match="Unknown setting"):

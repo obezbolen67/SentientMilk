@@ -4,6 +4,7 @@ download is slow, and asked for longer waits it always does), and gets a note wh
 A model that needs the result waits for it with shell_output(wait=...); in a turn of an app that
 calls back (its end starts a new turn) it waits briefly and is told to end its turn instead."""
 
+import logging
 import os
 import signal
 import subprocess
@@ -14,6 +15,8 @@ from pathlib import Path
 from . import MESSAGE_FROM_USER, STOPPED_BY_USER, ToolContext, ToolError, Toolkit, cap, tool
 from .files import cwd as working_folder
 from .files import resolve
+
+logger = logging.getLogger(__name__)
 
 WAIT = 30  # seconds a command (or an MCP call) has before it goes on as a job: it is not stopped
 QUIET = 10  # seconds without new output after which shell_output says so: slow or stuck is hers to judge
@@ -178,7 +181,14 @@ def job_ended(brain, job: int, code: int) -> None:
     if job in brain.quiet_jobs:
         brain.quiet_jobs.discard(job)
         return
-    tail = "\n".join(_lines(record["log"])[-15:])
+    last = _lines(record["log"])[-15:]
+    tail = "\n".join(last)
+    mind = getattr(brain, "mind", None)
+    if mind is not None:  # a job that outlived its task: what came of it is hers to know
+        try:
+            mind.job_ended({**record, "status": "stopped" if stopped else "finished"}, code, stopped, last)
+        except Exception:
+            logger.exception("Her mind could not take in how job %s ended", job)
     app, session = record["app"], record["session"]
     note = brain.note(app, session, f"Background job {job} {'was stopped' if stopped else f'finished with exit code {code}'}: "
                                     f"{record['command']}\nLast lines:\n{tail}")
