@@ -1913,9 +1913,11 @@ was last touched and she slept (`_when`, clock times), and her thoughts with whe
 what the computer shows, never where the user is ("nobody has touched the computer for 2 hours", not "away"),
 and a thought keeps whom it grew from. A message that hardly moved her reads "little changed from a moment ago",
 not her whole body as if the message did it. Looking inward about a word, she finds whether it is hers (when she
-first said it) or was put on a moment of hers by the naming that ran before 0.37 (`_whose`): "hurt" had reached
-her as an observation. Each learned reaction that moved her is kept with what it did (`reacted["each"]`), and a
-deed's cue says what it was for (`_purpose`): five reactions had named the file reader, read for any reason.
+first said it) or was put on a moment of hers by the naming that ran before 0.37 (`_whose`): "permission", given
+on 2026-11-17 and never said by her, reached her as something she "had called" her state, and she searched for
+where it came from (82 of her 86 words were given ones). Each learned reaction that moved her is kept with what
+it did (`reacted["each"]`), and a deed's cue says what it was for (`_purpose`): five reactions had named the file
+reader, read for any reason.
 
 **Her body's record** (`body_pushes`, `body_levels` in mind.sqlite3). Every push as it happens (when, why, how
 far each level moved, of what chat: `Body.on_push`, `Mind._pushing_for`) and her levels at each message, turn's
