@@ -36,18 +36,24 @@ def clearly(strength: float) -> str:
 
 def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tuple[str, Optional[str]]] = (),
          unsaid: Optional[Tuple[str, str, str]] = None, put_off: Sequence[str] = (),
-         moved: Sequence[Tuple[str, float]] = (), leaned: Optional[Tuple[str, Sequence[str]]] = None,
-         self_view: str = "", about: str = "", recalled: Optional[Sequence[Tuple[str, float]]] = None) -> str:
-    """What she finds looking inward, in words. ``felt``: her body's words (Felt.words, with her own names for
-    the feeling); ``tone``: Felt.tone(), all she can tell when ``aware`` is under AWARE; ``thoughts``: since she
-    woke, newest first, (thought, what came of it); ``unsaid``: (tell or ask, to whom, what); ``put_off``: what
-    she put off; ``moved``: (the moment as it comes back, its sting); ``leaned``: (the way she leaned, her reasons);
-    ``about`` and ``recalled``: what she looked for and what came back, (memory, its strength now)."""
+         moved: Sequence[Tuple[str, float, Optional[str]]] = (), leaned: Optional[Tuple[str, Sequence[str]]] = None,
+         self_view: str = "", about: str = "", recalled: Optional[Sequence[Tuple[str, float]]] = None,
+         familiar: Sequence[Tuple[str, str, str]] = ()) -> str:
+    """What she finds looking inward, in words. ``felt``: her body in body words (Felt.words: never a feeling's
+    name); ``tone``: Felt.tone(), all she can tell when ``aware`` is under AWARE; ``familiar``: feelings she has
+    named herself that her body feels like now, (word, her own words then, when): the memory of saying it, never
+    a name put on her (0.37); ``thoughts``: since she woke, newest first, (thought, what came of it); ``unsaid``:
+    (tell or ask, to whom, what); ``put_off``: what she put off; ``moved``: (the moment as it comes back, its
+    sting, what she called it if she put it into words); ``leaned``: (the way she leaned, her reasons); ``about`` and ``recalled``: what she looked for and
+    what came back, (memory, its strength now)."""
     parts: List[str] = []
     if aware >= AWARE:
         parts.append(felt.rstrip(".") + ".")
+        if familiar:
+            parts.append("It is like when you said " + "; and when you said ".join(
+                f'"{said}" ({when})' for _, said, when in familiar) + ".")
     else:
-        parts.append(f"On the whole it feels {tone[0]}, {tone[1]}; it is hard to tell more than that right now.")
+        parts.append(f"On the whole it feels {tone[0]}, with {tone[1]}; it is hard to tell more than that right now.")
     if thoughts:
         listed = "; ".join(f'"{text}"' + (f" ({WENT[went]})" if went in WENT else "") for text, went in thoughts)
         parts.append("What has been on your mind today, the latest first: " + listed + ".")
@@ -60,7 +66,9 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
         parts.append("What you put off: " + "; ".join(put_off) + ".")
     if moved:
         parts.append("What got to you today: " + "; ".join(
-            f"{moment} ({'it hurt' if sting < 0 else 'it lifted you'})" for moment, sting in moved) + ".")
+            f"{moment} ({'it hurt' if sting < 0 else 'it lifted you'}"
+            + (f'; you called it "{called[0]}"' if called and called[0] else "") + ")"
+            for moment, sting, *called in moved) + ".")
     if leaned:
         what, reasons = leaned
         parts.append(f"Last time you weighed what to do, you leaned toward {what}"

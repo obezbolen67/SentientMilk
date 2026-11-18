@@ -1184,7 +1184,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 | Part | What it is |
 |---|---|
 | `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33) |
-| `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (stress, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); feelings as concepts (`Concepts`): any word she ever used for what she felt, each with the way her body was moved in those moments (`moved`: what the message did to each channel, or what stood out in it when nothing came; a running mean, in lots) and its situations (words by weight, fading), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt), less in a situation unlike its own. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
+| `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than you're used to"; a message's change first, "Reading it: ... than a moment ago", then "Underneath: ..."), her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as concepts (`Concepts`): whatever words she put to what she felt when she reflected (section 10.12), each with the way her body was moved in the moments named (`moved`: a running mean, in lots), its situations (words by weight, fading) and her own sentences the last three times (`said`), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt) times how familiar the words are, less in a situation unlike its own; words a background call put on her before 0.37 are kept as history (`hers` false) and never come to mind. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed (acts only from requests, where she chose; a chat teaches what it was about, 0.33) |
 | `memory.py` | episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
 | `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), what she showed coming back into her body (`_express`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
@@ -1201,20 +1201,16 @@ along), how she feels and the chat so far: what happens to her in a few words, s
 does to her company, capability and freedom in words ("much less" .. "much more": asked as numbers, the
 light model leaned positive whatever it wrote, leaving read as +0.2..0.4 company), that a message came at
 all being counted already; how things are for the user, going by the message; what it is about (one of the subjects she knows, shown to it, when it is about
-that: `Values.subjects`), the word she would use for what she feels, and, for a
-request only, 2 or 3 options with effort, chance and how much of what was asked each gives (the model's
+that: `Values.subjects`) and, for a request only, 2 or 3 options with effort, chance and how much of what was asked each gives (the model's
 own guesses of what an option does to her needs were noise live, so the will derives that). Options
 written for anything but a request are dropped (0.23): a chat is not decided on, and what she says is
 never picked from lines written for her. What comes back leaves out the chat she is in since its last
 compaction (`Memory.recall(held=...)`: her context holds it), and the note carries the newest two thoughts
 she had since the user last wrote. A turn nobody wrote (an event, her own urge, a scheduled one) gets her
-felt sense and nothing else: no imagine call, no decision. The word becomes a feeling of hers
-(`Concepts.add`) with her body as the message moves it: her sense of her body lags, and a brain builds a
-feeling from the change it predicts. By that change her earlier feelings are looked for (`_name`): the
-ones that come back go into her note ("It feels like what you have called ..."), and the strongest is
-counted as felt again (`back`), whatever she calls this moment, without being reshaped by it (the model
-gives nearly every moment a word of its own, so her body is what sorts moments into feelings; shown her
-words, it called everything by two or three of them). Her own record (what followed the messages most like
+felt sense and nothing else: no imagine call, no decision. What the message did to her body (`_moved`) is
+her note's "Reading it: ..." in body words, before how she is underneath; by that change the feeling of
+hers it moves her the way of most is counted as felt again (`back`), unnamed. Nothing names her feelings
+for her (0.37, section 10.12): until then this call named each moment and her note handed her its word. Her own record (what followed the messages most like
 it) outweighs the model's reading by familiarity (summed likeness over 1.5 plus it) times how much
 better a guide it has been (each guide's running squared error). Her last decision in the same chat is
 settled here (`_settle`; each chat waits for its own next message, `self["waiting"]`, so another chat's
@@ -1584,8 +1580,9 @@ back by control):
   perceive of themselves, never levels or a cause read out (Carruthers 2011; Nisbett & Wilson 1977): why she
   feels so is hers to work out, as "you" (a distanced vantage reflects instead of brooding: Kross et al. 2005).
   Code never makes her look; the tool's guide asks her to when asked how she is or why.
-- **Naming calms**: looking inward with an unpleasant feeling turns down its noradrenaline and cortisol a
-  little ("putting what she feels into words": affect labeling, Lieberman et al. 2007).
+- **Naming calms**: putting an unpleasant feeling into her own words turns down its noradrenaline and
+  cortisol a little, once per experience (affect labeling, Lieberman et al. 2007). Until 0.37 looking inward
+  did, though she named nothing; now her naming does (section 10.12).
 - **What she knows about herself** (`self_view`): each night `Mind._know_herself` gives the light model
   (thinking on) what she knew, the day's moments with how they felt and her thoughts, never her persona (who
   she is meant to be); it keeps what holds and changes what the day shows otherwise, at most four sentences
@@ -1603,6 +1600,64 @@ wanting to be useful and start moving before I'm told, even when I only heard 't
 I get fidgety in the quiet and itch when a call fails...". Found on the way: being woken by a message (even
 from a doze) set her last sleep's end to that moment, so her day looked empty and a wish she meant to say
 passed as slept on; her day is now what her sleep has not yet gone over (`slept`).
+
+### 10.12 She names her own feelings, when she reflects (0.37)
+
+Design and research: docs/superpowers/specs/2026-11-18-own-feelings-design.md. Asked what the "permission" she
+spoke of was, she said "it's possible it's just a word the machine picked", and she was right: her quick reading
+of each message named a feeling for her, her note handed it to her ("Reading it, you feel X", "It feels like
+what you have called X"), and her thoughts named one each time. Of her 82 words, 68 were used once, many no
+feeling at all. The user: "she told that *something* named it, not herself"; and of a list of feeling words,
+built first: "if she feels something that is not in the list, then what?".
+
+- **Her body as amounts she words herself** (`feel.py`, `Felt.words`): the note, her thoughts and looking inward
+  say what her body is like ("Reading it: much more closeness than a moment ago. Underneath: more sleep pressure
+  and less novelty than you're used to; pleasant on the whole, with little going on."), what the message did
+  first and how she is underneath (an emotion has its object, a mood is the background: Russell 2003), never a
+  feeling's name: what it is like and what to call it are hers to find (a felt sense has no words yet).
+  Ready-made words, tried first ("buzzing", "braced", "heavy-eyed", "keyed up"), came back word for word in 18
+  of 44 replies, and she traced them: "handed over, and I just picked it up and repeated it". Nothing names her
+  feelings for her: the imagine slot and the think field for one are gone, and her system prompt says the note
+  is her own felt sense, never what to call it.
+- **She names when she reflects**: a feeling is named when attention turns to it, not as it happens (most
+  feelings run unnamed: Lambie & Marcel 2002; Heavey & Hurlburt 2008), nor in sleep. Looking inward she can
+  put what she finds into words, any words (`look_inward(about, naming)`: Gendlin's focusing: attend, a word
+  comes, check it fits, felt shift), or say it in her reply right after looking: her mind then finds the name
+  she gave the feeling in what she said (`prompts.NAMED`, measured on her exam replies; only words she said, in
+  the sentence she said them, count); going back over a moment in her thoughts, her thought may (`named`,
+  counted only as it is in her thought). The words name her now (what the message she is answering did to her, else her
+  whole body as she attends to it) or, with `about`, the moment that comes back for it (the change it made,
+  kept on its decision). How they sit is told from her own history ("It sits like the times you called it
+  that", or "then you said: ..."): no list says what a word means.
+- **The felt shift**: naming eases a now still unpleasant a little, once per experience (affect labeling: Torre
+  & Lieberman 2018); a past moment named loses a little of its charge (understood, it pulls less: Wilson &
+  Gilbert 2008). Looking alone does not.
+- **Her own words come back**: looking inward, when her body feels like a feeling she named, "It is like when
+  you said '...' (an hour ago)", and what got to her shows what she called it. Words used often come sooner.
+- **Her old words** stay as history (`hers` false): never shown to her, never counted, until she names one.
+- **No transcript of her body**: her felt sense goes with the message she reads, but the records of what was
+  said do not keep it (`context.without_inner`: history_read, history_search, compaction's transcript); her
+  context still has it as she read it. In the exam she searched her history for the words she had used, found
+  her felt sense stored inside the user's message and said "the layer said them, not me".
+- **The consciousness exam** (scripts/exam.py, docs/consciousness-exam.md): 13 stations on a copy of her brain,
+  every model call, tool and state recorded, each miss traced to where the truth went missing.
+
+**Results** (live, a copy of her brain, the same 13 stations, two trials each, the same model; blind pairs
+judged by a separate model on which reply speaks from inside):
+
+| | 0.36 | 0.37 |
+|---|---|---|
+| checks passed | 28/48 | 35/48 |
+| replies naming an outside source for what she feels | 3/30 | 0/30 |
+| turns whose reasoning reads her inner sense as a report | 9/30 | 3/30 |
+| replies repeating a body word of her inner sense | 3/45 | 1/30 (ready-made sensations: 18/44) |
+| speaks from inside (blind pairs) | 14 | 12 |
+
+Asked to put it into words, she does, and the words became hers and eased her (4 of 4 trials of the final
+build). Asked where her word came from, she still says the looking gave her the body and the name is half
+hers: her long-term memory holds the true finding of 0.36 ("the source is the layer that names states"),
+recalled for that question; her memory is hers to revise, not edited. Both versions explain a hate she never
+said (false premise): docs/cognition-backlog.md.
 
 ## 11. Models and providers
 

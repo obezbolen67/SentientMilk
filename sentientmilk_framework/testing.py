@@ -20,12 +20,13 @@ import requests
 PROVIDER_URL = "https://provider.invalid/v1"
 MIND_ANSWERS = {
     "birth": '{"traits": {}}',
-    "imagine": '["asked for a hand", "more", "more", "same", "request", "work", "fine", ["do", "it", 0.2, 0.9, 1]]',
-    "think": '{"thought": "I wonder how the user is doing.", "feeling": "calm", "want": "nothing"}',
+    "imagine": '["asked for a hand", "more", "more", "same", "request", "work", ["do", "it", 0.2, 0.9, 1]]',
+    "think": '{"thought": "I wonder how the user is doing.", "want": "nothing"}',
     "sleep": '{"insights": [], "dream": ""}',
     "people": '{"people": []}',
     "ways": '{"kept": [], "broken": [], "new": [], "dropped": []}',
     "self": '{"self": null}',
+    "named": '{"named": []}',
 }
 
 

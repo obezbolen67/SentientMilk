@@ -262,6 +262,8 @@ def test_her_mind_shows_in_its_tab(brain):
                                           "want": "tell", "went": "kept"}]
     brain.brain.mind.self["self_view"] = {"text": "I sulk when ignored.", "since": time.time(), "at": time.time()}
     brain.brain.mind.self["looked"] = {"at": time.time(), "about": "the clock"}
+    for at in (time.time() - 60, time.time()):
+        brain.brain.mind.concepts.add("restless", {"noradrenaline": 0.5}, "the clock", at, said="I'm restless tonight.")
 
     async def scenario(panel, pilot):
         panel.action_tab("mind")
@@ -273,6 +275,8 @@ def test_her_mind_shows_in_its_tab(brain):
         assert "Likes" in str(panel.query_one("#mind-self").render())
         assert "I sulk when ignored." in str(panel.query_one("#mind-self").render())  # what she knows of herself
         assert "for the clock" in str(panel.query_one("#mind-self").render())  # and when she last looked inward
+        assert "restless ×2" in str(panel.query_one("#mind-self").render())  # the feelings she named herself
+        assert "I'm restless tonight." in str(panel.query_one("#mind-self").render())  # in her own words
         assert not panel.query("#mind-on")  # always on: there is no switch
     run(brain, scenario)
 

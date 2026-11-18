@@ -32,7 +32,7 @@ def test_she_feels_and_decides_before_she_answers_and_the_user_never_sees_it(bra
     result = turn(brain, "cli", "Can you sum up my notes?")
     assert result["reply"] == "Sure, here it is."
     sent = brain.provider.last_user_text()
-    assert ("[Inside you: Your body" in sent or "[Inside you: Nothing stands out" in sent) \
+    assert any(f"[Inside you: {start}" in sent for start in ("Your body", "Nothing stands out", "Reading it: ")) \
         and "Which way you lean: doing it" in sent
     assert "Can you sum up my notes?" in sent
     imagine = next(r for r in brain.provider.mind_requests if r["messages"][0]["content"].startswith("[mind:imagine]"))
@@ -183,7 +183,8 @@ def test_what_the_user_says_while_she_works_reaches_her_body_too(brain):
     result = turn(brain, "cli", "Read my notes, please")
     sent = brain.provider.sent[-1]["messages"]
     said = next(m["content"] for m in reversed(sent) if m["role"] == "user" and "you're useless" in str(m["content"]))
-    assert "[Inside you:" in str(said) and "Reading it, you feel hurt" in str(said) and "What you decide" not in str(said)
+    assert "[Inside you: Reading it: " in str(said) and "What you decide" not in str(said)
+    assert "hurt" not in str(said).split("[Inside you:")[1]  # her quick reading's word is not put on her (0.37)
     assert mind.body.stress_drive > hurt[0]  # being judged while she works stresses her as it would at any time
     assert brain.store.run(result["run"])["options"]["mind"]["act"] == "do"  # what she decided about the turn stands
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]  # and she remembers it with the turn
@@ -207,10 +208,8 @@ def test_she_files_what_she_meets_under_what_she_knows(brain):
     wait_for(lambda: mind.values.uses.get("tag:food", 0) >= 2)  # each moment about food, once she has lived it
     assert set(mind.values.subjects(5)) == {"food", "greeting"}
     assert not any(f.startswith("act:talk") for f in mind.values.weights)  # chats decided nothing: no act learned
-    # her cortex names each moment as it likes, and it is her body that brings a feeling back
-    assert 'It feels like what you have called "peckish"' in brain.provider.last_user_text()
-    assert {c["word"]: (c["count"], c["back"]) for c in mind.concepts.named} == {
-        "glad": (1, 0), "peckish": (1, 1), "hungry": (1, 0)}  # called so once, and felt once more
+    # her quick reading's words for each moment name nothing of hers (until 0.37 they became her feelings)
+    assert mind.concepts.named == [] and "called" not in brain.provider.last_user_text()
 
 
 def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought_back(brain):
@@ -389,7 +388,8 @@ def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
         mind.self.setdefault("contacts", {}).setdefault("cli\nmain", {})[""] = {"bond": 0.8}
     turn(brain, "cli", "my cat is sick and I'm scared")
     path = mind.self["decided"]["path"]
-    assert path["theirs"] == -1.0 and path["met"]["shared"] < -0.5 and mind.concepts.named[-1]["word"] == "scared"
+    assert path["theirs"] == -1.0 and path["met"]["shared"] < -0.5
+    assert mind.concepts.named == []  # her quick reading's "scared" names nothing of hers
 
 
 def test_she_broods_on_what_hurt_her_and_what_moved_her_is_kept_with_why(brain):
@@ -728,7 +728,9 @@ def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
     brain.provider.replies += ["Done again."]
     turn(brain, "milk", "Thanks, now the other folder too.")
     assert brain.client.mind("milk", idle=5)["decided"]["path"]["learned"] is None
-    feelings = brain.client.mind("milk", idle=5)["feelings"]  # the stand-in model named what she felt
+    for _ in range(2):  # she puts what she feels into words, looking inward
+        brain.brain.mind.look_inward(naming="pleased with myself")
+    feelings = brain.client.mind("milk", idle=5)["feelings"]
     assert feelings and feelings[0]["count"] == 2 and len(feelings[0]["place"]) == 3
     brief = brain.client.mind("milk", idle=5, brief=True)  # a face's frequent look stays small as she grows
     assert set(brief) == {"asleep", "present", "felt", "feeling", "valence", "arousal", "face"}

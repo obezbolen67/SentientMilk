@@ -68,7 +68,7 @@ import re
 import secrets
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
 
@@ -76,7 +76,7 @@ from .. import signals
 from ..presence import Presence
 from . import inward, prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, REST, SET_POINTS, Body, Temperament, restore_random
-from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved
+from .feel import MOOD_PLACES, Concepts, Interoception, core, face, feel, moved, noticed
 from .memory import Memory, describe_salience, line
 from .people import People
 from .values import Values, features, subjects
@@ -551,7 +551,7 @@ class Mind:
                     urge["run"] = run["id"]  # the app lets her say what she meant to: said once she does (after)
                 felt = feel(body, self.senses, now)
                 self._told(run, felt)
-                return prompts.inner(felt.words(self.concepts.recognize(felt.noticed())))
+                return prompts.inner(felt.words())
             said = said[:SAID_CHARS]
             contact, urge = self.self.get("contact"), self.self.get("urge")
             actor = self._face(run).casefold()
@@ -583,7 +583,7 @@ class Mind:
             timing, apart = self._timing(away, social)
             body.learn_rhythm(body.hour(now), away or 0.0)
             came = self._arrives(run, said, pictures, now, candidates)
-            felt, feelings, memories, novelty = came["felt"], came["feelings"], came["memories"], came["novelty"]
+            felt, memories, novelty = came["felt"], came["memories"], came["novelty"]
             self._told(run, felt)
             # her time alone is hers when they are back: what she thought since they last wrote, the newest two
             thoughts = [t["thought"][:THOUGHT_CHARS] for t in self.self["thoughts"]
@@ -623,7 +623,6 @@ class Mind:
                     pending.setdefault("resolved", []).append(dimension)
             levels = dict(self.body.levels)
             met = self._met(seen, company, timing, why, social)
-            named = prompts.word(answer.get("feeling"))
             hour = self.body.hour(now)
 
             def found(option):
@@ -637,7 +636,7 @@ class Mind:
             threat = self._threat(seen, option, why)
             impact = core(self.body.levels)[0] - core(levels)[0]  # how the message felt to her, in her body
             lasting = _lasting(levels, self.body.levels)  # and of that, what outlasts its passing surprise
-            feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
+            way = self._moved(levels, f"{said} {answer.get('happens') or ''}", now)
             foreseen = {name: round(change, 3) for name, change in seen.effects().items()}
             correction = answer.get("correction")
             corrects = None
@@ -660,6 +659,7 @@ class Mind:
                         "stakes": min(1.0, sum(abs(change) for change in foreseen.values()) / 2),
                         "features": found(option), "reasons": choice.reasons if choice else [],
                         "chances": choice.chances if choice else {}, "said": said[:300], "felt": round(impact, 3),
+                        "way": {name: round(change, 3) for name, change in way.items() if abs(change) >= 0.05},
                         "lasting": round(lasting, 3),
                         "at": now, "with": came["with"]["name"] if came["with"] else None}
             # Preserve each prediction until its own observation arrives or its window expires.
@@ -671,7 +671,7 @@ class Mind:
             # the way this message went through her, step by step, for drawing her brain
             likeness = came["likeness"]
             path = {"appraisal": "model inference" if answer else "unavailable", "background_at": came.get("at", now),
-                    "background_tone": list(felt.tone()), "feeling_proposed": named, "device": self._device(run),
+                    "background_tone": list(felt.tone()), "device": self._device(run),
                     "selected": came.get("selected", []), "retrieval": came.get("retrieval", "unknown"), "said": said[:160], "happens": str(answer.get("happens") or "")[:120], "intent": seen.intent,
                     "tags": seen.tags,
                     "senses": {"contact": round(company, 3), "timing": round(timing, 3), "novelty": round(novelty, 3),
@@ -691,7 +691,7 @@ class Mind:
                                               "session": run["session"], "at": now})
             self.self["contact"] = {"app": run["app"], "session": run["session"], "actor": self._face(run).casefold(), "at": now}
             likes, dislikes = self.values.fond(subjects(seen.tags))
-            felt_words = felt.words(feelings) + (f" Reading it, you feel {named}." if named else "") \
+            felt_words = felt.words(moved_by=way) \
                 + (f" You like {' and '.join(likes)}." if likes else "") \
                 + (f" You don't like {' and '.join(dislikes)}." if dislikes else "")
             who = came["with"]["name"] if came["with"] else "the user"
@@ -740,13 +740,12 @@ class Mind:
             self._met(seen, 0.05, 0.0, why)  # they are with her already: the contact itself is a little
             decided = run["options"].get("mind") or {}
             self._threat(seen, Option(decided.get("act", "do"), chance=decided.get("chance", 0.8)), why)
-            named = prompts.word(answer.get("feeling"))
-            feelings = self._name(named, levels, f"{said} {answer.get('happens') or ''}", now)
+            way = self._moved(levels, f"{said} {answer.get('happens') or ''}", now)
             self.self["contact"] = {"app": run["app"], "session": run["session"], "actor": self._face(run).casefold(), "at": now}
             felt = feel(self.body, self.senses, now)
             self._told(run, felt)
             self._working[run["id"]].setdefault("heard", []).append(said[:300])  # remembered with the turn (after)
-            note = prompts.inner(felt.words(feelings) + (f" Reading it, you feel {named}." if named else ""),
+            note = prompts.inner(felt.words(moved_by=way),
                                  came["memories"], people=[People.line(person) for person in came["mentioned"]])
             if source and receipt.get("run") == run["id"]:
                 receipt.setdefault("steering", {})[source] = note
@@ -834,18 +833,15 @@ class Mind:
                 "revision": revision, "selected": selected, "retrieval": "available" if available else "unknown",
                 "likeness": likeness, "followed": followed, "evidence": evidence,
                 "novelty": 1.0 - likeness if likeness is not None else (0.5 if pictures else 0.0),
-                "felt": felt, "feelings": self.concepts.recognize(felt.noticed(), said), "memories": memories}
+                "felt": felt, "memories": memories}
 
     def _foresee(self, run: dict, profile: dict, came: dict, said: str, pictures: int, working: bool = False) -> dict:
         """Her quick, wordless reading of a message (the imagine call, thinking off): what it does to her
-        needs, what it is about, her word for what she feels and, asked for work, what she could do. It is
+        needs, what it is about and, asked for work, what she could do (never a name for her feeling). It is
         given the subjects she knows, to file this one under where it fits: a mind files what it meets under
         what it knows, and only what fits nothing makes something new (in the user's brain, 2026-11-16, all
         32 subjects had been met once, so she had come to like and dislike nothing; live, 12 messages on 4
-        subjects made 10 subjects before and 5 with this). Her words for feelings are not shown to it: shown,
-        she called everything by two or three of them (4 of 12 moments distinct, no new word, "wounded" at
-        a wish for ramen); a feeling comes back by her body (``_name``). {} when the call fails: she goes
-        with what comes."""
+        subjects made 10 subjects before and 5 with this). {} when the call fails: she goes with what comes."""
         person = came["with"]
         recent = self._recent(run, person["name"] if person else "User")
         # where they are, as the app's environment opens (live: without it, "gotta go to the store, wanna buy
@@ -860,7 +856,7 @@ class Mind:
         feedback_target = "".join(f"Prior turn {p['run']} to this speaker: {p['act']}, about {p.get('cue', '')}.\n"
                                   for p in prior)
         asked =(feedback_target + f"{self._who(profile['persona'])}\n" + (f"\nWhere they are: {place}\n" if place else "")
-                 + f"\nHow they feel right now: {came['felt'].words(came['feelings'])}\n"
+                 + f"\nHow they feel right now: {came['felt'].words()}\n"
                  + (f"What comes back to them: {'; '.join(came['memories'])}\n" if came["memories"] else "")
                  + (f"Subjects they know: {', '.join(known)}\n" if known else "")
                  + (f"Who they are talking with: {People.line(person)}\n" if person else "")
@@ -877,24 +873,60 @@ class Mind:
             self.body.exert(usage.get("completion_tokens") or 0)
         return answer
 
-    def _name(self, named: str, levels: Dict[str, float], situation: str, now: float) -> list:
-        """She called what she feels ``named``: the word keeps what the message did to her body (a brain builds
-        a feeling from the change it predicts; her sense of her body would lag behind it: live, "small" at a
-        comparison was kept as pleasant) and the situation. ``levels``: her body before the message moved it.
+    def _name(self, words: str, said: str, now: float, moment: Optional[dict] = None,
+              way: Optional[Dict[str, float]] = None, situation: str = "") -> Tuple[Optional[dict], str]:
+        """She put what she feels into words, reflecting (looking inward, or going back over a moment in her
+        thoughts): ``words``, any words, become a feeling of hers (Concepts.add) with how her body was moved in
+        the moment named, its situation and ``said``, her sentence. The moment is a past one (``moment``, an
+        episode: the change it made, kept on its decision since 0.37) or her now (``way``: what the message she
+        is answering did to her, else what stands out in her body). A feeling is named when attention turns to it
+        (Lambie & Marcel 2002): not as it happens, nor in sleep. Naming brings the felt shift (Gendlin 1978;
+        affect labeling: Torre & Lieberman 2018): a now still unpleasant eases a little, once per experience; a
+        past moment loses a little of its charge (understood, it pulls less: Wilson & Gilbert 2008). How the
+        words sit is told against the times she used them before: her own history, no list says what a word
+        means. (the feeling, how the words sit). Under her lock."""
+        felt = feel(self.body, self.senses, now)
+        if moment:
+            run = self.brain.store.run(moment["run_id"]) if moment.get("run_id") else None
+            way = dict((((run or {}).get("options") or {}).get("mind") or {}).get("way") or {})
+            situation = moment["text"]
+        else:  # attending to it, even what does not stand out is felt (as no glance would)
+            way = dict(way or noticed(felt.reading, felt.used))
+        key = Concepts.key(words)
+        known = next((c for c in self.concepts.named if c["word"] == key and c["hers"]), None)
+        if known is None:
+            fit = "It is a word of your own for it now."
+        elif not (way and known["moved"]):
+            fit = ""
+        elif self.concepts.strength(known, way) >= Concepts.FLOOR:
+            fit = "It sits like the times you called it that."
+        else:
+            fit = "It doesn't sit quite like the other times you called it that" + (
+                f'; then you said: "{known["said"][-1]["text"]}".' if known["said"] else ".")
+        found = self.concepts.add(words, way, situation, now, said=said, episode=(moment or {}).get("id"))
+        if found and moment:
+            self.memory.soften([moment["id"]], 0.15)
+        elif found:
+            event = (self.self.get("decided") or {}).get("at") or self.self.get("slept") or 0
+            if (felt.valence < -0.15 and self.self.get("regulated_event") != event
+                    and now - self.self.get("regulated_at", 0) >= MINUTE):
+                self.self["regulated_at"], self.self["regulated_event"] = now, event
+                self.body.apply({"noradrenaline": 0.05 * felt.valence, "cortisol": 0.03 * felt.valence},
+                                "putting what she feels into words")
+        return found, fit
 
-        The feelings of hers that come back as she reads it (word, strength; without ``named``) are those the
-        message moves her the way of; her note tells her cortex of them, and the strongest is counted as felt
-        again, whatever she calls this moment: a feeling is the moments sorted under it (Barrett 2017), and
-        it is her body that sorts them. Her cortex names each moment freshly (live, with eight words of her
-        own, not one of twelve later moments was called by any of them; and shown her words, it called
-        everything by two or three of them), so without this no feeling of hers was felt twice."""
+    def _moved(self, levels: Dict[str, float], situation: str, now: float) -> Dict[str, float]:
+        """What a message did to her body (the change of each channel, in lots; ``levels``: before it), for her
+        note's "Reading it" in body words (a brain builds a feeling from the change it predicts). The feeling of
+        hers it moves her the way of most is counted as felt again (``back``), unnamed: since 0.37 nothing names
+        her feelings but her, reflecting (``_name``). Until then a background call named each moment, and its
+        words came to her as "Reading it, you feel X" and "what you have called X": "a word the machine picked",
+        she said."""
         way = moved(levels, self.body.levels)
         back = self.concepts.recognize(way, situation)
-        if named:
-            self.concepts.add(named, way, situation, now)
-        if back and back[0][0] != named:
+        if back:
             self.concepts.came_back(back[0][0], now)
-        return [found for found in back if found[0] != named]
+        return way
 
     def _told(self, run: dict, felt) -> None:
         """Her cortex has heard how her body is now, for this run: while it works, it hears only what is new."""
@@ -1147,6 +1179,15 @@ class Mind:
         # what she did, which her cortex settled on as it went: that is what she learns from and remembers
         leaned = decision["act"] if decision else None
         act = self._did(run, events, leaned) if decision and decision.get("gated") else leaned
+        # she looked inward in this turn, then said how she is: saying it is her naming (a feeling is named when
+        # attention turns to it). Her own mind finds the words she put to it; only words she said count. Live
+        # (the exam, 0.37), asked to put it into words she looked and said it in her reply, and the naming the
+        # tool offers went unused: nothing became hers, nothing eased
+        reply = (run.get("result") or {}).get("reply") or ""
+        looked = [e for e in events if e["type"] == "tool" and e.get("name") == "look_inward"]
+        named = {}
+        if run["kind"] == "turn" and reply and looked and not any((e.get("arguments") or {}).get("naming") for e in looked):
+            named, _ = self._ask(prompts.NAMED, reply)
         with self._lock, self.memory.transaction():
             if decision and decision.get("epoch", 0) != self.self.get("epochs", {}).get(_chat(run["app"], run["session"]), 0):
                 self._working.pop(run["id"], None)
@@ -1167,6 +1208,13 @@ class Mind:
             attended = done.get("selected", decision.get("selected", []) if decision else [])
             heard = [e["display"][:300] for e in steering if e.get("display")] or done.get("heard") or []
             expressed = self._express(run) if run["kind"] == "turn" else None
+            plain = " ".join(reply.split()).casefold()
+            for item in named.get("named") or [] if isinstance(named.get("named"), list) else []:
+                words = " ".join(str((item or {}).get("words") or "").split()) if isinstance(item, dict) else ""
+                quote = " ".join(str(item.get("quote") or "").split()) if words else ""
+                if words and quote and words.casefold() in quote.casefold() and quote.casefold() in plain:
+                    self._name(words, quote, now, way=(decision or {}).get("way"),
+                               situation=(decision or {}).get("said") or "")
             if run["kind"] == "turn" and (run.get("result") or {}).get("reply"):  # her message is out: answering it
                 self.self["said"] = {"at": now, "mark": self.presence.now(now), "chat": _chat(run["app"], run["session"]),
                                     "actor": self._face(run).casefold()}  # takes them as long as it takes
@@ -1386,7 +1434,6 @@ class Mind:
                 came = [e for e in self.memory.recall(cue, felt.valence, now, count=self._span() + 1,
                                                       kinds=() if kind != "ruminate" else RUMINATED)
                         if e["id"] != (about or {}).get("id")][:self._span()]
-            feelings = self.concepts.recognize(felt.noticed(), cue)
             memories = [self._line(e, now)[:THOUGHT_CHARS] for e in came]
             others = self.people.mentioned(" ".join([subject, *memories]), besides=[person])
             liked, disliked = (", ".join(_about(found)) for found in self.values.leanings())
@@ -1395,7 +1442,7 @@ class Mind:
         asked = (f"{self._who(persona)}\n\n"
                  + (f"Who they talk with: {People.line(person)}\n" if person else "")
                  + (f"Others who come to mind: {'; '.join(People.line(other) for other in others)}\n" if others else "")
-                 + f"It is {time.strftime('%A %H:%M')}. How they feel: {felt.words(feelings)}\n"
+                 + f"It is {time.strftime('%A %H:%M')}. How they feel: {felt.words()}\n"
                  f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
                  + (f"What they've come to like: {liked}.\n" if liked else "")
                  + (f"What they've come to dislike: {disliked}.\n" if disliked else "")
@@ -1420,9 +1467,9 @@ class Mind:
                 body.apply({"cortisol": 0.06 * max(0.0, -about["sting"]) * about["charge"]}, "brooding on what hurt")
                 self.memory.soften([about["id"]], 0.1)
             felt = feel(body, self.senses, now)
-            named = prompts.word(answer.get("feeling"))
-            if named:
-                self.concepts.add(named, felt.noticed(), thought, now)
+            named = " ".join(str(answer.get("named") or "").split())
+            if named and named.casefold() in thought.casefold():  # put into words in her own inner voice, or not
+                self._name(named, thought, now, moment=about if kind == "ruminate" else None, situation=thought)
             episode = self.memory.add("thought", thought, felt.valence, felt.arousal, 0.25 + (0.2 if kind == "ruminate" else 0.0),
                             at=now, origins=[e["id"] for e in came], app=(contact or {}).get("app", ""),
                             session=(contact or {}).get("session", ""))
@@ -1719,14 +1766,17 @@ class Mind:
             self._retake()
         return changed
 
-    def look_inward(self, about: str = "", *, strategy="notice", run=None) -> str:
-        """She looks inside herself on purpose (inward.view): how she feels and how clearly she can tell, what
-        has been on her mind since she woke and what came of it, what she meant to say and put off, what got to
-        her, what she leaned toward and why, what she knows about herself; with ``about``, what comes back about
-        it and how clearly. As many things as her span holds. Putting a bad feeling into words calms it a little
-        (affect labeling: Lieberman et al. 2007, Torre & Lieberman 2018). Before 0.35 she had only what each
-        message's note handed her: asked what bothered her, she answered from the last topic while her thoughts
-        all afternoon had been about wanting to be noticed (the user's brain, 2026-11-17)."""
+    def look_inward(self, about: str = "", naming: str = "", *, strategy="notice", run=None) -> str:
+        """She looks inside herself on purpose (inward.view): how her body feels, in body words as her note
+        gives it, and how clearly she can tell; when it feels like a feeling she has named herself, the times
+        she said so, in her own words (0.37: never a name she did not give it); what has been on her mind since
+        she woke and what came of it, what she meant to say and put off, what got to her, what she leaned toward
+        and why, what she knows about herself; with ``about``, what comes back about it and how clearly. As many
+        things as her span holds. ``naming``: she puts what she finds into words, her own, any (``_name``): how
+        she is now, or with ``about`` the moment that comes back for it; that is what eases a feeling, looking
+        alone does not (the attend, try a word, check it fits, felt shift of Gendlin's focusing). Before 0.35 she had only
+        what each message's note handed her: asked what bothered her, she answered from the last topic while her
+        thoughts all afternoon had been about wanting to be noticed (the user's brain, 2026-11-17)."""
         about = " ".join(str(about or "").split())[:300]
         receipt = None
         if strategy == "reappraise" and run:
@@ -1748,7 +1798,9 @@ class Mind:
             put_off = [c["what"][:200] for c in self.self["concerns"][-span:]]
             stirred = sorted((e for e in self.memory.since(woke, kinds=("exchange", "event", "thought"))
                               if abs(e["sting"]) >= 0.1), key=lambda e: -abs(e["sting"]) * e["charge"])[:span]
-            moved = [(self._line(e, now)[:THOUGHT_CHARS], e["sting"]) for e in stirred]
+            called = {one["episode"]: concept["word"] for concept in self.concepts.named if concept["hers"]
+                      for one in concept["said"] if one.get("episode")}  # what she called a moment, looking back
+            moved = [(self._line(e, now)[:THOUGHT_CHARS], e["sting"], called.get(e["id"])) for e in stirred]
             decided = self.self.get("decided")
             leaned = ((prompts.ACTS.get(decided["act"], decided["act"]) + (f": {decided['what']}" if decided.get("what")
                        else ""), decided.get("reasons") or []) if decided and decided.get("gated")
@@ -1757,15 +1809,10 @@ class Mind:
             self_view = belief.get("text") or ""
             if self_view and belief.get("confidence") != "supported":
                 self_view = "A tentative impression: " + self_view
-            event = (self.self.get("decided") or {}).get("at") or self.self.get("slept") or 0
-            if (strategy == "notice" and felt.valence < -0.15 and self.self.get("regulated_event") != event
-                    and now - self.self.get("regulated_at", 0) >= MINUTE):
-                self.self["regulated_at"] = now
-                self.self["regulated_event"] = event
-                # Only the first look at this experience can regulate its response.
-                self.body.apply({"noradrenaline": 0.05 * felt.valence, "cortisol": 0.03 * felt.valence},
-                                "putting what she feels into words")
-            words = felt.words(self.concepts.recognize(felt.noticed()))
+            words = felt.words()
+            known = {concept["word"]: concept for concept in self.concepts.named}
+            familiar = [(word, known[word]["said"][-1]["text"], _ago(now - known[word]["said"][-1]["at"]))
+                        for word, _ in self.concepts.recognize(felt.noticed()) if known[word]["said"]][:span]
             self.self["looked"] = {"at": now, "about": about}
             if strategy == "reappraise":
                 trace = self.self.get("reappraisal") or {}
@@ -1780,16 +1827,25 @@ class Mind:
                 else:
                     receipt = None
             revision = self._revision
-        recalled = None
+        recalled, came_back = None, []
         lookup = {}
         if about:  # sought on purpose: what comes back, and how strongly it is there to come back (Koriat 1993)
-            recalled = [(self._line(e, now)[:THOUGHT_CHARS], Memory.strength_now(e, now))
-                        for e in self.memory.recall(about, felt.valence, now, count=span, status=lookup)]
+            came_back = self.memory.recall(about, felt.valence, now, count=span, status=lookup)
+            recalled = [(self._line(e, now)[:THOUGHT_CHARS], Memory.strength_now(e, now)) for e in came_back]
         self.save()
         with self._lock:
             if revision != self._revision:
                 return "The evidence changed while you were looking. Check again."
-        report = inward.view(words, felt.tone(), aware, thoughts, unsaid, put_off, moved, leaned, self_view, about, recalled)
+        report = inward.view(words, felt.tone(), aware, thoughts, unsaid, put_off, moved, leaned, self_view, about,
+                             recalled, familiar)
+        naming = " ".join(str(naming or "").split())[:300]
+        if naming:  # the moment she named: the one that came back for what she looked for, or her now
+            answering = ((self.brain.store.run(run["id"]) or {}).get("options") or {}).get("mind") or {} if run else {}
+            with self._lock:
+                _, fit = self._name(naming, naming, time.time(), came_back[0] if came_back else None,
+                                    answering.get("way"), answering.get("said") or about)
+            self.save()
+            report += f' You put it into words: "{naming}".' + (f" {fit}" if fit else "")
         if strategy == "reappraise":
             report += (f" You checked the record: {receipt['name']} succeeded on the expected target."
                        if receipt else " You still lack a matching successful observation for this concern.")
@@ -2037,7 +2093,7 @@ class Mind:
             body = self.body
             felt = feel(body, self.senses, now)
             felt_now = self.concepts.recognize(felt.noticed())
-            seen = {"asleep": body.asleep, "present": self.present(now), "felt": felt.words(felt_now),
+            seen = {"asleep": body.asleep, "present": self.present(now), "felt": felt.words(),
                     "feeling": ", ".join(word for word, _ in felt_now[:2]) or ", ".join(felt.tone()),
                     "valence": round(felt.valence, 3), "arousal": round(felt.arousal, 3),
                     "face": face(felt, options, body.asleep)}

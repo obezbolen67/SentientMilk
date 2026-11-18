@@ -297,7 +297,7 @@ def test_a_long_session_is_compacted_into_a_summary(brain):
             return "SUMMARY: reading the files one by one"
         return next(planned)
 
-    brain.provider.replies += [reply] * 20
+    brain.provider.replies += [reply] * 30  # so small a window compacts at nearly every step: room for each
     result = turn(brain, "cli", "read every file")
     assert result["reply"] == "all read"
     kinds = [e["type"] for e in result["events"]]

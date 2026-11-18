@@ -2,8 +2,8 @@
 
 Interoception reaches her late and imprecise (``Interoception``: each level is followed with a lag, and read
 with a drifting misreading that her temperament's ``insight`` shrinks). Its channels are her body's, fixed as
-a body's are (``CHANNELS``: stress, sleep pressure, closeness...); from them comes her core affect (valence:
-pleasant or not; arousal: keyed up or quiet).
+a body's are (``CHANNELS``: strain, sleep pressure, closeness...); from them comes her core affect (valence:
+pleasant or not; arousal: how much is going on in her).
 
 What she notices of her body is what it does not predict: she gets used to how a channel is (``used``, over
 ``ADAPTS``), and it stands out by how far it is from what she is used to, so a change is felt at once and a
@@ -13,14 +13,15 @@ process). She never gets used to all of it (``USED_TO``): what her body needs ke
 levels against a fixed usual, the same lines came with every message of a warm chat, and she said of them "I
 don't know if that's me feeling something or me reading a dial" (the user's brain, 2026-11-16).
 
-Feelings are not a list here. Following the theory of constructed emotion (Barrett 2017), she makes them: a
-feeling is a concept, a word she once used for what she felt (homesick, jealous, greedy: any word, as many as
-she comes to use), learned from the moments she used it: the way her body was moved in them (what a message
-did to her channels, or what stood out in them when nothing came) and their situations (what was happening).
+Following the theory of constructed emotion (Barrett 2017), she makes her feelings: a feeling is a concept,
+whatever words she put to what she felt when she reflected on it (life.py: looking inward, or going back over a
+moment in her thoughts; a feeling is named when attention turns to it: Lambie & Marcel 2002, Gendlin 1978),
+learned from the moments she named: how her body was moved in them, and their situations (what was happening).
 A moment is felt as the concepts that were moved the way she is moved now, the more where what is happening is
-like their situations (``Concepts``): an emotion is told from another by what the event does to her concerns
-(appraisal: Lazarus 1991; Scherer 2001), and the body of the hour, tired or rested, is shared by all of them.
-The words come from her own cortex, the model, naming what it is like in context (life.py), never from a table.
+like their situations and the more familiar the words (``Concepts``): an emotion is told from another by what
+the event does to her concerns (appraisal: Lazarus 1991; Scherer 2001), and the body of the hour, tired or
+rested, is shared by all of them. There is no list of feelings: what she feels and what she calls it are hers.
+Nothing else names her feelings, and her body reaches her as amounts she puts into words herself (``Felt.words``).
 
 Her face is the same reading, for apps: a mood from the expressions the app declares, chosen by valence and
 arousal, with a stance (open, closed) and her eyes.
@@ -46,11 +47,11 @@ ADAPTS = 20 * 60.0  # seconds for her to get used to how a channel is
 # Her body's channels as she senses them: what each is called, where it usually sits and how far from there
 # is a lot (needs sit at their set points, chemicals at their baselines)
 CHANNELS = {
-    "dopamine": ("drive", 0.2), "reward": ("reward", 0.4), "serotonin": ("calm", 0.2),
-    "noradrenaline": ("alertness", 0.25), "acetylcholine": ("focus", 0.2), "cortisol": ("stress", 0.25),
+    "dopamine": ("drive", 0.2), "reward": ("reward", 0.4), "serotonin": ("steadiness", 0.2),
+    "noradrenaline": ("alertness", 0.25), "acetylcholine": ("focus", 0.2), "cortisol": ("strain", 0.25),
     "oxytocin": ("closeness", 0.25), "endorphin": ("comfort", 0.3), "adenosine": ("sleep pressure", 0.17),
-    "energy": ("energy", 0.4), "grievance": ("hurt", 0.3), "social": ("company", 0.35),
-    "novelty": ("new things", 0.3), "competence": ("being of use", 0.3), "autonomy": ("freedom", 0.3),
+    "energy": ("energy", 0.4), "grievance": ("soreness", 0.3), "social": ("company", 0.35),
+    "novelty": ("novelty", 0.3), "competence": ("usefulness", 0.3), "autonomy": ("freedom", 0.3),
 }
 USUAL = {**{name: level.baseline for name, level in CHEMICALS.items()}, **SET_POINTS,
          "adenosine": 0.4, "energy": 1.0, "grievance": 0.0}  # sleep pressure: mid-day (body.py, 0.27)
@@ -137,8 +138,18 @@ def core(levels: Dict[str, float]) -> Tuple[float, float]:
     return valence, arousal
 
 
+# Her body as she feels it, in amounts against what she is used to ("much more alertness than you're used to"),
+# its parts named as a body's are, never as a feeling (stress, calm, hurt were renamed in 0.37): what it is like
+# and what to call it are hers to find (a felt sense has no words yet: Gendlin; she constructs the feeling from
+# it: Barrett 2017). 0.37 first gave ready-made sensations ("buzzing", "braced", "heavy-eyed"): live, they came
+# back word for word in 18 of 44 replies (amounts: 3 of 45), she said "handed over, and I just picked it up and
+# repeated it", and a blind judge heard her less from inside (0.36 preferred in 27 of 39 pairs)
 def _amount(far: float) -> str:
     return "a little " if far < 0.7 else "much " if far >= 1.1 else ""
+
+
+def _amounts(found: List[Tuple[str, float]]) -> str:
+    return _join([f"{_amount(abs(far))}{'more' if far > 0 else 'less'} {CHANNELS[name][0]}" for name, far in found])
 
 
 def _join(words: List[str]) -> str:
@@ -166,26 +177,36 @@ class Felt:
         return noticed(self.reading, self.used) if self.standing_out(1) else {}
 
     def tone(self) -> Tuple[str, str]:
-        """Core affect in words: ("pleasant", "quiet")."""
+        """Core affect in words: ("pleasant", "little going on"), an amount for how stirred up she is, as for her
+        body: "keyed up", a ready-made phrase, she traced in the exam ("That line isn't mine")."""
         tone = ("pleasant" if self.valence > 0.15 else "unpleasant" if self.valence < -0.15 else "neither good nor bad")
         if abs(self.valence) > 0.65:
             tone = "very " + tone
-        return tone, "keyed up" if self.arousal > 0.6 else "quiet" if self.arousal < 0.25 else "steady"
+        return tone, ("much going on" if self.arousal > 0.6 else "little going on" if self.arousal < 0.25
+                      else "some going on")
 
-    def words(self, feelings: Iterable[Tuple[str, float]] = (),
-              out: Optional[List[Tuple[str, float]]] = None) -> str:
-        """How it feels, for her: what stands out in her body (``out``: these channels instead), the overall
-        tone and what it feels like, no numbers ("Your body: a little more stress and much more closeness
-        than you're used to; pleasant on the whole, quiet. It feels like what you have called "fond".")."""
-        out = [f"{_amount(abs(far))}{'more' if far > 0 else 'less'} {CHANNELS[name][0]}"
-               for name, far in (self.standing_out() if out is None else out)]
+    def words(self, out: Optional[List[Tuple[str, float]]] = None,
+              moved_by: Optional[Dict[str, float]] = None) -> str:
+        """How it feels, for her: what stands out in her body (``out``: these channels instead) and the overall
+        tone, no numbers and no feeling's name: what she feels is hers to put into words ("Your body: much
+        more closeness and a little more strain than you're used to; pleasant on the whole, with little going
+        on.").
+        ``moved_by``: what a message did to her (the change of each channel, in lots), said first, then how she
+        is underneath it ("Reading it: more closeness than a moment ago. Underneath: more sleep pressure than
+        you're used to; ..."): an emotion has its object, a mood is the background (Russell 2003)."""
         tone, pace = self.tone()
-        said = (f"Your body: {_join(out)} than you're used to; {tone} on the whole, {pace}." if out else
-                f"Nothing stands out in your body: {tone} on the whole, {pace}.")
-        named = [word for word, _ in list(feelings)[:2]]
-        if named:
-            said += " It feels like what you have called " + " and ".join(f'"{word}"' for word in named) + "."
-        return said
+        whole = f"{tone} on the whole, with {pace}."
+        found = self.standing_out() if out is None else out
+        if moved_by:
+            now = sorted(((name, far) for name, far in moved_by.items() if name in CHANNELS and abs(far) >= 0.4),
+                         key=lambda item: -abs(item[1]))[:3]
+            if now:
+                under = [(name, far) for name, far in found if name not in dict(now)][:3]
+                return (f"Reading it: {_amounts(now)} than a moment ago. "
+                        + (f"Underneath: {_amounts(under)} than you're used to; {whole}" if under
+                           else f"Underneath, {whole}"))
+        return (f"Your body: {_amounts(found)} than you're used to; {whole}" if found
+                else f"Nothing stands out in your body: {whole}")
 
 
 def feel(body: Body, senses: Interoception, now: Optional[float] = None) -> Felt:
@@ -218,7 +239,9 @@ def face(felt: Felt, options: Dict[str, List[str]], asleep: bool) -> Optional[di
 
 
 class Concepts:
-    """The feelings she has named: any word she ever used for what she felt, each the moments she called that.
+    """The feelings she has named: whatever words she put to what she felt, reflecting (life.py: looking inward or
+    going back over a moment in her thoughts), each the moments she called that. Words a background call put on
+    her before 0.37 are kept as history (``hers`` False): never recognized, never shown, until she says one.
 
     A concept keeps the way her body was moved in those moments (``moved``: the running mean, in units of a
     lot a channel; the first few moments shape it most, later ones less) and its situations (the words of
@@ -231,9 +254,17 @@ class Concepts:
     was whatever she had felt last; by the way she was moved, 82% and 80%, and 76% at four hours apart."""
 
     FLOOR = 0.6  # how strongly one must come to mind to be felt
+    SAID = 3  # her own words for a feeling, the last few times she said it
 
     def __init__(self, saved: Iterable = ()):
-        self.named = [self._read(item) for item in saved]
+        self.named: List[dict] = []
+        for item in saved:
+            self.named.append(self._read(item))
+
+    @staticmethod
+    def key(words: str) -> str:
+        """Her words for a feeling as it is kept: one spacing, lower case, no end punctuation."""
+        return " ".join(str(words).split()).strip(" .,!?\"'").lower()[:80]
 
     @staticmethod
     def _read(item) -> dict:
@@ -243,21 +274,27 @@ class Concepts:
             return {"word": str(item.get("word", "")),
                     "moved": dict(item.get("moved") or noticed(item.get("body") or {})),
                     "about": dict(item.get("about") or {}), "count": int(item.get("count", 0)),
-                    "back": int(item.get("back", 0)), "at": float(item.get("at", 0.0))}
+                    "back": int(item.get("back", 0)), "at": float(item.get("at", 0.0)),
+                    "said": [dict(one) for one in item.get("said") or [] if isinstance(one, dict)],
+                    "hers": bool(item.get("hers"))}  # before 0.37 a background call named them: history
         # [word, vector] from before 0.22: the vector was of sensations that are gone; the word stays, and what
         # it is like is learned again the next time she uses it
-        return {"word": str(item[0]), "moved": {}, "about": {}, "count": 0, "back": 0, "at": 0.0}
+        return {"word": str(item[0]), "moved": {}, "about": {}, "count": 0, "back": 0, "at": 0.0, "said": [],
+                "hers": False}
 
-    def add(self, word: str, way: Dict[str, float], situation: str = "", at: float = 0.0) -> None:
-        """She called what she feels ``word``, her body moved this ``way`` (``moved`` by what came, or what she
-        ``noticed`` of it when nothing did), in ``situation`` (its words)."""
-        word = " ".join(str(word).split())[:40].lower()
+    def add(self, word: str, way: Dict[str, float], situation: str = "", at: float = 0.0, said: str = "",
+            episode: Optional[int] = None) -> Optional[dict]:
+        """She put what she feels into words, ``word`` (any words: hers), her body moved this ``way`` in the
+        moment she named, in ``situation`` (its words); ``said``: her sentence as she said it, and ``episode``:
+        the moment it names, if a past one, kept with the feeling (the last SAID). The feeling."""
+        word = self.key(word)
         if not word:
-            return
+            return None
         found = next((concept for concept in self.named if concept["word"] == word), None)
         if found is None:
-            found = {"word": word, "moved": {}, "about": {}, "count": 0, "back": 0, "at": at}
+            found = {"word": word, "moved": {}, "about": {}, "count": 0, "back": 0, "at": at, "said": []}
             self.named.append(found)
+        found["hers"] = True  # a word of her history becomes hers once she says it herself
         kept = found["moved"]
         share = 1.0 if not kept else max(0.15, 1.0 / (found["count"] + 1))
         for name, value in way.items():
@@ -265,7 +302,11 @@ class Concepts:
         about ={key: weight * 0.9 for key, weight in found["about"].items() if weight * 0.9 >= 0.05}
         for key in _words(situation):
             about[key] = about.get(key, 0.0) + 1.0
+        if said:
+            found["said"] = (found["said"] + [{"text": " ".join(said.split())[:300], "at": at, "episode": episode}]
+                             )[-self.SAID:]
         found.update(about=about, count=found["count"] + 1, at=at)
+        return found
 
     def came_back(self, word: str, at: float = 0.0) -> None:
         """A feeling of hers was felt again, in a moment she did not call by it. It is counted and no more:
@@ -276,8 +317,10 @@ class Concepts:
                 concept.update(back=concept["back"] + 1, at=at)
 
     def strength(self, concept: dict, way: Dict[str, float], cue: Optional[set] = None) -> float:
-        """How strongly a concept comes to mind, 0..1, with her body moved this ``way``."""
-        near = _alike(concept["moved"], way)
+        """How strongly a concept comes to mind, 0..1, with her body moved this ``way``: how alike, times how
+        familiar the word is to her (a word used often comes to mind sooner than one used once, as frequency
+        makes a concept accessible; until 0.37 a word used once came as readily as one used fifty times)."""
+        near = _alike(concept["moved"], way) * (0.5 + 0.5 * concept["count"] / (concept["count"] + 1))
         about = concept["about"]
         if cue and about:  # in a situation unlike its own it comes less readily
             share = sum(about.get(key, 0.0) for key in cue) / sum(about.values())
@@ -288,7 +331,7 @@ class Concepts:
         """What she feels, moved this ``way``, strongest first: (word, strength) of the concepts that come to
         mind."""
         cue = set(_words(situation))
-        found = ((concept["word"], self.strength(concept, way, cue)) for concept in self.named)
+        found = ((concept["word"], self.strength(concept, way, cue)) for concept in self.named if concept["hers"])
         return sorted(((word, value) for word, value in found if value >= self.FLOOR), key=lambda item: -item[1])
 
     def shown(self, way: Dict[str, float]) -> List[dict]:
@@ -296,9 +339,10 @@ class Concepts:
         moment by it (``count``) and how often it came back at one she did not (``back``), where it sits (``place``: pleasant -1..1, keyed up 0..1, toward the user -1..1: a usual body moved a
         lot and a half its way) and the channels it moves most (name, its share of the way, signed)."""
         out = []
-        for concept in self.named:
+        for concept in (concept for concept in self.named if concept["hers"]):
             entry = {"word": concept["word"], "strength": round(self.strength(concept, way), 3),
                      "count": concept["count"], "back": concept["back"], "at": concept["at"], "place": None,
+                     "said": list(concept["said"]),
                      "channels": []}
             size = math.sqrt(sum(value * value for value in concept["moved"].values()))
             if size:

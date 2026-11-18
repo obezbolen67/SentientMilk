@@ -3,6 +3,7 @@
 import json
 import re
 
+from ..context import without_inner
 from . import ToolContext, ToolError, Toolkit, ToolResult, tool
 
 PAGE, PREVIEW, SNIPPET, EVENT_CHARS = 40, 400, 160, 12_000
@@ -15,6 +16,8 @@ GUIDE = ("Your original session history survives compaction and cleared tool res
 
 def _render(event: dict) -> str:
     record = dict(event)
+    if event["type"] == "input":  # what was said, not how she sensed herself as she read it
+        record.update({key: without_inner(record[key]) for key in ("content", "display") if key in record})
     if event["type"] == "assistant":
         record["message"] = {key: value for key, value in event["message"].items()
                              if key in ("role", "content", "tool_calls", "refusal")}

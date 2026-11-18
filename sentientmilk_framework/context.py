@@ -7,6 +7,7 @@ prefix cache keeps hitting. Clearing and compaction are the only rewrites of the
 
 import json
 import platform
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -206,6 +207,22 @@ def snapshot(store, profile: dict, with_section: str = "", ways: str = "") -> di
 
 # ============== Inputs ==============
 
+# her felt sense as it went with a message ([Inside you: ...], or [Note: Inside you: ...] while she worked)
+INNER = re.compile(r"\[(?:Note: )?Inside you: [^\n]*\]\n?")
+
+
+def without_inner(content):
+    """What was said, without her felt sense: it is how she sensed herself as she read it, not something said,
+    so the records of what was said do not hold it (a person has no transcript of their body). Live, she found
+    hers in her history and said the words for her feeling were "the layer's, not mine". Her context keeps it."""
+    if isinstance(content, str):
+        return INNER.sub("", content)
+    if isinstance(content, list):
+        return [{**block, "text": INNER.sub("", block["text"])} if block.get("type") == "text" else block
+                for block in content]
+    return content
+
+
 def input_content(items: List[dict], context: Dict[str, str], *, reminders: List[str]) -> tuple:
     """(content for the model, text for the transcript). Time and context lead, reminders close it."""
     stamp = time.strftime("%Y-%m-%d %H:%M (%A)")
@@ -403,7 +420,7 @@ def transcript_for_summary(events: List[dict], previous: Optional[dict], per_res
     for event in events:
         kind = event["type"]
         if kind == "input":
-            content = event["content"]
+            content = without_inner(event["content"])
             text = content if isinstance(content, str) else " ".join(
                 b.get("text", "") if b["type"] == "text" else "[image]" for b in content)
             lines.append(f"USER [event {event['id']}]: {text}" if event.get('id') else f"USER: {text}")

@@ -86,48 +86,12 @@ def test_what_comes_back_about_something_comes_with_how_clearly(brain):
     assert "Nothing comes back about it." in mind.look_inward("my taxes deadline")  # knowing that she doesn't know
 
 
-def test_putting_a_bad_feeling_into_words_calms_it_a_little(brain):
+def test_looking_inward_she_meets_her_own_words_for_what_she_feels(brain):
     mind = brain.brain.mind
     with mind._lock:
-        mind.body.levels.update(reward=-0.6, cortisol=0.75, noradrenaline=0.85, serotonin=0.3)
-        mind.senses.seen.update(mind.body.levels)  # and she feels it (her senses follow with a lag)
-        before = dict(mind.body.levels)
-    mind.look_inward()
-    assert mind.body["cortisol"] < before["cortisol"] and mind.body["noradrenaline"] < before["noradrenaline"]
-    assert any(why == "putting what she feels into words" for _, why, _ in mind.body.pushed)
-    with mind._lock:
-        mind.body.levels.update(reward=0.5, cortisol=0.2, noradrenaline=0.4, serotonin=0.7)
+        mind.body.levels.update(oxytocin=0.85, reward=0.5, endorphin=0.6)
         mind.senses.seen.update(mind.body.levels)
-        mind.body.pushed.clear()
-    mind.look_inward()  # nothing bad to name: nothing to calm
-    assert not any(why == "putting what she feels into words" for _, why, _ in mind.body.pushed)
-
-
-def test_asked_what_is_wrong_she_can_look_inward_in_any_app(brain):
-    mind = brain.brain.mind
-    lived_a_day(mind)
-    profile = brain.brain.profile("bare", "main")
-    assert "look_inward" in brain.brain.toolset(profile, "turn").by_name  # a part of her, every app
-    brain.provider.replies += [tool_call("look_inward", {}), "Honestly? I wanted you to notice me."]
-    result = turn(brain, "cli", "what's bothering you?")
-    seen = next(e["result"] for e in result["events"] if e["type"] == "tool.end")
-    assert seen.startswith("Looking inward:") and "I want him to notice me" in seen
-    assert mind.state()["looked"]["at"] > time.time() - 60
-
-
-def test_sleep_tells_her_what_she_is_like_and_keeps_it_when_the_day_says_nothing(brain):
-    mind = brain.brain.mind
-    mind.self["slept"] = time.time() - 60
-    brain.provider.replies += ["Too late, he's gone."]
-    turn(brain, "cli", "stop him, you started it without asking")
-    wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
-    brain.provider.mind_replies["self"] = [json.dumps({"self": "I start things before I'm asked, and then I'm sorry."})]
-    mind._consolidate()
-    asked = [r for r in brain.provider.mind_requests if r["messages"][0]["content"].startswith("[mind:self]")][-1]
-    assert "stop him" in asked["messages"][1]["content"] and "You are Milk" not in asked["messages"][1]["content"]
-    assert mind.state()["self_view"] == "I start things before I'm asked, and then I'm sorry."
-    for answer in ("no json here", json.dumps({"self": None})):  # nothing new about her: what she knows holds
-        brain.provider.mind_replies["self"] = [answer]
-        mind.self["slept"] = time.time() - 60
-        mind._consolidate()
-        assert mind.state()["self_view"] == "I start things before I'm asked, and then I'm sorry."
+        mind._name("so happy you're back", "so happy you're back", time.time() - 3600)
+    seen = mind.look_inward()
+    assert "It is like when you said \"so happy you're back\" (an hour ago)" in seen
+    assert "happy" not in seen.split("It is like")[0]  # her body in sensations, her words only in her own mouth

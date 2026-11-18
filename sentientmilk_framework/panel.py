@@ -1205,7 +1205,11 @@ class Panel(App):
                if looked else f"[{MUTED}]never yet[/]")
             + f"\n[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
             + f"\n[{MUTED}]Feelings she named[/] "
-            + (escape(", ".join(f["word"] for f in sorted(state["feelings"], key=lambda f: -f["count"]))) or "-")
+            + (escape(", ".join(f"{f['word']} ×{f['count']}" for f in sorted(state["feelings"], key=lambda f: -f["count"])))
+               or f"[{MUTED}]none yet: she names them in her own words[/]")
+            + (f"\n[{MUTED}]Last she said[/] " + escape(f'"{said["text"]}" ({when(said["at"])})') if (said := max(
+                (one for f in state["feelings"] for one in f.get("said") or []), key=lambda one: one["at"], default=None))
+               else "")
             + (f"\n[{MUTED}]Put off[/]\n{put_off}" if put_off else "")
             + f"\n[{MUTED}]People she knows[/]\n" + (people or f"[{MUTED}]nobody yet[/]"))
         fill(self.main.query_one("#way-table", DataTable),

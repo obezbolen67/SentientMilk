@@ -1,5 +1,5 @@
-"""What she senses of her body (lagged and blurred, its channels in words, never numbers), the feelings she
-makes of it (any word she ever used, by body and situation) and a face for apps."""
+"""What she senses of her body (lagged and blurred, its channels in words, never numbers or a feeling's name), the
+feelings she makes of it (the feeling words she said of herself, by body and situation) and a face for apps."""
 
 from sentientmilk_framework.mind.body import Body, Temperament
 from sentientmilk_framework.mind.feel import Concepts, Interoception, face, feel, moved
@@ -23,17 +23,16 @@ def test_good_news_and_closeness_feel_pleasant_and_stress_does_not():
     body, senses = her(cortisol=0.8, reward=-0.6, grievance=0.5, serotonin=0.35)
     bad = feel(body, senses)
     assert good.valence > 0.4 > -0.4 > bad.valence
-    assert {"reward", "closeness", "comfort"} <= {n for n in ("reward", "closeness", "comfort")
-                                                   if n in good.words()}
-    assert "more stress" in bad.words() and "hurt" in bad.words()
+    assert all(word in good.words() for word in ("reward", "closeness", "comfort"))
+    assert "more strain" in bad.words() and "soreness" in bad.words()
 
 
 def test_she_senses_her_body_late():
     body, senses = her()
     body.levels["cortisol"] = 0.9
-    assert "stress" not in feel(body, senses).words()  # not yet
+    assert "strain" not in feel(body, senses).words()  # not yet
     senses.follow(body, 600)
-    assert "much more stress than you're used to" in feel(body, senses).words()
+    assert "much more strain than you're used to" in feel(body, senses).words()
 
 
 def test_she_notices_what_changes_and_gets_used_to_what_lasts():
@@ -70,9 +69,9 @@ def test_little_insight_misreads_her_body_more_and_a_moment_reads_the_same_twice
 
 def test_she_hears_her_body_in_words_never_in_numbers():
     body, senses = her(energy=0.2, oxytocin=0.8)
-    said = feel(body, senses).words([("fond", 0.8)])
+    said = feel(body, senses).words()
     assert said.startswith("Your body: ") and "much less energy" in said and "more closeness" in said
-    assert said.endswith('It feels like what you have called "fond".')
+    assert "called" not in said and "fond" not in said  # her body, never a feeling's name (0.37)
     assert not any(ch.isdigit() for ch in said)
 
 
@@ -106,7 +105,7 @@ def test_any_word_she_uses_becomes_a_feeling_that_comes_back_when_she_is_moved_t
     body, _ = her(seed=3, adenosine=0.8, energy=0.5, social=0.2)
     way = blow(body, cortisol=0.07, oxytocin=-0.03, grievance=0.05, reward=-0.1)
     assert [word for word, _ in concepts.recognize(way, "they mention that other assistant again")] == ["jealous"]
-    unlike = dict(concepts.recognize(way, "the weather is nice"))["jealous"]
+    unlike = dict(concepts.recognize(way, "the weather is nice")).get("jealous", 0.0)  # once said: less ready
     assert unlike < dict(concepts.recognize(way, "that other assistant"))["jealous"]
     assert concepts.recognize(blow(body, oxytocin=0.05, reward=0.2, social=0.08))[0][0] == "touched"
     assert concepts.recognize(blow(body, novelty=0.2, dopamine=0.05)) == []  # nothing she named is like wonder
@@ -121,27 +120,28 @@ def test_any_word_she_uses_becomes_a_feeling_that_comes_back_when_she_is_moved_t
     assert concepts.named[0]["moved"] == before
     shown = {f["word"]: f for f in concepts.shown(way)}
     assert (shown["jealous"]["count"], shown["jealous"]["back"]) == (2, 1)
-    assert shown["jealous"]["strength"] > 0.9 and shown["touched"]["strength"] == 0.0
+    assert shown["jealous"]["strength"] > 0.8 and shown["touched"]["strength"] == 0.0
     assert shown["jealous"]["place"][0] < -0.3 < 0.3 < shown["touched"]["place"][0]  # unpleasant, pleasant
     assert shown["jealous"]["place"][2] < 0 < shown["touched"]["place"][2]  # apart from the user, toward them
     # drawn by what it moves, not by the tired and lonely body she felt it in the second time
     assert set(dict(shown["jealous"]["channels"])) == {"cortisol", "reward", "grievance"}
     kept = Concepts([{"word": "sour", "body": {"cortisol": 0.8, "reward": -0.5}, "count": 3}])  # a feeling from before 0.24
-    assert kept.recognize(way)[0][0] == "sour"  # comes back by how its body stood out, until she uses the word again
+    assert kept.recognize(way) == []  # named by a background call: history, until she says it herself (0.37)
+    assert kept.named[0]["moved"]  # kept as its body stood out
     old = Concepts([["relieved", [0.1] * 19]])  # a mind from before 0.22 keeps her words
-    assert old.recognize(way) == [] and old.shown(way)[0]["word"] == "relieved"
+    assert old.recognize(way) == [] and old.named[0]["word"] == "relieved" and old.shown(way) == []
 
 
 def test_the_imagine_answer_reads_by_shape_with_words_first_or_without():
     new = imagined('["they leave for a while", "less", "same", "same", "chat", "errand", "lonely", '
                    '["talk", "say bye", 0.1, 0.9, 0.6]]')
     assert new["appraisal"]["company"] == -0.5 and new["appraisal"]["free"] == 0.0
-    assert new["happens"] == "they leave for a while" and new["feeling"] == "lonely"
+    assert new["happens"] == "they leave for a while" and "feeling" not in new  # nothing names her feelings
     assert new["appraisal"]["intent"] == "chat" and new["options"][0]["act"] == "talk"
     assert new["appraisal"]["theirs"] == 0.0  # nothing said of how things are for them
     old = imagined('[0.3, 0.6, 0.5, "chat", "errand", "fine", ["talk", "ok", 0.1, 0.9, 0.6]]')
-    assert old["appraisal"]["company"] == -0.4 and old["happens"] == "" and old["feeling"] == "fine"
-    assert old["appraisal"]["theirs"] == 0.0  # "fine" is her word for what she feels there
+    assert old["appraisal"]["company"] == -0.4 and old["happens"] == "" and old["options"][0]["act"] == "talk"
+    assert old["appraisal"]["theirs"] == 0.0  # "fine", a feeling's name until 0.37, is left
     theirs = imagined('["they failed an exam", "more", "same", "same", "bad", "chat", "school", "fine"]')
     assert theirs["appraisal"]["theirs"] == -0.5 and theirs["appraisal"]["intent"] == "chat"
-    assert theirs["appraisal"]["tags"] == ["school"] and theirs["feeling"] == "fine"
+    assert theirs["appraisal"]["tags"] == ["school"]

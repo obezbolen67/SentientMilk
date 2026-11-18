@@ -139,8 +139,8 @@ def test_the_short_answer_of_her_imagining_is_read_and_odd_ones_are_survived():
     found = imagined('```json\n["0.6", 0.4, 0.5, "request", "code", "drained", '
                      '["do", "write it all", 0.7, 0.8, 1], ["later", "after a nap", 0.1, 0.6, 0.3]]\n```')
     seen = Appraisal.read(found["appraisal"])
-    assert ([round(v, 6) for v in seen.effects().values()], seen.intent, seen.tags, found["feeling"]) == \
-        ([0.2, -0.2, 0.0], "request", ["code"], "drained")  # asked 0..1 with 0.5 for no change
+    assert ([round(v, 6) for v in seen.effects().values()], seen.intent, seen.tags) == \
+        ([0.2, -0.2, 0.0], "request", ["code"])  # asked 0..1 with 0.5 for no change
     options = [Option.read(o) for o in found["options"]]
     assert [(o.act, o.what, o.effort, o.gives) for o in options] == [("do", "write it all", 0.7, 1.0),
                                                                      ("later", "after a nap", 0.1, 0.3)]
@@ -156,7 +156,7 @@ def test_the_short_answer_of_her_imagining_is_read_and_odd_ones_are_survived():
     # live: a part left out and a phrase before the act; read by shape
     odd = imagined('[0.8, 0.9, 0.7, "request", "downloads sorter script", ["doing it, imagining it works", "do", '
                    '"write the full script now", 0.7, 0.7, 0.9]],')
-    assert odd["feeling"] == "" and [(o["act"], o["what"], o["gives"]) for o in odd["options"]] == [
+    assert [(o["act"], o["what"], o["gives"]) for o in odd["options"]] == [
         ("do", "write the full script now", 0.9)]
 
 

@@ -371,7 +371,8 @@ def line(episode: dict, now: float, *, waking_evidence: bool = False) -> str:
     """An episode as it comes back to her: how long ago, and what."""
     ago = max(0.0, now - episode["at"])
     when = ("just now" if ago < 120 else f"{int(ago // 60)} minutes ago" if ago < 3600 else
-            f"{int(ago // 3600)} hours ago" if ago < 86400 else f"{int(ago // 86400)} days ago")
+            "an hour ago" if ago < 7200 else f"{int(ago // 3600)} hours ago" if ago < 86400 else
+            "a day ago" if ago < 2 * 86400 else f"{int(ago // 86400)} days ago")
     if waking_evidence and episode.get("kind") == "dream":
         return (f"({when}) A dream came to mind. Your records here contain no waking observation. "
                 "If asked whether something was done, you can say you cannot verify it. Check before acting.")

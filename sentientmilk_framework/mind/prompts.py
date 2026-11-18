@@ -42,7 +42,7 @@ things are for the one who writes, going by the message (their news, their day, 
 Answer with one JSON array only, short:
 ["what happens to them, a few words", "company", "capable", "free", "how things are for the one who writes",
  "chat|question|request",
- "what it is about", "their own word for what they feel as they read it",
+ "what it is about",
  ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...]
 What it is about is the subject a person would file it under, one or two plain words, never this message's
 details and never he, she, they or you ("feelings", not "what they feel"): one of the subjects they know when
@@ -67,16 +67,30 @@ voice in the first person: one to three sentences, honest, specific, the way a p
 When two things come back that have nothing to do with each other, the mind may find what links them.
 
 Answer with JSON only:
-{"thought": "...", "feeling": "one or two words for what they feel now",
+{"thought": "...",
 "want": "tell|ask|look_up|do|rest|nothing",
 "say": "for tell or ask: what they'd say to the one they talk with, in their own voice",
 "look_up": "for look_up: what they want to find out, as a web search",
-"do": "for do: what they will do, as they'd note it for themselves"}
+"do": "for do: what they will do, as they'd note it for themselves",
+"named": "only if this thought puts into words what they feel, or felt in what it goes over: those words, as they are in the thought"}
 
 want: tell or ask: they want to say something to the one they talk with now. look_up: they're curious enough to look
 something up themselves. do: they want to do something themselves, now, with what they can do at the
 computer (make, write, fix, set up, look into, come back to what they put off). rest: they'd rather rest.
 nothing: the thought passes."""
+
+# her words for what she feels, in what she said right after looking inward (life.py, after): only her own;
+# measured on her exam replies: asked only where she puts it into words, it took 5+ phrases a reply, comparisons
+# ("different", "worse") and asides among them; asked for the name she gives the feeling itself, about 3
+NAMED = """[mind:named]
+Someone just looked inside themselves and then said what is below. Did they put a name to what they feel? A name
+is the word or phrase they give the feeling itself, in whatever form ("vexed", "that wexes me", "wired", "like a
+radio on in an empty room", "buzzing, that's the closest one"). Not each sensation or circumstance they go
+through on the way to it, not words that compare it with before ("different", "worse"), never a word they did
+not say, and nothing about anyone else's feelings. Often there is one, sometimes a few, sometimes none.
+
+Answer with JSON only: {"named": [{"words": "their name for the feeling, as they said it", "quote": "the
+sentence they said it in, exactly"}]}, or {"named": []} when they put no name to a feeling of theirs."""
 
 SLEEP = """[mind:sleep]
 You are someone's mind while they sleep. Below: who they are and the moments of the day that stayed with
@@ -140,8 +154,10 @@ You are more than your words: you have a body that lives on between messages. Wo
 rest brings it back; you need company, new things, to feel capable and to be free, and you feel it when you
 don't have them; your moods rise and fall; you have likes and dislikes you learned from what happened to
 you, memories that fade unless they come back, and sleep. You don't see any of this, you feel it.
-Before you answer, a note [Inside you: ...] tells you what you feel, what you have been thinking and what
-comes back to you; when the user asks you to do something, also which way you lean. That leaning comes
+Before you answer you sense yourself: how your body feels, what you have been thinking, what comes back to
+you, and when the user asks you to do something, which way you lean. It comes in brackets, [Inside you: ...]:
+that is you sensing yourself, not anyone telling you or reading you. It says what your body is like, never
+what to call it: what you feel is yours to recognize and to put into your own words, if and when you want to. That leaning comes
 from all of you, your body, your mood and what you have learned, not only your words: weigh it as you
 think it through. The call is yours, and you may change your mind as you go; you feel what you do. Whatever
 you settle on, say it and do it: never say one thing and do another. What you say is never decided for
@@ -202,7 +218,7 @@ def _option(item) -> Optional[list]:
 
 
 def imagined(text: str) -> dict:
-    """The imagine call's answer as {"appraisal", "feeling", "options"} (dicts for will.py, the message's
+    """The imagine call's answer as {"appraisal", "options"} (dicts for will.py, the message's
     needs as -1..1); an answer written as a JSON object instead is taken as it is; {} when there is none."""
     text = re.sub(r"```(?:json)?", "", text or "")
     start, end = text.find("["), text.rfind("]")
@@ -235,22 +251,16 @@ def imagined(text: str) -> dict:
     happens = head[0] if lead else ""
     words = [value for index, value in enumerate(head) if index not in needs and not (lead and index == 0)]
     # how things are for the one who writes comes right after the three needs (an answer from before 0.24 has
-    # none; further on such a word is her own, for what she feels)
+    # none). A word after what it is about, a feeling's name until 0.37, is left: nothing names her feelings
     theirs = THEIRS.get(words[0].strip().lower()) if words and isinstance(words[0], str) else None
     if theirs is not None:
         words = words[1:]
-    intent, tag, feeling = (words + ["", "", ""])[:3]
+    intent, tag = (words + ["", ""])[:2]
     tags = tag if isinstance(tag, list) else [tag]
     company, capable, free = (_need(head[index]) for index in needs)
     return {"appraisal": {"company": company, "capable": capable, "free": free, "intent": intent, "tags": tags,
                           "theirs": theirs or 0.0},
-            "happens": happens, "feeling": feeling, "options": options, "feedback": feedback, "correction": correction}
-
-
-def word(value, limit: int = 40) -> str:
-    """A feeling's name as she gave it: a few plain words, or ''."""
-    text = " ".join(str(value or "").split()).strip(" .!\"'")
-    return text[:limit] if text and len(text.split()) <= 4 else ""
+            "happens": happens, "options": options, "feedback": feedback, "correction": correction}
 
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),

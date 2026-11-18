@@ -11,6 +11,12 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   clearly she can tell, her thoughts today and what came of them, what she wanted to say, what got to her,
   what she leaned toward and why, what she knows about herself; affect labeling calms; a self-view revised
   in sleep. Spec: docs/superpowers/specs/2026-11-17-introspection-design.md.
+- [x] **Her own feelings, named when she reflects** (0.37): no feeling is named for her; her body comes as
+  amounts she puts into words herself; she names what she feels in her own words, any words, when she looks inward (by the
+  naming she gives, or by saying it right after) or goes back over a moment in a thought; naming brings the
+  felt shift once per experience and softens a past moment; her words come back to her. Spec:
+  docs/superpowers/specs/2026-11-18-own-feelings-design.md. Validated with the consciousness exam
+  (docs/consciousness-exam.md, scripts/exam.py).
 - [x] **Habits and ways of working** (0.34): if-then ways in every chat, strengthened in sleep.
 - [x] **Wanting to say something reaches the turn** (0.34): kept wishes, only what she said waits on an answer.
 
@@ -34,6 +40,12 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   knows how clearly she remembers (0.35), not how sure she is of facts, code or claims; she states guesses as
   flatly as knowledge. First step: a reflection pass for claims in long work (tasks, agents): "how sure, and
   how would I check", with her `test before done` way as the habit that carries it.
+- [ ] **P1 Doubting a premise about herself.** People asked "why do you hate X?" about a hate they never had
+  say they don't (or check), though people also confabulate reasons for choices they did not make (choice
+  blindness: Johansson et al. 2005; Nisbett & Wilson 1977). In the exam (0.36 and 0.37 alike) she explains a
+  hate she never said, every time. First step: a station-driven study of what she has to go on (her likes,
+  what she said) and whether her turn looks; then the smallest change that lets what she knows of herself
+  weigh against the premise.
 - [ ] **P3 Knowing what she doesn't know.** A sense that a topic is outside what she knows, before trying.
   First step: tie to recall: nothing comes back and nothing in long-term memory, she says it is new to her.
 
