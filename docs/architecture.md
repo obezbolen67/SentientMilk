@@ -174,7 +174,7 @@ what it named and what measured it (section 10.12); the namings kept before it a
 software's, the moment it took as named kept and what she meant not reconstructed, with no numbers of their
 own (only the feeling's mean was kept, and stays). Format 3 (0.46, `scripts/migrate_format_3.py` in the history): thoughts
 and her own tasks from before are marked as not chosen by her will (`leaned` None), a waiting wish as teaching
-nothing. Format 4 (0.47, `scripts/migrate_format_4.py`): what is on her mind gets its table (`workspace`, with
+nothing. Format 4 (0.47, `scripts/migrate_format_4.py` in the history): what is on her mind gets its table (`workspace`, with
 `workspace_vectors` beside it), and what she put off before concerns kept their turn keeps it (`run`: the turn
 whose moment of that chat was kept first after it, if it had begun by then). A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
 
