@@ -789,8 +789,10 @@ class Mind:
                 # (now): a relief, as much as she spares herself, and the relief teaches what she did instead
                 # (avoidance pays in fear let go: Mowrer's two factors; Krypotos et al. 2015)
                 before_relief = core(self.body.levels)[0]
-                eased = self.body.apply({name: -spared * lots * CHANNELS[name][1] for name, lots in reacted.items()},
-                                        f"relief: {LEANINGS[option.act]}")
+                # the share she spares herself of what the dread moved (it was undone as called for: the 28 lots a
+                # pinned dread called for pinned her strain at its floor)
+                eased = self.body.release({name: lots * CHANNELS[name][1] for name, lots in reacted.items()}, spared,
+                                          f"relief: {LEANINGS[option.act]}")
                 relief = core(self.body.levels)[0] - before_relief
                 reacted = {name: round(reacted.get(name, 0.0) + eased.get(name, 0.0) / CHANNELS[name][1], 4)
                            for name in {*reacted, *eased}}
@@ -825,6 +827,9 @@ class Mind:
                         "features": found(option), "reasons": choice.reasons if choice else [],
                         "chances": choice.chances if choice else {}, "said": said[:300], "felt": round(impact, 3),
                         "way": {name: round(change, 3) for name, change in way.items() if abs(change) >= 0.05},
+                        # how reading it moved her less what her reactions measurably moved in it: what came, for
+                        # her learned reactions (every channel measured, 0 included)
+                        "external": {name: round(change - reacted.get(name, 0.0), 4) for name, change in way.items()},
                         "lasting": round(lasting, 3),
                         # her body as the message came: what the whole moment did by its end is kept (after)
                         "levels": {name: round(value, 4) for name, value in levels.items()},
@@ -834,7 +839,10 @@ class Mind:
             previous = self.self["waiting"].get(chat) or {}
             then = {"option": previous.get("option") or "", "actions": previous.get("actions") or []} \
                 if previous.get("actor") == actor and now - previous.get("at", 0.0) < DAY else None
-            decision.update(cause=cause, then=then, reacted=reacted, context=context, surroundings=surroundings,
+            # what reading it called up among her reactions called for (their prediction, in lots) and what they
+            # measurably moved (with the relief of not doing what she dreads)
+            decision.update(cause=cause, then=then, called=self.self["reacted"][0]["predicted"] if reacted else {},
+                            reacted=reacted, context=context, surroundings=surroundings,
                             # each way she weighed, with the operation that would carry it out (what she did is
                             # matched to these: after)
                             could=[{"act": one["act"], "what": one["what"], "check": one.get("check")}
@@ -869,9 +877,10 @@ class Mind:
                     "learned": learned, "foreseen": foreseen, "met": met,
                     "options": choice.considered if choice else [], "temperature": choice.temperature if choice else None,
                     "threat": threat,
-                    # what reading it called up among her learned reactions, and what that set off (less the relief
-                    # of not doing what she dreads)
-                    "reacted": {"text": self.self["reacted"][0]["text"], "moved": reacted} if reacted else None,
+                    # what reading it called up among her learned reactions: what they called for, and what they
+                    # measurably moved (less the relief of not doing what she dreads)
+                    "reacted": {"text": self.self["reacted"][0]["text"], "predicted": self.self["reacted"][0]["predicted"],
+                                "moved": reacted} if reacted else None,
                     "attended": decision["attended"]}
             self.self["decided"] = {**{key: decision[key] for key in ("act", "what", "gated", "reasons", "chances", "at")},
                                     "run": run["id"], "app": run["app"], "session": run["session"], "path": path, "outcome": None}
@@ -935,10 +944,11 @@ class Mind:
             levels = dict(self.body.levels)
             self._refeel(came["back"], now)
             done = self._working.setdefault(run["id"], {"tokens": 0, "calls": 0, "errors": 0, "told": {}})
-            reacted = done.setdefault("reacted", {})  # what her reactions did in the turn is not what it taught
-            for name, lots in self._react(reading, self._surroundings(run, now), self._cues(run, now), now,
-                                          "reading").items():
-                reacted[name] = round(reacted.get(name, 0.0) + lots, 4)
+            # what her reactions measurably moved in the turn, and when, is not what it taught (after: what is left
+            # of it by the turn's end is taken out)
+            did = self._react(reading, self._surroundings(run, now), self._cues(run, now), now, "reading")
+            if did:
+                done.setdefault("reacted", []).append({"at": now, "moved": did})
             if cause:  # learned with how the turn went (after)
                 done.setdefault("causes", []).append(cause)
             why = self._why(run, said)
@@ -978,21 +988,24 @@ class Mind:
     def _react(self, found: Dict[int, float], surroundings: List[str], context: List[str], now: float,
                by: str) -> Dict[str, float]:
         """What the reactions called up (``found``: by meaning, id -> likeness; and those to ``surroundings``) set
-        off in her body now (under her lock), as part of what reading, doing or thinking did: each channel in
-        lots, and kept for apps to show. What is held back by getting over it is held back where (``context``)
-        and when she got over it, less under stress."""
+        off in her body now (under her lock), as part of what reading, doing or thinking did: what her body
+        measurably moved, each channel in lots (Body.apply's change, after her temperament, worn-down receptors
+        and her levels' bounds), and kept for apps to show with what they called for. What is held back by getting
+        over it is held back where (``context``) and when she got over it, less under stress. What they called for
+        was taken for what they did: alertness at 0.90, a reaction calling for 28.7 lots moved it 0.4, and the rest
+        was learned by a new cue as an outcome that never came."""
         present = {**found}
         for rid, likeness in self.reactions.around(surroundings).items():
             present[rid] = max(present.get(rid, 0.0), likeness)
         if not present:
             return {}
         each = self.reactions.each(present, now, context, anxious(self.body.levels))
-        lots = {}
+        called = {}
         for moved_by in each.values():
             for name, amount in moved_by.items():
-                lots[name] = lots.get(name, 0.0) + amount
-        lots = {name: round(amount, 4) for name, amount in lots.items() if abs(amount) >= 0.005}
-        if not lots:
+                called[name] = called.get(name, 0.0) + amount
+        called = {name: round(amount, 4) for name, amount in called.items() if abs(amount) >= 0.005}
+        if not called:
             return {}
         texts = self.reactions.texts(present)
         # the most moving first, and it names the whole: a surrounding is matched whole, a cue by meaning only so
@@ -1001,20 +1014,29 @@ class Mind:
         before = core(self.body.levels)[0]
         # each reaction moves her by what it sets off, as its own push named by it (as one push named by
         # the strongest, a reaction to coming back from a shower was "what moved her" in work, thought and reading
-        # alike, and recognition could not be told from spillover: the audit, finding 6)
+        # alike, and recognition could not be told from spillover: the audit, finding 6); what each moved is what
+        # her body reports, in lots: a channel it called for and could not move is an observed 0, kept as one
+        did, moved_each = dict.fromkeys(called, 0.0), {}
         for rid in order:
-            self.body.apply({name: each[rid][name] * CHANNELS[name][1] for name in lots if name in each[rid]},
-                            f"reacting to: {texts.get(rid, '')[:QUOTED]}")
+            got = self.body.apply({name: each[rid][name] * CHANNELS[name][1] for name in called if name in each[rid]},
+                                  f"reacting to: {texts.get(rid, '')[:QUOTED]}")
+            moved_each[rid] = {name: got.get(name, 0.0) / CHANNELS[name][1] for name in called if name in each[rid]}
+            for name, lots in moved_each[rid].items():
+                did[name] += lots
+        did = {name: round(lots, 4) for name, lots in did.items()}
         self.reactions.called(present, now)
         # pleasant: how it moved how pleasant her body is (an app shows dread apart from a pull by it); each: what
-        # each reaction was, how alike to it what she met was, and what it set off
-        self.self["reacted"] = ([{"at": now, "text": texts.get(order[0], ""), "by": by, "moved": lots,
-                                  "pleasant": round(core(self.body.levels)[0] - before, 3),
+        # each reaction was, how alike to it what she met was, what it called for (its prediction) and what it
+        # moved (measured)
+        self.self["reacted"] = ([{"at": now, "text": texts.get(order[0], ""), "by": by, "predicted": called,
+                                  "moved": did, "pleasant": round(core(self.body.levels)[0] - before, 3),
                                   "each": [{"id": rid, "text": texts.get(rid, ""), "likeness": round(present[rid], 3),
-                                            "moved": {name: round(value, 4) for name, value in each[rid].items()
-                                                      if abs(value) >= 0.0005}} for rid in order]}]
+                                            "predicted": {name: round(value, 4) for name, value in each[rid].items()
+                                                          if abs(value) >= 0.0005},
+                                            "moved": {name: round(value, 4) for name, value in moved_each[rid].items()}}
+                                           for rid in order]}]
                                 + self.self.get("reacted", []))[:SHOWN_THOUGHTS]
-        return lots
+        return did
 
     def _tool(self, name: Optional[str]):
         """A tool by name, as it is now (a plugin or MCP tool can come after she started); None: none such."""
@@ -1503,13 +1525,16 @@ class Mind:
     def _dread(self, found: dict, share: float, now: float, context: List[str]) -> float:
         """What the thought of doing it would do to how she feels (under her lock): what doing it would set off
         among her learned reactions (``found``: what its words are alike to; as much as the act does it,
-        ``share``), valued in her body as it would be with it (an as-if body: Damasio 1994)."""
+        ``share``), valued in her body as it would be with it (an as-if body: Damasio 1994), as far as her body
+        would follow it (Body.would: a reaction calling for more than a level can move dreaded past the level's
+        bound, the worst dread there is, from a prediction her body could not have met)."""
         ahead = self.reactions.predict(found, now, context, anxious(self.body.levels))
         if not share or not any(ahead.values()):
             return 0.0
         imagined = {**self.body.levels}
-        for name, lots in ahead.items():
-            imagined[name] = imagined.get(name, 0.0) + share * lots * CHANNELS[name][1]
+        for name, change in self.body.would({name: share * lots * CHANNELS[name][1] for name, lots in ahead.items()
+                                             if name in CHANNELS}).items():
+            imagined[name] += change
         return round(core(imagined)[0] - core(self.body.levels)[0], 3)
 
     def _credit(self, found: List[str], followed: Dict[str, float], usual: str = "usual_own") -> float:
@@ -1731,9 +1756,9 @@ class Mind:
                     continue
                 done["acted"].append(event)
                 done.setdefault("actions", []).append(text)
-                reacted = done.setdefault("reacted", {})
-                for name, lots in self._react(item["found"] or {}, [], self._cues(run, now), now, "doing").items():
-                    reacted[name] = round(reacted.get(name, 0.0) + lots, 4)
+                did = self._react(item["found"] or {}, [], self._cues(run, now), now, "doing")
+                if did:
+                    done.setdefault("reacted", []).append({"at": now, "moved": did})
             if run["kind"] != "turn":
                 return
             felt = feel(self.body, self.senses, now)
@@ -2034,20 +2059,35 @@ class Mind:
                          episode: int, now: float) -> List[dict]:
         """How the moment went teaches her learned reactions (under her lock): what led to it (as her reading named
         it), what she chose and did in her last turn here, and what was around (as far as each is rare); the
-        outcome is how the moment moved her less what her reactions themselves did in it (a reaction is not taught
-        by its own push). What changed."""
-        read, doing = decision.get("reacted") or {}, done.get("reacted") or {}
-        way = {name: change - read.get(name, 0.0) for name, change in {**read, **(decision.get("way") or {})}.items()}
-        rest = {name: change - read.get(name, 0.0) - doing.get(name, 0.0)
-                for name, change in {**read, **doing, **(whole or {})}.items()} if whole is not None else None
-        outcome = peak_end(way, rest)
+        outcome is how the moment moved her less what her reactions themselves measurably moved in it (a reaction
+        is not taught by its own push): as she read it (``external``), and by the turn's end, the whole of it less
+        what is left then of each reaction's push (Body.left). A reading whose outcome was not measured teaches
+        nothing. What changed."""
+        external = decision.get("external")
+        if external is None:
+            return []
+        rest = None
+        if whole is not None:
+            pushed = [{"at": decision["at"], "moved": decision["reacted"]}, *(done.get("reacted") or [])]
+            rest = dict(whole)
+            for push in pushed:
+                for name, left in self.body.left(push["moved"], push["at"], now).items():
+                    rest[name] = rest.get(name, 0.0) - left
+        outcome = peak_end(external, rest)
+        # how much of a movement either way each level could show, where the outcome was measured: as she had read
+        # it, and (as for the end) now; a level pinned at a bound shows nothing more toward it
+        read = {name: level + (decision.get("way") or {}).get(name, 0.0) * CHANNELS[name][1]
+                for name, level in (decision.get("levels") or {}).items() if name in CHANNELS}
+        ends = [read, self.body.levels] if whole is not None else [read]
+        shown = {name: {sign: sum(self.body.follows(name, sign, levels[name]) for levels in ends) / len(ends)
+                        for sign in (1, -1)} for name in read}
         surroundings = decision.get("surroundings") or []
         rare = self.memory.cue_strength(surroundings)
         cues = list(taught) + [{"text": text, "kind": "around", "source": "around", "salience": rare.get(text, 0.0)}
                                for text in surroundings]
         aroused = max(self.body.levels["noradrenaline"], (decision.get("levels") or {}).get("noradrenaline", 0.0))
         return self.reactions.learn(cues, outcome, aroused, now, decision.get("context") or [], episode,
-                                    anxious(self.body.levels))
+                                    anxious(self.body.levels), shown)
 
     def _clear(self) -> float:
         """How clearly her cortex can think now, 0..1: worn down past the middle of her fatigue, and by stress

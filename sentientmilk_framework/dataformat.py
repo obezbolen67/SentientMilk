@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Union
 
-FORMAT = 4
+FORMAT = 5
 
 
 class WrongFormat(RuntimeError):

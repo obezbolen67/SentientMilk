@@ -116,6 +116,7 @@ def test_getting_over_it_holds_where_it_was_learned_and_less_elsewhere_later_or_
     reactions = store(tmp_path)
     reactions.learn(meaning(reactions, DELETED) + around(*HERE), {"cortisol": 1.0}, 0.9, NOW)
     first = felt(reactions, DELETED, NOW, HERE)["cortisol"]
+    learned = reactions.strongest(2, NOW)[0]["response"]["cortisol"]
     for n in range(1, 4):  # she did it again here, and nothing bad came
         reactions.learn(meaning(reactions, DELETED) + around(*HERE), {}, 0.5, NOW + n * 60, HERE)
     then = NOW + 4 * 60
@@ -124,7 +125,7 @@ def test_getting_over_it_holds_where_it_was_learned_and_less_elsewhere_later_or_
     assert felt(reactions, DELETED, then, THERE)["cortisol"] > here  # renewal
     assert felt(reactions, DELETED, then + 5 * DAY, HERE)["cortisol"] > here  # spontaneous recovery
     assert felt(reactions, DELETED, then, HERE, stress=1.0)["cortisol"] > here  # reinstatement
-    assert reactions.strongest(1, then)[0]["response"]["cortisol"] > 0.5  # the reaction itself is kept
+    assert reactions.strongest(1, then)[0]["response"]["cortisol"] == learned  # the reaction itself is kept
 
 
 def test_the_outcome_again_takes_the_hold_away_fast(tmp_path):

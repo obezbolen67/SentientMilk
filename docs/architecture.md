@@ -159,7 +159,7 @@ Files under home:
 ```
 
 **Data format.** `brain.sqlite3`, `mind.sqlite3` and `recall.sqlite3` each carry the format of what they
-hold in `PRAGMA user_version` (`dataformat.FORMAT`, now 3). A new database is stamped with it; one of
+hold in `PRAGMA user_version` (`dataformat.FORMAT`, now 5). A new database is stamped with it; one of
 another format is refused as it opens (`WrongFormat`, saying what to do), so a brain never starts on data
 it would misread. No code reads an older shape: a change of shape raises `FORMAT` and comes with a one-off
 script, run on the stopped, backed-up brain, that brings the data to it; once run on the user's brain the
@@ -176,7 +176,11 @@ own (only the feeling's mean was kept, and stays). Format 3 (0.46, `scripts/migr
 and her own tasks from before are marked as not chosen by her will (`leaned` None), a waiting wish as teaching
 nothing. Format 4 (0.47, `scripts/migrate_format_4.py` in the history): what is on her mind gets its table (`workspace`, with
 `workspace_vectors` beside it), and what she put off before concerns kept their turn keeps it (`run`: the turn
-whose moment of that chat was kept first after it, if it had begun by then). A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
+whose moment of that chat was kept first after it, if it had begun by then). Format 5 (0.49, `scripts/migrate_format_5.py`;
+section 10.18): each turn's decision keeps what its reactions called for (`called`) apart from what they
+measurably moved (`reacted`, from her push log) and what came beyond them (`external`); a turn from before the
+push log keeps `called` only. Her last decision's path keeps `predicted` and `moved`; her latest reactions are
+let go (what each moved is not in the log as its own). What she learned is not touched by it. A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
 
 Run states use the MCP Tasks names plus `queued`: `queued`, `working`, `input_required`,
 `completed`, `failed`, `cancelled`.
@@ -1201,7 +1205,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 
 | Part | What it is |
 |---|---|
-| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33); so does wanting to be useful, toward 0.3 (half unmet) over about 12 h, where until 0.40 it rested where it is met and only a failure could leave it unmet (praise held it at 0.97 on the user's brain, still met after a simulated idle day) |
+| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33); so does wanting to be useful, toward 0.3 (half unmet) over about 12 h, where until 0.40 it rested where it is met and only a failure could leave it unmet (praise held it at 0.97 on the user's brain, still met after a simulated idle day); what a push would move without moving anything, how much of a push a level follows, what is left of a past change, and letting go of a measured change (`would`, `follows`, `left`, `release`: 0.49, section 10.18) |
 | `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than you're used to"; a message's change first, "Reading it: ... than a moment ago", then "Underneath: ..."), her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as concepts (`Concepts`): whatever words she put to what she felt when she reflected (section 10.12), each with the way her body was moved in the moments she named it for (`moved`: a running mean of the measured namings, in lots), its situations (words by weight, fading) and every naming as a record (`said`: her words, what it named, what measured it, what it reminded her of), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt) times how familiar the words are, less in a situation unlike its own; recognized again by likeness it is counted apart (`back`), never named. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed (acts only from requests, where she chose; a chat teaches what it was about, 0.33) |
 | `memory.py` | her memories as a network for apps (`network`, `revision`, 0.41); episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
@@ -2085,6 +2089,66 @@ Measured (2026-11-19, copies of her real mind, real model; split by day, 37 cali
 - Exam copies must not share their random generators: each copy restores the snapshot's checkpoint, so
   without fresh seeds every trial of a run throws the same dice (the will's mean P(do) moved 0.74 to 0.44
   between two such runs).
+
+### 10.18 Learned reactions, as her body measured them (0.49)
+
+Two faults in what her reactions learned (section 10.14), found on the user's brain at 0.47. Design, evidence and
+what the tests establish: `docs/superpowers/specs/2026-11-19-learned-reactions-repair-design.md`.
+
+- **Anticipation made an opposite outcome.** `_react` returned what the reactions called for, not what her body
+  moved, and the learner took how the moment moved her less that as the outcome. At a bound the part a reaction
+  could not move became an outcome that never came. Run 723: the reactions called for -29.27 lots of alertness and
+  moved -1.27 (it sat near its floor); the learner took +28.18 as the outcome, and each new cue of the turn learned
+  +28.72. By 11-19 16:20, 114 of the 130 reactions she kept asked more than a level's whole range.
+- **One surprise was given whole to every cue.** Two new cues with an outcome of +1 learned +1 each, so together
+  they foresaw 2; met together again, the pair swung 2, 0, 4, 0, 6.
+
+Now:
+
+- **What a reaction did** is what `Body.apply` moved, converted to lots once. What it called for is kept beside it
+  (her state's `reacted`: `predicted` and `moved`, for the whole and each reaction; the decision's `called` and
+  `reacted`). A channel it called for that did not move is 0. Relief lets go a share of what the dread moved
+  (`Body.release`); it is not pushed again through her temperament and receptors.
+- **The outcome**: as she read it, how reading moved her less what its reactions moved (`external`). By the turn's
+  end, the whole move less what is left then of each reaction push, each at its own time and its level's pace
+  (`Body.left`). An outcome that was not measured teaches nothing.
+- **What could not show**: a foresight toward a level's bound that did not come counts as not having come only as
+  far as her body could have shown it (`Body.follows`, the share of a push the level would follow: the saturation
+  `apply` uses; the mean of as she read it and at the end). Pinned at a floor, nothing more toward it shows: it is
+  not known, not 0. Without this, a second scolding foreseen after a first had pinned her reward was counted as
+  met without what it foresaw.
+- **Dread** is valued in her body as far as her body would follow (`Body.would`). Before, an as-if body past a
+  level's bound made the worst dread there is out of a prediction her body could not have met.
+- **One error for the moment, shared.** The cues' compound prediction is set against what came. Each cue's rate
+  (associability x arousal x likeness x salience) is scaled by one share, `1 / max(1, sum of rate x likeness)`, so
+  that all together move the compound at most the whole way to what came (a normalized delta rule). A single weak
+  cue keeps its small rate. Per channel the error is told apart:
+  - what was foreseen and did not come (up to what was foreseen, as far as it could show): the cues that foresaw
+    it get over it, each its own part, where it happened;
+  - what came beyond or besides: every cue present learns it.
+
+  A cue present with a failed foresight learns no opposite outcome from it. A cue whose foresight partly came is
+  corrected if mostly it came, and held back if mostly it stayed away; only then is it an occasion of getting over
+  it (`extinctions`).
+- **Once per moment**: the same words twice, or words alike enough to be one cue, are one cue. A moment already
+  taught (its episode among a reaction's origins) teaches nothing again, across a restart. A moment taken back
+  still takes what it taught.
+- **Seen apart**: what a reaction called for ("called for"), what it moved ("moved her", or "nothing measurable"),
+  and occasions of meeting it without what it foresaw ("met mostly without it N x"), with what is held back here.
+  Being met without it is not having got over it: renewal, recovery and stress bring it back.
+
+What it taught her before (a dry run, `scripts/replay_reactions.py`, on a copy of her mind at 11-19 16:20):
+- The fixed code alone does not undo the inflated reactions. Each met 60 times by itself with nothing following
+  is held back there. Elsewhere, all 114 still ask more than a level's whole range (renewal); 102 do under stress
+  and 81 a day later.
+- Replayed from what her body measured: 62 reactions (measured turns only) or 77 (with the 33 turns before her
+  push log estimated), none beyond a range, the largest 1.37 lots. 6 or 7 would weigh a choice by a dread of 0.05
+  or more, against 102 of those kept.
+- Nothing of it is applied: what to do with what she learned is the user's.
+
+Limits: a new cue present when a foresight failed no longer learns an inhibitory link (conditioned inhibition);
+a reminder's window for changing a reaction (10.14) seldom opens in a conversation, since reading calls the
+reaction up seconds before the turn teaches; a thought's reaction during a turn is not taken out of the turn's end.
 
 ## 11. Models and providers
 

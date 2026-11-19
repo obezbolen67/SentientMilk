@@ -64,6 +64,28 @@ def _size(change: Dict[str, float]) -> float:
     return math.sqrt(sum(value * value for value in change.values()))
 
 
+def _once(cues: List[dict]) -> List[dict]:
+    """The cues of one moment, each once: the same words, or words alike enough to be the same cue (``prepare``'s
+    ``alike``), are one cue, as salient as the most salient of them and alike to all they were alike to (an action
+    named twice in a turn was learned twice, each with the whole surprise)."""
+    kept: Dict[tuple, dict] = {}
+    for cue in cues:
+        key = (cue["kind"], cue["text"])
+        if key not in kept:
+            twin = next((("meaning", text) for text, likeness in (cue.get("alike") or {}).items()
+                         if likeness >= SAME_CUE and ("meaning", text) in kept), None) if cue["kind"] == "meaning" else None
+            if twin is None:
+                kept[key] = dict(cue)
+                continue
+            key = twin
+        one = kept[key]
+        one["salience"] = max(_clip(one.get("salience", 1.0)), _clip(cue.get("salience", 1.0)))
+        if cue.get("found") is not None:
+            one["found"] = {rid: max(likeness, (one.get("found") or {}).get(rid, 0.0))
+                            for rid, likeness in {**(one.get("found") or {}), **cue["found"]}.items()}
+    return list(kept.values())
+
+
 class Reactions:
     def __init__(self, db, lock: threading.RLock):
         self._db, self._lock = db, lock
@@ -99,10 +121,15 @@ class Reactions:
         except Exception:  # her embedder cannot now: by meaning nothing is called up, nothing kept
             return cues
         steep = 2.0 - _clip(anxious_)  # calm, the likeness falls off steeply; anxious, it spreads wider
-        for cue, query, vector in zip(meant, asked, kept):
+
+        def alike(cosine: float) -> float:
+            return min(1.0, (cosine - floor) / (same - floor)) ** steep if cosine > floor else 0.0
+        for n, (cue, query, vector) in enumerate(zip(meant, asked, kept)):
             cue["vector"] = vector
-            cue["found"] = {rid: min(1.0, (cosine - floor) / (same - floor)) ** steep
-                            for rid, cosine in self.vectors.nearest(query, embedder.name, 24) if cosine > floor}
+            cue["found"] = {rid: alike(cosine) for rid, cosine in self.vectors.nearest(query, embedder.name, 24)
+                            if cosine > floor}
+            if keep:  # how alike it is to the ones before it here: a thing said twice in a moment is one cue
+                cue["alike"] = {other["text"]: alike(float(np.dot(query, other["vector"]))) for other in meant[:n]}
         return cues
 
     def around(self, texts: Iterable[str]) -> Dict[int, float]:
@@ -176,17 +203,25 @@ class Reactions:
     # ============== learning (under her lock) ==============
 
     def learn(self, cues: List[dict], outcome: Dict[str, float], arousal: float, now: float,
-              around: Iterable[str] = (), episode: Optional[int] = None, stress: float = 0.0) -> List[dict]:
+              around: Iterable[str] = (), episode: Optional[int] = None, stress: float = 0.0,
+              shown: Optional[Dict[str, Dict[int, float]]] = None) -> List[dict]:
         """An outcome came (``outcome``: how the moment moved her, each channel in lots, less what reactions did in
         it) with these cues (``prepare``d; a surrounding with its ``salience``, how rare it is). Every reaction they
         call up learns from the same surprise, as far as each is alike, salient and attended to; a cue like none
-        of them is kept as a new one. Learned at a rate that her arousal raises. What changed, for drawing."""
+        of them is kept as a new one. Learned at a rate that her arousal raises. ``shown``: how much of a movement
+        toward either side (1, -1) each level could show in the moment (Body.follows; all of it if not given).
+        A moment already taught (``episode``) teaches nothing again. What changed, for drawing."""
         around = list(around)
+        if episode is not None:
+            with self._lock:  # this moment taught her already (delivered again): it teaches once
+                if self._db.execute("SELECT 1 FROM reactions, json_each(reactions.origins) WHERE json_each.value = ? "
+                                    "LIMIT 1", (episode,)).fetchone():
+                    return []
         outcome = {name: float(outcome.get(name, 0.0)) for name in REACTS}
         present: Dict[int, float] = {}
         salience: Dict[int, float] = {}
         new = []
-        for cue in cues:
+        for cue in _once(cues):
             weight = _clip(cue.get("salience", 1.0))
             if not weight:
                 continue
@@ -209,18 +244,49 @@ class Reactions:
             for name, value in expected[row["id"]].items():
                 foreseen[name] = foreseen.get(name, 0.0) + present[row["id"]] * value
         error = {name: outcome[name] - foreseen.get(name, 0.0) for name in REACTS}
-        surprise = min(1.0, _size(error))
+        # one error for the whole moment, told apart per channel: what was foreseen and did not come (the shortfall,
+        # up to what was foreseen), and what came beyond or besides it. The shortfall is getting over what foresaw
+        # it, there; what came is learned by every cue present. A cue that only came with a failed anticipation
+        # learns no opposite outcome from it (the fault: a sound on while an alarm foresaw strain and none came
+        # learned the strain's opposite, and set it off alone)
+        shortfall = {name: -math.copysign(min(abs(error[name]), abs(foreseen.get(name, 0.0))), foreseen[name])
+                     if foreseen.get(name, 0.0) * error[name] < 0 else 0.0 for name in REACTS}
+        beyond = {name: error[name] - shortfall[name] for name in REACTS}
+        # a foresight that did not show is evidence it did not come only as far as her body could have shown it: a
+        # level pinned at its floor moves no further whatever comes (a scolding foreseen after another had pinned
+        # her reward counted as met without it), so what it could not show is not known, not 0
+        omitted = {name: shortfall[name] * ((shown or {}).get(name) or {}).get(1 if foreseen[name] > 0 else -1, 1.0)
+                   for name in REACTS}
+        surprise = min(1.0, _size({name: omitted[name] + beyond[name] for name in REACTS}))
         aroused = 0.2 + 0.8 * _clip(arousal)
+        # each cue's share of the moment's learning: as far as it is attended to (associability), alike and salient,
+        # all of them together moving what they foresee at most the whole way to what came (two new cues each took
+        # the whole surprise, and together foresaw twice what came); alone, a weak cue keeps its small share
+        rates = {row["id"]: row["associability"] * aroused * present[row["id"]] * salience[row["id"]] for row in rows}
+        gain = sum(rate * present[rid] for rid, rate in rates.items()) + sum(aroused * cue["salience"] for cue in new)
+        share = 1.0 / max(1.0, gain)
         changed = []
         with self._lock:
             for row in rows:
-                rate = row["associability"] * aroused * present[row["id"]] * salience[row["id"]]
+                rate = share * rates[row["id"]]
                 predicted = expected[row["id"]]
-                toward = sum(predicted.get(name, 0.0) * error[name] for name in REACTS)
+                # of what was foreseen and did not come, the part this cue foresaw (another cue's failure is not its)
+                mine = {name: omitted[name] * min(1.0, present[row["id"]] * predicted.get(name, 0.0) / foreseen[name])
+                        if omitted[name] and predicted.get(name, 0.0) * foreseen[name] > 0 else 0.0 for name in REACTS}
+                toward = sum(predicted.get(name, 0.0) * mine[name] for name in REACTS)
+                again = sum(predicted.get(name, 0.0) * beyond[name] for name in REACTS)
                 size = sum(value * value for value in predicted.values())
+                # how much of this moment came, for this cue: what it foresaw that came, and what came beyond, against
+                # what it foresaw that stayed away. What stayed away of a foresight that otherwise came is corrected,
+                # not held back (the hold is of the whole reaction: a cue followed by comfort instead of strain, held
+                # back whole, lost the hold as the comfort kept coming, and the strain came back with it); a
+                # foresight that only stayed away is got over, where it was
+                kept = _size({name: present[row["id"]] * predicted.get(name, 0.0) + mine[name] for name in REACTS})
+                lost, more = _size(mine), _size(beyond)
+                came = (kept ** 2 + more ** 2) / ((kept ** 2 + more ** 2 + lost ** 2) or 1.0)
                 response, hold, how = dict(row["response"]), row["hold"], "learned"
-                if toward < 0 and size > 1e-9:  # it foresaw more than came: getting over it
-                    failed = min(1.0, -toward / size)
+                if toward < 0 and size > 1e-9 and came < 1.0:  # it foresaw more than came: getting over it
+                    failed = min(1.0, -toward / size) * (1.0 - came)
                     if row["called"] and OPENS <= now - row["called"] <= CLOSES:  # opened by a reminder: changed
                         response = {name: value * (1.0 - rate * failed) for name, value in response.items()}
                         how = "changed"
@@ -229,13 +295,16 @@ class Reactions:
                         contexts = dict(row["contexts"])
                         for cue in around:
                             contexts[cue] = contexts.get(cue, 0) + 1
-                        self._db.execute("UPDATE reactions SET contexts = ?, extinctions = extinctions + 1, "
-                                         "extinguished = ? WHERE id = ?", (json.dumps(contexts), now, row["id"]))
+                        # an occasion of getting over it: a moment where, for this cue, more of what it foresaw stayed
+                        # away than came (a strain that came a little short counted as one at every moment)
+                        self._db.execute("UPDATE reactions SET contexts = ?, extinctions = extinctions + ?, "
+                                         "extinguished = ? WHERE id = ?",
+                                         (json.dumps(contexts), int(came < 0.5), now, row["id"]))
                         how = "getting over it"
-                else:
+                if came:
                     for name in REACTS:
-                        response[name] = response.get(name, 0.0) + rate * error[name]
-                    if toward > 0 and hold:
+                        response[name] = response.get(name, 0.0) + rate * (beyond[name] + came * mine[name])
+                    if again > 0 and hold:
                         hold *= 1.0 - min(1.0, 2.0 * rate)  # the outcome again: the getting-over goes fast
                 response = {name: round(value, 4) for name, value in response.items() if abs(value) >= 1e-4}
                 origins = row["origins"] + ([episode] if episode is not None and episode not in row["origins"] else [])
@@ -246,8 +315,8 @@ class Reactions:
                                   json.dumps(origins), _size(response), row["id"]))
                 changed.append({"id": row["id"], "text": row["text"], "how": how, "response": response})
             for cue in new:
-                rate = aroused * cue["salience"]  # new: as attended to as can be (associability 1)
-                response = {name: round(rate * error[name], 4) for name in REACTS if abs(rate * error[name]) >= 1e-4}
+                rate = share * aroused * cue["salience"]  # new: as attended to as can be (associability 1)
+                response = {name: round(rate * beyond[name], 4) for name in REACTS if abs(rate * beyond[name]) >= 1e-4}
                 if not response:
                     continue
                 cursor = self._db.execute(

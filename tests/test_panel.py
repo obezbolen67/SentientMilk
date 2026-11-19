@@ -270,7 +270,7 @@ def test_her_mind_shows_in_its_tab(brain):
     reactions.learn([{"text": "in front: outlook — boss", "kind": "around", "source": "around", "salience": 1.0}],
                     {"cortisol": 1.2, "reward": -0.8}, 0.9, time.time())
     brain.brain.mind.self["reacted"] = [{"at": time.time(), "text": "in front: outlook — boss", "by": "reading",
-                                         "moved": {"cortisol": 0.9}}]
+                                         "predicted": {"cortisol": 1.1}, "moved": {"cortisol": 0.0}}]
 
     async def scenario(panel, pilot):
         panel.action_tab("mind")
@@ -290,6 +290,9 @@ def test_her_mind_shows_in_its_tab(brain):
         learned = str(panel.query_one("#mind-reactions").render())  # what sets her off, and what it sets off
         assert "in front: outlook — boss" in learned and "more strain" in learned and "less reward" in learned
         assert "lately: reading" in learned
+        # what it called for and what her body measurably moved are told apart (her strain was at its ceiling)
+        assert "called for more strain · moved her nothing measurable" in learned
+        assert "foresees more strain" in learned and "got over it" not in learned
         assert not panel.query("#mind-on")  # always on: there is no switch
     run(brain, scenario)
 

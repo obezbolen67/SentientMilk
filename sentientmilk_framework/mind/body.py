@@ -480,25 +480,63 @@ class Body:
     def apply(self, pushes: Dict[str, float], why: str = "") -> Dict[str, float]:
         """Push levels by these amounts (before her temperament and habituation scale them); what moved. ``why``:
         what pushed them, in a few words, for her log of what moved her (``pushed_now``)."""
-        t, moved = self.temperament, {}
-        gains = {"oxytocin": t.warmth, "cortisol": t.stress, "noradrenaline": t.volatility, "endorphin": t.playfulness}
+        moved = {}
         for name, amount in pushes.items():
             if not amount or not math.isfinite(amount) or name not in self.levels:
                 continue
-            amount *= gains.get(name, 1.0)
+            taken, after = self._reach(name, amount)
             if name in SENSITIVE:
-                amount *= self.sensitivity[name]
                 # down-regulation: each push leaves the receptor a little less responsive, up to a floor
-                self.sensitivity[name] = max(0.3, self.sensitivity[name] - HABITUATION[name] * abs(amount))
+                self.sensitivity[name] = max(0.3, self.sensitivity[name] - HABITUATION[name] * abs(taken))
+            moved[name] = after - self.levels[name]
+            self.levels[name] = after
+        self._log(why, moved)
+        if self.on_push and any(moved.values()):
+            self.on_push(self.at, why, moved, self.where)
+        return moved
+
+    def would(self, pushes: Dict[str, float]) -> Dict[str, float]:
+        """What these pushes would move her levels by now, as ``apply`` would move them, moving nothing (her body
+        as it would be with them: the as-if body a choice is weighed in)."""
+        return {name: self._reach(name, amount)[1] - self.levels[name] for name, amount in pushes.items()
+                if amount and math.isfinite(amount) and name in self.levels}
+
+    def _reach(self, name: str, amount: float) -> tuple:
+        """A push to level ``name`` as her temperament and receptors take it, and where it would leave the level."""
+        t = self.temperament
+        amount *= {"oxytocin": t.warmth, "cortisol": t.stress, "noradrenaline": t.volatility,
+                   "endorphin": t.playfulness}.get(name, 1.0)
+        if name in SENSITIVE:
+            amount *= self.sensitivity[name]
+        taken = amount
+        level = CHEMICALS.get(name)
+        low, high = (level.low, level.high) if level else (0.0, 1.0)
+        before = self.levels[name]
+        return taken, _clip(before + amount * self.follows(name, amount, before), low, high)
+
+    def follows(self, name: str, sign: float, level: Optional[float] = None) -> float:
+        """How much of a push toward ``sign`` level ``name`` would follow, 0..1, at ``level`` (now, if not given).
+        Receptors saturate: past the middle of its range, the nearer a level is to the bound a push drives it
+        toward, the less the push moves it (added and clipped, one warm chat pegged her needs and her closeness at
+        1.0 in the user's brain, 2026-11-16: a pegged level tells her nothing and lets no need go unmet); at the
+        bound, nothing, and nothing that comes toward it shows."""
+        chemical = CHEMICALS.get(name)
+        low, high = (chemical.low, chemical.high) if chemical else (0.0, 1.0)
+        level = self.levels[name] if level is None else level
+        return max(0.0, min(1.0, 2.0 * (high - level if sign > 0 else level - low) / (high - low)))
+
+    def release(self, change: Dict[str, float], share: float, why: str = "") -> Dict[str, float]:
+        """Let go of ``share`` of a change her levels made (what ``apply`` returned): undone as it was measured,
+        not pushed again through her temperament and receptors, which had already scaled it (a relief from a
+        dread is the dread let go, and as a push of its own it could ease more than the dread moved); what moved."""
+        moved = {}
+        for name, value in change.items():
+            if name not in self.levels or not value or not math.isfinite(value):
+                continue
             level = CHEMICALS.get(name)
             low, high = (level.low, level.high) if level else (0.0, 1.0)
             before = self.levels[name]
-            # receptors saturate: past the middle of its range, the nearer a level is to the bound a push drives
-            # it toward, the less the push moves it (added and clipped, one warm chat pegged her needs and her
-            # closeness at 1.0 in the user's brain, 2026-11-16: a pegged level tells her nothing and lets no
-            # need go unmet)
-            amount *= min(1.0, 2.0 * (high - before if amount > 0 else before - low) / (high - low))
-            self.levels[name] = _clip(before + amount, low, high)
+            self.levels[name] = _clip(before - max(0.0, min(1.0, share)) * value, low, high)
             moved[name] = self.levels[name] - before
         self._log(why, moved)
         if self.on_push and any(moved.values()):
@@ -518,8 +556,12 @@ class Body:
         fading toward a target that holds still; one that moves meanwhile (stress as closeness changes) settles a
         little otherwise."""
         at, _why, moved = entry
-        left = {name: change * math.exp(-max(0.0, now - at) / self.pace(name)) for name, change in moved.items()}
-        return {name: value for name, value in left.items() if abs(value) >= KEPT}
+        return {name: value for name, value in self.left(moved, at, now).items() if abs(value) >= KEPT}
+
+    def left(self, change: Dict[str, float], at: float, now: float) -> Dict[str, float]:
+        """What is left at ``now`` of a change her levels made at ``at`` (in any unit: each level lets it go at
+        its own pace), as her log of pushes reads it."""
+        return {name: value * math.exp(-max(0.0, now - at) / self.pace(name)) for name, value in change.items()}
 
     def _log(self, why: str, moved: Dict[str, float]) -> None:
         moved = {name: round(change, 4) for name, change in moved.items() if abs(change) >= KEPT}

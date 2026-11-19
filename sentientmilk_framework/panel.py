@@ -1215,11 +1215,17 @@ class Panel(App):
         # back, and what taught it; then what set her off lately
         by = {"cause": "what led to it", "option": "what she chose", "action": "what she did", "around": "around her"}
         learned = [f"{escape(item['text'])}\n[{MUTED}]{by.get(item['source'], item['source'])}"
-                   + (f" · {stirred(item['now'])}" if any(item["now"].values()) else "")
-                   + (f" · {round(100 * item['held'])}% held back" if item["held"] else "")
+                   + (f" · foresees {stirred(item['now'])}" if any(item["now"].values()) else "")
+                   + (f" · {round(100 * item['held'])}% held back here" if item["held"] else "")
+                   + (f" · met mostly without it {item['extinctions']}x" if item.get("extinctions") else "")
                    + (f" · learned from: {escape(item['taught'])}" if item.get("taught") else "") + "[/]"
                    for item in state.get("reactions") or []]
-        lately = [f"[{MUTED}]{when(item['at'])} · lately: {item['by']} · {stirred(item['moved'])}[/]\n"
+
+        def reacting(item: dict) -> str:  # what it called for and what it measurably moved are not the same
+            called = stirred({n: v for n, v in item["predicted"].items() if abs(v) >= 0.005})
+            did = stirred({n: v for n, v in item["moved"].items() if abs(v) >= 0.005})
+            return (f"called for {called} · " if called else "") + f"moved her {did or 'nothing measurable'}"
+        lately = [f"[{MUTED}]{when(item['at'])} · lately: {item['by']} · {reacting(item)}[/]\n"
                   f"{escape(item['text'])}" for item in (state.get("reacted") or [])[:3]]
         self.main.query_one("#mind-reactions", Static).update(
             "\n\n".join(learned + lately) or f"[{MUTED}]Nothing yet. What went well or badly teaches her what to "
