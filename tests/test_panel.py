@@ -257,9 +257,9 @@ def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
 @pytest.mark.mind
 def test_her_mind_shows_in_its_tab(brain):
     brain.brain.mind.self["thoughts"] = [{"at": time.time(), "kind": "wonder", "thought": "Clouds are odd.",
-                                          "want": "nothing"},
+                                          "want": "nothing", "leaned": None},
                                          {"at": time.time() - 60, "kind": "wonder", "thought": "I miss them.",
-                                          "want": "tell", "went": "kept"}]
+                                          "want": "tell", "leaned": None, "went": "kept"}]
     brain.brain.mind.self["self_view"] = {"text": "I sulk when ignored.", "since": time.time(), "at": time.time()}
     brain.brain.mind.self["looked"] = {"at": time.time(), "about": "the clock"}
     brain.brain.mind.self["remembered"] = [{"at": time.time(), "episode": 1, "text": "The night the song played.",

@@ -14,12 +14,17 @@ import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework.mind.memory import cue
-from sentientmilk_framework.testing import tool_call
+from sentientmilk_framework.testing import acting, tool_call
 from sentientmilk_framework.toolkits import ToolContext
 from sentientmilk_framework.toolkits import sessions as kit
 from sentientmilk_framework.toolkits.shell import job_ended
 
 pytestmark = pytest.mark.mind  # her mind lives in these tests
+
+
+@pytest.fixture(autouse=True)
+def _acting(monkeypatch):
+    acting(monkeypatch)  # these are of what follows what she does on her own, not of her choosing it
 
 SONG = cue("playing", "Clair de Lune — Debussy")
 
@@ -37,7 +42,8 @@ def look_up(brain, what, found):
     mind = brain.brain.mind
     brain.provider.replies += [found]
     brain.provider.mind_replies["think"] = [json.dumps({
-        "thought": f"I wonder about {what}.", "feeling": "curious", "want": "look_up", "look_up": what})]
+        "thought": f"I wonder about {what}.",
+        "could": [{"act": "look_up", "what": what, "effort": 0.2, "chance": 0.8}]})]
     mind._think("wonder", None)
     task = wait_for(lambda: [t for t in brain.store.runs(app="milk", kind="task") if t["status"] == "completed"])[0]
     wait_for(lambda: mind.memory.recorded(task["id"]))
@@ -82,19 +88,19 @@ def test_a_thought_goes_with_its_chat_only_if_it_grew_from_what_was_said_there(b
     mind = brain.brain.mind
     talked(brain, "my cat has been sneezing all day")
     said = mind.memory.recent(1, ("exchange",))[0]["id"]
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Poor cat.", "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Poor cat."})]
     mind._think("wonder", None)  # goes back over what was said
     over = thought(mind, "Poor cat.")
     assert json.loads(over["grew_from"]) == [said] and over["session"] == "main"
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Maybe it's dust.", "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Maybe it's dust."})]
     mind._think("wonder", None)  # her stream goes on from that thought
     on = thought(mind, "Maybe it's dust.")
     assert json.loads(on["grew_from"]) == [over["id"]]
     now = time.time()
     elsewhere = mind.memory.add("thought", "I like rain on the window.", 0.2, 0.2, 0.3, at=now)
     mind.self["thoughts"] = [{"at": now, "kind": "wonder", "thought": "I like rain on the window.",
-                              "want": "nothing", "episode": elsewhere}] + mind.self["thoughts"]
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Rain makes the room smaller.", "want": "nothing"})]
+                              "want": "nothing", "leaned": None, "episode": elsewhere}] + mind.self["thoughts"]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Rain makes the room smaller."})]
     monkeypatch.setattr(mind, "_unbidden", lambda *args: [])  # nothing of the chat comes up in it by chance
     mind._think("wonder", None)  # filed under the chat she was last in, grown from nothing said there
     own = thought(mind, "Rain makes the room smaller.")
@@ -167,7 +173,8 @@ def test_what_she_did_on_her_own_and_kept_nothing_of_is_taken_in_when_she_starts
     mind = brain.brain.mind
     store = brain.store
     goal = "Out of your own curiosity, look this up for yourself: why do youtube thumbnails look the same."
-    own = {"want": "look_up", "what": "why do youtube thumbnails look the same", "thought": "", "episode": None}
+    own = {"want": "look_up", "what": "why do youtube thumbnails look the same", "thought": "", "episode": None,
+           "leaned": None}
     lost = store.add_run("milk", "pending", "task", {"goal": goal, "parent_session": "gone", "quiet": True, "own": own,
                                                        "input": [{"type": "text", "text": goal}]})
     store.update_run(lost, session=f"task-{lost}", status="completed", result={"reply": "They copy what gets clicks."})
@@ -213,7 +220,8 @@ def test_her_task_s_memory_says_what_her_tools_did_and_what_it_started(brain):
                                          "t2"),
                                "It's an Oracle Cloud machine; a sweep of its neighbours is still running."]
     brain.provider.mind_replies["think"] = [json.dumps({
-        "thought": "I wonder about 92.5.89.27.", "feeling": "curious", "want": "look_up", "look_up": "92.5.89.27"})]
+        "thought": "I wonder about 92.5.89.27.",
+        "could": [{"act": "look_up", "what": "92.5.89.27", "effort": 0.2, "chance": 0.8}]})]
     mind._think("wonder", None)
     for call in ("t1", "t2"):  # the user allows each, as on the day (18 allows)
         task = wait_for(lambda: [t for t in brain.store.runs(app="cli", kind="task")

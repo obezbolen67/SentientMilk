@@ -23,7 +23,7 @@ def asked(brain):
 
 
 def think(brain, words, kind="wonder", about=None):
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": words, "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": words})]
     brain.brain.mind._think(kind, about)
 
 
@@ -42,7 +42,7 @@ def wandered(mind):
 def test_her_last_thought_comes_with_when_it_was_and_what_she_can_tell_of_the_user(brain):
     mind = brain.brain.mind
     now = time.time()
-    mind.self["thoughts"] = [{"at": now - 3 * 3600, "kind": "wonder", "thought": "He's still eating.", "want": "nothing"}]
+    mind.self["thoughts"] = [{"at": now - 3 * 3600, "kind": "wonder", "thought": "He's still eating.", "want": "nothing", "leaned": None}]
     mind.presence.report(idle=2 * 3600, locked=False, busy=False, now=now, around=SONG)
     think(brain, "It's gone quiet.")
     seen = asked(brain)
@@ -97,7 +97,7 @@ def test_a_memory_that_came_up_brings_its_neighbour_in_time_in_the_next_thought(
     episode = mind.memory.add("thought", "That aquarium day was nice.", 0.3, 0.3, 0.3, at=time.time() - 60,
                               origins=[first])
     mind.self["thoughts"] = [{"at": time.time() - 60, "kind": "wonder", "thought": "That aquarium day was nice.",
-                              "want": "nothing", "episode": episode}]
+                              "want": "nothing", "leaned": None, "episode": episode}]
     think(brain, "Captain, hiding all evening.")
     seen = asked(brain)
     assert "Captain hid behind the rock" in seen and "We set up the aquarium together" not in seen

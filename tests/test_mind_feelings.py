@@ -94,9 +94,8 @@ def test_a_thought_names_a_feeling_only_in_its_own_words(brain):
     mind = brain.brain.mind
     feels(mind, **TENSE)
     brain.provider.mind_replies["think"] = [
-        json.dumps({"thought": "Going over it again, I was more rattled than I let on.", "named": "rattled",
-                    "want": "nothing"}),
-        json.dumps({"thought": "The deploy went fine in the end.", "named": "relieved", "want": "nothing"})]
+        json.dumps({"thought": "Going over it again, I was more rattled than I let on.", "named": "rattled"}),
+        json.dumps({"thought": "The deploy went fine in the end.", "named": "relieved"})]
     mind._think("wonder", None)
     assert [c["word"] for c in mind.concepts.named] == ["rattled"]
     assert mind.concepts.named[0]["said"][-1]["text"] == "Going over it again, I was more rattled than I let on."

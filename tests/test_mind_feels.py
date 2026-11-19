@@ -42,7 +42,7 @@ def test_an_exchange_keeps_how_it_moved_her_and_what_was_around_it(brain):
 def test_a_thought_keeps_what_thinking_it_did_and_what_was_around_her(brain):
     mind = brain.brain.mind
     mind.presence.report(idle=5, around=SONG, now=time.time())
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "That song again.", "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "That song again."})]
     mind._think("wonder", None)
     thought = mind.memory.recent(1, ("thought",))[0]
     assert mind.memory.felt(thought).get("novelty", 0) > 0
@@ -84,7 +84,7 @@ def test_brooding_brings_the_hurt_back_through_the_same_way_and_wears_it_down(br
     sore = mind.memory.add("exchange", "They said my drawing was dumb", -0.5, 0.6, 0.6, app="cli", session="old",
                            at=time.time() - 3600, sting=-0.6, felt={"cortisol": 1.0, "grievance": 0.8})
     about = mind.memory.by_ids([sore])[0]
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Why did that sting so much.", "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Why did that sting so much."})]
     mind._think("ruminate", about)
     pushed = remembering(mind)
     assert len(pushed) == 1 and pushed[0][2]["cortisol"] > 0 and pushed[0][2]["grievance"] > 0

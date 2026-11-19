@@ -70,7 +70,7 @@ def test_her_ways_are_in_every_chat_and_in_her_thoughts(brain):
     assert brain.store.session("cli", "a")["state"]["snapshot"]["at"] == taken
     mind.keep_way("short", "the user asks a quick thing", "I answer in a line", "told")
     assert "snapshot" not in brain.store.session("cli", "a")["state"]  # her ways changed: taken again
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Quiet day.", "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Quiet day."})]
     mind._think("wonder", None)
     asked = [r["messages"][1]["content"] for r in brain.provider.mind_requests
              if r["messages"][0]["content"].startswith("[mind:think]")][-1]

@@ -67,6 +67,8 @@ def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
             mind._live_until(now)
             kind, _about = mind._winner(now)
             won[kind] += 1
+            if kind not in (None, "sleep"):  # she thinks it: the attempt and the thought made take their times
+                mind.self["fired"][kind] = mind.self["fired"]["thought"] = now
             if minute % 30 == 0:
                 note()
     assert {"ruminate", "resume", "wonder", "reach_out"} <= set(won), won
@@ -80,7 +82,13 @@ def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
         mind.self["contact"]["at"] = night - HOUR
         mind.self["fired"] = {}
         # sleep wins at once, or after one last wandering thought
-        assert "sleep" in [mind._winner(night + 30 * bid)[0] for bid in range(2)]
+        won_night = []
+        for bid in range(2):
+            kind, _about = mind._winner(night + 30 * bid)
+            won_night.append(kind)
+            if kind not in (None, "sleep"):  # she thinks it: the attempt and the thought made take their times
+                mind.self["fired"][kind] = mind.self["fired"]["thought"] = night + 30 * bid
+        assert "sleep" in won_night
         mind.body.settle(night)
         stages = set()
         for minutes in range(5, 150, 5):

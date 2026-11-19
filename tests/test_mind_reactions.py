@@ -129,8 +129,7 @@ def test_putting_off_what_she_dreads_relieves_her_and_teaches_putting_off(brain,
 @pytest.mark.mind
 def test_a_thought_alike_to_what_went_badly_moves_her(brain, mind):
     taught(mind, "the phone on dnd at night")
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Will the user put the phone on dnd at night again?",
-                                                        "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Will the user put the phone on dnd at night again?"})]
     mind._think("wonder", None)
     assert any("dnd" in why for why in (entry[1] for entry in reacting(mind)))
     assert mind.state()["reacted"][0]["by"] == "thinking"

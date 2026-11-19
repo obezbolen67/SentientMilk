@@ -27,6 +27,7 @@ WENT = {  # what came of a thought she wanted to say, as she knows it
     "brought up": "you brought it up",
     "passed": "the moment for it passed",
     "task": "you set about doing it",
+    "let be": "you let it be",
 }
 
 
@@ -58,7 +59,8 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
     else:
         parts.append(f"On the whole it feels {tone[0]}, with {tone[1]}; it is hard to tell more than that right now.")
     if thoughts:
-        listed = "; ".join(f'"{text}"' + (f" ({WENT[went]})" if went in WENT else "") for text, went in thoughts)
+        listed = "; ".join(f'"{text}"' + (f" ({WENT[went]}" + "".join(f": {why}" for why in reasons[:1]) + ")"
+                                          if went in WENT else "") for text, went, reasons in thoughts)
         parts.append("What has been on your mind today, the latest first: " + listed + ".")
     else:
         parts.append("Nothing much has been on your mind today.")

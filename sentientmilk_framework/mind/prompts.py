@@ -75,16 +75,17 @@ When two things come back that have nothing to do with each other, the mind may 
 
 Answer with JSON only:
 {"thought": "...",
-"want": "tell|ask|look_up|do|rest|nothing",
-"say": "for tell or ask: what they'd say to the one they talk with, in their own voice",
-"look_up": "for look_up: what they want to find out, as a web search",
-"do": "for do: what they will do, as they'd note it for themselves",
+"could": [{"act": "tell|ask|do|look_up",
+           "say": "for tell or ask: what they'd say to the one they talk with, in their own voice",
+           "what": "for do: what they'd do, as they'd note it for themselves; for look_up: what they'd find out, as a web search",
+           "effort": 0.0, "chance": 0.0}],
 "named": "only if this thought puts into words what they feel, or felt in what it goes over: those words, as they are in the thought"}
 
-want: tell or ask: they want to say something to the one they talk with now. look_up: they're curious enough to look
-something up themselves. do: they want to do something themselves, now, with what they can do at the
-computer (make, write, fix, set up, look into, come back to what they put off). rest: they'd rather rest.
-nothing: the thought passes."""
+could: what this thought could lead them to do, if anything: none, one, or a few. tell or ask: say something to
+the one they talk with now. look_up: find something out themselves. do: do something themselves, now, with what
+they can do at the computer (make, write, fix, set up, look into, come back to what they put off). effort: how
+much work it would be, 0 a moment's, 1 a long hard job. chance: how likely it goes as they'd hope: welcome and
+answered, it works, they find out. Whether they do any of it is not decided here."""
 
 # her words for what she feels, in what she said right after looking inward (life.py, after): only her own;
 # measured on her exam replies: asked only where she puts it into words, it took 5+ phrases a reply, comparisons

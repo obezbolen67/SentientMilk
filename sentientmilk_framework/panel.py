@@ -1194,7 +1194,8 @@ class Panel(App):
             "\n".join(f"[{MUTED}]{label:<13}[/] {value}" for label, value in rows))
         went = {"offered": "offered to the app", "kept": "kept for when you write", "said": "said",
                 "let go": "let go", "brought up": "brought up when you wrote", "passed": "passed",
-                "waits": "her last message still unanswered", "task": "a task of hers"}  # what came of it
+                "waits": "her last message still unanswered", "task": "a task of hers",
+                "let be": "she let it be"}  # what came of it
         thoughts = [f"[{MUTED}]{when(item['at'])} · {item['kind']}"
                     + (f" → {item['want']}" if item["want"] != "nothing" else "")
                     + (f", {went[item['went']]}" if item.get("went") in went else "")

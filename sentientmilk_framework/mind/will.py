@@ -2,7 +2,8 @@
 
 The model imagines (prompts.py): it foresees what a message does to her needs (``Appraisal``) and what she
 could do (``Option``s: how much work each is, how likely it goes well, how much of what the user asked
-for it gives). Nothing there says how she should feel about it. What an option does to her needs follows
+for it gives); between conversations, what a thought of hers could lead to (``mine``: her own acts, letting
+it be always among them). Nothing there says how she should feel about it, nor which she does. What an option does to her needs follows
 from those facts (``Option.effects``: live, the model's own guesses of that were noise, and missed that
 asking questions instead lets the user down). Her body values it: a change to a need is worth
 more the less that need is met now, and a loss weighs more than the same gain (``value``: reward as moving
@@ -35,7 +36,9 @@ from .body import SET_POINTS, Body
 from .values import Values
 
 ACTS = ("do", "part", "later", "decline", "talk")
-WORK = {"do": 1.0, "part": 0.45, "later": 0.05, "decline": 0.02}  # of an option's effort she spends now
+OWN = ("tell", "ask", "do", "look_up")  # what a thought of hers could lead to; ``let``: letting it be
+WORK = {"do": 1.0, "part": 0.45, "later": 0.05, "decline": 0.02,  # of an option's effort she spends now
+        "tell": 1.0, "ask": 1.0, "look_up": 1.0, "let": 0.0}
 FORESEEN = ("company", "capable", "free")  # what the imagining part foresees a message does to her
 NEEDED = {"company": "social", "capable": "competence", "free": "autonomy", "new": "novelty"}
 REACH = 0.3  # how far a foreseen 1 (or -1) moves a need, of its range
@@ -59,6 +62,8 @@ REASONS = {
     "grievance": "you're still hurt by them",
     "dread": "the thought of doing it sets you on edge: something like it went badly before",
     "eager": "the thought of doing it pulls at you: something like it went well before",
+    "closeness": "you want to be close to them",
+    "unwelcome": "it might not be welcome",
 }
 
 
@@ -108,6 +113,7 @@ class Option:
     chance: float = 0.8
     gives: float = 0.0  # how much of what the user asked for it gives them
     check: Optional[dict] = None  # the tool operation and target whose result would resolve this forecast
+    say: str = ""  # her own reaching out: what she would say
 
     def calibrate(self, history: dict) -> None:
         check = self.check or {}
@@ -119,12 +125,43 @@ class Option:
         """What doing it would do to her needs (-1..1): giving the user what they asked for keeps her wanted,
         not giving it lets them down; doing hard work well makes her capable, and its risk of going badly
         the other way; obeying what took her freedom (``seen.free`` below 0) costs her more of it, and
-        putting it off or saying no wins some back; what is new feeds her as far as she takes part."""
+        putting it off or saying no wins some back; what is new feeds her as far as she takes part. Her own
+        acts (``seen.intent`` own): ``_own``."""
+        if seen.intent == "own":
+            return self._own(seen)
         doing, taken = DOING.get(self.act, 0.0), max(0.0, -seen.free)
         return {"company": self.gives - 0.5,
                 "capable": doing * (self.chance * (0.3 + min(self.effort, 0.7)) - 0.5 * (1.0 - self.chance)),
                 "free": -taken * doing + (0.5 * taken if self.act in ("later", "decline") else 0.0),
                 "new": seen.novelty * ENGAGES.get(self.act, 0.0)}
+
+    def _own(self, seen: Appraisal) -> Dict[str, float]:
+        """What an act of her own would do to her needs, on a turn's scale. Reaching out: welcome brings
+        closeness, unwelcome or unanswered takes from it as far as a turn's letdown does (``gives - 0.5`` with
+        nothing given); asking brings something new too. Doing: a turn's do with nothing asked for, so nobody
+        is let down by it. Looking up: what she looks for is what she does not know. Letting it be: nothing."""
+        if self.act in ("tell", "ask"):
+            return {"company": self.chance - 0.5, "capable": 0.0, "free": 0.0,
+                    "new": seen.novelty * ENGAGES["talk"] if self.act == "ask" else 0.0}
+        if self.act == "do":
+            return {"company": 0.0,
+                    "capable": self.chance * (0.3 + min(self.effort, 0.7)) - 0.5 * (1.0 - self.chance),
+                    "free": 0.0, "new": seen.novelty * ENGAGES["do"]}
+        if self.act == "look_up":
+            return {"company": 0.0, "capable": 0.0, "free": 0.0, "new": self.chance}
+        return {"company": 0.0, "capable": 0.0, "free": 0.0, "new": 0.0}
+
+    @classmethod
+    def own(cls, data: dict) -> Optional["Option"]:
+        """An act a thought of hers could lead to, as the imagining part wrote it (prompts.THINK); None: not one."""
+        if not isinstance(data, dict) or str(data.get("act", "")).lower() not in OWN:
+            return None
+        act = str(data["act"]).lower()
+        say = " ".join(str(data.get("say") or "").split())[:600] if act in ("tell", "ask") else ""
+        what = " ".join(str(data.get("what") or "").split())[:600] if act in ("do", "look_up") else ""
+        if not (say or what):
+            return None
+        return cls(act, what, _number(data.get("effort"), 0.2), _number(data.get("chance"), 0.8), 0.0, None, say)
 
     @classmethod
     def read(cls, data: dict) -> Optional["Option"]:
@@ -154,6 +191,11 @@ class Choice:
     reasons: List[str]
     considered: List[dict] = field(default_factory=list)  # every option as weighed: its facts, parts and worth
     temperature: float = 0.1
+
+
+def mine(novelty: float) -> Appraisal:
+    """What a thought of hers is to her will: nothing asked of her, nobody's order, as new as the thought is."""
+    return Appraisal(novelty=novelty, intent="own")
 
 
 def _gains(body: Body) -> Dict[str, float]:
@@ -227,7 +269,7 @@ def choose(options: List[Option], seen: Appraisal, body: Body, values: Values, f
     named = reasons(parts, rival, option.act)
     if x["grievance"] > 0.35 and option.act in ("later", "decline"):
         named.append(REASONS["grievance"])
-    considered = [{"act": other.act, "what": other.what[:120], "effort": other.effort, "chance": other.chance,
+    considered = [{"act": other.act, "what": (other.what or other.say)[:120], "effort": other.effort, "chance": other.chance,
                    "gives": other.gives, "parts": {name: round(part, 3) for name, part in other_parts.items()},
                    "worth": round(other_score, 3), "picked": other is option}
                   for other, other_score, other_parts in scored]  # worth: the parts plus her noise
@@ -251,6 +293,8 @@ def reasons(parts: Dict[str, float], rival: Optional[Dict[str, float]] = None, a
         elif name == "cost":  # sparing herself work counts as a reason only against doing it
             if rival is not None and gain >= 0.25:
                 named.append(REASONS["cost"])
+        elif name == "company" and act in ("tell", "ask", "let"):  # her own reaching out, or not
+            named.append(REASONS["closeness" if act != "let" else "unwelcome"])
         else:
             named.append(REASONS[{"company": "care" if giving else "letdown", "capable": "craft",
                                   "free": "choice" if giving else "reactance", "new": "curiosity"}[name]])

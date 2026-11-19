@@ -126,7 +126,7 @@ def test_what_nags_her_and_what_she_put_off_come_with_what_came_of_them(brain):
     mind.memory.add("exchange", "They said: sorry, the interpreter job notes were fine after all", 0.4, 0.4, 0.6,
                     at=now - 3600, app="cli", session="main")
     brain.brain.recall.sweep()
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Hm.", "want": "nothing"})] * 2
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Hm."})] * 2
     mind._think("ruminate", next(e for e in mind.memory.recent(20) if e["id"] == hurt))
     assert "What came of it (an hour ago): They said: sorry, the interpreter job notes were fine" in asked(brain, "think")
     mind._think("resume", {"what": "redo the interpreter job notes", "app": "cli", "session": "main",

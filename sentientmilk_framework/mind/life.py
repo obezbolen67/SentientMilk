@@ -88,7 +88,7 @@ from .people import People
 from .reactions import Reactions, anxious
 from .values import Values, features, subjects
 from .ways import Ways
-from .will import DOING, FORESEEN, NEEDED, REACH, Appraisal, Option, choose, value
+from .will import DOING, FORESEEN, NEEDED, REACH, Appraisal, Option, choose, mine, value
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +119,9 @@ RECENT_LINES = 6
 SHOWN_THOUGHTS = 12  # in the state apps and the panel show
 WORK_PER_CALL = 600  # a tool call's effort, in tokens of her own words
 FAMILIAR = 1.5  # summed likeness of past messages at which her own record weighs half of what it can
+# what reaching out on her own that nobody answered did to her company: its effect at no chance of being
+# welcome (will.Option._own: chance - 0.5), the letdown of a turn's scale
+UNANSWERED = -0.5
 LEARNS = 0.1  # how fast her sense of each guide's error, and her expectation of the user, follow what happens
 RESTING = 0.5  # her mind's pull to wander when nothing is asked of it (a thought about every 40 min, rested)
 # how clear her cortex must be to think a thing through; below it she answers on reflex, and she stays there
@@ -292,7 +295,7 @@ class Mind:
         # waiting: per chat, her last decision there, until the next message in that chat says what followed;
         # usual: what follows a message is usually worth (her values learn what goes better or worse than it)
         self.self = {"born": False, "expected": 0.1, "gap": None, "contact": None, "concerns": [],
-                     "waiting": {}, "usual": 0.0, "urge": None, "slept": 0.0, "consolidate": False, "fired": {},
+                     "waiting": {}, "usual": 0.0, "usual_own": 0.0, "urge": None, "slept": 0.0, "consolidate": False, "fired": {},
                      "faces": {},  # chat -> whom its app shows as the one writing (their handle)
                      # what she has come to know about herself (_know_herself), and when she last looked inward
                      "self_view": None, "looked": None,
@@ -436,6 +439,9 @@ class Mind:
             self.body.apply({"reward": -0.25 * sensitivity, "cortisol": 0.04 * sensitivity},
                             "reached out and got no answer")
             urge["stung"] = True
+            if urge["features"] and not urge.get("credited"):  # chosen by her will: unanswered teaches it
+                self._credit(urge["features"], {"company": UNANSWERED})
+                urge["credited"] = True
 
     def _alive(self, app: str, now: float) -> bool:
         return now - self.apps_seen.get(app, 0.0) < APP_ALIVE
@@ -464,11 +470,25 @@ class Mind:
                 if kind == "sleep":  # she lies down: asleep once she drifts off; she goes over the day a cycle in
                     body.settle(now)
                     return
-                if self.brain.provider_problem():  # she cannot think in words now: the moment passes
-                    return
+        if kind != "consolidate":
+            self._attempt(kind, about, now)
+            return
         self._thinking = True
-        work = self._consolidate if kind == "consolidate" else lambda: self._think(kind, about)
-        threading.Thread(target=self._thought, args=(work,), name="mind-thought", daemon=True).start()
+        threading.Thread(target=self._thought, args=(self._consolidate,), name="mind-thought", daemon=True).start()
+
+    def _attempt(self, kind: str, about: Optional[dict], now: float) -> None:
+        """A thought's bid won: she tries to think it. The attempt takes the time between two thoughts
+        (``fired["thought"]``); the kind's own time is taken when the thought is made (_think), so one the model
+        never gave (it could not be reached, or failed) leaves her as ready for it as she was. It was taken as
+        the bid won, before anything knew the model was there: an outage used up an hour of her readiness to go
+        back to what she put off, for a thought she never had (the audit, finding 9)."""
+        if self._thinking or self.brain.provider_problem():  # she cannot think in words now
+            return
+        with self._lock:
+            self.self["fired"]["thought"] = now
+        self._thinking = True
+        threading.Thread(target=self._thought, args=(lambda: self._think(kind, about),), name="mind-thought",
+                         daemon=True).start()
 
     def _drives(self, now: float):
         """What wants her attention: ``bids()`` (each kind's pull from her levels now, None where it has
@@ -545,7 +565,6 @@ class Mind:
         if kind == "sleep":
             fired["sleep"] = now
             return kind, None
-        fired[kind] = fired["thought"] = now
         return kind, {"ruminate": sore, "resume": concern}.get(kind)
 
     def _thought(self, work) -> None:
@@ -705,6 +724,11 @@ class Mind:
             if came["revision"] != self._revision:
                 return None
             model = seen.effects()  # what the model foresees, before her own record has its say
+            if answered and urge["features"] and not urge.get("credited"):
+                # they answered what she chose to say on her own (taken from her as it was answered): how they took
+                # it teaches her choosing
+                self._credit(urge["features"], {"company": model["company"]})
+                urge["credited"] = True
             own, shares = self._forecast(seen, came["followed"], came["evidence"])
             seen.novelty = novelty
             chat = _chat(run["app"], run["session"])
@@ -734,16 +758,7 @@ class Mind:
                 return features(option.act, seen.tags, seen.intent, hour, run["app"])
 
             def dreaded(option):
-                """What the thought of doing it would do to how she feels: what doing it would set off (as much as
-                the act does it), valued in her body as it would be with it (an as-if body: Damasio 1994)."""
-                ahead = self.reactions.predict(weighed.get(id(option), {}), now, context, anxious(self.body.levels))
-                share = DOING.get(option.act, 0.0)
-                if not share or not any(ahead.values()):
-                    return 0.0
-                imagined = {**self.body.levels}
-                for name, lots in ahead.items():
-                    imagined[name] = imagined.get(name, 0.0) + share * lots * CHANNELS[name][1]
-                return round(core(imagined)[0] - core(self.body.levels)[0], 3)
+                return self._dread(weighed.get(id(option), {}), DOING.get(option.act, 0.0), now, context)
             for proposed in options:
                 proposed.calibrate(self.self.get("operations", {}).get(run["app"], {}))
             choice = choose(options, seen, self.body, self.values, found, self.rng, dreaded) if options else None
@@ -1452,6 +1467,29 @@ class Mind:
         return {"drive": round(drive, 3), "lost": {name: round(amount, 3) for name, amount in lost.items()}, "back": round(back, 3),
                 "moved": {name: round(change, 3) for name, change in moved.items()}}
 
+    def _dread(self, found: dict, share: float, now: float, context: List[str]) -> float:
+        """What the thought of doing it would do to how she feels (under her lock): what doing it would set off
+        among her learned reactions (``found``: what its words are alike to; as much as the act does it,
+        ``share``), valued in her body as it would be with it (an as-if body: Damasio 1994)."""
+        ahead = self.reactions.predict(found, now, context, anxious(self.body.levels))
+        if not share or not any(ahead.values()):
+            return 0.0
+        imagined = {**self.body.levels}
+        for name, lots in ahead.items():
+            imagined[name] = imagined.get(name, 0.0) + share * lots * CHANNELS[name][1]
+        return round(core(imagined)[0] - core(self.body.levels)[0], 3)
+
+    def _credit(self, found: List[str], followed: Dict[str, float], usual: str = "usual_own") -> float:
+        """What came of what she chose (under her lock): ``followed``, what it did to her needs, teaches her values
+        about the act (its ``act:`` features) by how much better or worse it went than such outcomes usually go
+        (``usual``: what follows a message, or what her own acts bring): a prediction error, not how good it
+        was. How it felt (-1..1)."""
+        worth = sum(value(followed, self.body).values())
+        felt = math.tanh(3.0 * (worth - self.self[usual]))
+        self.self[usual] += LEARNS * (worth - self.self[usual])
+        self.values.reinforce([f for f in found if f.startswith("act:")], felt, self._rate())
+        return felt
+
     def _settle(self, pending: dict, then: Dict[str, float]) -> Optional[dict]:
         """Resolve the addressed forecast on independently reported dimensions only."""
         measured = dict(then)
@@ -1473,15 +1511,11 @@ class Mind:
         # values learn what went better or worse than usual (a prediction error), not how good things are: graded
         # absolutely, whatever she did was credited with how friendly the user is ("decline" learned +0.71 from
         # a kind chat in the user's brain, 2026-11-16)
-        worth = sum(value(followed, self.body).values())
-        felt = math.tanh(3.0 * (worth - self.self["usual"]))
-        self.self["usual"] += LEARNS * (worth - self.self["usual"])
         # a chat decided nothing: what follows it teaches no act (what it was about takes on how it felt as it
         # happened, in after). When each taught "talking" by what came next, against likings learned
         # on the same weights, "talk" sank to -0.13 over 171 chats in the user's brain: a gut feeling against
         # talking a request over that came from chatting
-        if pending.get("gated", True):
-            self.values.reinforce([f for f in pending["features"] if f.startswith("act:")], felt, self._rate())
+        felt = self._credit(pending["features"] if pending.get("gated", True) else [], followed, "usual")
         return {"act": pending["act"], "followed": {name: round(change, 3) for name, change in followed.items()},
                 "measured": {name: round(change, 3) for name, change in measured.items()},
                 "model": pending["model"], "own": pending.get("own"), "felt": round(felt, 3)}
@@ -1728,6 +1762,11 @@ class Mind:
                     self._went(urge.get("thought"), "let go")
             if moment:
                 self._remember_task(run, now, moment, newness)
+                own = _own(run)
+                if own and own["leaned"]:  # what came of what she chose to do: its effects, the outcome known
+                    outcome = Option(own["want"], effort=own["leaned"]["effort"],
+                                     chance=1.0 if run["status"] == "completed" else 0.0)
+                    self._credit(own["leaned"]["features"], outcome.effects(mine(0.0 if newness is None else newness)))
                 self.save()
             if not decision:
                 return
@@ -1930,8 +1969,12 @@ class Mind:
     # ============== Between messages ==============
 
     def _think(self, kind: str, about: Optional[dict]) -> None:
+        """A thought of hers (under no lock; it takes it). The model thinks it and imagines what it could lead to
+        (prompts.THINK: ``could``); her will chooses among those and letting it be, as a turn's options are chosen
+        (will.choose): her needs, what her values learned of acting on her own, what the thought of each sets off
+        in her body, the work under her fatigue and stress, her noise. The model's ``want`` was the decision:
+        exhausted or once ignored, she reached out and took up work as readily as rested (the audit, finding 1)."""
         with self._lock:
-            revision = self._revision
             now = time.time()
             contact = self.self.get("contact") or (about if kind == "resume" else None)
             felt = feel(self.body, self.senses, now)
@@ -1978,6 +2021,8 @@ class Mind:
             else:
                 source = self.memory.of_run(about["run"]) if (about or {}).get("run") else None
                 grew = [source["id"]] if source else []
+            # what it stands on: if any of it is taken back or set right while she thinks, the thought goes
+            stands_on = {e["id"] for e in came} | set(grew) | ({about["id"]} if kind == "ruminate" and (about or {}).get("id") else set())
             # whom it is with: who said what it grew from, else whom she last talked with (kept with no one,
             # her thoughts about the user went from "she" to "he" with nothing to tie them to him)
             actor = (source or {}).get("actor") or (contact or {}).get("actor") or None
@@ -2014,15 +2059,29 @@ class Mind:
         thought = " ".join(str(answer.get("thought") or "").split())[:600]
         if not thought or self._stop.is_set():
             return
-        want = str(answer.get("want") or "nothing").lower()
+        where = (about["app"], about["session"]) if kind == "resume" else \
+            (contact["app"], contact["session"]) if contact else None
+        # what it could lead to that she can do from here: reaching out needs someone to reach, the rest a chat
+        could = [o for o in (Option.own(item) for item in (answer.get("could") if isinstance(answer.get("could"), list)
+                                                          else [])[:3]) if o
+                 and (contact if o.act in ("tell", "ask") else where)]
         urge, task = None, None
-        newness = self.memory.newness(thought, time.time()) if kind == "wonder" else None
-        alike = self.reactions.prepare([{"text": thought, "kind": "meaning"}], anxious(self.body.levels))[0]["found"]
+        newness = self.memory.newness(thought, time.time())
+        alike, weighed = None, {}
+        for item in self.reactions.prepare([{"text": thought, "kind": "meaning", "for": None}]
+                                           + [{"text": o.say or o.what, "kind": "meaning", "for": n}
+                                              for n, o in enumerate(could)], anxious(self.body.levels)):
+            if item["for"] is None:
+                alike = item["found"]
+            else:
+                weighed[id(could[item["for"]])] = item["found"] or {}
         with self._lock:
-            if self._revision != revision:
-                return
+            standing = {e["id"]: e for e in self.memory.by_ids(sorted(stands_on))}
+            if any(i not in standing or standing[i]["superseded_by"] for i in stands_on):
+                return  # what it stood on was taken back or set right while she thought it
             now = time.time()
             body = self.body
+            self.self["fired"][kind] = now  # the thought is made: its own time between, from now
             body.exert(usage.get("completion_tokens") or 0)
             # a thought of what went badly sets her off as the thing would (worry), of what went well, it pulls
             self._react(alike or {}, self._surroundings(None, now), cues, now, "thinking")
@@ -2053,9 +2112,22 @@ class Mind:
                                            measure=self._measure_now(None, now))
                 self._name(record, thought)
             self.memory.log_levels(now, "thought", body.levels)
-            mine = {"episode": episode, "at": now, "kind": kind, "thought": thought, "want": want}
-            self.self["thoughts"] = ([mine] + self.self["thoughts"])[:SHOWN_THOUGHTS]
-            say = " ".join(str(answer.get("say") or "").split())[:600] or thought
+            hour, here = body.hour(now), (where or ("",))[0]
+
+            def found(option):
+                return features(option.act, (), "own", hour, here)
+            choice = choose(could + [Option("let", effort=0.0)], mine(0.5 if newness is None else newness), body,
+                            self.values, found, self.rng,
+                            lambda o: self._dread(weighed.get(id(o), {}), 0.0 if o.act == "let" else 1.0, now, cues))
+            option = choice.option
+            want = option.act if option.act != "let" else "nothing"
+            leaned = {"act": option.act, "reasons": choice.reasons, "chances": choice.chances,
+                      "considered": choice.considered, "features": found(option), "effort": option.effort}
+            thinking = {"episode": episode, "at": now, "kind": kind, "thought": thought, "want": want, "leaned": leaned}
+            if want == "nothing":
+                thinking["went"] = "let be"
+            self.self["thoughts"] = ([thinking] + self.self["thoughts"])[:SHOWN_THOUGHTS]
+            say = option.say or thought
             last, known = self.self.get("urge"), self.self.get("contact")
             # one message out at a time, never a stream: what she said waits on its answer; what she only meant to
             # say gives way to what she means to say now
@@ -2066,34 +2138,32 @@ class Mind:
             # while they are talking, what she wants to say comes up in her next answer (her note carries it), not
             # as a message of its own in the middle of the conversation
             talking = bool(known) and now - known["at"] < TALKING
-            # what she means to do she does, whatever the thought (not only what she put off, and not
-            # only with the app open, nothing unanswered, half her energy or the web): a task of hers, in the chat it belongs to, with that chat's tools; its end is told
-            where = (about["app"], about["session"]) if kind == "resume" else \
-                (contact["app"], contact["session"]) if contact else None
-            what = " ".join(str(answer.get("do") or "").split())[:600] or (about["what"] if kind == "resume" else "")
+            # what her will chose she does, whatever the thought (not only what she put off, and not only with the
+            # app open): a task of hers, in the chat it belongs to, with that chat's tools; its end is told
+            what = option.what
             if want in ("tell", "ask") and (unanswered or pending):
-                mine["went"] = "waits"  # her last message is out or about to be: no other on top of it
+                thinking["went"] = "waits"  # her last message is out or about to be: no other on top of it
             elif want in ("tell", "ask") and contact:
                 # offered to the app, which starts her turn to say it (or does not: MilkChan with "speak up on her
                 # own" off); while they talk, or with the app away, kept for their next message (her note). Said,
                 # it waits on an answer (after: its mark)
                 offered = not talking and self._alive(contact["app"], now)
                 urge = {"at": now, "want": want, "app": contact["app"], "session": contact["session"], "say": say,
-                        "actor": contact.get("actor", ""), "thought": now, "offered": offered, "text": URGE[want].format(thought=thought, say=say)}
-                mine["went"] = "offered" if offered else "kept"
-            elif want == "do" and what and where:
+                        "actor": contact.get("actor", ""), "thought": now, "offered": offered,
+                        "text": URGE[want].format(thought=thought, say=say), "features": leaned["features"]}
+                thinking["went"] = "offered" if offered else "kept"
+            elif want == "do":
                 if kind == "resume":
                     self.self["concerns"] = [c for c in self.self["concerns"] if c != about]
                 task = (*where, f"{DECIDED[0]}{thought}{DECIDED[1]}{what}", False,
-                        {"want": "do", "what": what, "thought": thought, "episode": episode})
-            elif want == "look_up" and where and answer.get("look_up"):
+                        {"want": "do", "what": what, "thought": thought, "episode": episode, "leaned": leaned})
+            elif want == "look_up":
                 # what she finds stays with her as the task's end does (_remember_task)
-                sought = " ".join(str(answer["look_up"]).split())[:300]
-                task = (*where, f"{LOOK_UP}{sought}.",
+                task = (*where, f"{LOOK_UP}{what[:300]}.",
                         True,  # hers: nobody is told it ended
-                        {"want": "look_up", "what": sought, "thought": thought, "episode": episode})
+                        {"want": "look_up", "what": what[:300], "thought": thought, "episode": episode, "leaned": leaned})
             if task:
-                mine["went"] = "task"
+                thinking["went"] = "task"
             if kind == "resume" and about in self.self["concerns"]:
                 # thought over and put off again, it waits twice as long each time before it nags (a plan for an
                 # unfinished goal stops it intruding: Masicampo & Baumeister 2011). Coming back every
@@ -2102,7 +2172,7 @@ class Mind:
                 about["again"] = now + HOUR * 2 ** about["put_off"]
             if urge:
                 self.self["urge"] = urge
-        if urge and mine.get("went") == "offered":
+        if urge and thinking.get("went") == "offered":
             self.brain.notify(urge["app"], urge["session"], "mind.urge",
                               {"want": urge["want"], "text": urge["text"], "thought": thought,
                                "session": urge["session"]})
@@ -2527,7 +2597,8 @@ class Mind:
             # her day: what her sleep has not yet gone over (being woken from a doze does not end it)
             span, woke = self._span(), self.self.get("slept") or 0.0
             aware = self._clear() * self.body.temperament.insight
-            thoughts = [(t["thought"][:THOUGHT_CHARS], t.get("went")) for t in self.self["thoughts"]
+            thoughts = [(t["thought"][:THOUGHT_CHARS], t.get("went"),
+                         t["leaned"]["reasons"] if t.get("went") == "let be" else []) for t in self.self["thoughts"]
                         if t["at"] > woke][:2 * span]
             urge = self.self.get("urge")
             unsaid = None
@@ -2734,10 +2805,10 @@ class Mind:
         theirs = ((self.self.get("contacts", {}).get(chat) or {}).get(actor or "") or {}).get("at")
         if theirs:
             parts.append(f"they last wrote here {_span(now - theirs)} ago, at {_clock(theirs)}")
-        mine = self.self.get("said") or {}
-        if mine.get("at"):
-            parts.append(f"you last wrote {_span(now - mine['at'])} ago, at {_clock(mine['at'])}"
-                         + ("" if mine.get("chat") == chat else ", in another chat"))
+        hers = self.self.get("said") or {}
+        if hers.get("at"):
+            parts.append(f"you last wrote {_span(now - hers['at'])} ago, at {_clock(hers['at'])}"
+                         + ("" if hers.get("chat") == chat else ", in another chat"))
         if self.presence.touched:
             parts.append(f"the computer was last touched {_span(now - self.presence.touched)} ago")
         slept = getattr(self.body, "last_sleep", None) or {}

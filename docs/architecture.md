@@ -159,7 +159,7 @@ Files under home:
 ```
 
 **Data format.** `brain.sqlite3`, `mind.sqlite3` and `recall.sqlite3` each carry the format of what they
-hold in `PRAGMA user_version` (`dataformat.FORMAT`, now 2). A new database is stamped with it; one of
+hold in `PRAGMA user_version` (`dataformat.FORMAT`, now 3). A new database is stamped with it; one of
 another format is refused as it opens (`WrongFormat`, saying what to do), so a brain never starts on data
 it would misread. No code reads an older shape: a change of shape raises `FORMAT` and comes with a one-off
 script, run on the stopped, backed-up brain, that brings the data to it; once run on the user's brain the
@@ -172,8 +172,9 @@ right at start (`logic`, `met_past`, a body's `entrained` and sleep `model`, an 
 gone. Format 2 (0.45, `scripts/migrate_format_2.py` in the history): each naming of a feeling is a record of
 what it named and what measured it (section 10.12); the namings kept before it are stored as older
 software's, the moment it took as named kept and what she meant not reconstructed, with no numbers of their
-own (only the feeling's mean was kept, and stays). A backup of the brain as it was is left in its home
-(`before-format-<n>-<time>/`).
+own (only the feeling's mean was kept, and stays). Format 3 (0.46, `scripts/migrate_format_3.py`): thoughts and
+her own tasks from before are marked as not chosen by her will (`leaned` None), a waiting wish as teaching
+nothing. A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
 
 Run states use the MCP Tasks names plus `queued`: `queued`, `working`, `input_required`,
 `completed`, `failed`, `cancelled`.
@@ -1313,21 +1314,45 @@ goodnight was a hurt). Going over it stirs cortisol by 0.06 x its sting x charge
 tenth (0.33; a fixed 0.03 before). `resume` pulls while something she put off is due: thought over and put
 off again, it is due again after 2, 4, 8... hours (0.33; before, every hour she was rested). On a fake clock (two weeks of the user's day: at the computer 08:00 to 01:30,
 writing every 10 minutes): about 27 thoughts a day, spread across the hours awake, none asleep.
-A thought is a light-model call; `tell` and `ask` become `mind.urge` notifications to the app last
+A thought is a light-model call, and what it leads to is her will's (0.46). The model thinks the thought and
+imagines what it could lead to (`could`: up to three acts, `tell` or `ask` with what she'd say, `do` with what
+she'd do, `look_up` with the search, each with its effort and chance of going as hoped); it does not decide.
+Her will chooses among them and letting it be (`will.choose` on `will.mine`, as a turn's options are weighed:
+her needs, what her values learned of acting on her own, `features(act, (), "own", ...)`, what the thought of
+each sets off among her learned reactions, the work under her fatigue and stress, her noise and temperature).
+On a turn's scale (`Option._own`): reaching out gives company `chance - 0.5` (welcome brings closeness,
+unwelcome or unanswered takes it as a letdown does), asking something new too; doing is a turn's do with
+nothing asked, so nobody is let down; looking up gives new as likely as she finds out; letting it be gives and
+costs nothing. Sampling the softmax, nothing is ruled out: what she dreads or is too tired for is less likely,
+never impossible. What she chose and why stays with the thought (`leaned`; `went` "let be" when she let it be).
+What came of it teaches her choosing (`_credit`, a prediction error against what her own acts usually bring,
+`usual_own`): a reach-out answered, by how her reading of the answer gives company; unanswered past her
+patience, the letdown (`UNANSWERED`); her own task's end, its effects with the outcome known. Until 0.46 the
+model's `want` was acted on as given: exhausted, stressed or once ignored she reached out and took up work as
+readily as rested, and nothing that came of it taught her choosing (the architecture audit, finding 1). On
+her logged thought moments, her will lets 18% of imagined acts be when least tired and 29% when most; of her
+last twelve thoughts the model had wanted an act for ten.
+
+A thought's own time between (`REFRACTORY`) is taken when it is made; the attempt takes the ten minutes
+between any two (`_attempt`). Until 0.46 both were taken as the bid won, before anything knew the model was
+there: an outage used up an hour of her readiness for a thought she never had. A thought is dropped only when a
+memory it stood on (what came back, what it grew from, what it dwells on) was taken back or set right while
+she thought it; before, any correction or rewound chat anywhere dropped every thought in flight.
+
+`tell` and `ask` become `mind.urge` notifications to the app last
 talked with, only while that app polls `/v1/mind` (it is there) and the session is free, one at a time:
 while an urge waits for the user, she does not write again, and while the user is talking with her (a
 message in the last 15 minutes, `TALKING`) what she wanted to say comes up in her next answer (the note's
-"Since you last talked you were thinking") rather than as a message of its own. What she means to do she
+"Since you last talked you were thinking") rather than as a message of its own. What her will chose to do she
 does (0.28, the user: "if she has a thought to do something, she shouldn't be limited in doing it"): `do`
-(any thought, not only something she put off; the thought's `do` says what) starts a background task of
-hers in the chat it belongs to (the put-off task's chat, else the last one), with that chat's tools,
-whether the app is open, the user is talking or an urge waits; its end is told as any task's
-(`task.completed`). `look_up` starts a quiet task the same way (its end is not announced: she keeps what
-she found). Before 0.28 `do` came only from something put off and only with the app open, and a look-up
-needed half her energy and had only web and memory.
+starts a background task of hers in the chat it belongs to (the put-off task's chat, else the last one), with
+that chat's tools, whether the app is open, the user is talking or an urge waits; its end is told as any
+task's (`task.completed`). `look_up` starts a quiet task the same way (its end is not announced: she keeps
+what she found). Nothing but her will stands between a thought and its act: before 0.28 `do` came only from
+something put off and only with the app open, and a look-up needed half her energy and had only web and memory.
 
 What she does on her own is hers (0.42). Her task's options say so (`own`: want, what, the thought and its
-episode). What she kept of it is a moment kept in the task's own session (`_kept_in`), wherever she was: a
+episode, and since 0.46 `leaned`, what her will weighed). What she kept of it is a moment kept in the task's own session (`_kept_in`), wherever she was: a
 deleted chat takes what was said there, not what she did on her own (a task someone asked for stays with the
 chat it was asked in). The moment says what she set out to do, how it went and what her tools did, the jobs it
 started with how each is going (`_task_moment`, 0.43: section 10.15); a job that outlives its task is a moment of hers when it ends (`Mind.job_ended`, from the

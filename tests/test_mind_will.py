@@ -110,8 +110,13 @@ def test_she_says_why_in_her_own_terms():
 
 def test_options_the_imagining_part_wrote_are_read_safely():
     assert Option.read({"act": "DO", "effort": "0.7", "chance": 2, "gives": None}).__dict__ == {
-        "act": "do", "what": "", "effort": 0.7, "chance": 1.0, "gives": 1.0, "check": None}
+        "act": "do", "what": "", "effort": 0.7, "chance": 1.0, "gives": 1.0, "check": None, "say": ""}
     assert Option.read({"act": "fly"}) is None and Option.read("do") is None
+    # what a thought of hers could lead to: an act of her own with its words, or nothing
+    assert Option.own({"act": "TELL", "say": "  hi   there ", "effort": "x", "chance": -1}).__dict__ == {
+        "act": "tell", "what": "", "effort": 0.2, "chance": 0.0, "gives": 0.0, "check": None, "say": "hi there"}
+    assert Option.own({"act": "do", "say": "hi"}) is None and Option.own({"act": "decline", "what": "x"}) is None
+    assert Option.own({"act": "look_up", "what": "frost dates"}).what == "frost dates" and Option.own(None) is None
     seen = Appraisal.read({"company": -3, "capable": "x", "intent": "demand", "tags": ["a", "", "b"]})
     assert (seen.company, seen.capable, seen.intent, seen.tags) == (-1.0, 0.0, "chat", ["a", "b"])
 

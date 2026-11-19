@@ -21,7 +21,7 @@ PROVIDER_URL = "https://provider.invalid/v1"
 MIND_ANSWERS = {
     "birth": '{"traits": {}}',
     "imagine": '["asked for a hand", "more", "more", "same", "request", "work", ["do", "it", 0.2, 0.9, 1]]',
-    "think": '{"thought": "I wonder how the user is doing.", "want": "nothing"}',
+    "think": '{"thought": "I wonder how the user is doing."}',
     "sleep": '{"insights": [], "dream": ""}',
     "updates": '{"outdated": [], "settled": []}',
     "people": '{"people": []}',
@@ -90,6 +90,20 @@ def install_embedder(monkeypatch) -> None:
     from . import embeddings
 
     monkeypatch.setattr(embeddings, "make", lambda values: embeddings.StandIn(values.get("embeddings_model") or "default"))
+
+
+def acting(monkeypatch) -> None:
+    """Her will out of the way of a test of something else: a thought of hers does the first thing it could lead
+    to (prompts.THINK ``could``), whatever she would choose. Her will itself is tested by test_mind_own_will."""
+    from .mind import life
+    from .mind.will import choose
+
+    def first(options, seen, *args, **kwargs):
+        choice = choose(options, seen, *args, **kwargs)
+        if seen.intent == "own":
+            choice.option = options[0]
+        return choice
+    monkeypatch.setattr(life, "choose", first)
 
 
 def quiet_mind(monkeypatch) -> None:

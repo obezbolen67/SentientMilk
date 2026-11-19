@@ -98,7 +98,7 @@ def levels(mind, condition, now):
 def thoughts(mind, now, items):
     with mind._lock:
         mind.self["slept"] = now - 5 * 3600  # she slept on yesterday this morning
-        mind.self["thoughts"] = [{"at": now - ago, "kind": "wonder", "thought": text, "want": "nothing"}
+        mind.self["thoughts"] = [{"at": now - ago, "kind": "wonder", "thought": text, "want": "nothing", "leaned": None}
                                  for ago, text in items]
 
 
@@ -106,7 +106,7 @@ def urge(mind, now, session, say):
     with mind._lock:
         mind.self["slept"] = now - 5 * 3600
         mind.self["urge"] = {"at": now - 900, "want": "tell", "app": APP, "session": session, "say": say,
-                             "thought": now - 900, "offered": False, "text": ""}
+                             "thought": now - 900, "offered": False, "text": "", "features": None}
 
 
 def reasons(mind, now, session):

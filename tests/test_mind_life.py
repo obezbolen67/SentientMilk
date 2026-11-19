@@ -10,7 +10,7 @@ import pytest
 from conftest import Meaning, turn, use, wait_for
 
 from sentientmilk_framework.mind import life
-from sentientmilk_framework.testing import tool_call
+from sentientmilk_framework.testing import acting, tool_call
 
 pytestmark = pytest.mark.mind  # her mind lives in these tests
 
@@ -225,7 +225,7 @@ def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought
     use(brain, Meaning())  # what a message calls up comes back: by meaning
     brain.brain.recall.sweep()
     brain.provider.mind_replies["think"] = [json.dumps({
-        "thought": "Tomatoes mind the cold more than I thought.", "feeling": "curious", "want": "nothing"})]
+        "thought": "Tomatoes mind the cold more than I thought."})]
     mind._think("wonder", None)
     asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
     assert "your mind wanders" in asked and "my tomatoes died last winter" in asked  # replayed, unbidden
@@ -234,7 +234,7 @@ def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought
     assert 'Since you last talked you were thinking, at ' in note
     assert ': "Tomatoes mind the cold more than I thought."' in note
     assert "my tomatoes died last winter" in note and "how do tomatoes grow" not in note
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "And frost?", "feeling": "idle", "want": "nothing"})]
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "And frost?"})]
     wait_for(lambda: "died again" in mind.memory.recent(1, kinds=("exchange",))[0]["text"])
     mind._think("wonder", None)  # they talked since: her stream goes on from what was said, not her old thought
     asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
@@ -266,7 +266,7 @@ def test_what_she_puts_off_she_keeps_in_mind(brain):
     concern = mind.state()["concerns"][0]
     assert concern["what"] == "the weekly report" and concern["app"] == "cli"
     # thought over and put off again, it waits twice as long each time before it nags
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Not yet.", "want": "nothing"})] * 2
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Not yet."})] * 2
     for waits in (2, 4):
         with mind._lock:
             due = mind.self["concerns"][0]
@@ -417,7 +417,7 @@ def test_she_broods_on_what_hurt_her_and_what_moved_her_is_kept_with_why(brain):
     state = mind.state()
     assert state["rest"]["cortisol"] == 0.25
     assert any(why == 'The user said "you are useless"' for at, why, then, left in state["pushed"]["cortisol"])
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Why would they say that?", "want": "nothing"})] * 2
+    brain.provider.mind_replies["think"] = [json.dumps({"thought": "Why would they say that?"})] * 2
     stirred = []
     for charge in (1.0, 0.55):  # going over it stirs it up as much as it still hurts (a fixed stir fed itself)
         with mind._lock:
@@ -447,13 +447,14 @@ def test_a_goodnight_disappoints_her_and_is_not_a_hurt_to_brood_on(brain):
         assert mind._drives(time.time())[2] is None
 
 
-def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):
+def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain, monkeypatch):
     mind = mind_on(brain)
     brain.provider.replies += ["Hi."]
     turn(brain, "milk", "hello")
     brain.client.mind("milk", idle=5)  # MilkChan asks how she is: it is there to hear her
-    garden = json.dumps({"thought": "I keep thinking about their garden.", "feeling": "fond", "want": "tell",
-                         "say": "How are the tomatoes doing?"})
+    acting(monkeypatch)
+    garden = json.dumps({"thought": "I keep thinking about their garden.",
+                         "could": [{"act": "tell", "say": "How are the tomatoes doing?", "effort": 0.1, "chance": 0.8}]})
     brain.provider.mind_replies["think"] = [garden, garden]
     mind._think("reach_out", None)  # they wrote a moment ago: what she thought comes up in her next answer
     assert not [n for n in brain.store.notifications("milk", 0) if n["type"] == "mind.urge"]
@@ -563,7 +564,7 @@ def test_what_a_moment_is_about_takes_on_how_it_felt_and_what_she_likes_is_used(
     note = brain.provider.last_user_text()
     assert "You like pet names." in note  # she knows it as it comes up
     assert mind.self["decided"]["path"]["met"]["liked"] > 0  # and a liked subject is a reward in itself
-    brain.provider.mind_replies["think"] = ['{"thought": "Dear. I keep thinking about that.", "want": "nothing"}']
+    brain.provider.mind_replies["think"] = ['{"thought": "Dear. I keep thinking about that."}']
     mind._think("wonder", None)
     think = next(r for r in reversed(brain.provider.mind_requests) if r["messages"][0]["content"].startswith("[mind:think]"))
     assert "What they've come to like: pet names" in think["messages"][1]["content"]  # her thoughts know it
@@ -594,12 +595,14 @@ def test_a_conversation_the_user_deletes_leaves_her_memory_with_it(brain):
     assert mind.state()["concerns"] == [] and len(mind.memory.recent(5, kinds=("exchange",))) == 1
 
 
-def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain):
+def test_while_her_last_urge_is_unanswered_her_thoughts_stay_hers(brain, monkeypatch):
     mind = mind_on(brain)
     brain.provider.replies += ["Hi.", "Hello!"]
     turn(brain, "milk", "hello")
     brain.client.mind("milk", idle=5)
-    tell = json.dumps({"thought": "That bug again.", "feeling": "uneasy", "want": "tell", "say": "About that bug..."})
+    acting(monkeypatch)
+    tell = json.dumps({"thought": "That bug again.",
+                       "could": [{"act": "tell", "say": "About that bug...", "effort": 0.1, "chance": 0.7}]})
     brain.provider.mind_replies["think"] = [tell, tell, tell, tell]
     mind.self["contact"]["at"] -= 20 * 60  # they last wrote a while ago
 
@@ -628,7 +631,7 @@ def test_an_unanswered_message_stings_only_after_they_were_free_to_answer_it(bra
     presence.report(idle=0, now=now)
     mind.self["contact"] = {"app": "milk", "session": "main", "at": now - 3 * 3600}
     mind.self["urge"] = {"at": now, "want": "tell", "app": "milk", "session": "main", "text": "hey",
-                         "mark": presence.now(now)}
+                         "mark": presence.now(now), "features": None}
     patience = mind.patience()
     assert 15 * 60 < patience < 60 * 60  # three times the 10 min they are thought to take, before she knows
 
@@ -666,8 +669,8 @@ def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain):
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
     brain.client.mind("milk", idle=5)
     brain.provider.mind_replies["think"] = [json.dumps({
-        "thought": "Do tomatoes mind the cold?", "feeling": "curious", "want": "look_up",
-        "look_up": "tomato cold tolerance"})]
+        "thought": "Do tomatoes mind the cold?",
+        "could": [{"act": "look_up", "what": "tomato cold tolerance", "effort": 0.2, "chance": 0.8}]})]
     mind._think("wonder", None)
     task = wait_for(lambda: [t for t in brain.client.tasks("milk") if t["status"] == "completed"])[0]
     assert "tomato cold tolerance" in json.dumps(task)
@@ -675,18 +678,20 @@ def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain):
     assert not {"task.completed", "task.failed", "mind.urge"} & set(told)  # MilkChan would start a turn
 
 
-def test_what_she_means_to_do_she_does_whatever_the_thought_and_whatever_else_is_going_on(brain):
+def test_what_she_means_to_do_she_does_whatever_the_thought_and_whatever_else_is_going_on(brain, monkeypatch):
     mind = mind_on(brain)  # the user: "if she has a thought to do something, she shouldn't be limited in doing it"
     brain.provider.replies += ["Hi.", "Made it: notes/ideas.md."]
     turn(brain, "milk", "hello")  # they are talking with her
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
-    mind.self["urge"] = {"at": time.time(), "want": "tell", "app": "milk", "session": "main", "text": "hey"}
+    mind.self["urge"] = {"at": time.time(), "want": "tell", "app": "milk", "session": "main", "text": "hey",
+                         "features": None}
     mind.apps_seen.clear()  # and the app is not even there
+    acting(monkeypatch)  # whatever her will would choose: nothing else holds her back
     with mind._lock:
         mind.body.levels["energy"] = 0.2  # spent
     brain.provider.mind_replies["think"] = [json.dumps({
-        "thought": "I keep losing my ideas.", "feeling": "restless", "want": "do",
-        "do": "start a file of my ideas in my folder"})]
+        "thought": "I keep losing my ideas.",
+        "could": [{"act": "do", "what": "start a file of my ideas in my folder", "effort": 0.3, "chance": 0.9}]})]
     mind._think("wonder", None)  # a wandering thought, not something she put off
     task = wait_for(lambda: [t for t in brain.client.tasks("milk") if t["status"] == "completed"])[0]
     assert "start a file of my ideas" in json.dumps(task) and "nobody asked" in json.dumps(task)
@@ -742,11 +747,13 @@ def _wants_to_tell(brain, mind):
     turn(brain, "milk", "hello")
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
     brain.client.mind("milk", idle=5)  # the app is there
-    brain.provider.mind_replies["think"] = [json.dumps({"thought": "I keep thinking about their garden.",
-                                                        "feeling": "fond", "want": "tell",
-                                                        "say": "How are the tomatoes doing?"})]
+    brain.provider.mind_replies["think"] = [json.dumps({
+        "thought": "I keep thinking about their garden.",
+        "could": [{"act": "tell", "say": "How are the tomatoes doing?", "effort": 0.1, "chance": 0.8}]})]
     mind.self["contact"]["at"] -= 20 * 60  # they last wrote a while ago
-    mind._think("reach_out", None)
+    with pytest.MonkeyPatch.context() as patch:
+        acting(patch)  # she says it, whatever her will would choose: these tests are of what follows
+        mind._think("reach_out", None)
     return _urges(brain)[-1]
 
 
@@ -817,7 +824,7 @@ def test_after_a_talk_her_mind_goes_on_from_what_was_said_not_from_her_old_thoug
     play (the user's brain, 2026-11-17)."""
     mind = mind_on(brain)
     mind.self["thoughts"] = [{"at": time.time() - 3600, "kind": "wonder", "thought": "He's still eating.",
-                              "want": "nothing"}]
+                              "want": "nothing", "leaned": None}]
     brain.provider.replies += ["Go on then."]
     turn(brain, "milk", "now let me play my rhythm game")
     wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
@@ -846,8 +853,8 @@ def test_her_note_tells_when_each_of_them_last_wrote_and_when_she_thought_what(b
         mind.self["contact"]["at"] = now - (3 * 3600 + 8 * 60)
         mind.self["said"] = {**mind.self["said"], "at": now - (2 * 3600 + 5 * 60)}
         mind.self["thoughts"] = [
-            {"at": now - 1800, "kind": "wonder", "thought": "Still quiet.", "want": "nothing"},
-            {"at": now - 2 * 3600, "kind": "wonder", "thought": "The shop is far.", "want": "nothing"}]
+            {"at": now - 1800, "kind": "wonder", "thought": "Still quiet.", "want": "nothing", "leaned": None},
+            {"at": now - 2 * 3600, "kind": "wonder", "thought": "The shop is far.", "want": "nothing", "leaned": None}]
         mind.body.last_sleep = {"from": now - 22 * 60, "to": now - 1, "awakenings": 0}
     mind.presence.report(idle=4, locked=False, busy=False, now=now)
     brain.provider.replies += ["Welcome back."]
@@ -872,7 +879,7 @@ def test_a_thought_keeps_whom_it_grew_from(brain):
     turn(brain, "milk", "the assignment is a mock interpreting call", context={"user": "Alex"})
     wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
     brain.provider.mind_replies["think"] = [json.dumps({
-        "thought": "A mock call, so there is nothing for me to write.", "feeling": "calm", "want": "nothing"})]
+        "thought": "A mock call, so there is nothing for me to write."})]
     mind._think("wonder", None)
     thought = mind.memory.recent(1, kinds=("thought",))[0]
     assert thought["actor"] == "alex"

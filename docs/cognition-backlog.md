@@ -45,10 +45,10 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
 
 Verified against the code with a plan: docs/superpowers/specs/2026-11-19-cognitive-audit-diagnosis.md.
 
-- [ ] **P1 Her own acts chosen by her will.** A thought's `want` is acted on as the model gave it; in a turn,
+- [x] **P1 Her own acts chosen by her will** (0.46). A thought's `want` is acted on as the model gave it; in a turn,
   options are weighed by needs, values, learned dread and cost (`will.choose`). First step: a thought proposes
   options and the will chooses among them, "let it be" always one (0.46).
-- [ ] **P1 Thoughts that survive an outage.** A thought's refractory time is used up before the model is
+- [x] **P1 Thoughts that survive an outage** (0.46). A thought's refractory time is used up before the model is
   known to be there; a failed call loses the thought; any correction anywhere discards thoughts in flight.
   First step: stamp on start, keep the bid on failure, drop only for retracted sources (0.46).
 - [ ] **P1 A shared workspace.** What is active (goals, concerns, intentions, percepts, the question at hand,
