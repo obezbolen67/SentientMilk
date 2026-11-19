@@ -3,8 +3,8 @@ this is how she finds the rest (Mind.look_inward)."""
 
 from . import ToolContext, Toolkit, tool
 
-GUIDE = ("When you are asked how you are, what is on your mind, what bothers you or why you did or felt something, "
-         "or you want to know that yourself, look_inward first and answer from what you find, in your own words. "
+GUIDE = ("Your note gives what you notice in yourself, and when you are asked how you are or why, what you find as you "
+         "turn inward. To look further, for something in particular (about) or at a past moment, look_inward. "
          "If you want to put what you feel into words, any words that fit, give them as naming: naming it is yours. "
          "Naming is of what you feel now unless you give the number of a past moment as moment.")
 
@@ -25,4 +25,4 @@ def look_inward(ctx: ToolContext, about: str = "", naming: str = "", moment: str
                                       call=ctx.call_id or None)
 
 
-TOOLKIT = Toolkit("inward", "Looking inside yourself.", [look_inward], part=True)
+TOOLKIT = Toolkit("inward", "Looking inside yourself.", [look_inward], part=True, inner=True)

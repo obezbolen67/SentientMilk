@@ -68,4 +68,4 @@ def memory_forget(ctx: ToolContext, key: str):
     return f"Forgot {key} for this chat." if found[0] else f"This chat's memory has no {key}."
 
 
-TOOLKIT = Toolkit("memory", "This chat's memory (shown in full above).", [memory_save, memory_forget], part=True)
+TOOLKIT = Toolkit("memory", "This chat's memory (shown in full above).", [memory_save, memory_forget], part=True, inner=True)

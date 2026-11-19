@@ -45,10 +45,14 @@ Answer with one JSON array only, short:
  "chat|question|request",
  "what it is about",
  "what led to it",
+ "what it asks of their inner life",
  ["do|part|later|decline|talk", "what, at most six words", effort, chance, gives], ...]
 What it is about is the subject a person would file it under, one or two plain words, never this message's
 details and never he, she, they or you ("feelings", not "what they feel"): one of the subjects they know when
 it is about that, a new one only when it is about none of them.
+What it asks of their inner life: when the message asks how they feel or are, what is on their mind, or why
+they did or felt something, that in a few plain words ("how they feel", "why they put it off"); "" when it
+asks none of that.
 What led to it: when the message tells of something that went well or badly, for them or for the one who writes,
 what led to it as a person would name it asked why it happened, in a few plain words and never he, she, they or
 you ("leaving the oven on", "a late train"); "" when it tells of no such thing or what led to it is not plain.
@@ -57,9 +61,11 @@ real person in their place might take, each starting with one act: doing it, and
 really do (part of it, later, decline, talk it over first). Anything else gets no options: what they say
 is theirs to find. Say "they" for the one who writes. effort 0 nothing to 1 hours of hard work; chance it
 goes well 0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal.
-When a concrete tool operation and its target are known, append a sixth item to the doing option,
-for example {"tool":"files_write","target":{"path":"draft.txt"}}. Its chance then predicts that operation
-on that target returning successfully. Leave it out when the target or operation is unknown.
+When one of the operations they can do here (listed below the message) would carry an option out, doing
+it, part of it or putting it off, append that operation as the option's sixth item: its tool and the
+arguments that tell it from the other options' ({"tool":"files_write","target":{"path":"draft.txt"}},
+or "target":{} when the tool alone tells it). A doing option's chance then predicts that operation returning
+successfully. Leave it out when no listed operation carries the option out.
 If the goal depends on the file containing the submitted text, add "readback":true to the files_write check.
 This requests a separate content comparison after a successful write. It cannot verify that a program runs.
 If the message explicitly evaluates the identified prior turn, append an object with fields "run" (its numeric ID),
@@ -287,19 +293,20 @@ def imagined(text: str) -> dict:
         words = words[1:]
     # what led to it, as her cortex reads it (the cue a learned reaction is tied to, reactions.py); live, an
     # object appended for it was never written (0 of 4 stories that told what led to what), a place of its own was
-    intent, tag, cause = (words + ["", "", ""])[:3]
+    intent, tag, cause, within = (words + ["", "", "", ""])[:4]
     cause = cause if isinstance(cause, str) else ""
+    within = within if isinstance(within, str) else ""
     tags = tag if isinstance(tag, list) else [tag]
     company, capable, free = (_need(head[index]) for index in needs)
     return {"appraisal": {"company": company, "capable": capable, "free": free, "intent": intent, "tags": tags,
                           "theirs": theirs or 0.0},
             "happens": happens, "options": options, "feedback": feedback, "correction": correction,
-            "cause": " ".join(cause.split())[:200]}
+            "cause": " ".join(cause.split())[:200], "within": " ".join(within.split())[:120]}
 
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),
           thoughts: List[Tuple[float, str]] = (), people: List[str] = (), unsaid: Optional[tuple] = None,
-          did: List[str] = (), going: List[str] = (), when: str = "", also: List[str] = ()) -> str:
+          did: List[str] = (), going: List[str] = (), when: str = "", also: List[str] = (), inward: str = "") -> str:
     """The note she reads before answering (it goes with the user's message, never shown to them).
     ``when``: when each of them last wrote, the computer was last touched and she slept, each its own time
     (with one: back after 3 hours 8 minutes, she said "two hours and change", counting from her own message);
@@ -310,8 +317,11 @@ def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: 
     conversations for it in vain);
     ``people``: those she knows that the message names, as they come to her mind (people.py); ``unsaid``:
     (tell or ask, to whom, what) she meant to say and has not had the chance to; ``also``: what else is on her
-    mind (workspace.py), what the message is about first."""
+    mind (workspace.py), what the message is about first; ``inward``: what her attention found as it turned to
+    herself (Mind.attend), when it did."""
     parts = [felt.rstrip(".") + "."]
+    if inward:
+        parts.append("You turn inward: " + inward.rstrip(".") + ".")
     if when:
         parts.append("When: " + when.rstrip(".") + ".")
     if thoughts:

@@ -24,7 +24,7 @@ from ..vectors import Vectors
 from .memory import ago
 
 DECAY = 0.5  # ACT-R's base-level decay d
-KINDS = ("asked", "thought", "intends", "doing", "put off", "named", "self")
+KINDS = ("asked", "thought", "intends", "doing", "put off", "named", "self", "noticed")
 SOON = 1.0  # s: a use this close counts as now (t^-d is unbounded at 0)
 CURRENT = ("intends", "doing")  # what she means to do now
 SCHEMA = """CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, key TEXT NOT NULL UNIQUE, kind TEXT NOT NULL,
@@ -139,4 +139,5 @@ def line(item: dict, now: float) -> str:
     return {"asked": f"{text} ({when})", "thought": f'your thought {when}: "{text}"',
             "intends": f"{when} you meant {text}", "doing": f"you are doing {text} (started {when})",
             "put off": f"what you put off {when}: {text}", "named": f"{text} ({when})",
-            "self": f"what you've come to know of yourself: {text}"}[item["kind"]]
+            "self": f"what you've come to know of yourself: {text}",
+            "noticed": f"what you noticed in yourself {when}: {text}"}[item["kind"]]

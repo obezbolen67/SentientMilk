@@ -52,7 +52,8 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
     when she said them; ``also``: what else is before her now (workspace.py), the most active first."""
     parts: List[str] = []
     if aware >= AWARE:
-        parts.append(felt.rstrip(".") + ".")
+        if felt:
+            parts.append(felt.rstrip(".") + ".")
         if familiar:
             parts.append("It is like when you said " + "; and when you said ".join(
                 f'"{said}" ({when})' for _, said, when in familiar) + ".")

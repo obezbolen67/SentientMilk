@@ -34,7 +34,8 @@ def stand_in(tmp_path):
                                   {"type": "tool_start", "call_id": "write"},
                                   {"type": "tool", "name": "files_write", "status": "ok", "id": run,
                                    "call_id": "write", "arguments": {"path": "fix.py"}}]),
-        toolset=lambda *a: SimpleNamespace(by_name={"files_write": SimpleNamespace(readonly=False, toolkit="files")}),
+        toolset=lambda *a: SimpleNamespace(by_name={"files_write": SimpleNamespace(readonly=False, toolkit="files", inner=False, name="files_write",
+                                                                              description="Write a file.", parameters={})}),
         profile=lambda app, session: {"persona": "You are Milk."}, session_busy=lambda app, session: False,
         notify=lambda *a: None)
     return brain, runs

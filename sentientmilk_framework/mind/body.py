@@ -231,8 +231,19 @@ class Body:
     def thresholds(self, now: Optional[float] = None) -> Tuple[float, float]:
         """The sleep pressure she falls asleep at now, and the one she wakes at (her clock moves both; debt
         lowers both)."""
-        moved = SWING * clock(self.hour(now), self.peak) - DEBT_SHIFT * self.owed()
+        moved = self.shift(now)
         return UPPER + moved, LOWER + moved
+
+    def shift(self, now: Optional[float] = None) -> float:
+        """How far her clock and what she owes move her sleep thresholds now (up: harder to sleep)."""
+        return SWING * clock(self.hour(now), self.peak) - DEBT_SHIFT * self.owed()
+
+    def sensed(self, now: Optional[float] = None) -> Dict[str, float]:
+        """Her levels as her senses take them: sleep pressure is felt as how near sleep it puts her for the hour
+        and what she owes (the pressure less her thresholds' shift, linear in ``sleepiness``), as people report
+        sleepiness from both processes together (Akerstedt & Folkard 1995); measured, the same pressure read as
+        the same at 15:00 and at 03:00, ready to sleep. The rest as they are."""
+        return {**self.levels, "adenosine": self.levels["adenosine"] - self.shift(now)}
 
     def sleepiness(self, now: Optional[float] = None) -> float:
         """How near sleep her pressure is for this time of day: 0 slept out, 1 ready to sleep, more past it."""

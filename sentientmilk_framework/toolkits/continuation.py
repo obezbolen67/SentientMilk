@@ -15,4 +15,4 @@ def context_compact(ctx: ToolContext, note: str):
     return 'Checkpoint requested. Continue from your next unfinished action after compaction.'
 
 
-TOOLKIT = Toolkit('continuation', 'Keep continuity across long work.', [context_compact], part=True)
+TOOLKIT = Toolkit('continuation', 'Keep continuity across long work.', [context_compact], part=True, inner=True)

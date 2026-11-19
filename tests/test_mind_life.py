@@ -710,7 +710,7 @@ def test_her_state_shows_what_drives_what_and_what_wants_her_attention(brain):
     assert edges[("energy", "valence")] > 0 and edges[("cortisol", "arousal")] > 0 and edges[("oxytocin", "valence")] > 0
     assert abs(mind.body.levels["energy"] - 0.5) < 0.01 and abs(mind.body.levels["cortisol"] - 0.5) < 0.01
     assert "cortisol" in seen["sensed"] and seen["feelings"] == [] and set(seen["attention"]["bids"]) == {
-        "sleep", "reach_out", "wonder", "ruminate", "resume"}
+        "sleep", "reach_out", "wonder", "ruminate", "resume", "notice"}
     assert 0 < seen["attention"]["threshold"] and seen["decided"] is None
     assert set(seen["targets"]) >= {"dopamine", "cortisol"} and seen["set_points"]["social"] == 0.7
     assert seen["paces"]["serotonin"] > seen["paces"]["reward"] and set(seen["receptors"]) >= {"reward"}

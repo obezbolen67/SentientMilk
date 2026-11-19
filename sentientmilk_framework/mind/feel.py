@@ -104,8 +104,8 @@ class Interoception:
     DRIFT = 600.0  # seconds for her misreading to wander off and change
 
     def __init__(self, body: Body, seed: int = 0):
-        self.seen = dict(body.levels)
-        self.used = dict(body.levels)  # what she has got used to: her prediction of each level
+        self.seen = body.sensed()
+        self.used = dict(self.seen)  # what she has got used to: her prediction of each level
         self.bias = {name: 0.0 for name in body.levels}
         self._rng = random.Random(seed)
 
@@ -114,7 +114,7 @@ class Interoception:
             return
         share, keep, adapts = 1.0 - math.exp(-dt / LAG), math.exp(-dt / self.DRIFT), 1.0 - math.exp(-dt / ADAPTS)
         blur = 0.06 / max(0.3, body.temperament.insight)
-        for name, value in body.levels.items():
+        for name, value in body.sensed().items():
             self.seen[name] = self.seen.get(name, value) + (value - self.seen.get(name, value)) * share
             self.used[name] = self.used.get(name, value) + (self.seen[name] - self.used.get(name, value)) * adapts
             self.bias[name] = self.bias.get(name, 0.0) * keep + self._rng.gauss(0.0, blur * math.sqrt(1 - keep * keep))

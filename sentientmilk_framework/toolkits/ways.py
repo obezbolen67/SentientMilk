@@ -36,4 +36,5 @@ def ways_drop(ctx: ToolContext, name: str):
     return "You no longer do this: " + _told(way)
 
 
-TOOLKIT = Toolkit("ways", "How you do things in every chat (shown in full above).", [ways_keep, ways_drop], part=True)
+TOOLKIT = Toolkit("ways", "How you do things in every chat (shown in full above).", [ways_keep, ways_drop], part=True,
+                  inner=True)

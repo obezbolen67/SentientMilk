@@ -69,6 +69,10 @@ def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
             won[kind] += 1
             if kind not in (None, "sleep"):  # she thinks it: the attempt and the thought made take their times
                 mind.self["fired"][kind] = mind.self["fired"]["thought"] = now
+                if kind == "notice":  # what her attention took in is known to her, as her thought of it makes it
+                    mind.attend(now, "thought")
+                else:
+                    mind._release(now)
             if minute % 30 == 0:
                 note()
     assert {"ruminate", "resume", "wonder", "reach_out"} <= set(won), won
@@ -105,6 +109,6 @@ def test_every_part_of_her_moves_and_every_pull_has_its_moment(brain):
     assert not still, f"never moved: {still}"
     state = mind.state()
     assert set(state["levels"]) >= set(START) and set(state["needs"]) == {"social", "novelty", "competence", "autonomy"}
-    assert set(state["attention"]["bids"]) == {"sleep", "reach_out", "wonder", "ruminate", "resume"}
+    assert set(state["attention"]["bids"]) == {"sleep", "reach_out", "wonder", "ruminate", "resume", "notice"}
     assert {"stage", "pressure", "falls_asleep_at", "wakes_at", "debt", "last"} <= set(state["sleep"])
     assert state["sleep"]["last"]["to"] - state["sleep"]["last"]["from"] > HOUR

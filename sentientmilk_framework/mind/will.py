@@ -173,7 +173,7 @@ class Option:
             target = {k: v for k, v in check["target"].items()
                       if isinstance(k, str) and isinstance(v, str) and 0 < len(v) <= 500}
             readback = check.get("readback") is True and check["tool"] == "files_write" and "path" in target
-            check = {"tool": check["tool"], "target": target} if target and target == check["target"] else None
+            check = {"tool": check["tool"], "target": target} if target == check["target"] else None  # {}: any call
             if check and readback:
                 check["readback"] = True
         else:
@@ -270,7 +270,8 @@ def choose(options: List[Option], seen: Appraisal, body: Body, values: Values, f
     if x["grievance"] > 0.35 and option.act in ("later", "decline"):
         named.append(REASONS["grievance"])
     considered = [{"act": other.act, "what": (other.what or other.say)[:120], "effort": other.effort, "chance": other.chance,
-                   "gives": other.gives, "parts": {name: round(part, 3) for name, part in other_parts.items()},
+                   "gives": other.gives, "check": other.check,
+                   "parts": {name: round(part, 3) for name, part in other_parts.items()},
                    "worth": round(other_score, 3), "picked": other is option}
                   for other, other_score, other_parts in scored]  # worth: the parts plus her noise
     return Choice(option, score, parts, chances, named, considered, round(temperature, 3))

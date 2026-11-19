@@ -12,7 +12,7 @@ MILKCHAN = {"arms_crossed": ["neutral", "smile", "sad", "mad", "nervous", "confu
 
 def her(seed=1, insight=1.0, **levels):
     body = Body(Temperament.born({"insight": insight}, seed=seed), at=NOON)
-    body.levels.update(levels)
+    body.levels.update({"adenosine": 0.4 + body.shift(), **levels})  # at rest: the pressure usual for the hour
     senses = Interoception(body, seed)
     return body, senses
 
@@ -145,3 +145,25 @@ def test_the_imagine_answer_reads_by_shape_with_words_first_or_without():
     theirs = imagined('["they failed an exam", "more", "same", "same", "bad", "chat", "school", "fine"]')
     assert theirs["appraisal"]["theirs"] == -0.5 and theirs["appraisal"]["intent"] == "chat"
     assert theirs["appraisal"]["tags"] == ["school"]
+
+
+def test_sleep_pressure_is_felt_against_her_clock_and_what_she_owes():
+    """The same adenosine is felt as more sleep pressure in her night than in her afternoon, and more with sleep
+    owed: what she senses is how near sleep it puts her (both processes, as sleepiness is reported), not the
+    amount; spent energy stays its own channel."""
+    def sensed(hour, debt=0.0, energy=1.0):
+        body = Body(Temperament.born({}, seed=1), at=NOON + (hour - 12) * 3600)
+        body.levels.update(adenosine=0.45, energy=energy)
+        body.debt = debt
+        senses = Interoception(body, 1)
+        for _ in range(40):
+            senses.follow(body, 90)
+        return dict(feel(body, senses).standing_out(20, 0.0, usual=True)), body
+
+    afternoon, day = sensed(15)
+    night, late = sensed(3)
+    owing, _ = sensed(15, debt=8.0)
+    assert night["adenosine"] - afternoon["adenosine"] > 0.5 and late.sleepiness() > day.sleepiness()
+    assert owing["adenosine"] > afternoon["adenosine"]
+    spent, _ = sensed(15, energy=0.4)
+    assert abs(spent["adenosine"] - afternoon["adenosine"]) < 0.05 and spent["energy"] < -1.0

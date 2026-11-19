@@ -1208,6 +1208,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 | `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
 | `prompts.py` | birth (temperament from the persona), imagine, think and sleep, each JSON, each marked `[mind:<kind>]` |
 | `workspace.py` | what is on her mind now (0.47, section 10.16): her thoughts since she slept, what she means to say, her tasks going, what she put off, her self-view, what was just asked, the feeling she last named; each with its uses (ACT-R's base level) and the meaning of its own words; a turn, a thought and looking inward each take what their cue is about and what she means to do, as far as her span holds |
+| `attention.py` | attention turned to herself (0.48, section 10.17): whether a moment draws it (asked about her inner life, her body a lot further from usual than she knows as far as focus leaves her free, torn between two ways), what of it she does not know yet, and her body as attention takes it in |
 
 A turn with the user's words: `Runs.log_input` asks `Mind.before`, which wakes her if asleep and senses
 what code can measure: the contact itself, whether it answers her urge, how unexpected its timing is
@@ -2020,6 +2021,53 @@ yet?" brought what she put off 14 hours ago and her thought about a month of wai
 back, sorry I was gone so long" her self-view (she counts the time when someone is away); "is the watcher still
 running?" the watcher thought; "what should we cook tonight?" nothing; a thought from her last thought, the two
 earlier ones on the same matter.
+
+### 10.17 Noticing herself, and what she actually did (0.48)
+
+Before 0.48 she could look deeper into herself only through the `look_inward` tool. Its guide told her cortex to
+call it first for any feeling question, and her mind took her reply's words as a naming only if the tool event was
+there. With the tool absent she could not reflect at all, and nothing inward was noticed unless asked. Credit for
+what she did was "any successful call that is not a look is doing it". So a card she filed for later, or a
+reminder she set, was learned as doing the thing, and her concern was dropped. Looking inward itself counted as
+doing. Design: `docs/superpowers/specs/2026-11-19-attention-and-action-credit-design.md`.
+
+- **One attention operation** (`Mind.attend`, `mind/attention.py`) serves a turn, a waking thought and
+  `look_inward` (now its adapter, with deliberate recall and naming as before). Her senses run all the time; each
+  note keeps the passive line. Attention turns inward on warrant only:
+  - asked about her inner life (the imagine call writes what a message asks of it, in a few words, so
+    paraphrases read alike and no keyword is involved);
+  - her body a lot further from where it usually sits than she knows, which covers both what has lasted and a
+    sudden change against her senses' prediction (`CHANNELS`' unit, times how free her attention is:
+    `1 - acetylcholine` while a message or a task holds it, Hasselmo 2006; times her insight);
+  - torn: her will's top two ways within one temperature of each other (`p2/p1 >= 1/e`), which her own noise
+    cannot tell apart (Botvinick et al. 2001).
+- **What it takes in** is a little: what is far from usual, as lasting or lately (what getting used to it hides
+  from the passive line), the way she is torn toward with its reasons, or, asked, what looking inward shows. It
+  takes in less than her span, and only the tone below the clarity floor.
+- **A stretch of attention** (`self["attending"]`, on her mind as a `noticed` item) keeps one identity. It takes
+  in only what is new: a channel that grew by 0.4 lots (`TOLD_AGAIN`, what reaches her mid-work), turned the
+  other way, or newly passed the floor. Another kind of thought ends the stretch, and sleep forgets what she knew
+  of herself. Noticing creates no memory, naming or chemistry of its own: the turn's or thought's moment keeps it
+  (`attention`, with `source: "inward"`). The record travels on the run, so a retry reuses it and a restart goes
+  on with it.
+- **Waking**: a spontaneous `notice` pull (its bar does not rise with tiredness; 30 min refractory, as brooding)
+  pulls `RESTING x lots x free x insight`. A body far from usual that she does not yet know pulls as a resting
+  mind's wandering does. Winning, her thought begins "Your attention turns to yourself."
+- **Her reply as a naming**: a turn whose attention turned inward counts, as a tool look without naming did.
+- **Felt sleep pressure** is adenosine less the shift her clock and her debt give her thresholds
+  (`Body.sensed`, linear in `sleepiness`; Akerstedt & Folkard 1995). Before, 15:00 and 03:00 at the same
+  pressure felt alike.
+- **Action credit** (`Mind._enacted`):
+  - Her reading sees the operations that change something here: tools that are neither looks nor `Toolkit.inner`
+    (acting on her own mind only: inward, ways, chat memory, todo, context). Each way she could take may name
+    the one that carries it out (`could`, with `{tool, target}`; `{}` means any call of it).
+  - What she did is the way whose operation a successful call carried out; of several, the fullest.
+  - A call no way foresaw is doing it, unless a way foresaw that tool with other arguments. Then it is
+    `unresolved`, and nothing of acting is learned from it.
+  - A "later" carried out (a reminder set) keeps her concern pending. A do that ended as a later adds one.
+  - The trace (`decided`) keeps what drew her attention (`path.attended`), what was weighed, the leaning, the
+    call that carried it out (`enacted`), what her values measurably took (`learned.values`) and her words
+    afterwards (`explained`, retrospective).
 
 ## 11. Models and providers
 

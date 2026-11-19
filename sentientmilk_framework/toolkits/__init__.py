@@ -49,6 +49,7 @@ class Tool:
     toolkit: str = ""
     action: bool = False  # run by the app, not the brain
     core: bool = False  # sent with every request; the others are listed and loaded on demand (tools_load)
+    inner: bool = False  # it acts on her own mind only, never on the world (set by its toolkit: Toolkit.inner)
     # when and how to use it, shown with its toolkit in YOUR TOOLS while the run has it: text, or a function
     # of the profile for what depends on the brain's state ("" for nothing)
     guide: Any = ""
@@ -70,10 +71,14 @@ class Toolkit:
     description: str  # what it is, in the user's words too: the model maps what the user says to it
     tools: List[Tool]
     part: bool = False  # a part of the model kept in the brain (memory, agents...), not something on the computer
+    # its tools act on her own mind only (looking inward, her ways, this chat's memory, her todo list, her context):
+    # whatever they do, nothing is done in the world, and nothing of hers is credited as acting (Mind._changes)
+    inner: bool = False
 
     def __post_init__(self):
         for item in self.tools:
             item.toolkit = self.name
+            item.inner = item.inner or self.inner
 
 
 STOPPED_BY_USER = "The user stopped you."

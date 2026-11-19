@@ -44,4 +44,4 @@ def todo_write(ctx: ToolContext, items: list):
     return render(items)
 
 
-TOOLKIT = Toolkit("todo", "Your todo list for work with several steps, in this chat.", [todo_write], part=True)
+TOOLKIT = Toolkit("todo", "Your todo list for work with several steps, in this chat.", [todo_write], part=True, inner=True)
