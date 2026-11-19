@@ -186,24 +186,30 @@ class Felt:
                       else "some going on")
 
     def words(self, out: Optional[List[Tuple[str, float]]] = None,
-              moved_by: Optional[Dict[str, float]] = None) -> str:
+              moved_by: Optional[Dict[str, float]] = None, since: str = "") -> str:
         """How it feels, for her: what stands out in her body (``out``: these channels instead) and the overall
         tone, no numbers and no feeling's name: what she feels is hers to put into words ("Your body: much
         more closeness and a little more strain than you're used to; pleasant on the whole, with little going
         on.").
-        ``moved_by``: what a message did to her (the change of each channel, in lots), said first, then how she
-        is underneath it ("Reading it: more closeness than a moment ago. Underneath: more sleep pressure than
-        you're used to; ..."): an emotion has its object, a mood is the background (Russell 2003)."""
+        ``moved_by``: how her sense of her body changed as she read a message (each channel, in lots), said first,
+        then how she is underneath it ("Reading it: more closeness than a moment ago. Underneath: more sleep
+        pressure than you're used to; ..."): an emotion has its object, a mood is the background (Russell 2003).
+        A channel that changed is still told where it is: strain easing a little from high is both (left out of
+        "Underneath", a high strain read only as "much less strain than a moment ago": the 0.48 exam).
+        ``since``: the moment ``moved_by`` is counted from, when it is not the message's coming ("Since you last
+        answered here (4 minutes ago): much more strain. Underneath: ...")."""
         tone, pace = self.tone()
         whole = f"{tone} on the whole, with {pace}."
         found = self.standing_out() if out is None else out
         if moved_by is not None:
             now = sorted(((name, far) for name, far in moved_by.items() if name in CHANNELS and abs(far) >= 0.4),
                          key=lambda item: -abs(item[1]))[:3]
-            under = [(name, far) for name, far in found if name not in dict(now)][:3]
+            under = found[:3]
             # a message that moved her too little to tell is told as that (told nothing, reassured, she said
             # "the whole worry fell off" with her strain where it was: run 660)
-            return (f"Reading it: {_amounts(now) + ' than' if now else 'little changed from'} a moment ago. "
+            change = (f"Since {since}: {_amounts(now) if now else 'little changed'}. " if since else
+                      f"Reading it: {_amounts(now) + ' than' if now else 'little changed from'} a moment ago. ")
+            return (change
                     + (f"Underneath: {_amounts(under)} than you're used to; {whole}" if under
                        else f"Underneath, {whole}"))
         return (f"Your body: {_amounts(found)} than you're used to; {whole}" if found

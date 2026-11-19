@@ -889,7 +889,17 @@ class Mind:
                                               "session": run["session"], "at": now, "run": run["id"]})
             self.self["contact"] = {"app": run["app"], "session": run["session"], "actor": self._face(run).casefold(), "at": now}
             likes, dislikes = self.values.fond(subjects(seen.tags))
-            felt_words = felt.words(moved_by=way) \
+            # her body as she can tell it, answering: her senses, lagged and misread, and how they changed since the
+            # message came; never what her body exactly did (told as felt, a learned reaction's drop of her strain
+            # from 0.80 to its floor read "much less strain" while her senses still read 0.46 to 0.68: 0.48 exam)
+            sensing = feel(self.body, self.senses, now)
+            # and what changed since she last answered here, as her senses had it then: two snapshots against what
+            # she is used to left the change between them to be worked out, and she worked it out from the story
+            # (strain rose between two replies; she called the earlier stretch the strained one: introspection exam)
+            answered = self.self.setdefault("answered", {})
+            last = answered.get(chat)
+            felt_words = sensing.words(moved_by=moved(last["sensed"] if last else felt.reading, sensing.reading),
+                                       since=f"you last answered here ({_ago(now - last['at'])})" if last else "") \
                 + (f" You like {' and '.join(likes)}." if likes else "") \
                 + (f" You don't like {' and '.join(dislikes)}." if dislikes else "")
             who = came["with"]["name"] if came["with"] else "the user"
@@ -899,6 +909,7 @@ class Mind:
                                  (unsaid["want"], who, unsaid["say"]) if unsaid else None, did, going, when, also,
                                  attended["text"] if attended else "")
             self.self.setdefault("appraised", {})[chat] = {"run": run["id"], "decision": decision, "note": note}
+            answered[chat] = {"at": now, "sensed": {name: round(value, 4) for name, value in sensing.reading.items()}}
             self.save()
             self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
         return note
@@ -955,12 +966,12 @@ class Mind:
             self._met(seen, 0.05, 0.0, why)  # they are with her already: the contact itself is a little
             decided = run["options"].get("mind") or {}
             self._threat(seen, Option(decided.get("act", "do"), chance=decided.get("chance", 0.8)), why)
-            way = self._moved(levels, f"{said} {answer.get('happens') or ''}", now, run["id"])
+            self._moved(levels, f"{said} {answer.get('happens') or ''}", now, run["id"])
             self.self["contact"] = {"app": run["app"], "session": run["session"], "actor": self._face(run).casefold(), "at": now}
             felt = feel(self.body, self.senses, now)
             self._told(run, felt)
             self._working[run["id"]].setdefault("heard", []).append(said[:300])  # remembered with the turn (after)
-            note = prompts.inner(felt.words(moved_by=way),
+            note = prompts.inner(felt.words(moved_by=moved(came["felt"].reading, felt.reading)),  # as she senses it
                                  came["memories"], people=[People.line(person) for person in came["mentioned"]])
             if source and receipt.get("run") == run["id"]:
                 receipt.setdefault("steering", {})[source] = note
@@ -1403,8 +1414,8 @@ class Mind:
 
     def _moved(self, levels: Dict[str, float], situation: str, now: float, run: Optional[int] = None
                ) -> Dict[str, float]:
-        """What a message did to her body (the change of each channel, in lots; ``levels``: before it), for her
-        note's "Reading it" in body words (a brain builds a feeling from the change it predicts). The feeling of
+        """What a message did to her body (the change of each channel, in lots; ``levels``: before it), for what
+        she learns from it and keeps of it; her note tells what her senses take in, never this. The feeling of
         hers it moves her the way of most is recognized (``back``, with the run), unnamed and never counted as
         a naming: nothing names her feelings but her, reflecting (``_name``). Named by a background call, a
         moment's words came to her as "Reading it, you feel X" and "what you have called X": "a word the machine
@@ -2682,6 +2693,7 @@ class Mind:
             epochs[chat] = epochs.get(chat, 0) + 1
             self.self["waiting"].pop(chat, None)
             self.self.get("appraised", {}).pop(chat, None)
+            self.self.get("answered", {}).pop(chat, None)  # how she felt answering there is no longer of this chat
             forecasts = self.self.get("forecasts", {})
             for key in [key for key, pending in forecasts.items() if pending["chat"] == chat]:
                 del forecasts[key]

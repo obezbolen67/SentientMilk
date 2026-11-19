@@ -1206,7 +1206,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 | Part | What it is |
 |---|---|
 | `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33); so does wanting to be useful, toward 0.3 (half unmet) over about 12 h, where until 0.40 it rested where it is met and only a failure could leave it unmet (praise held it at 0.97 on the user's brain, still met after a simulated idle day); what a push would move without moving anything, how much of a push a level follows, what is left of a past change, and letting go of a measured change (`would`, `follows`, `left`, `release`: 0.49, section 10.18) |
-| `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than you're used to"; a message's change first, "Reading it: ... than a moment ago", then "Underneath: ..."), her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as concepts (`Concepts`): whatever words she put to what she felt when she reflected (section 10.12), each with the way her body was moved in the moments she named it for (`moved`: a running mean of the measured namings, in lots), its situations (words by weight, fading) and every naming as a record (`said`: her words, what it named, what measured it, what it reminded her of), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt) times how familiar the words are, less in a situation unlike its own; recognized again by likeness it is counted apart (`back`), never named. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
+| `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than you're used to"), as her senses have it (never the body's own levels: section 10.19); what changed since she last answered in the chat first ("Since you last answered here (4 minutes ago): ...", or a chat's first message "Reading it: ... than a moment ago"), then "Underneath: ...", her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as concepts (`Concepts`): whatever words she put to what she felt when she reflected (section 10.12), each with the way her body was moved in the moments she named it for (`moved`: a running mean of the measured namings, in lots), its situations (words by weight, fading) and every naming as a record (`said`: her words, what it named, what measured it, what it reminded her of), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt) times how familiar the words are, less in a situation unlike its own; recognized again by likeness it is counted apart (`back`), never named. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed (acts only from requests, where she chose; a chat teaches what it was about, 0.33) |
 | `memory.py` | her memories as a network for apps (`network`, `revision`, 0.41); episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
 | `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
@@ -1235,8 +1235,8 @@ thoughts she had since the user last wrote, all she did since ("What you did sin
 tasks' ends and the ends of jobs they left running, as she keeps them) and what of hers is still going
 ("Still going": her tasks, every job left running and whose it is), whichever chat it began in (since that
 chat's last turn, or, when it was deleted, since her last message out). A turn nobody wrote (an event, her own urge, a scheduled one) gets her
-felt sense and nothing else: no imagine call, no decision. What the message did to her body (`_moved`) is
-her note's "Reading it: ..." in body words, before how she is underneath; by that change the feeling of
+felt sense and nothing else: no imagine call, no decision. What the message did to her body (`_moved`) teaches
+and is kept; her note tells what her senses take in of it (section 10.19), before how she is underneath; by that change the feeling of
 hers it moves her the way of most is counted as felt again (`back`), unnamed. Nothing names her feelings
 for her (0.37, section 10.12): until then this call named each moment and her note handed her its word. Her own record (what followed the messages most like
 it) outweighs the model's reading by familiarity (summed likeness over 1.5 plus it) times how much
@@ -2149,6 +2149,32 @@ What it taught her before (a dry run, `scripts/replay_reactions.py`, on a copy o
 Limits: a new cue present when a foresight failed no longer learns an inhibitory link (conditioned inhibition);
 a reminder's window for changing a reaction (10.14) seldom opens in a conversation, since reading calls the
 reaction up seconds before the turn teaches; a thought's reaction during a turn is not taken out of the turn's end.
+
+### 10.19 What reaches her of her body, and what changed since she last answered (0.50)
+
+Her note told her the simulator's exact change. "Reading it" was how her body's levels moved as she read
+(`Mind._moved`), and a channel named there was left out of "Underneath". In the 0.48 exam, a learned reaction (the
+0.47 fault) dropped her strain from 0.80 to its floor as she read the question. Her lagged senses still read 0.46
+to 0.68, and the note said only "much less strain than a moment ago". With the overall tone held at "hard to label",
+all 16 ratings came out +1: the one strain cue she had pointed the wrong way.
+
+- **What she senses.** A turn's note is her interoception as she answers (`feel` on `Interoception`: lagged and
+  misread), never the body's levels. The exact change still teaches her reactions and recognizes her feelings
+  (`Mind._moved`), and is kept for apps.
+- **Where a channel is.** A channel that changed is still told where it stands: strain easing a little from high
+  is both "a little less strain" and "much more strain than you're used to".
+- **What changed since she last answered here.** Each chat keeps her sensed reading when she last answered there
+  (`self["answered"][chat]`: at, sensed; let go when the chat is rewound or deleted). The next note opens with the
+  change since then: "Since you last answered here (4 minutes ago): much more strain", or "little changed". A
+  chat's first message keeps "Reading it", counted from the message's coming. Two snapshots against what she is
+  used to left the change between them to be worked out. In a development exam, strain rose between two replies
+  and she called the earlier stretch the strained one, telling it from the story ("waiting is strained, being
+  talked to is easier").
+- **A note that spans lines.** One that brings back long-term memory is still left out of the records of what
+  was said (`context.INNER` stopped at the first line break: the whole note went into a chat's summary as if the
+  user had written it).
+
+The exam, its controls and what it established: `docs/superpowers/specs/2026-11-19-introspective-access-design.md`.
 
 ## 11. Models and providers
 

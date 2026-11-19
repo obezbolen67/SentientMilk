@@ -207,8 +207,9 @@ def snapshot(store, profile: dict, with_section: str = "", ways: str = "") -> di
 
 # ============== Inputs ==============
 
-# her felt sense as it went with a message ([Inside you: ...], or [Note: Inside you: ...] while she worked)
-INNER = re.compile(r"\[(?:Note: )?Inside you: [^\n]*\]\n?")
+# her felt sense as it went with a message ([Inside you: ...], or [Note: Inside you: ...] while she worked), to the
+# bracket that closes it: the next reminder's line or the end (what comes back from long-term memory spans lines)
+INNER = re.compile(r"\[(?:Note: )?Inside you: .*?\](?:\n(?=\[)|\s*$)", re.S)
 
 
 def without_inner(content):

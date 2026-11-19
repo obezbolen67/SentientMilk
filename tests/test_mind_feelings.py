@@ -129,7 +129,9 @@ def test_her_body_comes_as_amounts_she_puts_into_words_herself_never_a_feelings_
     assert "less novelty" in said and not {"buzzing", "warm", "heavy-eyed", "wanting"} & set(said.split())
     both = felt.words(moved_by={"oxytocin": 1.2, "reward": 0.8})
     assert both.startswith("Reading it: much more closeness and more reward than a moment ago. Underneath: ")
-    assert "closeness" not in both.split("Underneath: ")[1]  # said once, where it belongs
+    # a channel that changed is still told where it is (left out, a high strain read only as "much less strain than
+    # a moment ago": the 0.48 exam)
+    assert "more closeness" in both.split("Underneath: ")[1]
     assert not {"stress", "calm", "hurt"} & {words for words, _ in CHANNELS.values()}  # those are feelings
     # how stirred up she is, as an amount too: "keyed up", the last ready-made phrase, she traced in the exam
     # ("That line isn't mine. It arrives whole and I dress it up")
