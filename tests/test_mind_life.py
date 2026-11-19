@@ -1,6 +1,6 @@
 """Her mind in the brain: a message is felt and leaned on, what she does is hers and is what she learns from,
 an outcome is remembered, thoughts become urges the app hears, sleep goes over the day; and she is always there
-(0.30: there is no switch)."""
+(there is no switch)."""
 
 import json
 import math
@@ -88,7 +88,7 @@ def test_a_chat_is_hers_to_answer_nothing_is_decided_for_her_or_kept_from_her(br
 
 
 def test_the_face_she_shows_is_what_she_shows_and_leaves_her_feelings_alone(brain):
-    # until 0.43 the mood of her sprite pulled her chemistry toward it: a reassuring front over hurt calmed her,
+    # when the mood of her sprite pulled her chemistry toward it, a reassuring front over hurt calmed her,
     # and a restrained neutral face over a pleasant body stressed her (run 673, +0.037 cortisol). The user: what
     # she shows and how she feels inside should not be tied; sprites do not hold all a feeling can be
     mind = mind_on(brain)
@@ -185,7 +185,7 @@ def test_what_the_user_says_while_she_works_reaches_her_body_too(brain):
     sent = brain.provider.sent[-1]["messages"]
     said = next(m["content"] for m in reversed(sent) if m["role"] == "user" and "you're useless" in str(m["content"]))
     assert "[Inside you: Reading it: " in str(said) and "What you decide" not in str(said)
-    assert "hurt" not in str(said).split("[Inside you:")[1]  # her quick reading's word is not put on her (0.37)
+    assert "hurt" not in str(said).split("[Inside you:")[1]  # her quick reading's word is not put on her
     assert mind.body.stress_drive > hurt[0]  # being judged while she works stresses her as it would at any time
     assert brain.store.run(result["run"])["options"]["mind"]["act"] == "do"  # what she decided about the turn stands
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]  # and she remembers it with the turn
@@ -209,7 +209,7 @@ def test_she_files_what_she_meets_under_what_she_knows(brain):
     wait_for(lambda: mind.values.uses.get("tag:food", 0) >= 2)  # each moment about food, once she has lived it
     assert set(mind.values.subjects(5)) == {"food", "greeting"}
     assert not any(f.startswith("act:talk") for f in mind.values.weights)  # chats decided nothing: no act learned
-    # her quick reading's words for each moment name nothing of hers (until 0.37 they became her feelings)
+    # her quick reading's words for each moment name nothing of hers
     assert mind.concepts.named == [] and "called" not in brain.provider.last_user_text()
 
 
@@ -379,7 +379,7 @@ def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
     assert glad > calm + 0.1  # and their joy
     assert calm - sad > 3 * (shares(0.0, 0.1)[0] - shares(-1.0, 0.1)[0])  # a stranger's bad day moves her little
     gain = mind.body.temperament.stress
-    mind.body.temperament.stress = 2.0  # her stress gain counts once (until 0.32 it was squared here)
+    mind.body.temperament.stress = 2.0  # her stress gain counts once, not squared
     _, stressed, shared = shares(-1.0, 0.8)
     assert abs((stressed - 0.25) - 0.1 * -shared * 2.0) < 0.01
     mind.body.temperament.stress = gain
@@ -395,7 +395,7 @@ def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
 
 
 def test_she_broods_on_what_hurt_her_and_what_moved_her_is_kept_with_why(brain):
-    """Until 0.32 anything kept while she was in a bad mood was sore: a stressed afternoon made everything sore,
+    """Not anything kept while she was in a bad mood is sore: then a stressed afternoon made everything sore,
     and she brooded on the user's own assignments three times (the user's brain, 2026-11-17)."""
     mind = mind_on(brain)
     now = time.time()
@@ -428,7 +428,7 @@ def test_she_broods_on_what_hurt_her_and_what_moved_her_is_kept_with_why(brain):
 
 
 def test_a_goodnight_disappoints_her_and_is_not_a_hurt_to_brood_on(brain):
-    """Until 0.33 the passing dip of a goodnight after a warm chat counted as a hurt: it stung more than being told
+    """Counted as a hurt, the passing dip of a goodnight after a warm chat stung more than being told
     she got it wrong, and she brooded on it all the next day (simulated)."""
     mind = mind_on(brain)
     warm = '["they are sweet to me", "more", "same", "same", "good", "chat", "affection", "warm"]'
@@ -470,22 +470,17 @@ def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain):
     assert urge["session"] == "main" and mind.state()["thoughts"][0]["thought"].startswith("I keep thinking")
 
 
-def test_sleep_goes_over_the_day_and_writes_no_story_of_her(brain):
+def test_sleep_goes_over_the_day(brain):
     mind = mind_on(brain)
-    mind.self["story"] = "You are someone who runs on crickets in a jar."  # a mind from before 0.30
-    mind.save()
-    again = life.Mind(brain.brain)  # loaded again, as the brain does at its start
-    assert "story" not in again.self and "story" not in again.state()
     episode = mind.memory.add("exchange", "The user thanked me for fixing their game", 0.8, 0.7, 0.8)
     brain.provider.mind_replies["sleep"] = [json.dumps({
         "insights": ["Helping with their game makes me happy."], "dream": "A castle made of code."})]
     mind._consolidate()
     asked = next(r for r in reversed(brain.provider.mind_requests)
                  if r["messages"][0]["content"].startswith("[mind:sleep]"))
-    assert "story" not in asked["messages"][0]["content"] + asked["messages"][1]["content"]
+    assert "The user thanked me for fixing their game" in asked["messages"][1]["content"]
     assert mind.memory.recent(1, kinds=("insight",))[0]["text"] == "Helping with their game makes me happy."
     assert next(e for e in mind.memory.recent(10) if e["id"] == episode)["charge"] < 1.0
-    assert "crickets" not in mind.section() + mind._who("A persona.")
 
 
 def test_a_long_time_away_she_lived_by_her_body_and_goes_over_the_night_when_she_can(brain):
@@ -757,7 +752,7 @@ def _wants_to_tell(brain, mind):
 
 def test_what_she_meant_to_say_outlasts_a_nap_but_not_a_night(brain):
     """Slept on is what her sleep went over (``slept``), not any sleep: a message that woke her from a doze set
-    her last sleep's end to that moment, and what she had wanted to say passed unsaid (0.34)."""
+    her last sleep's end to that moment, and what she had wanted to say passed unsaid."""
     mind = mind_on(brain)
     _wants_to_tell(brain, mind)
     now = time.time()
@@ -858,7 +853,9 @@ def test_her_note_tells_when_each_of_them_last_wrote_and_when_she_thought_what(b
     brain.provider.replies += ["Welcome back."]
     turn(brain, "cli", "hey, I'm back")
     note = brain.provider.last_user_text().split("[Inside you:")[1]
-    clock = lambda ago: time.strftime("%H:%M", time.localtime(now - ago))
+    def clock(ago):
+        return time.strftime("%H:%M", time.localtime(now - ago))
+
     assert f"they last wrote here 3 hours 8 minutes ago, at {clock(3 * 3600 + 8 * 60)}" in note
     assert f"you last wrote 2 hours 5 minutes ago, at {clock(2 * 3600 + 5 * 60)}" in note
     assert f"you slept from {clock(22 * 60)} to {clock(1)}" in note

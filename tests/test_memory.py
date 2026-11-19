@@ -1,30 +1,22 @@
-"""Session memory: one chat's own, always whole in its context. Lasting facts (every app's) went in 0.30: her
-long-term memory (test_recall.py) carries what lasts."""
+"""Session memory: one chat's own, always whole in its context; what lasts beyond a chat is her long-term memory's
+(test_recall.py)."""
 
-import json
-import sqlite3
 
 from conftest import turn
 
 from sentientmilk_framework import context
-from sentientmilk_framework.store import Store
 from sentientmilk_framework.testing import tool_call
-from sentientmilk_framework.toolkits.memory import is_session_call
 
 
 def system(brain, index=-1):
     return brain.provider.sent[index]["messages"][0]["content"]
 
 
-def test_every_app_has_the_chats_memory_and_no_lasting_memory_in_its_prompt(brain):
+def test_every_app_has_the_chats_memory_in_its_turns(brain):
     brain.client.declare_app("bare", name="Bare", environment="No toolkits.", toolkits=[])
-    brain.store.remember("milk", "user", "name", "Tester")  # a fact kept before 0.30: long-term memory's now
-    brain.provider.replies += ["Hi."]
-    turn(brain, "bare", "hello")
-    assert "YOUR MEMORY" not in system(brain) and "Tester" not in system(brain) and "RECENT NOTES" not in system(brain)
     profile = brain.brain.profile("bare", "main")
     assert set(brain.brain.toolset(profile, "turn").by_name) >= {"memory_save", "memory_forget"}
-    assert not {"memory_save", "memory_forget", "journal_search"} & set(brain.brain.toolset(profile, "agent").by_name)
+    assert not {"memory_save", "memory_forget"} & set(brain.brain.toolset(profile, "agent").by_name)
 
 
 def test_session_memory_stays_in_its_session_through_compaction(brain):
@@ -70,12 +62,6 @@ def test_a_return_puts_the_chat_memory_back_as_it_was(brain):
     assert "- server: staging" in system(brain) and "no_push" not in system(brain)
 
 
-def test_a_logged_save_of_lasting_memory_is_not_the_chats():
-    assert is_session_call({"name": "memory_save", "arguments": {"key": "k", "value": "v"}})
-    assert is_session_call({"name": "memory_forget", "arguments": {"key": "k", "scope": "session"}})
-    assert not is_session_call({"name": "memory_save", "arguments": {"key": "k", "scope": "everywhere"}})  # before 0.30
-
-
 def test_what_the_user_forgets_leaves_the_system_block_at_once(brain):
     brain.store.update_session("cli", "main", "state", lambda s: {**s, "session_memory": {"tone": "Be brief."}})
     brain.provider.replies += ["Hi.", "Hi again."]
@@ -85,31 +71,6 @@ def test_what_the_user_forgets_leaves_the_system_block_at_once(brain):
     turn(brain, "cli", "hi")
     assert "Be brief." not in system(brain)
     assert brain.client.session("cli", "main")["session_memory"] == {}
-
-
-def test_memory_kept_per_app_before_becomes_shared_once(tmp_path):
-    path = tmp_path / "brain.sqlite3"
-    db = sqlite3.connect(path)
-    db.executescript("""
-        CREATE TABLE memory (app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
-                             updated REAL NOT NULL, PRIMARY KEY (app, category, key));
-        CREATE TABLE sessions (app TEXT NOT NULL, id TEXT NOT NULL, settings TEXT NOT NULL DEFAULT '{}',
-                               state TEXT NOT NULL DEFAULT '{}', created REAL NOT NULL, PRIMARY KEY (app, id));
-    """)
-    db.executemany("INSERT INTO memory VALUES (?, ?, ?, ?, ?)", [
-        ("milkchan", "user", "name", json.dumps("Illia"), 1.0), ("cli", "user", "name", json.dumps("Illia S"), 2.0),
-        ("milkchan", "projects", "bot", json.dumps("A trading bot."), 1.5)])
-    db.execute("INSERT INTO sessions(app, id, state, created) VALUES ('milkchan', 'main', ?, 0)",
-               (json.dumps({"snapshot": {"memory": "Categories: user (1 items)"}, "todo": []}),))
-    db.commit()
-    db.close()
-    store = Store(path)
-    entries = store.memory_entries()
-    assert [(e["category"], e["key"], e["value"], e["app"]) for e in entries] == [
-        ("projects", "bot", "A trading bot.", "milkchan"), ("user", "name", "Illia S", "cli")]  # newest wins
-    assert store.session("milkchan", "main")["state"] == {"todo": []}  # its old snapshot is taken again
-    Store(path)  # once: a second start changes nothing
-    assert len(store.memory_entries()) == 2
 
 
 def agent_for(brain, chat="main", name="helper"):

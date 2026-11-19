@@ -108,7 +108,6 @@ def test_apps_get_their_persona_and_toolkits(brain):
         await press(pilot, panel, "persona-save")
         panel.query_one("#app-toolkits", SelectionList).deselect("web")
         await press(pilot, panel, "app-save")
-        assert not panel.query("#app-journal-read")  # the journal went in 0.30
     run(brain, scenario)
     milk = brain.client.app("milk")
     assert milk["persona"] == "You are a calm milk carton." and milk["persona_custom"]
@@ -266,7 +265,7 @@ def test_her_mind_shows_in_its_tab(brain):
                                             "by": "playing: clair de lune", "moved": {"cortisol": 0.2, "oxytocin": 0.1}}]
     for at in (time.time() - 60, time.time()):
         brain.brain.mind.concepts.add("restless", {"noradrenaline": 0.5}, "the clock", at, said="I'm restless tonight.")
-    reactions = brain.brain.mind.reactions  # what she has learned to react to (0.39), without her embedder: around
+    reactions = brain.brain.mind.reactions  # what she has learned to react to, without her embedder: around
     reactions.learn([{"text": "in front: outlook — boss", "kind": "around", "source": "around", "salience": 1.0}],
                     {"cortisol": 1.2, "reward": -0.8}, 0.9, time.time())
     brain.brain.mind.self["reacted"] = [{"at": time.time(), "text": "in front: outlook — boss", "by": "reading",
@@ -325,4 +324,14 @@ def test_her_ways_show_in_the_mind_tab_and_the_user_can_take_one_out(brain):
         assert "I end with a milk glass" in str(table.get_row("sign_off"))
         await press(pilot, panel, "way-forget")
         await until(pilot, lambda: not brain.brain.mind.ways.known)
+    run(brain, scenario)
+
+
+def test_a_brain_of_another_version_is_named_with_the_way_to_run_this_one(brain, monkeypatch):
+    from sentientmilk_framework import panel as panel_module
+    monkeypatch.setattr(panel_module, "__version__", "99.0.0")  # the panel of an update, an earlier brain running
+
+    async def scenario(panel, pilot):
+        state = str(panel.query_one("#state").render())
+        assert "running SentientMilk" in state and "this panel is 99.0.0: Restart runs this one" in state
     run(brain, scenario)

@@ -1,4 +1,4 @@
-"""Her ways (0.34): how she does things, kept as if-then ways that hold in every chat, grow as she keeps them and
+"""Her ways: how she does things, kept as if-then ways that hold in every chat, grow as she keeps them and
 are gone over in her sleep (design: docs/superpowers/specs/2026-11-17-ways-design.md)."""
 
 import json

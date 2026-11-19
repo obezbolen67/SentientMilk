@@ -1,4 +1,4 @@
-"""The people in her life, known as a person knows people (0.31; design: docs/superpowers/specs/2026-11-17-people-design.md).
+"""The people in her life, known as a person knows people (design: docs/superpowers/specs/2026-11-17-people-design.md).
 
 Nothing here is typed in by anyone: she recognizes whoever an app shows as the person she talks with (its
 handle, "user: plays" in a turn's context, is her face: it brings the whole person to mind), remembers moments
@@ -6,8 +6,7 @@ with who was in them, hears a name and thinks of that person, and learns who peo
 in her sleep: going over what happened, she updates what she knows of each person in it (Mind._meet_people).
 Someone met on few days and not seen for a long time is forgotten; whoever is around stays.
 
-Before this her mind's prompts said only "the user": a rumination of hers called the user "she", and a chat
-knew his name only while lasting memory was in every prompt (until 0.30).
+With her mind's prompts saying only "the user", a rumination of hers called the user "she".
 """
 
 import re
@@ -30,10 +29,9 @@ class People:
         self.known: List[dict] = list(saved.get("known") or [])
         # app -> handle -> when she last saw it: the faces she has seen, known or not
         self.handles: Dict[str, Dict[str, float]] = dict(saved.get("handles") or {})
-        self.met_past: bool = bool(saved.get("met_past"))  # she went over her life before 0.31 for its people
 
     def to_dict(self) -> dict:
-        return {"known": self.known, "handles": self.handles, "met_past": self.met_past}
+        return {"known": self.known, "handles": self.handles}
 
     # ============== Recognizing ==============
 

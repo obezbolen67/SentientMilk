@@ -1,4 +1,4 @@
-"""The people in her life (0.31): she recognizes whoever an app shows as the one writing, keeps moments with who
+"""The people in her life: she recognizes whoever an app shows as the one writing, keeps moments with who
 was in them, hears a name and thinks of that person, and learns people in her sleep, as a person does. Before,
 her mind's prompts said only "the user": a rumination of hers called the user "she"."""
 
@@ -99,19 +99,6 @@ def test_sleep_settles_who_people_are_and_chats_take_it_again(brain):
     brain.provider.replies.append("Good luck.")
     turn(brain, "cli", "thanks", context={"user": "plays"})
     assert "Ilia, an interpreter." in brain.provider.sent[-1]["messages"][0]["content"]
-
-
-def test_she_meets_the_people_of_her_past_once(brain):
-    mind = brain.brain.mind
-    brain.provider.replies.append("Hi.")
-    turn(brain, "cli", "hi", context={"user": "plays"})  # a face from before she knew people
-    brain.store.remember("cli", "user", "name", 'His name is Ilia (the app shows him as "plays").')
-    mind.people = People()
-    brain.provider.mind_replies["people"] = [json.dumps({"people": [ILIA]})]
-    mind._meet_past()
-    asked = sent_to_her(brain, "people")[-1]
-    assert 'name: His name is Ilia (the app shows him as "plays").' in asked
-    assert mind.people.met_past and mind.people.recognize("cli", "plays")["name"] == "Ilia"
 
 
 def test_her_thoughts_know_whom_she_talks_with_and_a_rumination_does_not_echo_itself(brain):

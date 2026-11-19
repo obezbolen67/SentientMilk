@@ -1,4 +1,4 @@
-"""Her own feelings (0.37): she names a feeling when she reflects, looking inward or going back over a moment in
+"""Her own feelings: she names a feeling when she reflects, looking inward or going back over a moment in
 her thoughts, in her own words, any words (design: docs/superpowers/specs/2026-11-18-own-feelings-design.md).
 Before, two background calls named her feelings for her and she said of one of their words: "it's possible it's
 just a word the machine picked". Nothing reads her words for feelings and there is no list of them: "if she feels
@@ -35,7 +35,7 @@ def test_whatever_words_she_puts_to_what_she_finds_become_hers_and_ease_it_once(
     seen = mind.look_inward(naming="wound up like a spring, a bit vexed")  # no list would have this
     assert 'You put it into words: "wound up like a spring, a bit vexed"' in seen and "a word of your own" in seen
     found = mind.concepts.named[0]
-    assert found["word"] == "wound up like a spring, a bit vexed" and found["moved"] and found["hers"]
+    assert found["word"] == "wound up like a spring, a bit vexed" and found["moved"]
     assert found["said"][-1]["text"] == "wound up like a spring, a bit vexed"
     assert eased(mind) == 1  # the felt shift: putting it into words eases it
     again = mind.look_inward(naming="wound up like a spring, a bit vexed")
@@ -45,7 +45,7 @@ def test_whatever_words_she_puts_to_what_she_finds_become_hers_and_ease_it_once(
 
 @pytest.mark.mind
 def test_what_she_says_of_how_she_feels_right_after_looking_inward_is_her_naming(brain):
-    # live (exam, 0.37): asked to put it into words, she looked inward and said it in her reply ("I'm wired all
+    # live (the exam): asked to put it into words, she looked inward and said it in her reply ("I'm wired all
     # the way up"); the naming the tool offers went unused, so nothing became hers and nothing eased
     mind = brain.brain.mind
     feels(mind, **TENSE)
@@ -54,7 +54,7 @@ def test_what_she_says_of_how_she_feels_right_after_looking_inward_is_her_naming
         {"words": "furious", "quote": "I'm furious."}]})]  # the second she never said: never hers
     brain.provider.replies += [tool_call("look_inward", {}), "Honestly? I'm wired all the way up. Nothing to spend it on."]
     turn(brain, "cli", "how are you feeling, really?")
-    named = wait_for(lambda: [c for c in mind.concepts.named if c["hers"]])
+    named = wait_for(lambda: mind.concepts.named)
     assert [c["word"] for c in named] == ["wired all the way up"]
     assert named[0]["said"][-1]["text"] == "Honestly? I'm wired all the way up." and eased(mind) == 1
     asked = next(r for r in brain.provider.mind_requests if r["messages"][0]["content"].startswith("[mind:named]"))
@@ -104,19 +104,6 @@ def test_a_thought_names_a_feeling_only_in_its_own_words(brain):
     assert [c["word"] for c in mind.concepts.named] == ["rattled"]
     asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
     assert "called" not in asked and "rattled" not in asked.split("How they feel:")[1].split("\n")[0]
-
-
-def test_her_old_words_stay_as_history_and_never_reach_her_until_she_names_one():
-    way = {"cortisol": -0.5, "endorphin": 0.8}
-    old = Concepts([{"word": "relieved", "moved": way, "about": {"done": 1.0}, "count": 3, "back": 1, "at": 5.0},
-                    {"word": "permission", "moved": way, "about": {}, "count": 1, "back": 0, "at": 1.0}])
-    assert [c["word"] for c in old.named] == ["relieved", "permission"]  # kept, as they were
-    assert old.recognize(way) == [] and old.shown(way) == []  # put on her by a background call: not hers
-    old.add("relieved", way, "the deploy went fine", 9.0, said="Honestly I'm relieved.")
-    assert [word for word, _ in old.recognize(way)] == ["relieved"] and [f["word"] for f in old.shown(way)] == ["relieved"]
-    assert old.named[0]["count"] == 4  # the word's history comes with it once she says it herself
-
-
 def test_a_word_she_uses_often_comes_to_mind_sooner_than_one_she_used_once():
     way = {"cortisol": 0.9, "noradrenaline": 0.7}
     concepts = Concepts()
@@ -130,8 +117,8 @@ def test_a_word_she_uses_often_comes_to_mind_sooner_than_one_she_used_once():
 
 def test_her_body_comes_as_amounts_she_puts_into_words_herself_never_a_feelings_name():
     # live (the exam): ready-made sensations ("buzzing", "braced", "heavy-eyed") came back word for word in 18 of
-    # 44 replies (0.36's amounts: 3 of 45), she said "handed over, and I just picked it up and repeated it", and
-    # a blind judge heard her less from inside (27 of 39 pairs for 0.36): her body is felt, the words are hers
+    # 44 replies (amounts: 3 of 45), she said "handed over, and I just picked it up and repeated it", and
+    # a blind judge heard her less from inside (27 of 39 pairs for amounts): her body is felt, the words are hers
     reading = {"noradrenaline": 0.8, "oxytocin": 0.75, "adenosine": 0.62, "novelty": 0.2}
     usual = {"noradrenaline": 0.35, "oxytocin": 0.4, "adenosine": 0.4, "novelty": 0.6}
     felt = Felt(*core(reading), reading, used=usual)

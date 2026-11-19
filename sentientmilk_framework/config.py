@@ -41,8 +41,7 @@ DEFAULTS = {
     "rules": {"allow": [], "ask": [], "deny": []},
     "disabled_toolkits": [],
     # Her long-term memory by meaning (recall.py): an OpenAI-compatible /embeddings (embeddings.py). Her mind and
-    # it are always on (0.30): the "mind", "embeddings" and "session_summaries" switches an older file has are
-    # left out when it is read and gone when it is saved.
+    # it are always on: there is no switch.
     "embeddings_base_url": "",  # empty: OpenRouter
     "embeddings_api_key": "",  # empty: her chat model's key, when the service is at its address
     "embeddings_model": "",  # empty: embeddings.DEFAULT_MODEL
@@ -63,8 +62,6 @@ logger = logging.getLogger(__name__)
 SECRETS = ("api_key", "web_search_key", "embeddings_api_key")
 MIN_BUDGET, MAX_BUDGET = 128 * 1024, 16 * 1024 * 1024
 MIN_PIXELS = 65_536  # 256 x 256
-OLD_BUDGET = 800 * 1024  # the default before 0.9: saved with the rest, it is not a choice of the user's
-OLD_SUPER_MODEL = "claude-opus-5-5"  # the default before 0.15 (now "opus": Claude Code's newest Opus), saved alike
 SHELLS = ("", "powershell", "pwsh", "bash", "sh", "cmd")
 RULE_KINDS = ("allow", "ask", "deny")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")  # Claude Code's --effort
@@ -140,12 +137,6 @@ class BrainConfig:
             stored = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(stored, dict):
                 raise ValueError("top level is not an object")
-            if stored.get("request_budget") == OLD_BUDGET:
-                del stored["request_budget"]
-            if stored.get("super_model") == OLD_SUPER_MODEL:
-                del stored["super_model"]
-            if "super_command" in stored and "claude_command" not in stored:  # its name before 0.15
-                stored["claude_command"] = stored["super_command"]
             self._values.update({key: validate_setting(key, stored[key]) for key in DEFAULTS if key in stored})
         except (OSError, ValueError) as exc:
             # Keep the unreadable file so a later save cannot destroy its contents.

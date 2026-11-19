@@ -15,7 +15,7 @@ is worth different things to her in different states:
   free      choosing for herself (an order she obeys costs it, saying no wins it back)
   new       what is new to her (measured from her memories, not foreseen), for what she takes part in
   learned   the gut feeling her values give it (values.py)
-  reacting  what the thought of doing it sets off in her body (reactions.py, 0.39), valued as it would feel: the
+  reacting  what the thought of doing it sets off in her body (reactions.py), valued as it would feel: the
             as-if body of a somatic marker (Damasio 1994; anticipatory reactions before a risky choice: Bechara
             et al. 1997). It weighs; it never forbids (she may do what she dreads)
   cost      the work, times her fatigue and stress, over her vigor (tonic dopamine)

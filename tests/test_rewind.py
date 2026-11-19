@@ -87,9 +87,9 @@ def test_a_return_takes_back_the_chat_her_files_and_her_todo_list(brain):
 def test_a_return_to_a_message_read_mid_turn_keeps_what_came_before_it(brain):
     run = brain.store.add_run("cli", "main", "turn", {}, status="working")
     ctx = ToolContext(brain.brain, brain.store.run(run), brain.brain.profile("cli", "main"), "c1")
-    first = brain.store.add_event("cli", "main", run, "input", {"content": "a", "display": "write it"})
+    first = brain.store.add_event("cli", "main", run, "input", {"content": "a", "display": "write it", "memory": {}})
     files.files_write.func(ctx, "f.txt", "one")
-    second = brain.store.add_event("cli", "main", run, "input", {"content": "b", "display": "no, two"})  # steered
+    second = brain.store.add_event("cli", "main", run, "input", {"content": "b", "display": "no, two", "memory": {}})  # steered
     files.files_write.func(ctx, "f.txt", "two")
     files.files_write.func(ctx, "f.txt", "three")  # one version per message: before its first change
     with pytest.raises(BrainError) as busy:
@@ -189,10 +189,10 @@ def test_a_log_held_by_a_leftover_process_does_not_break_the_command(brain, monk
 def test_a_file_that_cannot_be_put_back_is_named_and_keeps_its_version(brain, monkeypatch):
     run = brain.store.add_run("cli", "main", "turn", {}, status="working")
     ctx = ToolContext(brain.brain, brain.store.run(run), brain.brain.profile("cli", "main"), "c1")
-    first = brain.store.add_event("cli", "main", run, "input", {"content": "a", "display": "first"})
+    first = brain.store.add_event("cli", "main", run, "input", {"content": "a", "display": "first", "memory": {}})
     (brain.work / "f.txt").write_text("old", encoding="utf-8")
     files.files_read.func(ctx, "f.txt")
-    second = brain.store.add_event("cli", "main", run, "input", {"content": "b", "display": "second"})
+    second = brain.store.add_event("cli", "main", run, "input", {"content": "b", "display": "second", "memory": {}})
     files.files_write.func(ctx, "f.txt", "new")
     brain.store.update_run(run, status="completed")
     real = Path.write_bytes
@@ -209,3 +209,17 @@ def test_a_file_that_cannot_be_put_back_is_named_and_keeps_its_version(brain, mo
     monkeypatch.setattr(Path, "write_bytes", real)
     brain.client.rewind("cli", "main", first["id"])  # a later return further back still has it
     assert (brain.work / "f.txt").read_text(encoding="utf-8") == "old"
+
+
+def test_a_return_gives_the_chat_its_memory_as_the_message_found_it(brain):
+    brain.provider.replies += [calls(("memory_save", {"key": "language", "value": "English"}, "m1"),
+                                     ("memory_save", {"key": "server", "value": "staging"}, "m2")), "Noted."]
+    turn(brain, "cli", "answer in English, use staging", on_approval=allow)
+    brain.client.forget_session_memory("cli", "main", "server")  # the user took one out in the app
+    brain.provider.replies += [calls(("memory_save", {"key": "tone", "value": "short"}, "m3")), "Okay."]
+    turn(brain, "cli", "keep it short", on_approval=allow)
+    target = said(brain)[1]
+    assert brain.store.events("cli", "main", types=("input",))[1]["memory"] == {"language": "English"}
+    assert brain.client.rewind_preview("cli", "main", target["id"])["session_memory"]
+    brain.client.rewind("cli", "main", target["id"])
+    assert brain.client.session("cli", "main")["session_memory"] == {"language": "English"}

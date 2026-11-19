@@ -1,4 +1,4 @@
-"""Introspection (0.35): what she finds when she looks inside herself on purpose (``Mind.look_inward``).
+"""Introspection: what she finds when she looks inside herself on purpose (``Mind.look_inward``).
 
 The meta level of her mind (Nelson & Narens 1990): a view of what the rest of her is doing, read when she turns
 to it. It gives what a person can perceive of themselves and nothing of the machinery (Carruthers 2011, the
@@ -43,12 +43,12 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
     """What she finds looking inward, in words. ``felt``: her body in body words (Felt.words: never a feeling's
     name); ``tone``: Felt.tone(), all she can tell when ``aware`` is under AWARE; ``familiar``: feelings she has
     named herself that her body feels like now, (word, her own words then, when): the memory of saying it, never
-    a name put on her (0.37); ``thoughts``: since she woke, newest first, (thought, what came of it); ``unsaid``:
+    a name put on her; ``thoughts``: since she woke, newest first, (thought, what came of it); ``unsaid``:
     (tell or ask, to whom, what); ``put_off``: what she put off; ``moved``: (the moment as it comes back, its
     sting, what she called it if she put it into words); ``leaned``: (the way she leaned, her reasons); ``about`` and ``recalled``: what she looked for and
     what came back, (memory, its strength now); ``did``: what she did since she woke, as she keeps it, oldest
-    first; ``going``: what of hers is still going (0.42); ``whose``: where the feeling words she looked for came
-    from, hers or given to her (0.43)."""
+    first; ``going``: what of hers is still going; ``whose``: the feeling words she looked for that are hers, with
+    when she said them."""
     parts: List[str] = []
     if aware >= AWARE:
         parts.append(felt.rstrip(".") + ".")

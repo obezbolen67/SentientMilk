@@ -33,7 +33,6 @@ STOP_WAIT = 10  # seconds the work being stopped has to end before its files are
 UNDONE = {"files_write", "files_edit", "skill_delete", "todo_write", "schedule_create", "agent_start", "agent_message",
           "task_progress"}
 BUSY = "She is still working in this chat: stop her first, or wait."
-EVERY = 2 ** 63 - 1  # an event id after all others: a summary's calls, whole
 
 
 def preview(brain, app: str, session: str, event: int) -> dict:
@@ -65,7 +64,7 @@ def rewind(brain, app: str, session: str, event: int) -> dict:
                 failed.add(change["key"])
                 summary["problems"].append(f"{change['path']}: {exc.strerror or exc}")
         todo = _todo(brain.store, app, session, target)
-        remembered = _session_memory(brain.store, app, session, target)
+        remembered = dict(target["memory"])
         memory_changed = remembered != (brain.store.session(app, session)["state"].get("session_memory") or {})
         last = brain.store.last_event(app, session, target["id"], "assistant")
         usage = (last or {}).get('usage') or {}
@@ -176,27 +175,6 @@ def _todo(store, app: str, session: str, target: dict) -> list:
     return clean_todo((last or {}).get("arguments", {}).get("items") or [])
 
 
-def _session_memory(store, app: str, session: str, target: dict) -> dict:
-    """The chat's memory as the message found it: its saves and forgets before it, in order, and those she made
-    going over the chat as it ended (summary runs, until 0.30) when what she went over came wholly before it."""
-    names = ("memory_save", "memory_forget")
-    calls = store.calls(app, session, target["id"], names)
-    # shortcut: every summary run of the app is read; keep its chat's runs apart if returns get slow
-    for run in store.runs(app=app, kind="summary", statuses=("completed",), limit=1_000_000):
-        if run["options"].get("chat") == session and run["options"].get("upto", target["id"]) < target["id"]:
-            calls += store.calls(app, run["session"], EVERY, names)
-    kept = {}
-    for call in sorted(calls, key=lambda call: call["id"]):
-        if not is_session_call(call):
-            continue  # lasting memory (until 0.30) was every app's: a return kept it
-        key = str(call["arguments"].get("key", "")).strip()
-        if call["name"] == "memory_save":
-            kept[key] = str(call["arguments"].get("value", "")).strip()
-        else:
-            kept.pop(key, None)
-    return kept
-
-
 def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
     store = brain.store
     later = store.events(app, session, after=target["id"] - 1, types=("input", "tool"))
@@ -214,7 +192,7 @@ def _summary(brain, app: str, session: str, target: dict, work: dict) -> dict:
         "skills": target.get("skills") or [],
         "messages": sum(1 for e in later if e["type"] == "input" and e.get("display") is not None),
         "todo": _todo(store, app, session, target) != found["state"].get("todo", []),
-        "session_memory": _session_memory(store, app, session, target) != (found["state"].get("session_memory") or {}),
+        "session_memory": target["memory"] != (found["state"].get("session_memory") or {}),
         "agents": [{"id": agent_id, "name": record["name"]} for agent_id, record in work["agents"]],
         "stopped": stopped,
         "schedules": [{"id": s["id"], "title": s["payload"]["title"], "text": s["payload"]["text"]}

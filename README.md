@@ -94,8 +94,9 @@ The brain keeps its files in `~/.sentientmilk` (`--home` or `SENTIENTMILK_HOME` 
 
 - `config.json`: settings, including the API key; `mcp.json`: MCP servers; `plugins.json`:
   plugins turned off and their settings. All readable by the user only.
-- `brain.sqlite3`: apps, sessions, the event log of every run, schedules (and the facts and journal notes
-  kept until 0.30). `recall.sqlite3`: her long-term memory; `mind.sqlite3`: her mind.
+- `brain.sqlite3`: apps, sessions, the event log of every run, schedules. `recall.sqlite3`: her long-term
+  memory; `mind.sqlite3`: her mind. Each says its data format; a brain refuses data of another format
+  instead of misreading it, and an update that changes it comes with a script that brings the data over.
 - `server.json`: the running brain's address and token; `launch.json`: how apps start it;
   `brain.lock`, `brain.log`.
 - `browser/`: her tabs in your Chrome (`tabs.json`) and the extension's code (`extension.json`),

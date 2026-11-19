@@ -1,4 +1,4 @@
-"""Her learned reactions in her life (0.39): she reacts as she reads, does and thinks, learns from what follows, dreads
+"""Her learned reactions in her life: she reacts as she reads, does and thinks, learns from what follows, dreads
 what went badly and is relieved not to do it (docs/superpowers/specs/2026-11-18-learned-reactions-design.md)."""
 
 import json

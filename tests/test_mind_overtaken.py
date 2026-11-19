@@ -1,4 +1,4 @@
-"""In her sleep she goes over what she had in mind against what happened since (0.43; the audit of 2026-11-18,
+"""In her sleep she goes over what she had in mind against what happened since (the audit of 2026-11-18,
 findings 3 and 9).
 
 Her guess that the user buys 2% milk came back twice and the user's "it's 3.2%" never; a thought of hers had an

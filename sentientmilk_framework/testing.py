@@ -93,7 +93,7 @@ def install_embedder(monkeypatch) -> None:
 
 
 def quiet_mind(monkeypatch) -> None:
-    """Her mind is always on (0.30); a test of something else keeps it out of the way: no note in a turn, no
+    """Her mind is always on; a test of something else keeps it out of the way: no note in a turn, no
     inner life in the prompt, no life between messages. Tests of her mind are marked ``mind``."""
     from .mind import life
 
@@ -102,7 +102,6 @@ def quiet_mind(monkeypatch) -> None:
     monkeypatch.setattr(life.Mind, "section", lambda self: "")
     monkeypatch.setattr(life.Mind, "reflexive", lambda self, run=None: False)
     monkeypatch.setattr(life.Mind, "_live", lambda self: None)
-    monkeypatch.setattr(life.Mind, "_meet_past", lambda self: None)
 
 
 class FakeProvider:

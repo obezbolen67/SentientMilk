@@ -1,5 +1,5 @@
 """Her mind keeps each moment with how it moved her and what was around it, and a moment that comes back moves
-her again, by a share of what it did (0.38, docs/superpowers/specs/2026-11-18-memory-that-feels-design.md)."""
+her again, by a share of what it did (docs/superpowers/specs/2026-11-18-memory-that-feels-design.md)."""
 
 import json
 import time

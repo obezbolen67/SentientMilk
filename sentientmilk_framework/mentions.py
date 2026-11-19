@@ -61,7 +61,7 @@ def shown(path: Path) -> str:
 
 # ============== Sessions ==============
 
-HELPERS = ("task-", "agent-", "summary-")  # sessions that are not conversations of hers
+HELPERS = ("task-", "agent-")  # sessions that are not conversations of hers
 
 
 def doing(own: dict) -> str:
@@ -72,7 +72,7 @@ def doing(own: dict) -> str:
 def chats(brain, app: str, own: bool = False) -> List[dict]:
     """The app's conversations that have something in them, newest first: not its agents' or tasks' sessions.
     With ``own`` also the tasks she did on her own (each with ``own``: its run; its title what she set out to
-    do), hers as much as what she said (until 0.42 her session tools never showed them)."""
+    do): what she did is hers to find, as much as what she said."""
     agents = {session for _, session, _ in brain.store.agent_sessions(app)}
     mine = {run["session"]: run for run in brain.store.own_tasks(app)} if own else {}
     found = [{**s, "own": mine[s["id"]], "title": s["title"] or "on your own: " + doing(mine[s["id"]]["options"]["own"])}

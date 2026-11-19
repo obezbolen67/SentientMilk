@@ -163,7 +163,7 @@ def test_only_the_extension_with_the_code_connects(chrome):
     url = f"ws://127.0.0.1:{chrome.brain.browser.bridge.port}/extension"
     with connect(url, origin="http://example.com") as socket:  # a web page
         assert refused(socket) == (1008, "only SentientMilk's extension connects here")
-    with fake(chrome) as socket:  # 0.13's extension said hello with the code itself, and shows the reason
+    with fake(chrome) as socket:  # an extension of another version is told why, and shows it
         assert json.loads(socket.recv(timeout=5))["sentientmilk"]["version"] == __version__
         socket.send(json.dumps({"hello": {"token": chrome.brain.browser.bridge.token}}))
         code, reason = refused(socket)

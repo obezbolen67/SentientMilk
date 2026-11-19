@@ -1,4 +1,4 @@
-"""Her learned reactions (0.39): what a cue comes to set off in her body, learned from what followed it."""
+"""Her learned reactions: what a cue comes to set off in her body, learned from what followed it."""
 
 import math
 import threading

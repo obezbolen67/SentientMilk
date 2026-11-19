@@ -116,7 +116,7 @@ class Bridge:
             hello = json.loads(connection.recv(timeout=10)).get("hello") or {}
         except Exception:
             return connection.close(1008, "no hello")
-        if hello.get("protocol") != PROTOCOL:  # 0.13's sent the code itself, and shows this reason as it is
+        if hello.get("protocol") != PROTOCOL:  # an extension of another version shows this reason as it is
             return connection.close(OUTDATED, f"This extension is older than SentientMilk {__version__}: "
                                               "reload it in chrome://extensions")
         if not hmac.compare_digest(str(hello.get("proof", "")).encode(), proof(self.token, nonce).encode()):

@@ -166,7 +166,7 @@ class BrainClient:
         return self._call("GET", "/mind" + (f"?{query}" if query else ""))
 
     def memory_network(self) -> dict:
-        """Her memories as a network (0.41): ``episodes`` (each with its values: kind, text, how it felt, strength,
+        """Her memories as a network: ``episodes`` (each with its values: kind, text, how it felt, strength,
         charge, recalls...), ``links`` ([a, b, kind, weight]: then, origin, corrected, cue, meaning) and the
         ``revision`` ``mind()["memory"]`` reports, so it is fetched again only when that changes."""
         return self._call("GET", "/mind/memory")
@@ -250,14 +250,6 @@ class BrainClient:
 
     def clear_history(self, app: str, session: str) -> None:
         self._call("DELETE", f"/apps/{app}/sessions/{session}/history")
-
-    def import_history(self, app: str, session: str, messages: List[dict], memory: Dict[str, Dict[str, Any]],
-                       transcript: Optional[List[dict]] = None) -> None:
-        """History an app kept before it used the brain; ``transcript`` is what it showed, if that differs."""
-        payload = {"messages": messages, "memory": memory}
-        if transcript is not None:
-            payload["transcript"] = transcript
-        self._call("POST", f"/apps/{app}/sessions/{session}/import", payload)
 
     def turn(self, app: str, session: str, text: Optional[str] = None, *, image: Optional[str] = None,
              items: Optional[List[dict]] = None, context: Optional[Dict[str, str]] = None, reply: str = "required",

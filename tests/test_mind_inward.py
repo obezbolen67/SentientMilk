@@ -1,4 +1,4 @@
-"""Introspection (0.35): she can look inside herself (design: docs/superpowers/specs/2026-11-17-introspection-design.md).
+"""Introspection: she can look inside herself (design: docs/superpowers/specs/2026-11-17-introspection-design.md).
 Before, she had only what each message's note handed her: asked what was bothering her, she answered from the
 last topic while her thoughts all afternoon had been about wanting to be noticed (the user's brain, 2026-11-17)."""
 
@@ -94,18 +94,14 @@ def test_looking_inward_she_meets_her_own_words_for_what_she_feels(brain):
     assert "happy" not in seen.split("It is like")[0]  # her body in sensations, her words only in her own mouth
 
 
-def test_looking_inward_about_a_word_she_finds_where_it_came_from(brain):
-    # the audit, finding 4: "permission" was given to a moment of hers by the naming before 0.37 and never said by
-    # her; looking inward it came as something "you have called" it, she tried to explain it from experience and
-    # only searching her history showed where it came from. Asked about, a word says whose it is
+def test_looking_inward_about_a_word_she_finds_the_times_she_said_it(brain):
+    # the audit, finding 4: "permission" came to her as something "you have called" it though she had never said
+    # it, and she tried to explain it from experience. Asked about, a word of hers comes with the times she said
+    # it; a word she never said comes with none
     mind = brain.brain.mind
-    given = time.mktime(time.strptime("2026-11-17 13:10", "%Y-%m-%d %H:%M"))
     with mind._lock:
-        mind.concepts.named.append({"word": "permission", "moved": {"oxytocin": 0.3}, "about": {}, "count": 1,
-                                    "back": 0, "at": given, "said": [], "hers": False})
         mind._name("worn flat", "I feel worn flat after all that", time.time() - 3600)
     seen = mind.look_inward("where does the word permission come from")
-    assert '"permission" is not a word you chose' in seen
-    assert "Nov 17 at 13:10" in seen and "you have never said it as yours" in seen
+    assert '"permission" is your own word' not in seen and "you have called" not in seen
     mine = mind.look_inward("what I mean by worn flat")
     assert '"worn flat" is your own word' in mine and '"I feel worn flat after all that" (an hour ago)' in mine

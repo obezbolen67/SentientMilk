@@ -87,10 +87,10 @@ class Values:
 
     def leanings(self, count: int = 5) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
         """Her strongest likes and dislikes: subjects (``tag:``) by what moments about them did to her, any she
-        keeps through sleep (FAINT). One moment that moved her is a liking (before 0.24.1 two were needed).
-        Before 0.29.1 a fixed 0.05 left nearly all out, as one moment moves a subject 0.01-0.05 (her rate over
-        the root of the subjects it had) and sleep fades it, and the strongest five were taken before a subject
-        and its acts were told apart: her brain held a dozen likes and showed one, "what to watch"."""
+        keeps through sleep (FAINT). One moment that moved her is a liking.
+        A fixed floor of 0.05 left nearly all out, as one moment moves a subject 0.01-0.05 (her rate over the
+        root of the subjects it had) and sleep fades it; and with the strongest five taken before a subject and
+        its acts were told apart, her brain held a dozen likes and showed one, "what to watch"."""
         about = [(f, w) for f, w in self.weights.items() if f.startswith("tag:") and plain(f)]
         likes = sorted((item for item in about if item[1] >= FAINT), key=lambda item: -item[1])[:count]
         dislikes = sorted((item for item in about if item[1] <= -FAINT), key=lambda item: item[1])[:count]

@@ -47,19 +47,6 @@ def test_settings_hide_secrets_and_reject_bad_values_whole(brain):
         assert caught.value.type == "bad_request"
     assert brain.client.config()["model"] == ""
     assert json.loads((brain.home / "config.json").read_text())["api_key"] == "sk-test-secret"
-
-
-def test_the_old_default_request_budget_gives_way_to_the_new_one(tmp_path):
-    from sentientmilk_framework.config import BrainConfig
-    from sentientmilk_framework.transport import DEFAULT_BUDGET
-
-    (tmp_path / "config.json").write_text(json.dumps({"request_budget": 800 * 1024, "image_pixels": 0}))
-    values = BrainConfig(tmp_path / "config.json").values()
-    assert values["request_budget"] == DEFAULT_BUDGET == 8 * 1024 * 1024 and values["image_pixels"] == 0
-    (tmp_path / "config.json").write_text(json.dumps({"request_budget": 512 * 1024}))
-    assert BrainConfig(tmp_path / "config.json").values()["request_budget"] == 512 * 1024  # a choice stays
-
-
 def test_a_turn_streams_the_reply_and_returns_valid_signals(brain):
     brain.provider.replies.append('{"expression": "arms_down/smile"}\nHello there!')
     result = turn(brain, "milk", "Hi!", context={"user": "Tester"})
@@ -181,21 +168,6 @@ def test_app_settings_override_the_declared_persona(brain):
         brain.client.update_app("milk", colour="red")
     with pytest.raises(BrainError):
         brain.client.declare_app("bad", signals={"expression": {"options": []}})
-
-
-def test_imported_history_fills_only_an_empty_session_and_its_memory_is_kept(brain):
-    messages = [{"role": "user", "content": "I am Tester"},
-                {"role": "assistant", "content": '{"expression": "arms_down/smile"}\nHi Tester!'}]
-    brain.client.import_history("milk", "main", messages, {"user": {"name": "Tester"}})
-    assert [e["text"] for e in brain.client.history("milk", "main")] == ["I am Tester", "Hi Tester!"]
-    with pytest.raises(BrainError) as caught:
-        brain.client.import_history("milk", "main", messages, {})
-    assert caught.value.type == "bad_request"
-    kept = brain.store.memory_entries()  # her long-term memory takes them in as facts
-    assert [(e["category"], e["key"], e["value"], e["app"]) for e in kept] == [("user", "name", "Tester", "milk")]
-    brain.client.import_history("milk", "old", messages, {}, transcript=[{"role": "user", "text": "I am Tester"}])
-    assert brain.client.history("milk", "old") == [  # what the app showed is no place to return to: no id
-        {"role": "user", "text": "I am Tester", "time": pytest.approx(0, abs=1e10)}]
 
 
 def test_models_never_send_the_stored_key_elsewhere(brain, monkeypatch):

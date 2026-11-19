@@ -71,7 +71,7 @@ def test_she_hears_her_body_in_words_never_in_numbers():
     body, senses = her(energy=0.2, oxytocin=0.8)
     said = feel(body, senses).words()
     assert said.startswith("Your body: ") and "much less energy" in said and "more closeness" in said
-    assert "called" not in said and "fond" not in said  # her body, never a feeling's name (0.37)
+    assert "called" not in said and "fond" not in said  # her body, never a feeling's name
     assert not any(ch.isdigit() for ch in said)
 
 
@@ -125,11 +125,6 @@ def test_any_word_she_uses_becomes_a_feeling_that_comes_back_when_she_is_moved_t
     assert shown["jealous"]["place"][2] < 0 < shown["touched"]["place"][2]  # apart from the user, toward them
     # drawn by what it moves, not by the tired and lonely body she felt it in the second time
     assert set(dict(shown["jealous"]["channels"])) == {"cortisol", "reward", "grievance"}
-    kept = Concepts([{"word": "sour", "body": {"cortisol": 0.8, "reward": -0.5}, "count": 3}])  # a feeling from before 0.24
-    assert kept.recognize(way) == []  # named by a background call: history, until she says it herself (0.37)
-    assert kept.named[0]["moved"]  # kept as its body stood out
-    old = Concepts([["relieved", [0.1] * 19]])  # a mind from before 0.22 keeps her words
-    assert old.recognize(way) == [] and old.named[0]["word"] == "relieved" and old.shown(way) == []
 
 
 def test_the_imagine_answer_reads_by_shape_with_words_first_or_without():
@@ -139,9 +134,9 @@ def test_the_imagine_answer_reads_by_shape_with_words_first_or_without():
     assert new["happens"] == "they leave for a while" and "feeling" not in new  # nothing names her feelings
     assert new["appraisal"]["intent"] == "chat" and new["options"][0]["act"] == "talk"
     assert new["appraisal"]["theirs"] == 0.0  # nothing said of how things are for them
-    old = imagined('[0.3, 0.6, 0.5, "chat", "errand", "fine", ["talk", "ok", 0.1, 0.9, 0.6]]')
-    assert old["appraisal"]["company"] == -0.4 and old["happens"] == "" and old["options"][0]["act"] == "talk"
-    assert old["appraisal"]["theirs"] == 0.0  # "fine", a feeling's name until 0.37, is left
+    bare = imagined('[0.3, 0.6, 0.5, "chat", "errand", ["talk", "ok", 0.1, 0.9, 0.6]]')  # parts left out
+    assert bare["appraisal"]["company"] == -0.4 and bare["happens"] == "" and bare["options"][0]["act"] == "talk"
+    assert bare["appraisal"]["theirs"] == 0.0 and bare["appraisal"]["intent"] == "chat"
     theirs = imagined('["they failed an exam", "more", "same", "same", "bad", "chat", "school", "fine"]')
     assert theirs["appraisal"]["theirs"] == -0.5 and theirs["appraisal"]["intent"] == "chat"
     assert theirs["appraisal"]["tags"] == ["school"]

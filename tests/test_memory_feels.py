@@ -1,4 +1,4 @@
-"""Memory that feels (0.38): a moment keeps how it moved her and what was around it; what comes back is called
+"""Memory that feels: a moment keeps how it moved her and what was around it; what comes back is called
 by meaning, by what is around her now (a rare surrounding most) and by her mood; what just came back is held off;
 a vivid memory comes back with its surroundings, a faint one without."""
 
@@ -59,20 +59,6 @@ def test_what_a_moment_keeps_of_its_time_where_and_who(tmp_path):
     assert moment_cues(late, app="milkchan", device="phone", actor="plays") == [
         "time: late at night", "app: milkchan", "device: phone", "with: plays"]
     assert moment_cues(time.mktime((2026, 11, 17, 18, 0, 0, 0, 0, -1)))[0] == "time: evening"
-
-
-def test_her_memories_from_before_gain_what_they_kept_of_time_place_and_who(tmp_path):
-    old = memory(tmp_path)
-    old._db.execute("DROP TABLE episode_cues")
-    old._db.execute("INSERT INTO episodes (at, kind, text, app, session, valence, arousal, salience, strength, "
-                    "charge, actor, device) VALUES (?, 'exchange', 'hi', 'milkchan', 's', 0, 0.2, 0.3, 0.6, 1, 'plays', "
-                    "'desktop')", (time.mktime((2026, 11, 17, 2, 30, 0, 0, 0, -1)),))
-    old.close()
-    again = memory(tmp_path)
-    assert sorted(next(iter(again.cues([1]).values()))) == sorted(
-        ["time: late at night", "app: milkchan", "device: desktop", "with: plays"])
-
-
 def test_a_rare_surrounding_brings_back_a_moment_unlike_in_meaning(tmp_path):
     """No embedder (the service is down): what is around her still calls her memories up."""
     mind = memory(tmp_path)

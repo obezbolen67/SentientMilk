@@ -3,9 +3,7 @@ kept in its state like the todo list: instructions to follow here and what the w
 outlasts compaction, a return to a message puts it back as it was then, and it ends with the session. The
 agents and tasks working for the session follow it; only the session's own turns change it.
 
-What lasts beyond a chat is her long-term memory's (recall.py): every past chat comes back by meaning. Until
-0.30 these tools also kept lasting facts for every app (scope everywhere), always in context, with a journal
-of notes beside them; both went when her long-term memory and her mind became her memory.
+What lasts beyond a chat is her long-term memory's (recall.py): every past chat comes back by meaning.
 """
 
 from . import ToolContext, ToolError, Toolkit, tool
@@ -29,10 +27,9 @@ def session_memory(state: dict) -> dict:
 
 
 def is_session_call(event: dict) -> bool:
-    """A logged call that changed the session's memory (rewind undoes those); one of scope everywhere, before
-    0.30, changed lasting memory instead."""
-    return event.get("name") in ("memory_save", "memory_forget") and \
-        (event.get("arguments") or {}).get("scope", "session") == "session"
+    """A logged call that changed the session's memory (a return gives the chat its memory as the message found
+    it: rewind.py)."""
+    return event.get("name") in ("memory_save", "memory_forget")
 
 
 @tool(core=True, policy="auto", guide=GUIDE, only_in=("turn",), args={

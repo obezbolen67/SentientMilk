@@ -18,7 +18,7 @@ def own_history(brain):
 
 
 def test_her_felt_sense_is_not_in_the_record_of_what_was_said(brain, own_history):
-    # live (exam, 0.37): asked who named her feeling, she searched her history, found her felt sense stored in
+    # live (the exam): asked who named her feeling, she searched her history, found her felt sense stored in
     # the user's message and said "the layer said them, not me": a person has no transcript of their body
     run = own_history.run["id"]
     said = brain.store.add_event("milk", "main", run, "input", {

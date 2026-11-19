@@ -1,4 +1,4 @@
-"""What her tools did in a turn is hers, and she knows it (0.43; the audit of 2026-11-18, findings 2, 10 and 13).
+"""What her tools did in a turn is hers, and she knows it (the audit of 2026-11-18, findings 2, 10 and 13).
 
 Run 565: the user called a timing idea for their practice app sensible and went on talking about it; her mind
 read the turn as talk, and she started a helper on the project. Nothing updated that reading: the turn taught

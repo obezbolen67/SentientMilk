@@ -262,7 +262,7 @@ class _Stopped(Exception):
 
 def _how_far(base: Path, pattern: str, searched: Optional[int], matches: List[str]) -> str:
     """A stopped search, as far as it got: where it searched, how many files (when known) and what it had found.
-    Until 0.43 it said only that it was stopped, and she told the user she had read every Python file on the disk
+    Told only that it was stopped, she told the user she had read every Python file on the disk
     when the receipt could not say (the audit, finding 12)."""
     files_part = f" after searching {searched} file{'s' * (searched != 1)}" if searched is not None else ""
     found = f"{len(matches)} match{'es' * (len(matches) != 1)} so far" + (":\n" + "\n".join(matches) if matches else "")

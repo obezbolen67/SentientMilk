@@ -232,25 +232,23 @@ def test_what_a_level_does_now_is_nothing_at_rest_whatever_it_could_do():
     assert does[("grievance", "cortisol")] > 0.1
 
 
-def test_a_body_from_before_027_keeps_its_pressure_on_the_new_scale():
-    old = {"levels": {"adenosine": 0.5}, "asleep": True, "at": NOON, "entrained": True}
-    again = Body.from_dict(old)
-    assert abs(again["adenosine"] - 0.42) < 1e-9 and again.asleep and again.slept_at == NOON
-    assert Body.from_dict(again.to_dict())["adenosine"] == again["adenosine"]
+def test_a_body_kept_and_read_again_is_as_it_was():
+    again = Body.from_dict({"levels": {"adenosine": 0.42}, "asleep": True, "at": NOON, "peak": 18.0})
+    assert again["adenosine"] == 0.42 and again.asleep and again.slept_at == NOON and again.peak == 18.0
+    assert Body.from_dict(again.to_dict()).to_dict() == again.to_dict()
 
 
 def test_her_rhythm_follows_when_the_user_is_around_over_weeks_not_in_a_day():
     her = body()
     for _ in range(150):
         her.learn_rhythm(23.0, 5 * MINUTE)  # a night owl's day of messages
-    assert abs(her.peak - 16.0) < 1.5  # a day of messages moved her clock six hours before 0.24.1
+    assert abs(her.peak - 16.0) < 1.5  # a day of messages does not move her clock
     her.learn_rhythm(23.0, 8 * HOUR)  # a message after a night away is not a night of them around
     assert abs(her.peak - 16.0) < 1.5
     for _ in range(28 * 12):
         her.learn_rhythm(23.0, 30 * MINUTE)  # four weeks of six-hour evenings
     assert abs((her.peak - 1.0 + 12.0) % 24.0 - 12.0) < 1.5
-    old = Body.from_dict({**her.to_dict(), "entrained": None})  # a clock from before 0.24.1 starts over
-    assert old.peak == 16.0 and Body.from_dict(her.to_dict()).peak == her.peak
+    assert Body.from_dict(her.to_dict()).peak == her.peak
 
 
 def test_what_pushed_her_is_kept_with_why_while_some_of_it_is_left():

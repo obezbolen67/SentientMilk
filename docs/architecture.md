@@ -146,8 +146,6 @@ Tables in `brain.sqlite3`:
 | `jobs` | id, run, command, pid, status, exit code, log path |
 | `schedules` | id, app, session, kind, spec, payload, next fire time, last fire time, catch-up, created by, enabled |
 | `notifications` | id, time, app, session, type, data |
-| `memory` | category, key, value, app, updated: the facts kept until 0.30, as they were (her long-term memory takes them in) |
-| `journal` | id, time, app, session, note: the notes kept until 0.30, as they were (the same) |
 
 Files under home:
 
@@ -159,6 +157,19 @@ Files under home:
   toolkits/     plugin toolkits (*.py)
   runs/<id>/    big tool outputs, job logs, task workspace notes
 ```
+
+**Data format.** `brain.sqlite3`, `mind.sqlite3` and `recall.sqlite3` each carry the format of what they
+hold in `PRAGMA user_version` (`dataformat.FORMAT`, now 1). A new database is stamped with it; one of
+another format is refused as it opens (`WrongFormat`, saying what to do), so a brain never starts on data
+it would misread. No code reads an older shape: a change of shape raises `FORMAT` and comes with a one-off
+script, run on the stopped, backed-up brain, that brings the data to it; once run on the user's brain the
+script goes (git keeps it). Format 1 (0.44, `scripts/migrate_format_1.py` in the history): each message
+keeps the chat's memory as it found it (5.6, 10.2), lasting facts that a return had put in a chat's memory
+taken out; the facts and journal notes kept until 0.30 are units of her long-term memory and their tables
+(`memory`, `memory_revisions`, `journal`) gone; the chats and runs of the summaries made until 0.30 gone;
+feeling words the naming before 0.37 gave her gone (82 of 86), hers kept; what older minds needed set
+right at start (`logic`, `met_past`, a body's `entrained` and sleep `model`, an episode's `first_text`)
+gone. A backup of the brain as it was is left in its home (`before-format-1-<time>/`).
 
 Run states use the MCP Tasks names plus `queued`: `queued`, `working`, `input_required`,
 `completed`, `failed`, `cancelled`.
@@ -1119,10 +1130,9 @@ Facts shared by every app (who the user is, what they like, what they work on), 
 changed them, a tidy of them in her sleep (`lasting.py`) and a pass over each chat as it ended that kept
 what mattered (`summaries.py`, the setting `session_summaries`). Measured on the user's brain before it went:
 62 entries, one subject kept as twelve, a tidy a night to keep them one and true. Now: the facts
-(`memory`, with `memory_revisions`) are units of her long-term memory (source `fact`), come back in a turn
+are units of her long-term memory (source `fact`; the tables went with data format 1, section 4), come back in a turn
 when they are about what the user writes ("something you kept: ..."), hold what is near them when she lets
-go in her sleep, and are never let go themselves. An app's import of what it kept before it used the brain
-(`Brain.import_history`) still adds to them. What is to hold in every chat belongs in the app's persona and
+go in her sleep, and are never let go themselves. What is to hold in every chat belongs in the app's persona and
 settings; a standing wish said in a chat comes back only when what the user writes is about it.
 
 ### 10.2 Session memory
@@ -1141,9 +1151,10 @@ settings; a standing wish said in a chat comes back only when what the user writ
 - It is what Claude Code lacks: there a rule said only in the conversation can be lost at compaction,
   which re-injects CLAUDE.md from disk but nothing scoped to the session. Here a session's own rules
   come back whole after every compaction.
-- Rewind (5.6) rebuilds it from the session's `memory_save` and `memory_forget` calls before the
-  message (a call of scope everywhere, before 0.30, was lasting memory's and is not one of them), so
-  those calls are undone, not kept.
+- Each message the user sends keeps the chat's memory as it found it (`memory` in its input event), and
+  a return (5.6) puts that back, so the calls since are undone, not kept. Rebuilt from the calls before
+  the message instead, a lasting save of before 0.30 (no scope: everywhere) read as the chat's own, and a
+  return put five lasting facts into one chat's memory (the user's brain, found 2026-11-19).
 
 ### 10.3 Snapshots
 
@@ -1158,8 +1169,8 @@ which is short and so is never cleared (7.2).
 Her short dated notes about stretches of conversations in every app, written by her light model as a
 chat went quiet, at compaction and when a task ended; the 20 newest of other sessions in every system
 block (about 1,500 tokens a request), `journal_search` for the rest, each note also an event of her life,
-and a catch-up that noted her whole past once. The notes stay in the `journal` table, are units of her
-long-term memory (source `note`) and come back in a turn as "your note about" the chat they were about.
+and a catch-up that noted her whole past once. The notes are units of her long-term memory (source
+`note`; the table went with data format 1, section 4) and come back in a turn as "your note about" the chat they were about.
 What a chat was about now comes back from the chat itself, by meaning; a session's summary is its
 compaction's (`mentions.summary`).
 
@@ -1319,9 +1330,8 @@ started with how each is going (`_task_moment`, 0.43: section 10.15); a job that
 shell's `job_ended`), where until then its note went to the task's session and nothing read it. Her session
 tools list, read and search her own tasks with her chats (`mentions.chats(own=True)`: a card with what she kept
 and its jobs; `part="turns"` every step, the tool calls with them), and her long-term memory takes them in.
-Each start, `_take_in_deeds` marks a task from before 0.42 hers by the words her thought started it with,
-keeps what she kept of one where it happened, and takes in one that ended with nothing kept, as of when it
-ended and with no feeling (how it moved her then is not known). In the user's brain (2026-11-18) a look-up
+Each start, `_recover_deeds` takes in a task of hers that ended with nothing kept (the brain went down, or
+her mind failed as it ended), as of when it ended and with no feeling (how it moved her then is not known). In the user's brain (2026-11-18) a look-up
 left a reverse-DNS sweep running (job 447); the chat she had last talked in was deleted, and with it every
 thought and task of hers since the morning; asked in a new chat what job 447 was, she searched her
 conversations in vain. On a copy of that brain the start took in the seven tasks nothing kept.
@@ -1357,18 +1367,15 @@ same rules: she slept if she was ready, and woke if she was slept out. A sleep o
 once a night (insights and a dream; then her long-term memory lets go of
 what she no longer needs, §10.7). Until 0.30 sleep also wrote a story of who she had become, at the end of
 every system prompt: it brought its own details into 7 of 12 live replies (none without), a blind judge took
-the reply without it 7 to 5, and it cost 245 tokens a request, so it went, from her mind's own calls too. On a fake clock: bedtime 22:05-22:35, 7.7-8.7 h with brief awakenings. A body saved before
-0.27 keeps its pressure on the new scale (0.12 + 0.6 x the old). Her clock (`Body.peak`, 16:00 at first) moves toward two hours after the hours the
+the reply without it 7 to 5, and it cost 245 tokens a request, so it went, from her mind's own calls too. On a fake clock: bedtime 22:05-22:35, 7.7-8.7 h with brief awakenings. Her clock (`Body.peak`, 16:00 at first) moves toward two hours after the hours the
 user writes, by the time they were around (the gap since their last message, at most 30 minutes) over
 three days of it (`ENTRAINS`): a user around 8 h a day moves it in about nine days. Before 0.24.1 every
 message moved it a fiftieth of the way, so 150 messages put her peak at 22:00 and her night at ten in
-the morning; a clock saved before 0.24.1 (no `entrained` in its body) starts over at 16:00. On the fake
+the morning. On the fake
 clock of the user's day it settles at 18:45 and she sleeps from about 01:35 to when they write at 08:00.
-What an older mind kept is set right once at start (`Mind._bring_up_to_date`, `logic` in her state):
-until 0.23 a chat was decided like a request, so her memories of chats said "I talked it over (keep it
+Until 0.23 a chat was decided like a request, so her memories of chats said "I talked it over (keep it
 light, joke about the dead watcher)", her values learned "doing it" to a hello, and a chat could leave a
-concern; those clauses go from the episodes (`Memory.rewrite`, recall reindexed), what only those acts
-taught goes from her values, and the concerns and waiting decisions they left are let go.
+concern; until data format 1 a mind of then was set right once at start.
 Her mind is always on since 0.30: there is no `mind` switch, every turn goes through her.
 
 `GET /v1/mind?app=&idle=&locked=&busy=&brief=` (`Mind.state`; `locked` and `busy` 1 or 0, left out when the
@@ -1668,7 +1675,7 @@ built first: "if she feels something that is not in the list, then what?".
   Gilbert 2008). Looking alone does not.
 - **Her own words come back**: looking inward, when her body feels like a feeling she named, "It is like when
   you said '...' (an hour ago)", and what got to her shows what she called it. Words used often come sooner.
-- **Her old words** stay as history (`hers` false): never shown to her, never counted, until she names one.
+- **Only her own words**: the words the naming before 0.37 gave her went with data format 1 (section 4).
 - **No transcript of her body**: her felt sense goes with the message she reads, but the records of what was
   said do not keep it (`context.without_inner`: history_read, history_search, compaction's transcript); her
   context still has it as she read it. In the exam she searched her history for the words she had used, found
@@ -1912,19 +1919,17 @@ showed to what she feels remains.
 was last touched and she slept (`_when`, clock times), and her thoughts with when she had them; presence says
 what the computer shows, never where the user is ("nobody has touched the computer for 2 hours", not "away"),
 and a thought keeps whom it grew from. A message that hardly moved her reads "little changed from a moment ago",
-not her whole body as if the message did it. Looking inward about a word, she finds whether it is hers (when she
-first said it) or was put on a moment of hers by the naming that ran before 0.37 (`_whose`): "permission", given
-on 2026-11-17 and never said by her, reached her as something she "had called" her state, and she searched for
-where it came from (82 of her 86 words were given ones). Each learned reaction that moved her is kept with what
+not her whole body as if the message did it. Looking inward about a word, she finds the times she said it (`_whose`):
+"permission", given by the naming that ran before 0.37 and never said by her, reached her as something she
+"had called" her state, and she searched for where it came from (82 of her 86 words were given ones; they
+went with data format 1). Each learned reaction that moved her is kept with what
 it did (`reacted["each"]`), and a deed's cue says what it was for (`_purpose`): five reactions had named the file
 reader, read for any reason.
 
 **Her body's record** (`body_pushes`, `body_levels` in mind.sqlite3). Every push as it happens (when, why, how
 far each level moved, of what chat: `Body.on_push`, `Mind._pushing_for`) and her levels at each message, turn's
 end, thought, falling asleep and waking, kept for good: for audits and for replaying her days through a changed
-model. She is never shown it. A deleted chat's pushes, which quote it, go with it (`forget_pushes`). A memory
-reworded keeps its first wording (`first_text`): of the 75 episodes in the backup of 2026-11-17, 22 had kept their
-words.
+model. She is never shown it. A deleted chat's pushes, which quote it, go with it (`forget_pushes`).
 
 ## 11. Models and providers
 

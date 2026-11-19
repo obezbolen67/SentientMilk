@@ -112,25 +112,6 @@ def test_a_message_like_her_memories_is_familiar_and_what_followed_such_messages
     assert new < 0.2
     assert Memory(tmp_path / "other.sqlite3").known("lol you idiot", before=NOW) == (None, {}, 0.0)  # no meaning
     assert mind.known("lol you idiot", before=NOW - 2 * DAY)[0] == 0.0  # only what came before
-
-
-def test_a_mind_from_before_gains_what_followed_its_exchanges(tmp_path):
-    import sqlite3
-    old = sqlite3.connect(str(tmp_path / "mind.sqlite3"))
-    old.executescript("CREATE TABLE episodes (id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, "
-                      "text TEXT NOT NULL, app TEXT, session TEXT, valence REAL NOT NULL, arousal REAL NOT NULL, "
-                      "salience REAL NOT NULL, strength REAL NOT NULL, recalls INTEGER NOT NULL DEFAULT 0, "
-                      "recalled REAL, charge REAL NOT NULL);")
-    old.close()
-    mind = memory(tmp_path)
-    mind.follow(mind.add("exchange", "hello there friend", 0.1, 0.2, 0.3, at=NOW), {"company": 0.5})
-    embedded(mind, mind.embedder)
-    assert mind.known("hello friend", before=NOW + 1)[1] == {"company": 0.5}
-    assert mind.recent(1)[0]["sting"] == 0.0  # and what hurt: nothing from before stings
-    mind.add("exchange", "they mocked me", -0.2, 0.5, 0.5, at=NOW, sting=-0.4)
-    assert mind.recent(1)[0]["sting"] == -0.4
-
-
 def test_her_own_state_is_kept_beside_her_memories(tmp_path):
     mind = memory(tmp_path)
     mind.put("body", {"levels": {"cortisol": 0.4}})

@@ -73,7 +73,7 @@ def claude_line(claude: dict) -> str:
 def super_line(status: dict, claude: dict) -> str:
     """The super model and its effort (the brain's ``super`` status), and whether Claude Code can run it."""
     if not status:
-        return f"[{MUTED}]unknown (an older brain)[/]"
+        return f"[{MUTED}]unknown[/]"
     if not status["model"]:
         return f"[{MUTED}]off: apps have no super agents[/]"
     effort, starts = status["effort"], status.get("starts_with", status["effort"])
@@ -806,7 +806,10 @@ class Panel(App):
         else:
             model = self.settings.get("model") or DEFAULT_MODEL
             key = f"[{OK}]key ✓[/]" if self.settings.get("api_key_set") else f"[{BAD}]no API key ✗[/]"
-        if state == "running" and self.health:
+        if state == "running" and self.health and self.health["version"] != __version__:
+            text = (f"[{BAD}]● running SentientMilk {escape(self.health['version'])}[/]  [{MUTED}]this panel is "
+                    f"{__version__}: Restart runs this one[/]")
+        elif state == "running" and self.health:
             text = (f"[{OK}]● running[/]  [{MUTED}]pid {self.health.get('pid')} · {client.url.split('//')[-1]} · "
                     f"up {uptime(self.health.get('started'))}[/]   {escape(model)}  {key}")
         elif state == "starting":
@@ -824,7 +827,7 @@ class Panel(App):
         rows = [("State", f"[{OK}]● running[/]" if running else f"[{BAD}]○ stopped[/]")]
         if running:
             rows += [("Address", self.client.url), ("Process", f"{health['pid']} · up {uptime(health['started'])}"),
-                     ("Version", f"{health.get('version', '?')} · API {health['api']}")]
+                     ("Version", f"{health['version']} · API {health['api']}")]
         rows += [("Home", str(self.home)),
                  ("Runs", "in the background until stopped here or from its tray icon; closing this "
                           "window leaves it running")]
@@ -1191,7 +1194,7 @@ class Panel(App):
             "\n".join(f"[{MUTED}]{label:<13}[/] {value}" for label, value in rows))
         went = {"offered": "offered to the app", "kept": "kept for when you write", "said": "said",
                 "let go": "let go", "brought up": "brought up when you wrote", "passed": "passed",
-                "waits": "her last message still unanswered", "task": "a task of hers"}  # what came of it (0.34)
+                "waits": "her last message still unanswered", "task": "a task of hers"}  # what came of it
         thoughts = [f"[{MUTED}]{when(item['at'])} · {item['kind']}"
                     + (f" → {item['want']}" if item["want"] != "nothing" else "")
                     + (f", {went[item['went']]}" if item.get("went") in went else "")
@@ -1207,7 +1210,7 @@ class Panel(App):
                 for item in state.get("remembered") or []]
         self.main.query_one("#mind-remembered", Static).update(
             "\n\n".join(came) or f"[{MUTED}]Nothing yet. A memory that comes back brings some of how it felt.[/]")
-        # what she has learned to react to (0.39): each cue, what it sets off now, how much getting over it holds
+        # what she has learned to react to: each cue, what it sets off now, how much getting over it holds
         # back, and what taught it; then what set her off lately
         by = {"cause": "what led to it", "option": "what she chose", "action": "what she did", "around": "around her"}
         learned = [f"{escape(item['text'])}\n[{MUTED}]{by.get(item['source'], item['source'])}"
@@ -1226,7 +1229,7 @@ class Panel(App):
         put_off = "\n".join(f"- {escape(c['what'])} [{MUTED}]({when(c['at'])})[/]" for c in state["concerns"])
         people = "\n".join(f"- {escape(p['name'])} [{MUTED}]({escape(p['pronoun'] or 'they')})[/] {escape(p['gist'] or '')}"
                            for p in state.get("people") or [])
-        looked = state.get("looked")  # introspection (0.35): what she knows of herself, when she last looked
+        looked = state.get("looked")  # introspection: what she knows of herself, when she last looked
         self.main.query_one("#mind-self", Static).update(
             f"[{MUTED}]What she knows about herself[/] "
             + (escape(state.get("self_view") or "") or f"[{MUTED}]nothing yet: her sleep learns it from her days[/]")

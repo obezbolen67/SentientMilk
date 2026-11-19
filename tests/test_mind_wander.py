@@ -1,4 +1,4 @@
-"""Her wandering mind (0.38): it knows when its last thought was and what it can tell of the user and of what is
+"""Her wandering mind: it knows when its last thought was and what it can tell of the user and of what is
 around her; what comes up is cued by the moment and comes in chains; going round one thing leaves her bored; what
 she finds out on her own satisfies her curiosity; and a task of hers reports in words, without a face.
 

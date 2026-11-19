@@ -1,4 +1,4 @@
-"""What she does on her own is hers (0.42): a task her own thought started, and the jobs it left running, stay with
+"""What she does on her own is hers: a task her own thought started, and the jobs it left running, stay with
 her whatever happens to the chat she was in; a thought goes with a deleted chat only if it grew from what was
 said there; she is told what she did and what is still going, she sees it looking inward, and her session tools
 find and open it.
@@ -163,33 +163,27 @@ def test_her_session_tools_find_and_open_what_she_did_on_her_own(brain):
     assert found.startswith(f'{task["session"]} "on your own: looking up 92.5.89.27"')
 
 
-def test_what_she_did_and_kept_nothing_of_is_taken_in_when_she_starts(brain):
+def test_what_she_did_on_her_own_and_kept_nothing_of_is_taken_in_when_she_starts(brain):
     mind = brain.brain.mind
     store = brain.store
     goal = "Out of your own curiosity, look this up for yourself: why do youtube thumbnails look the same."
-    lost = store.add_run("milk", "pending", "task", {"goal": goal, "parent_session": "gone", "quiet": True,
+    own = {"want": "look_up", "what": "why do youtube thumbnails look the same", "thought": "", "episode": None}
+    lost = store.add_run("milk", "pending", "task", {"goal": goal, "parent_session": "gone", "quiet": True, "own": own,
                                                        "input": [{"type": "text", "text": goal}]})
     store.update_run(lost, session=f"task-{lost}", status="completed", result={"reply": "They copy what gets clicks."})
     sweep = store.add_job(lost, "milk", f"task-{lost}", "sleep 60", str(brain.brain.home), "")
     ended = store.run(lost)["updated"]
-    filed = store.add_run("milk", "pending", "task", {"goal": "This comes from you: nobody asked. You were thinking: "
-                                                              '"tidy up" and you decided to do it: sort my notes',
-                                                      "parent_session": "main"})
-    store.update_run(filed, session=f"task-{filed}", status="completed", result={"reply": "Sorted."})
-    kept = mind.memory.add("event", "I decided on my own to sort my notes. How it went: Sorted.", 0.1, 0.2, 0.4,
-                           app="milk", session="main", run_id=filed)  # filed under the chat, before 0.42
-    mind._take_in_deeds()
+    asked = store.add_run("milk", "pending", "task", {"goal": "sort my notes", "parent_session": "main"})
+    store.update_run(asked, session=f"task-{asked}", status="completed", result={"reply": "Sorted."})
+    mind._recover_deeds()  # the brain went down as they ended: nothing took them in
     deed = [e for e in mind.memory.recent(-1, ("event",)) if e["run_id"] == lost][0]
     assert deed["at"] == ended and deed["session"] == f"task-{lost}"
     assert deed["text"] == ("Out of my own curiosity I looked up: why do youtube thumbnails look the same. "
                             f"How it went: They copy what gets clicks. What my tools did: started job {sweep} "
                             "(sleep 60) (still going).")
-    assert store.run(lost)["options"]["own"] == {"want": "look_up", "what": "why do youtube thumbnails look the same",
-                                                 "thought": "", "episode": None}
-    assert store.run(filed)["options"]["own"]["thought"] == "tidy up"
-    assert mind.memory.by_ids([kept])[0]["session"] == f"task-{filed}"
+    assert not mind.memory.recorded(asked)  # one the user asked for is the chat's: its report says what came of it
     count = mind.memory.count()
-    mind._take_in_deeds()
+    mind._recover_deeds()
     assert mind.memory.count() == count  # once
 
 

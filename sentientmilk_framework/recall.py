@@ -2,12 +2,12 @@
 
 Short-term memory is her context window: the chat she is in, after its last compaction. Long-term memory is
 everything else, kept here as units found by meaning: each round of every past chat (a user message and her
-replies), and the journal notes and lasting facts kept before 0.30; her episodes' vectors her mind keeps beside
-them in mind.sqlite3 (mind/memory.py), filled from here. Until 0.29 all of it was found only by shared words:
-"that game idea" did not find "a pixel-art platformer". From 0.30 it is her memory, always on, found only by
-meaning (embeddings.py, vectors.py): what comes back is what is related (vectors.relevance). Measured on her
-history, words let something back for 17 of 20 questions her past could not answer, meaning for none. Without
-a key, or with the service down, nothing is found by meaning: a turn goes without, and a search says so.
+replies), and the notes and facts she wrote down; her episodes' vectors her mind keeps beside them in
+mind.sqlite3 (mind/memory.py), filled from here. It is her memory, always on, found only by meaning
+(embeddings.py, vectors.py): what comes back is what is related (vectors.relevance). By shared words, "that
+game idea" did not find "a pixel-art platformer", and measured on her history, words let something back
+for 17 of 20 questions her past could not answer, meaning for none. Without a key, or with the service
+down, nothing is found by meaning: a turn goes without, and a search says so.
 
 The index is made from the brain's own records and can be deleted and made again. A sweep after every turn
 and every 30 s takes in what is new and embeds what has no vector of the current model; deleting a chat and
@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from . import embeddings, mentions
+from . import dataformat, embeddings, mentions
 from .mind.memory import ago, intensity
 from .vectors import Vectors
 
@@ -43,7 +43,7 @@ SWEEP_EVERY = 30.0
 BATCH = 32
 HEADER = ("FROM YOUR LONG-TERM MEMORY (what comes back for this message from past chats and what you kept; it "
           "may be out of date):")
-SOURCES = ("turn", "note", "fact")  # rounds of chats; notes and facts kept before 0.30
+SOURCES = ("turn", "note", "fact")  # rounds of chats; notes and facts she wrote down
 SETTINGS = ("embeddings_base_url", "embeddings_api_key", "embeddings_model", "embeddings_dimensions",
             "base_url", "api_key")
 DECAY = 0.5  # how need falls with time: a power law (Anderson & Schooler 1991; ACT-R's base-level learning)
@@ -79,6 +79,7 @@ class Recall:
         self._lock = threading.RLock()
         self._sweeping = threading.Lock()
         with self._lock:
+            dataformat.opened(self._db, path)
             self._db.executescript("""
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS units (
@@ -91,15 +92,9 @@ class Recall:
                     gone REAL NOT NULL, weight REAL NOT NULL);
                 CREATE INDEX IF NOT EXISTS units_chat ON units (app, session, at);
                 CREATE TABLE IF NOT EXISTS sleep_prune (id INTEGER PRIMARY KEY CHECK (id = 1), through REAL NOT NULL);
-                DROP TRIGGER IF EXISTS unit_added;  -- its index by words, until 0.30
-                DROP TRIGGER IF EXISTS unit_gone;
-                DROP TABLE IF EXISTS units_terms;
-                DROP TABLE IF EXISTS units_fts;
                 CREATE TABLE IF NOT EXISTS marks (app TEXT NOT NULL, session TEXT NOT NULL,
                                                   last_event INTEGER NOT NULL, PRIMARY KEY (app, session));
             """)
-            if "uses" not in {row[1] for row in self._db.execute("PRAGMA table_info(units)")}:  # made by 0.29
-                self._db.execute("ALTER TABLE units ADD COLUMN uses INTEGER NOT NULL DEFAULT 0")
         self.vectors = Vectors(self._db, "units", self._lock)
         self.embedder: embeddings.Embedder  # set by refresh, below
         self._settings: Optional[tuple] = None
@@ -177,15 +172,6 @@ class Recall:
             self._db.execute("DELETE FROM units WHERE source = ? AND substr(ref, 1, ?) = ?",
                              (source, len(ref) + 1, f"{ref}#"))
 
-    def remove(self, source: str, refs: Iterable[str] = (), app: str = "", session: str = "",
-               since: float = 0.0) -> None:
-        """Units of ``source``: those of ``refs``, or of a chat from ``since`` on."""
-        with self._lock:
-            self._remove_refs(source, refs)
-            if app:
-                self._db.execute("DELETE FROM units WHERE source = ? AND app = ? AND session = ? AND at >= ?",
-                                 (source, app, session, since))
-
     def forget_session(self, app: str, session: str) -> None:
         """The user deleted a chat: nothing of it comes back."""
         with self._sweeping, self._lock:
@@ -251,7 +237,7 @@ class Recall:
 
     def _came_of(self, hits: List[dict], embedder: embeddings.Embedder) -> None:
         """What came of each (``later``): the nearest round or note after it, of another round, about the same
-        matter (Vectors.matter, by the vectors already kept). Until 0.43 her note brought back "my watcher's still
+        matter (Vectors.matter, by the vectors already kept). Without it, her note brought back "my watcher's still
         dead, want me to kick it back on?" a day after the user had said not to touch it and to forget it (the
         audit, 2026-11-18); that was in her memory too, and never came with it."""
         try:
@@ -315,12 +301,12 @@ class Recall:
 
     def weighed(self, now: Optional[float] = None) -> Dict[Tuple[str, str], float]:
         """Each round and note, as (source, ref) -> what she may need it for times what of it no memory she
-        needs more already holds (its strongest piece). The facts kept before 0.30 are not weighed: what she
+        needs more already holds (its strongest piece). Facts are not weighed: what she
         knew of the user, few and short; they hold what is near them.
 
         A round whose moment moved her is needed more, by how much it moved her as far as it is still charged
         (her mind's episode of that moment, ``felt``): what was felt is bound to a memory more lastingly than its
-        details (Yonelinas & Ritchey 2015). Until 0.38 a round was weighed by its use and age alone."""
+        details (Yonelinas & Ritchey 2015)."""
         embedder, now = self.refresh(), now or time.time()
         with self._lock:
             rows = [dict(row) for row in self._db.execute(
@@ -370,13 +356,10 @@ class Recall:
     # ============== Taking in ==============
 
     def sweep(self) -> None:
-        """Take in what is new (rounds, and notes and facts kept before 0.30) and embed what has no vector of the
-        current model."""
+        """Take in the rounds that are new and embed what has no vector of the current model."""
         with self._sweeping:
             embedder = self.refresh()
             self._take_in_chats()
-            self._take_in_notes()
-            self._take_in_facts()
             if embedder.problem() != "no embeddings API key":
                 self._embed(embedder)
 
@@ -385,7 +368,7 @@ class Recall:
         with self._lock:
             marks = {(row["app"], row["session"]): row["last_event"] for row in self._db.execute("SELECT * FROM marks")}
         helpers: Dict[str, set] = {}
-        mine = {run["session"] for run in store.own_tasks()}  # what she did on her own is hers to find (0.42)
+        mine = {run["session"] for run in store.own_tasks()}  # what she did on her own is hers to find
         for (app, session), last in store.last_events().items():
             mark = marks.get((app, session), 0)
             if last <= mark or (session.startswith(mentions.HELPERS) and session not in mine):
@@ -404,35 +387,13 @@ class Recall:
                 self._db.execute("INSERT OR REPLACE INTO marks (app, session, last_event) VALUES (?, ?, ?)",
                                  (app, session, last))
 
-    def _take_in_notes(self) -> None:
-        """The journal's notes, kept before 0.30."""
-        store = self.brain.store
-        with self._lock:  # one she let go of is not taken in again
-            have = {_base(row[0]) for row in self._db.execute(
-                "SELECT ref FROM units WHERE source = 'note' UNION SELECT ref FROM forgotten WHERE source = 'note'")}
-        for note in store.notes():
-            if str(note["id"]) not in have and store.find_session(note["app"], note["session"]) is not None:
-                self.add("note", str(note["id"]), note["app"], note["session"], note["at"], note["note"])
-
-    def _take_in_facts(self) -> None:
-        """The facts kept before 0.30 (and what an app imports), as they stand (a changed one again, one gone
-        gone)."""
-        entries = {f"{e['category']}/{e['key']}": e for e in self.brain.store.memory_entries()}
-        with self._lock:
-            have = {_base(row["ref"]): row["at"] for row in self._db.execute(
-                "SELECT ref, at FROM units WHERE source = 'fact' AND ref LIKE '%#0'")}
-            self._remove_refs("fact", [ref for ref in have if ref not in entries])
-        for ref, entry in entries.items():
-            if have.get(ref) != entry["updated"]:
-                self.add("fact", ref, entry["app"] or "", "", entry["updated"], f"{entry['key']}: {entry['value']}")
-
     def _embed(self, embedder: embeddings.Embedder) -> None:
         mind = getattr(self.brain, "mind", None)
-        # her long-term memory's units, her mind's moments and her learned reactions' cues (0.39)
+        # her long-term memory's units, her mind's moments and her learned reactions' cues
         for vectors in [self.vectors] + ([mind.memory.vectors, mind.reactions.vectors] if mind is not None else []):
             while not self._stop.is_set():
                 if embedder is not self.embedder:  # the model changed meanwhile: the next sweep embeds with it,
-                    return  # and this one must not take its vectors as old ones (until 0.42 it did)
+                    return  # and this one must not take its vectors as old ones
                 found = vectors.texts(vectors.pending(embedder.name, BATCH))
                 if not found:
                     vectors.drop(other_than=embedder.name)  # all there in this model: the old ones go

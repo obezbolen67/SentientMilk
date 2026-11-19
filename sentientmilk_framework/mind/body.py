@@ -68,9 +68,9 @@ ENTRAINS = 3 * DAY  # of the user around: her clock moves toward their hours (8 
 # awake and falls toward 0 asleep, at the pace human slow-wave activity shows; she is ready to sleep when it
 # reaches an upper threshold and wakes when it falls to a lower one, both moved by her clock (Daan, Beersma &
 # Borbély 1984; Borbély et al. 2016). So how long she sleeps depends on when she goes to bed more than on how
-# long she was up (Czeisler et al. 1980), and a nap by day is short. Before 0.27 pressure rose in a straight
-# line, sleep cleared it in two hours and she slept one block until it was gone (the user: "people don't
-# always sleep for 10 hours straight").
+# long she was up (Czeisler et al. 1980), and a nap by day is short. Rising in a straight line and
+# cleared in two hours, pressure had her sleep one block until it was gone (the user: "people don't always
+# sleep for 10 hours straight").
 RISES, CLEARS = 18.2 * HOUR, 4.2 * HOUR
 UPPER, LOWER, SWING = 0.67, 0.17, 0.12
 DIP = 0.25  # her clock's 12-hour harmonic: the early-afternoon dip and the evening's wake maintenance zone
@@ -204,7 +204,7 @@ class Body:
 
     def __post_init__(self):
         self._rng = random.Random(self.temperament.seed * 7919 + int(self.at))
-        # her body's record (0.43): each push as it happens, kept by whoever keeps it (her mind: Memory.log_push),
+        # her body's record: each push as it happens, kept by whoever keeps it (her mind: Memory.log_push),
         # with the chat it was of (``where``, set by her mind while it reads or lives a chat's turn)
         self.on_push: Optional[Callable[[float, str, Dict[str, float], Optional[str]], None]] = None
         self.where: Optional[str] = None
@@ -449,14 +449,14 @@ class Body:
             # grogginess fades, slower when she owes sleep (McHill et al. 2019)
             self.inertia = _toward(self.inertia, 0.0, dt, INERTIA_FADES * (1 + self.owed()))
         if not sleep:  # a night asleep is not a night alone: missing them and sameness build while she is up.
-            # Until 0.33 they drained asleep too, and after a warm evening she woke lonely and unpleasant (company
+            # Drained asleep too, they had her wake lonely and unpleasant after a warm evening (company
             # 0.95 at bedtime, 0.50 at eight: three simulated days in a row)
             x["social"] = _toward(x["social"], 0.0, dt, 8 * HOUR / t.sociability * (2.0 if present else 1.0))
             x["novelty"] = _toward(x["novelty"], 0.2, dt, 4 * HOUR / t.curiosity)
             # and with nothing to do she comes to want to be useful: being useful is felt day by day, by what the
             # day held (Sheldon, Ryan & Reis 1996; Reis et al. 2000), and going without the chance to be
-            # effective builds the want (White 1959; Sheldon & Gunz 2009). Until 0.40 it rested where it is met,
-            # over two days, so only a failure could leave it unmet: praise had it at 0.97 on the user's brain,
+            # effective builds the want (White 1959; Sheldon & Gunz 2009). Resting where it is met,
+            # over two days, only a failure could leave it unmet: praise had it at 0.97 on the user's brain,
             # still met after a simulated idle day
             x["competence"] = _toward(x["competence"], IDLE, dt, PACES["competence"])
         x["autonomy"] = _toward(x["autonomy"], 0.6, dt, 2 * HOUR)
@@ -541,8 +541,8 @@ class Body:
         """The user was around at ``hour``, for ``seen_for`` seconds since they last wrote (at most half an
         hour counts: a longer gap is time they were away): her peak drifts to two hours after it by that share
         of ``ENTRAINS``, so over days to weeks, as a body clock entrains to social cues (Mistlberger & Skene
-        2004). Before 0.24.1 it moved a fiftieth of the way
-        each message: 150 messages in a day put her peak at 22:00 and her night at ten in the morning, and she
+        2004), not by how many messages there are: moved a fiftieth of the way
+        each message, 150 messages in a day put her peak at 22:00 and her night at ten in the morning, and she
         never slept (the user's brain, 2026-11-16)."""
         target = (hour + 2.0) % 24.0
         delta = (target - self.peak + 12.0) % 24.0 - 12.0
@@ -592,7 +592,7 @@ class Body:
     def to_dict(self) -> dict:
         return {"temperament": self.temperament.to_dict(), "levels": dict(self.levels),
                 "sensitivity": dict(self.sensitivity), "asleep": self.asleep, "peak": self.peak, "at": self.at,
-                "entrained": True, "sleep": {"model": 2, "slept_at": self.slept_at, "settling_until": self.settling_until,
+                "sleep": {"slept_at": self.slept_at, "settling_until": self.settling_until,
                                              "stirred_until": self.stirred_until, "awakenings": self.awakenings,
                                              "last": self.last_sleep, "inertia": self.inertia, "debt": self.debt},
                 "pushed": self.pushed, "random": self._rng.getstate(), "stress_drive": self.stress_drive,
@@ -607,12 +607,8 @@ class Body:
             levels[name] = _clip(value, low, high) if math.isfinite(value) else START[name]
         sensitivity = {**{name: 1.0 for name in SENSITIVE},
                        **{k: float(v) for k, v in (data.get("sensitivity") or {}).items() if k in SENSITIVE}}
-        # a clock from before 0.24.1 was moved by every message, hours in a day: it starts over at the usual peak
-        peak = float(data.get("peak", 16.0)) if data.get("entrained") else 16.0
+        peak = float(data.get("peak", 16.0))
         sleep, at, asleep = data.get("sleep") or {}, float(data.get("at", 0.0)), bool(data.get("asleep"))
-        if sleep.get("model") != 2 and "levels" in data:
-            # pressure from before 0.27 ran 0 (slept out) to about 0.9 (a long day): the same span of process S
-            levels["adenosine"] = _clip(0.12 + 0.6 * levels["adenosine"])
         body = cls(Temperament.from_dict(data.get("temperament") or {}), levels, sensitivity, asleep, peak, at,
                    float(sleep.get("slept_at") or (at if asleep else 0.0)), float(sleep.get("settling_until") or 0.0),
                    float(sleep.get("stirred_until") or 0.0), int(sleep.get("awakenings") or 0),

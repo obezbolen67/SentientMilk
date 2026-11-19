@@ -22,6 +22,7 @@ from . import signals as signal_format
 from .exceptions import BrainError
 from .loop import ACTIVE, TERMINAL, VERIFY_PROMPT, Loop
 from .toolkits import Attention
+from .toolkits.memory import session_memory
 
 logger = logging.getLogger(__name__)
 
@@ -215,8 +216,8 @@ class Runs:
         options = {"goal": goal, "parent_session": parent_session, "verify": verify, "context_mode": context,
                    **({"quiet": True} if quiet else {}), **({"own": own} if own else {}),
                    "input": [{"type": "text", "text": goal}],
-                   # a task reports in words: no face to show (until 0.38 it was told the app's signals, and its
-                   # report kept the line: the Tasks panel showed {"expression": ...} as how it went)
+                   # a task reports in words: no face to show (told the app's signals, its report
+                   # kept the line: the Tasks panel showed {"expression": ...} as how it went)
                    "profile": {"instructions": TASK_PROMPT.format(goal=goal), "toolkits": toolkits, "signals": False,
                                "allow": allow or [], "from_session": parent_session, "cwd": cwd}}
         if max_steps:
@@ -362,8 +363,7 @@ class Runs:
             batch = {"id": secrets.token_hex(12), "at": time.time(), "count": len(items), "user": refuse_approvals}
             self.store.update_run_options(run_id, lambda options: {
                 **options, "steer_batches": options.get("steer_batches", []) + [batch],
-                "steer": options.get("steer", []) + items,
-                "steer_user": bool(options.get("steer_user") or refuse_approvals)})  # the user's own words
+                "steer": options.get("steer", []) + items})
         self.attention(run_id).message()
         if run["status"] == "input_required" and refuse_approvals:
             for request in self.waiting(run_id):
@@ -403,23 +403,26 @@ class Runs:
         if inner:
             content, display = context.input_content(items, options.get("context") or {}, reminders=[inner] + reminders)
         logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
-                                      {"content": content, "display": display, "origin": f"run:{run['id']}", **_stored(items)},
+                                      {"content": content, "display": display, "origin": f"run:{run['id']}",
+                                       "memory": self._chat_memory(run), **_stored(items)},
                                       change_options=lambda now: {**now, "input": None})
         emit({"type": "input", "id": logged["id"], "text": display})
+
+    def _chat_memory(self, run: dict) -> dict:
+        """The chat's memory as a message finds it, kept with the message: a return to it gives the chat that
+        memory again (rewind.py), whoever changed it before (her saves, the user in the app)."""
+        return session_memory((self.store.find_session(run["app"], run["session"]) or {}).get("state") or {})
 
     def take_messages(self, run: dict, emit) -> List[dict]:
         """Messages sent while the run worked (steering), logged as its input before it goes on: the input
         events logged (none when nothing came)."""
         with self.steer_lock:
             options = self.store.run(run["id"])["options"]
-            items, user = options.get("steer") or [], options.get("steer_user")
+            items = options.get("steer") or []
             batches = options.get("steer_batches") or []
             self.attention(run["id"]).settle()
         if not items:
             return []
-        legacy = len(items) - sum(b["count"] for b in batches)
-        if legacy > 0:
-            batches = [{"id": f"legacy:{run['id']}", "user": user, "count": legacy}, *batches]
         logged = []
         for batch in batches:
             count = batch["count"]
@@ -438,11 +441,11 @@ class Runs:
             content, display = context.input_content(items, {}, reminders=[inner])
         def consumed(options):
             remaining = [b for b in options.get("steer_batches", []) if b["id"] != batch["id"]]
-            return {**options, "steer": options["steer"][batch["count"]:], "steer_batches": remaining,
-                    "steer_user": any(b["user"] for b in remaining)}
+            return {**options, "steer": options["steer"][batch["count"]:], "steer_batches": remaining}
 
         logged = self.store.add_event(run["app"], run["session"], run["id"], "input",
-                                      {"content": content, "display": display, "sources": [batch], **_stored(items)},
+                                      {"content": content, "display": display, "sources": [batch],
+                                       "memory": self._chat_memory(run), **_stored(items)},
                                       change_options=consumed)
         emit({"type": "steered", "text": display or "", "id": logged["id"]})
         return logged

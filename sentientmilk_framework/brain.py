@@ -453,10 +453,9 @@ class Brain:
     def history(self, app: str, session: str, tools: bool = False) -> List[dict]:
         """The conversation as apps show it: what the user said and what the brain replied; with
         ``tools`` also each tool call between them (its output capped as in live tool events). Each entry's
-        ``id`` is its event's: a user message's is what a return to it (rewind.py) names. What an app showed
-        before it used the brain (imported) has none: it is not the log the model works from."""
+        ``id`` is its event's: a user message's is what a return to it (rewind.py) names."""
         entries, started = [], {}
-        types = ("input", "end", "shown") + (("tool_start", "action_request", "tool") if tools else ())
+        types = ("input", "end") + (("tool_start", "action_request", "tool") if tools else ())
         for event in self.store.events(app, session, types=types):
             if event["type"] in ("tool_start", "action_request"):
                 started[event["call_id"]] = event["at"]
@@ -466,8 +465,6 @@ class Brain:
                                 "arguments": event.get("arguments") or {}, "status": event["status"],
                                 "text": event["content"][:2000], "time": event["at"],
                                 "seconds": None if start is None else round(event["at"] - start, 3)})
-            elif event["type"] == "shown":
-                entries.append({"role": event["role"], "text": event["text"], "time": event["at"]})
             elif event["type"] == "input" and event.get("display") is not None:  # "" when only files came
                 entries.append({"id": event["id"], "role": "user", "text": event["display"], "time": event["at"],
                                 **({"mentions": event["mentions"]} if event.get("mentions") else {})})
@@ -476,55 +473,6 @@ class Brain:
                                 "signals": event.get("signals") or {}, "time": event["at"]})
         return entries
 
-    def import_history(self, app: str, session: str, data: dict) -> None:
-        """History and memories an app kept before it used the brain; history only into an empty session. The
-        memories join the facts kept before 0.30, which her long-term memory takes in (recall.py)."""
-        messages, memory, shown = data.get("messages", []), data.get("memory", {}), data.get("transcript")
-        if not isinstance(messages, list) or not all(isinstance(m, dict) and m.get("role") in
-                                                     ("user", "assistant", "tool", "system") for m in messages):
-            raise ValueError("messages must be a list of chat messages")
-        if shown is not None and not (isinstance(shown, list) and all(
-                isinstance(e, dict) and e.get("role") in ("user", "assistant") and isinstance(e.get("text"), str)
-                for e in shown)):
-            raise ValueError("transcript must be a list of {role: user|assistant, text}")
-        if not isinstance(memory, dict) or not all(isinstance(items, dict) for items in memory.values()):
-            raise ValueError("memory must be {category: {key: value}}")
-        for category, items in memory.items():
-            for key, value in items.items():
-                self.store.remember(app, category, key, value)
-        if not messages and not shown:
-            return
-        if self.store.events(app, session):
-            raise ValueError(f"Session {app}/{session} already has history")
-        for entry in shown or []:  # what the app showed, kept apart from what the model sees
-            self.store.add_event(app, session, None, "shown", {"role": entry["role"], "text": entry["text"]})
-        names = {}
-        for message in messages:
-            role = message["role"]
-            if role == "user":
-                content = message.get("content") or ""
-                display = None if shown is not None else message.get(
-                    "display", content if isinstance(content, str) else None)
-                self.store.add_event(app, session, None, "input", {"content": content, "display": display})
-            elif role == "assistant":
-                self.store.add_event(app, session, None, "assistant", {"message": message, "usage": {}})
-                for call in message.get("tool_calls") or []:
-                    names[call.get("id")] = (call.get("function") or {}).get("name", "")
-                if not message.get("tool_calls") and shown is None:
-                    reply = message.get("reply")
-                    if reply is None:
-                        reply = signal_format.split(message.get("content") or "")[1]
-                    self.store.add_event(app, session, None, "end", {"status": "completed", "reply": reply,
-                                                                     "signals": {}, "silent": False})
-            elif role == "tool":
-                call_id = message.get("tool_call_id", "")
-                self.store.add_event(app, session, None, "tool", {
-                    "call_id": call_id, "name": names.get(call_id, ""), "arguments": {},
-                    "content": str(message.get("content") or ""), "status": "ok"})
-            else:
-                self.store.add_event(app, session, None, "note", {"text": str(message.get("content") or "")})
-
-    # ============== Telling ==============
 
     def note(self, app: str, session: str, text: str) -> dict:
         """Something the model should know at its next step in that session (a task ended, a job finished)."""

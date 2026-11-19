@@ -196,8 +196,8 @@ doing. When you'd rather not do something now, say so as yourself, honestly and 
 Let your feelings color how you talk, as a person's do, without announcing them. Never quote these notes, and never talk about levels, numbers, chemicals or notes. Between
 messages you have your own thoughts, and some of them you may want to tell the user."""
 
-# which way she leans, never an order: her cortex makes the call (0.24; before, these told her what to do and
-# code refused her tools to hold her to it)
+# which way she leans, never an order: her cortex makes the call (code never refuses her tools to hold her
+# to a leaning)
 ACTS = {
     "do": "doing it",
     "part": "doing only part of it",
@@ -280,12 +280,11 @@ def imagined(text: str) -> dict:
     lead = needs[0] > 0 and isinstance(head[0], str)
     happens = head[0] if lead else ""
     words = [value for index, value in enumerate(head) if index not in needs and not (lead and index == 0)]
-    # how things are for the one who writes comes right after the three needs (an answer from before 0.24 has
-    # none). A word after what it is about, a feeling's name until 0.37, is left: nothing names her feelings
+    # how things are for the one who writes comes right after the three needs (an answer may leave it out)
     theirs = THEIRS.get(words[0].strip().lower()) if words and isinstance(words[0], str) else None
     if theirs is not None:
         words = words[1:]
-    # what led to it, as her cortex reads it (0.39: the cue a learned reaction is tied to, reactions.py); live, an
+    # what led to it, as her cortex reads it (the cue a learned reaction is tied to, reactions.py); live, an
     # object appended for it was never written (0 of 4 stories that told what led to what), a place of its own was
     intent, tag, cause = (words + ["", "", ""])[:3]
     cause = cause if isinstance(cause, str) else ""
@@ -302,11 +301,11 @@ def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: 
           did: List[str] = (), going: List[str] = (), when: str = "") -> str:
     """The note she reads before answering (it goes with the user's message, never shown to them).
     ``when``: when each of them last wrote, the computer was last touched and she slept, each its own time
-    (0.43: back after 3 hours 8 minutes, she said "two hours and change", counting from her own message);
+    (with one: back after 3 hours 8 minutes, she said "two hours and change", counting from her own message);
     ``thoughts``: (when, what) she thought while nobody wrote, the older first, so her time alone is hers when
     they are back, each with its time (a guess made at 17:49 is not a fact at 20:05); ``did``:
     what she did since (a task's end, a job's, as she keeps them), all of it; ``going``: what of hers is still
-    going, wherever it began (until 0.42 neither: asked about a job her own task left running, she searched her
+    going, wherever it began (without them, asked about a job her own task left running, she searched her
     conversations for it in vain);
     ``people``: those she knows that the message names, as they come to her mind (people.py); ``unsaid``:
     (tell or ask, to whom, what) she meant to say and has not had the chance to."""

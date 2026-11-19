@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
+from . import dataformat
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS apps (
     id TEXT PRIMARY KEY, declaration TEXT NOT NULL DEFAULT '{}', settings TEXT NOT NULL DEFAULT '{}'
@@ -58,17 +60,6 @@ CREATE TABLE IF NOT EXISTS schedule_occurrences (
 CREATE UNIQUE INDEX IF NOT EXISTS occurrence_active ON schedule_occurrences(schedule)
     WHERE status IN ('pending', 'started');
 CREATE INDEX IF NOT EXISTS occurrences_by_app ON schedule_occurrences(app, status, id);
-CREATE TABLE IF NOT EXISTS memory (
-    app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
-    updated REAL NOT NULL, PRIMARY KEY (category, key)
-);
-CREATE TABLE IF NOT EXISTS memory_revisions (
-    id INTEGER PRIMARY KEY, at REAL NOT NULL, app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL,
-    value TEXT NOT NULL, why TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS journal (
-    id INTEGER PRIMARY KEY, at REAL NOT NULL, app TEXT NOT NULL, session TEXT NOT NULL, note TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS agent_mail (
     id INTEGER PRIMARY KEY, app TEXT NOT NULL, parent TEXT NOT NULL, agent INTEGER NOT NULL, run INTEGER,
     kind TEXT NOT NULL, text TEXT NOT NULL, data TEXT NOT NULL, at REAL NOT NULL,
@@ -132,46 +123,15 @@ def _own_conversation(db, app: str, source: str, schedule_id: int, payload: dict
                (app, payload['session'], dump(settings), time.time()))
 
 
-def _adopt_old_schedules(db) -> None:
-    """Reminders (wake) and task schedules from before 0.7 become schedules like any other, with their rule."""
-    from .scheduler import calendar_zone
-
-    for schedule_id, app, source, payload in db.execute(
-            'SELECT id, app, session, payload FROM schedules').fetchall():
-        old = json.loads(payload)
-        if 'session' in old:
-            continue
-        text = old.get('text') or ''
-        _own_conversation(db, app, source, schedule_id, {
-            'text': text, 'title': (text.strip().splitlines() or ['Schedule'])[0][:80],
-            'timezone': old.get('timezone') or calendar_zone().key})
-
-
-def _share_memory(db) -> None:
-    """Memory was per app before 0.8; now every app shares it, and ``app`` says which one saved an entry.
-    Where two apps kept the same category and key, the newest stays."""
-    if "app" not in [row[1] for row in db.execute("PRAGMA table_info(memory)") if row[5]]:
-        return
-    db.execute("ALTER TABLE memory RENAME TO memory_per_app")
-    db.execute("CREATE TABLE memory (app TEXT NOT NULL, category TEXT NOT NULL, key TEXT NOT NULL, "
-               "value TEXT NOT NULL, updated REAL NOT NULL, PRIMARY KEY (category, key))")
-    db.execute("INSERT OR REPLACE INTO memory SELECT app, category, key, value, updated FROM memory_per_app "
-               "ORDER BY updated")
-    db.execute("DROP TABLE memory_per_app")
-    db.execute("UPDATE sessions SET state = json_remove(state, '$.snapshot')")  # their memory, per app
-
-
 class Store:
     def __init__(self, path: Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.path, timeout=30)
         try:
+            dataformat.opened(db, self.path)
             db.execute("PRAGMA journal_mode=WAL")  # readers never wait for a running turn
             db.executescript(_SCHEMA)
-            with db:
-                _adopt_old_schedules(db)
-                _share_memory(db)
         finally:
             db.close()
 
@@ -394,15 +354,6 @@ class Store:
         with self._db() as db:
             row = db.execute(query + " ORDER BY id DESC LIMIT 1", params).fetchone()
         return _event(row) if row else None
-
-    def calls(self, app: str, session: str, before: int, names: tuple) -> List[dict]:
-        """The session's calls of these tools that went well before event ``before``, the oldest first."""
-        marks = ", ".join("?" for _ in names)
-        with self._db() as db:
-            return [_event(row) for row in db.execute(
-                f"SELECT {_EVENT_COLUMNS} FROM events WHERE app = ? AND session = ? AND id < ? AND type = 'tool' "
-                f"AND json_extract(data, '$.name') IN ({marks}) AND json_extract(data, '$.status') = 'ok' ORDER BY id",
-                (app, session, before, *names))]
 
     def run_events(self, run: int, after: int = 0) -> List[dict]:
         with self._db() as db:
@@ -759,29 +710,6 @@ class Store:
     def last_notification(self, app: str) -> int:
         with self._db() as db:
             return db.execute("SELECT COALESCE(MAX(id), 0) FROM notifications WHERE app = ?", (app,)).fetchone()[0]
-
-    # ============== What was kept before 0.30 ==============
-    # Lasting facts (``memory``, with ``memory_revisions``) and journal notes, kept as they were when her
-    # long-term memory and her mind became her memory: recall.py takes them in and finds them by meaning.
-    # Nothing writes them now but an app's import of what it kept before it used the brain.
-
-    def remember(self, app: str, category: str, key: str, value: Any) -> None:
-        """A fact an app kept before it used the brain (Brain.import_history); one already kept stays."""
-        with self._db() as db:
-            db.execute("INSERT OR IGNORE INTO memory(app, category, key, value, updated) VALUES (?, ?, ?, ?, ?)",
-                       (app, category, key, dump(value), time.time()))
-
-    def memory_entries(self) -> List[dict]:
-        """Every fact: ``category``, ``key``, ``value``, ``app`` (the one that saved it) and ``updated``."""
-        with self._db() as db:
-            rows = db.execute("SELECT category, key, value, app, updated FROM memory ORDER BY category, key").fetchall()
-        return [{"category": c, "key": k, "value": json.loads(v), "app": a, "updated": u} for c, k, v, a, u in rows]
-
-    def notes(self) -> List[dict]:
-        """Every journal note, newest first."""
-        with self._db() as db:
-            rows = db.execute("SELECT id, at, app, session, note FROM journal ORDER BY at DESC, id DESC").fetchall()
-        return [{"id": i, "at": at, "app": a, "session": s, "note": n} for i, at, a, s, n in rows]
 
     # ============== Sessions' memory ==============
 

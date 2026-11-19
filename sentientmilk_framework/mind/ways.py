@@ -1,4 +1,4 @@
-"""Her ways: how she does things, wherever she is (0.34; design: docs/superpowers/specs/2026-11-17-ways-design.md).
+"""Her ways: how she does things, wherever she is (design: docs/superpowers/specs/2026-11-17-ways-design.md).
 
 What a person keeps of how to act is not a memory that has to come back: it is how they act. A way is an if-then
 (when I finish a piece of code, I run it before I say it's done; when nobody has spoken to me, I don't message

@@ -58,7 +58,7 @@ WORRIED = {"cortisol": 0.9, "reward": -0.6, "noradrenaline": 0.5, "oxytocin": 0.
 
 def plant(mind, text, valence, arousal, salience, ago, felt, cues):
     """A moment of hers before the exam, kept with how it moved her and what was around it where her version
-    keeps that (0.38); an earlier version keeps the moment alone. Embedded, as her sweep does."""
+    keeps that; a version without it keeps the moment alone. Embedded, as her sweep does."""
     at = time.time() - ago
     try:
         mind.memory.add("exchange", text, valence, arousal, salience, app=APP, session="exam-before", at=at,
@@ -69,8 +69,8 @@ def plant(mind, text, valence, arousal, salience, ago, felt, cues):
 
 
 def teach(mind, cause, felt, ago):
-    """What a hard moment taught her, where her version learns reactions (0.39): what led to it, as her reading
-    would name it, tied by her own learning to how the moment moved her. An earlier version keeps the moment alone."""
+    """What a hard moment taught her, where her version learns reactions: what led to it, as her reading
+    would name it, tied by her own learning to how the moment moved her. A version without them keeps the moment alone."""
     reactions = getattr(mind, "reactions", None)
     if reactions is not None:
         cues = reactions.prepare([{"text": cause, "kind": "meaning", "source": "cause"}], keep=True)
@@ -578,9 +578,9 @@ def grade(args):
                                                            **(turn.get("feelings_said_again") or {})}.values())
                         elif kind == "in mind":  # what came back reached her cortex with the message
                             passed = _has(note, terms)
-                        elif kind == "felt again":  # a memory that came back moved her body (0.38)
+                        elif kind == "felt again":  # a memory that came back moved her body
                             passed = any(why.startswith("remembering") for why in turn.get("pushed") or [])
-                        elif kind == "reacted":  # the message set off a reaction she learned (0.39): as her
+                        elif kind == "reacted":  # the message set off a reaction she learned: as her
                             # decision kept it (a small push fades out of her log in a long turn), or in her log
                             passed = bool((turn.get("decision") or {}).get("reacted")) or \
                                 any(why.startswith("reacting to") for why in turn.get("pushed") or [])

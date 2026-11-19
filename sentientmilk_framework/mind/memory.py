@@ -2,8 +2,8 @@
 
 Each episode keeps its feeling (valence, arousal), what the moment itself did to how she felt (``sting``), its
 salience (how much it mattered when it happened) and a strength that fades as a power law of the time since it
-was last recalled. Recall is only of what a cue calls up, by likeness to it in meaning (its vector, from her long-term memory's embedder: recall.py fills ``vectors``; until 0.30
-also by shared words), and also by mood (a sad mind finds sad memories), strength, salience and recency, with
+was last recalled. Recall is only of what a cue calls up, by likeness to it in meaning (its vector, from her long-term memory's embedder: recall.py fills ``vectors``),
+and also by mood (a sad mind finds sad memories), strength, salience and recency, with
 a little noise: the same cue does not always bring back the same thing. Recalling strengthens a memory and drifts its feeling toward the mood she recalls it in
 (reconsolidation). Sleep softens the charge of what she replays. Faint, unimportant episodes are forgotten.
 
@@ -11,7 +11,7 @@ An exchange also keeps what followed the user's message (``follow``: what it did
 out). ``known`` tells how like her memories a new message is (how new it is to her) and what followed the
 messages most like it: her own record of what such messages bring.
 
-Since 0.38 a moment keeps how it moved her body (``felt``: each channel's change, in units of a lot, by the
+A moment keeps how it moved her body (``felt``: each channel's change, in units of a lot, by the
 moment's peak and its end) and what was around it (its cues: the time of day, where and with whom, and what the
 app could tell of her surroundings, such as what was playing). What comes back is called by meaning, by the
 surroundings it shares with now (a cue as strong as it is rare among her memories: a song heard once calls its
@@ -33,6 +33,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from .. import dataformat
 from ..embeddings import MAX_CHARS
 from ..vectors import Vectors
 
@@ -59,30 +60,18 @@ class Memory:
         self._lock = threading.RLock()
         self._rng = random.Random(seed)
         with self._lock:
+            dataformat.opened(self._db, self.path)
             self._db.executescript("""
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS episodes (
                     id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
                     app TEXT, session TEXT, valence REAL NOT NULL, arousal REAL NOT NULL,
                     salience REAL NOT NULL, strength REAL NOT NULL, recalls INTEGER NOT NULL DEFAULT 0,
-                    recalled REAL, charge REAL NOT NULL, follows TEXT, sting REAL NOT NULL DEFAULT 0);
-                DROP TRIGGER IF EXISTS episode_added;  -- her index by words, until 0.30
-                DROP TRIGGER IF EXISTS episode_gone;
-                DROP TABLE IF EXISTS recall_terms;
-                DROP TABLE IF EXISTS recall;
+                    recalled REAL, charge REAL NOT NULL, follows TEXT, sting REAL NOT NULL DEFAULT 0,
+                    run_id INTEGER, event_id INTEGER, actor TEXT, device TEXT, superseded_by INTEGER,
+                    encoding_valence REAL, origin_ids TEXT, attention TEXT, felt TEXT, grew_from TEXT);
                 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             """)
-            columns = {row[1] for row in self._db.execute("PRAGMA table_info(episodes)")}
-            if "follows" not in columns:
-                self._db.execute("ALTER TABLE episodes ADD COLUMN follows TEXT")  # a mind from before 0.21
-            if "sting" not in columns:  # before 0.32: what hurt was not kept, so nothing from then stings
-                self._db.execute("ALTER TABLE episodes ADD COLUMN sting REAL NOT NULL DEFAULT 0")
-            for name, sql_type in (("run_id", "INTEGER"), ("event_id", "INTEGER"), ("actor", "TEXT"),
-                                   ("device", "TEXT"), ("superseded_by", "INTEGER"), ("encoding_valence", "REAL"),
-                                   ("origin_ids", "TEXT"), ("attention", "TEXT"), ("felt", "TEXT"),
-                                   ("grew_from", "TEXT"), ("first_text", "TEXT")):
-                if name not in columns:
-                    self._db.execute(f"ALTER TABLE episodes ADD COLUMN {name} {sql_type}")
             self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS episode_run ON episodes(run_id) WHERE run_id IS NOT NULL")
             self._db.execute("CREATE INDEX IF NOT EXISTS episode_correction ON episodes(superseded_by) "
                              "WHERE superseded_by IS NOT NULL")
@@ -93,7 +82,7 @@ class Memory:
                     UPDATE episode_sequence SET last_id = MAX(last_id, NEW.id) WHERE id = 1;
                 END;
             """)
-            # her body's record (0.43): every push and her levels at each message, thought and sleep, kept for
+            # her body's record: every push and her levels at each message, thought and sleep, kept for
             # good, for audits and for replaying her days through a changed model (she is never shown it)
             self._db.executescript("""
                 CREATE TABLE IF NOT EXISTS body_pushes (at REAL NOT NULL, why TEXT NOT NULL, moved TEXT NOT NULL,
@@ -103,7 +92,6 @@ class Memory:
                                                         chat TEXT);
                 CREATE INDEX IF NOT EXISTS body_level_at ON body_levels(at);
             """)
-            cued = self._db.execute("SELECT 1 FROM sqlite_master WHERE name = 'episode_cues'").fetchone()
             self._db.executescript("""
                 CREATE TABLE IF NOT EXISTS episode_cues (episode INTEGER NOT NULL, cue TEXT NOT NULL,
                                                          PRIMARY KEY (episode, cue));
@@ -112,10 +100,6 @@ class Memory:
                     DELETE FROM episode_cues WHERE episode = OLD.id;
                 END;
             """)
-            if not cued:  # a mind from before 0.38: its moments kept their time, where and who (not what was around)
-                self._db.executemany("INSERT OR IGNORE INTO episode_cues VALUES (?, ?)", [
-                    (row["id"], found) for row in self._db.execute("SELECT id, at, app, device, actor FROM episodes")
-                    for found in moment_cues(row["at"], row["app"], row["device"], row["actor"])])
         self.vectors = Vectors(self._db, "episodes", self._lock)
         self.embedder = None  # her long-term memory's (recall.py sets it)
 
@@ -194,7 +178,8 @@ class Memory:
 
     @staticmethod
     def felt(episode: dict) -> Dict[str, float]:
-        """How the moment moved her body (each channel's change, in units of a lot); {} for one from before 0.38."""
+        """How the moment moved her body (each channel's change, in units of a lot); {} when that was not kept (a dream, an insight, a turn
+        she did not appraise)."""
         return json.loads(episode.get("felt") or "{}")
 
     def cues(self, ids: Iterable[int]) -> Dict[int, List[str]]:
@@ -240,7 +225,7 @@ class Memory:
     def came_of(self, episodes: List[dict]) -> None:
         """What came of each of these moments (``later``): the nearest thing said or done after it about the same
         matter (Vectors.matter, by the vectors already kept: no call to the service). A memory comes back with
-        how it turned out, as one recalls an errand with whether it got done: until 0.43 her guess that the user
+        how it turned out, as one recalls an errand with whether it got done: without it, her guess that the user
         buys 2% milk came back twice and their "it's 3.2%" never, and a thought of hers had an essay skeleton
         still in its folder hours after she had deleted it as asked (the audit, finding 3). Her own later
         thoughts are not what came of it, nor a dream."""
@@ -301,16 +286,16 @@ class Memory:
         what happened before then (not what just happened). ``held``: (app, session, since), a chat whose
         exchanges from then on she still has before her (her context holds them): they are not brought back (in
         the user's brain, 2026-11-16, what came back was mostly the chat she was in). What she thought or did
-        while that chat was the one she was in is not before her: it comes back (until 0.42 it was held back too,
-        and in the chat she was in, a task of hers never came back to her).
+        while that chat was the one she was in is not before her: it comes back (held back too, a task of hers
+        never came back to her in the chat she was in).
 
-        Until 0.32 her strongest memories also came back unbidden, whatever the cue: replayed on her messages of
+        Her strongest memories do not come back whatever the cue: when they did, replayed on her messages of
         2026-11-17, 13 of 21 brought back one of her own brooding thoughts (one of them 11 times) and two of her
         insights came back with 15 and 13, nearly all related by nothing, each recall making it stronger still.
         A memory that comes by itself is cued by something about the moment (Berntsen 2009); what a resting mind
         replays at random is ``replay``.
 
-        Since 0.38 ``cues`` (what is around her now) call up the moments they were around, as strongly as each
+        ``cues`` (what is around her now) call up the moments they were around, as strongly as each
         is rare (``cue_strength``; summed as ``cued``, the strongest as ``through``): a moment that shares
         enough (``CUED``) comes back with no likeness in meaning, and without the service. Her mood's
         ``arousal`` favours moments kept in a state like hers (Eich 1995), the more intense moment comes sooner,
@@ -454,23 +439,16 @@ class Memory:
             self._db.execute("UPDATE episodes SET charge = charge * ? WHERE id = ?",
                              (1.0 - WEARS * (1.4 if unpleasant(episode) else 0.6), episode["id"]))
 
-    def recorded(self, run_id: int, session: Optional[str] = None) -> bool:
-        """Something of this run is kept; with ``session``, or anything of that session (a task's, kept by the
-        journal before 0.30 without its run)."""
+    def recorded(self, run_id: int) -> bool:
+        """Something of this run is kept."""
         with self._lock:
-            return bool(self._db.execute("SELECT 1 FROM episodes WHERE run_id = ? OR session = ? LIMIT 1",
-                                         (run_id, session)).fetchone())
+            return bool(self._db.execute("SELECT 1 FROM episodes WHERE run_id = ? LIMIT 1", (run_id,)).fetchone())
 
     def of_run(self, run_id: int) -> Optional[dict]:
         """What she kept of a run (its exchange, or what she did in a task), None if nothing."""
         with self._lock:
             row = self._db.execute("SELECT * FROM episodes WHERE run_id = ?", (run_id,)).fetchone()
         return dict(row) if row else None
-
-    def refile(self, episode: int, session: str) -> None:
-        """A moment is kept where it happened (a task of hers, kept under the chat she was in before 0.42)."""
-        with self._lock:
-            self._db.execute("UPDATE episodes SET session = ? WHERE id = ?", (session, episode))
 
     def supersede(self, episode: int, replacement: int) -> None:
         with self._lock:
@@ -492,8 +470,8 @@ class Memory:
         """How ``cue`` (a message) meets her memories from before ``before``: the likeness in meaning (0..1) of
         the memory most like it (None: she cannot tell now, without her long-term memory's embedder), what
         followed the ``count`` messages most like it (each need's change, weighted by likeness) and how much she
-        has to go on (their summed likeness). A "hi" after a hundred "hello"s is not new; until 0.30 likeness
-        was also the share of the cue's words a memory had, which said nothing of a message in other words."""
+        has to go on (their summed likeness). A "hi" after a hundred "hello"s is not new; a likeness by the share
+        of the cue's words a memory has would say nothing of a message in other words."""
         alike = self._alike(cue, " AND e.at < ? AND e.kind = 'exchange' AND e.superseded_by IS NULL", [before])
         if alike is None:
             return None, {}, 0.0
@@ -530,27 +508,6 @@ class Memory:
                                     "ORDER BY salience * charge * (0.5 + arousal) DESC" + (" LIMIT ?" if count else ""),
                                     [at] + kinds + ([count] if count else [])).fetchall()
         return [dict(row) for row in rows]
-
-    def lived(self, app: str, session: str, start: float, end: float, kinds: Iterable[str] = ("exchange",)) -> List[dict]:
-        """What she lived in a session between ``start`` and ``end``."""
-        kinds = list(kinds)
-        with self._lock:
-            rows = self._db.execute(f"SELECT * FROM episodes WHERE app = ? AND session = ? AND at BETWEEN ? AND ? "
-                                    f"AND kind IN ({','.join('?' * len(kinds))})",
-                                    [app, session, start, end] + kinds).fetchall()
-        return [dict(row) for row in rows]
-
-    def rewrite(self, episode_id: int, text: str) -> None:
-        """An episode's words, set right (recall finds it by the new ones)."""
-        text = " ".join(str(text).split())[:1200]
-        with self._lock:
-            row = self._db.execute("SELECT text FROM episodes WHERE id = ?", (episode_id,)).fetchone()
-            if row is None or row["text"] == text:
-                return
-            # what it first said stays (0.43): of the 75 episodes in the backup of 2026-11-17, 22 kept their
-            # words, and nothing told what the others had said (the audit, finding 11)
-            self._db.execute("UPDATE episodes SET first_text = COALESCE(first_text, text), text = ? WHERE id = ?",
-                             (text, episode_id))
 
     # ============== Her body's record ==============
 
@@ -595,7 +552,7 @@ class Memory:
 
     def soften(self, ids: Iterable[int], share: float = 0.35) -> None:
         """Sleep replays them: their charge softens, an unpleasant moment's more (1.4 x ``share``) than any other
-        (0.6 x: the fading affect bias, Walker, Skowronski & Thompson 2003; evenly until 0.38), and replaying
+        (0.6 x: the fading affect bias, Walker, Skowronski & Thompson 2003), and replaying
         makes them a little stronger."""
         with self._lock:
             for episode in self.by_ids(list(ids)):
@@ -632,7 +589,7 @@ class Memory:
     def forget_faint(self, now: float, older_days: float = 30.0, *, protected=()) -> int:
         """Old, faint, unimportant episodes go (insights and dreams she wrote down stay longer): faint is its
         strength now times what of it no stronger episode already holds (``Vectors.held``, by meaning), so of
-        two alike the weaker goes sooner (since 0.30; by strength alone before)."""
+        two alike the weaker goes sooner."""
         with self._lock:
             keep = set(protected)
             for row in self._db.execute("SELECT origin_ids, superseded_by, id FROM episodes "
@@ -653,7 +610,7 @@ class Memory:
         """What was said in a chat is taken back (deleted, or from ``event`` on): what she kept of it goes, and so
         does all that was made from it (what came up in it, what it went over: ``origin_ids``, ``grew_from``).
         A thought of hers is kept under the chat she was last in, but it is hers: it goes only if it grew from
-        what was said there (until 0.42 all of them went, and with them a day of her thoughts)."""
+        what was said there (all of them would be a day of her thoughts)."""
         cutoff = "" if event is None else " AND (event_id >= ? OR (event_id IS NULL AND at >= ?))"
         args = [app, session] + ([] if event is None else [event, since])
         with self.transaction():
@@ -672,7 +629,7 @@ class Memory:
             return self._db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
 
     def revision(self) -> int:
-        """A number that changes whenever her memories do (one is kept, recalled, felt again, softened, reworded,
+        """A number that changes whenever her memories do (one is kept, recalled, felt again, softened,
         corrected, forgotten, or understood by meaning), for an app that draws them to fetch only then."""
         with self._lock:
             row = self._db.execute(

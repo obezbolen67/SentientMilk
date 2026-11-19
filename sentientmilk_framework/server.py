@@ -368,9 +368,6 @@ class _Handler(BaseHTTPRequestHandler):
                 if exc.http_status != 409:
                     raise
                 return self._fail(409, exc.type, exc.message) or True
-        elif rest == ["import"] and method == "POST":
-            brain.import_history(app, session, body)
-            self._send(200, {"status": "ok"})
         elif rest == ["turns"] and method == "POST":
             self._turn(app, session, body)
         else:

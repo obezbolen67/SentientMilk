@@ -1,6 +1,7 @@
-"""Her long-term memory: past chats, and the notes and facts kept before 0.30, come back by meaning every turn,
+"""Her long-term memory: past chats, and the notes and facts she wrote down, come back by meaning every turn,
 and go when they are deleted (docs/superpowers/specs/2026-11-17-long-term-memory-design.md)."""
 
+import itertools
 import json
 import sqlite3
 import time
@@ -49,11 +50,12 @@ def last_input(brain, app, session) -> str:
     return json.dumps(brain.store.events(app, session, types=("input",))[-1]["content"], ensure_ascii=False)
 
 
-def old_note(brain, app, session, text, at=None):
-    """A journal note, as the journal kept them before 0.30."""
-    with brain.store._db() as db:
-        db.execute("INSERT INTO journal(at, app, session, note) VALUES (?, ?, ?, ?)",
-                   (time.time() if at is None else at, app, session, text))
+NOTES = itertools.count(1)
+
+
+def kept_note(brain, app, session, text, at=None):
+    """A note of hers about a chat, as her long-term memory holds them (each its own, by number)."""
+    brain.brain.recall.add("note", str(next(NOTES)), app, session, time.time() if at is None else at, text)
 
 
 def test_meaning_finds_what_words_miss(brain):
@@ -135,12 +137,12 @@ def test_a_deleted_chat_never_comes_back(brain):
     filled(brain)
     use(brain, Meaning())
     said(brain, "milk", "s", "my secret plan is a pixel-art platformer")
-    old_note(brain, "milk", "s", "We planned a secret platformer.")
+    kept_note(brain, "milk", "s", "We planned a secret platformer.")
     recall = brain.brain.recall
     recall.sweep()
     assert recall.search("secret platformer", sources=("turn", "note"))
     brain.client.delete_session("milk", "s")
-    recall.sweep()  # its journal note is still in the journal: it does not come back either
+    recall.sweep()
     assert not recall.search("secret platformer", sources=("turn", "note"))
 
 
@@ -171,12 +173,12 @@ def test_a_return_to_a_message_forgets_what_it_undid(brain):
 
 
 @pytest.mark.mind
-def test_a_note_and_a_fact_kept_before_come_back_by_meaning_in_a_turn(brain):
+def test_a_note_and_a_fact_she_kept_come_back_by_meaning_in_a_turn(brain):
     filled(brain)
     use(brain, Meaning())
     brain.client.update_session("milk", "old", title="Work talk")
-    brain.store.remember("milk", "user", "job", "works as an interpreter")
-    old_note(brain, "milk", "old", "We talked about their pet cat Biscuit.", at=time.time() - 86400)
+    brain.brain.recall.add("fact", "user/job", "milk", "", time.time() - 86400, "job: works as an interpreter")
+    kept_note(brain, "milk", "old", "We talked about their pet cat Biscuit.", at=time.time() - 86400)
     brain.brain.recall.sweep()
     said(brain, "milk", "new", "what is my job?")
     assert "something you kept: job: works as an interpreter" in last_input(brain, "milk", "new")
@@ -216,7 +218,7 @@ def test_a_sweep_with_the_model_she_no_longer_uses_leaves_the_new_one_s_vectors_
     new = use(brain, Meaning())  # the model changes while a sweep with the old one is going on
     memory.vectors.put([(episode, new.embed(["They said my cat drawing was dumb"])[0])], new.name)
     recall._embed(old)  # that sweep goes on to its end
-    assert memory.vectors.count(new.name) == 1  # until 0.42 it took every vector not of its own model
+    assert memory.vectors.count(new.name) == 1  # the new model's vector is not taken for an old one
 
 
 def test_her_mind_and_her_long_term_memory_cannot_be_switched_off(brain):
@@ -235,7 +237,7 @@ def test_in_her_sleep_what_she_no_longer_needs_lets_go_and_stays_gone(brain):
     recall.add("turn", "5", "milk", "e", long_ago, "they: the tax deadline\nyou: april")
     brain.client.update_session("milk", "main", title="Today")
     for _ in range(2):
-        old_note(brain, "milk", "main", "We sketched levels for the platformer.", at=long_ago)
+        kept_note(brain, "milk", "main", "We sketched levels for the platformer.", at=long_ago)
     recall.sweep()
     recall._db.execute("UPDATE units SET uses = 3 WHERE ref = '4#0'")  # she came back to it
     assert recall.search("my cat died")[0]["ref"] == "3#0"  # and to this one: what comes back is stronger
@@ -246,7 +248,7 @@ def test_in_her_sleep_what_she_no_longer_needs_lets_go_and_stays_gone(brain):
     assert recall.forget(now, sleep_review=True) == 0
     assert {r[0] for r in recall._db.execute("SELECT ref FROM units WHERE source = 'turn'")} == {"2#0", "3#0", "4#0"}
     assert recall._db.execute("SELECT text FROM forgotten WHERE ref = '1#0'").fetchone()[0].startswith("they: hi")
-    recall.sweep()  # a note she let go of is not taken in again
+    recall.sweep()  # what she let go of stays gone
     assert recall._db.execute("SELECT COUNT(*) FROM units WHERE source = 'note'").fetchone()[0] == 1
     assert brain.client.stats()["recall"]["forgotten"] == 3
     recall.forget_session("milk", "a")  # a deleted chat leaves nothing, not even what she let go of

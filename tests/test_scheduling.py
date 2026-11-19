@@ -1,5 +1,3 @@
-import json
-import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -9,7 +7,6 @@ import pytest
 from conftest import wait_for
 
 from sentientmilk_framework import BrainError, scheduler
-from sentientmilk_framework.store import Store
 from sentientmilk_framework.testing import tool_call
 
 
@@ -337,29 +334,6 @@ def test_returning_before_schedule_creation_undoes_its_triggered_work(brain):
     brain.client.rewind('cli', 'main', target)
     assert not (brain.work / 'scheduled.txt').exists()
     assert brain.store.schedule(schedule['id']) is None
-
-
-def test_existing_schedules_migrate_without_losing_rules_or_reusing_ids(tmp_path):
-    path = tmp_path / 'legacy.db'
-    with sqlite3.connect(path) as db:
-        db.execute('CREATE TABLE schedules (id INTEGER PRIMARY KEY, app TEXT, session TEXT, kind TEXT, '
-                   'spec TEXT, payload TEXT, next_at REAL, last_at REAL, catch_up TEXT, '
-                   'created_by TEXT, enabled INTEGER, created REAL)')
-        db.execute('INSERT INTO schedules VALUES (20, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 1, ?)',
-                   ('legacy', 'main', 'every', '3600', json.dumps({'mode': 'wake', 'text': 'Keep this reminder'}),
-                    2000000000, 'once', 'app', 1000000000))
-    store = Store(path)
-    adopted = store.schedule(20)  # a reminder of 0.6 is a schedule like any other, with its rule and time
-    assert adopted['payload']['text'] == 'Keep this reminder' and adopted['payload']['title'] == 'Keep this reminder'
-    assert adopted['execution_session'] == 'schedule-20' and adopted['timezone']
-    assert (adopted['kind'], adopted['spec'], adopted['next_at']) == ('every', '3600', 2000000000)
-    assert store.session('legacy', 'schedule-20')['settings']['schedule'] == 20
-    assert Store(path).schedule(20) == adopted  # adopted once
-    store.delete_schedule(20)
-    added = store.add_schedule(app='legacy', session='main', kind='every', spec='3600',
-        payload={'text': 'New one', 'title': 'New one', 'timezone': 'UTC'}, next_at=2000000000, catch_up='once',
-        created_by='app', enabled=1)
-    assert added > 20
 
 
 def test_recovery_resumes_the_same_occurrence_without_repeating_a_started_write(brain):
