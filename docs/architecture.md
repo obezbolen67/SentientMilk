@@ -176,7 +176,7 @@ own (only the feeling's mean was kept, and stays). Format 3 (0.46, `scripts/migr
 and her own tasks from before are marked as not chosen by her will (`leaned` None), a waiting wish as teaching
 nothing. Format 4 (0.47, `scripts/migrate_format_4.py` in the history): what is on her mind gets its table (`workspace`, with
 `workspace_vectors` beside it), and what she put off before concerns kept their turn keeps it (`run`: the turn
-whose moment of that chat was kept first after it, if it had begun by then). Format 5 (0.49, `scripts/migrate_format_5.py`;
+whose moment of that chat was kept first after it, if it had begun by then). Format 5 (0.49, `scripts/migrate_format_5.py` in the history;
 section 10.18): each turn's decision keeps what its reactions called for (`called`) apart from what they
 measurably moved (`reacted`, from her push log) and what came beyond them (`external`); a turn from before the
 push log keeps `called` only. Her last decision's path keeps `predicted` and `moved`; her latest reactions are

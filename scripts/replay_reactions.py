@@ -23,9 +23,6 @@ hers is written. It reports:
    words are the same cue as (by her embedder, as learning matches them).
 4. One turn (``--watch``), as the installed code learned from it and as the replay does.
 
-A home still at an older data format is brought to the current one on its copy first, by the format's migration
-script (while that script is in the tree).
-
 Not replayed: reminders opening a reconsolidation window (when each was called up is not kept), causes the user
 gave while she worked (kept in memory only), and how rare what was around her was at the time (as rare as it is
 now). The embedder is her own (her config's key, never printed)."""
@@ -33,7 +30,6 @@ now). The embedder is her own (her config's key, never printed)."""
 import argparse
 import contextlib
 import datetime
-import importlib.util
 import json
 import shutil
 import sqlite3
@@ -45,7 +41,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sentientmilk_framework import dataformat, embeddings  # noqa: E402
+from sentientmilk_framework import embeddings  # noqa: E402
 from sentientmilk_framework.mind.body import Body  # noqa: E402
 from sentientmilk_framework.mind.feel import CHANNELS, CHEMICALS, moved  # noqa: E402
 from sentientmilk_framework.mind.life import Mind, peak_end  # noqa: E402
@@ -278,14 +274,6 @@ def main() -> None:
     try:
         for name in ("brain.sqlite3", "mind.sqlite3", "recall.sqlite3"):
             backup(args.home / name, base / name)
-        with contextlib.closing(sqlite3.connect(base / "mind.sqlite3")) as db:
-            found = db.execute("PRAGMA user_version").fetchone()[0]
-        if found != dataformat.FORMAT:  # a home not yet brought to this format: its copy is, first
-            spec = importlib.util.spec_from_file_location(
-                "migration", Path(__file__).parent / f"migrate_format_{dataformat.FORMAT}.py")
-            migration = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(migration)
-            migration.migrate(base)
         with contextlib.closing(sqlite3.connect(base / "brain.sqlite3")) as brain:
             memory = opened(base / "mind.sqlite3")
             body_saved = memory.get("body")
