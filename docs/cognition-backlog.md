@@ -41,6 +41,22 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   name whoever they are about, and her sleep says unclear ones again plainly.
 - [x] **Wanting to say something reaches the turn** (0.34): kept wishes, only what she said waits on an answer.
 
+## From the architecture audit (2026-11-19)
+
+Verified against the code with a plan: docs/superpowers/specs/2026-11-19-cognitive-audit-diagnosis.md.
+
+- [ ] **P1 Her own acts chosen by her will.** A thought's `want` is acted on as the model gave it; in a turn,
+  options are weighed by needs, values, learned dread and cost (`will.choose`). First step: a thought proposes
+  options and the will chooses among them, "let it be" always one (0.46).
+- [ ] **P1 Thoughts that survive an outage.** A thought's refractory time is used up before the model is
+  known to be there; a failed call loses the thought; any correction anywhere discards thoughts in flight.
+  First step: stamp on start, keep the bid on failure, drop only for retracted sources (0.46).
+- [ ] **P1 A shared workspace.** What is active (goals, concerns, intentions, percepts, the question at hand,
+  expectations, her self-view) lives in separate keys each process selects from by its own rules. First step:
+  `mind/workspace.py`, limited and decaying, written by every process and read by relevance (0.47).
+- [ ] **P2 Evaluation controls.** The exam runs on her persona with no control arm. First step: a neutral
+  persona arm and a state-unset arm; an ablation harness clamping one channel at a time.
+
 ## Introspection, what is left
 
 - [ ] **P2 Reflection at rest.** People turn inward out of curiosity as well as threat (reflection vs

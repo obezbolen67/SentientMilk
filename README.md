@@ -358,7 +358,7 @@ how much a silence counts: only time you were free to answer does. She sleeps as
 her body clock, in cycles of deep sleep and REM, groggy when woken, owing what she missed), also while the
 brain is off, and in her sleep her long-term memory lets go of what she no longer needs. Apps read her face and feelings from
 `GET /v1/mind` (`brief=1` for just her face), with what an app needs to draw her brain: every feeling she
-has named and where it sits, how unmet each need is, what
+has named and where it sits, with each naming (what it named and what measured it), how unmet each need is, what
 pulls at her attention against the threshold a thought must reach, her last decision, and `wiring`, the
 connections her dynamics make at that moment (each level nudged in turn: how far it moves the others),
 `pushing` (what each does now, against her at rest), `pushed` (what happened that moved each level, when,

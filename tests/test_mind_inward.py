@@ -8,6 +8,8 @@ import time
 import pytest
 from conftest import Meaning, use
 
+from sentientmilk_framework.mind.feel import naming
+
 pytestmark = pytest.mark.mind  # her mind lives in these tests
 
 
@@ -88,7 +90,9 @@ def test_looking_inward_she_meets_her_own_words_for_what_she_feels(brain):
     with mind._lock:
         mind.body.levels.update(oxytocin=0.85, reward=0.5, endorphin=0.6)
         mind.senses.seen.update(mind.body.levels)
-        mind._name("so happy you're back", "so happy you're back", time.time() - 3600)
+        at = time.time() - 3600
+        mind._name(naming("so happy you're back", "so happy you're back", at, "tool", "now",
+                          measure=mind._measure_now(None, at)))
     seen = mind.look_inward()
     assert "It is like when you said \"so happy you're back\" (an hour ago)" in seen
     assert "happy" not in seen.split("It is like")[0]  # her body in sensations, her words only in her own mouth
@@ -100,7 +104,9 @@ def test_looking_inward_about_a_word_she_finds_the_times_she_said_it(brain):
     # it; a word she never said comes with none
     mind = brain.brain.mind
     with mind._lock:
-        mind._name("worn flat", "I feel worn flat after all that", time.time() - 3600)
+        at = time.time() - 3600
+        mind._name(naming("worn flat", "I feel worn flat after all that", at, "tool", "now",
+                          measure=mind._measure_now(None, at)))
     seen = mind.look_inward("where does the word permission come from")
     assert '"permission" is your own word' not in seen and "you have called" not in seen
     mine = mind.look_inward("what I mean by worn flat")

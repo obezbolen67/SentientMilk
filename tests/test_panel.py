@@ -5,6 +5,7 @@ import pytest
 from conftest import wait_for
 from textual.widgets import Button, DataTable, Input, OptionList, Select, SelectionList, TextArea
 
+from sentientmilk_framework.mind.feel import naming
 from sentientmilk_framework.panel import Panel
 
 
@@ -264,7 +265,8 @@ def test_her_mind_shows_in_its_tab(brain):
     brain.brain.mind.self["remembered"] = [{"at": time.time(), "episode": 1, "text": "The night the song played.",
                                             "by": "playing: clair de lune", "moved": {"cortisol": 0.2, "oxytocin": 0.1}}]
     for at in (time.time() - 60, time.time()):
-        brain.brain.mind.concepts.add("restless", {"noradrenaline": 0.5}, "the clock", at, said="I'm restless tonight.")
+        brain.brain.mind.concepts.add(naming("restless", "I'm restless tonight.", at, "tool", "now",
+                                             measure={"of": "reading", "way": {"noradrenaline": 0.5}}), "the clock")
     reactions = brain.brain.mind.reactions  # what she has learned to react to, without her embedder: around
     reactions.learn([{"text": "in front: outlook — boss", "kind": "around", "source": "around", "salience": 1.0}],
                     {"cortisol": 1.2, "reward": -0.8}, 0.9, time.time())

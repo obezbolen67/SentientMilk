@@ -2,7 +2,7 @@
 feelings she makes of it (the feeling words she said of herself, by body and situation) and a face for apps."""
 
 from sentientmilk_framework.mind.body import Body, Temperament
-from sentientmilk_framework.mind.feel import Concepts, Interoception, face, feel, moved
+from sentientmilk_framework.mind.feel import Concepts, Interoception, face, feel, moved, naming
 from sentientmilk_framework.mind.prompts import imagined
 
 NOON = 1_763_294_400.0
@@ -89,6 +89,11 @@ def test_her_face_is_a_declared_mood_by_how_she_feels():
     assert face(feel(body, senses), MILKCHAN, asleep=False)["eyes"] == "half"
 
 
+def felt_as(words, way, at, text=None):
+    """A naming of what she is in, its numbers a reading of her body."""
+    return naming(words, text or words, at, "tool", "now", measure={"of": "reading", "way": way})
+
+
 def test_any_word_she_uses_becomes_a_feeling_that_comes_back_when_she_is_moved_that_way_again():
     concepts = Concepts()
 
@@ -97,10 +102,10 @@ def test_any_word_she_uses_becomes_a_feeling_that_comes_back_when_she_is_moved_t
         body.levels.update({name: before[name] + by for name, by in change.items()})
         return moved(before, body.levels)
     body, _ = her()
-    concepts.add("jealous", blow(body, cortisol=0.1, oxytocin=-0.05, grievance=0.08, reward=-0.15),
-                 "they keep talking about another assistant", NOON)
+    concepts.add(felt_as("jealous", blow(body, cortisol=0.1, oxytocin=-0.05, grievance=0.08, reward=-0.15), NOON),
+                 "they keep talking about another assistant")
     body, _ = her()
-    concepts.add("touched", blow(body, oxytocin=0.08, reward=0.25, social=0.1), "they say they missed me", NOON)
+    concepts.add(felt_as("touched", blow(body, oxytocin=0.08, reward=0.25, social=0.1), NOON), "they say they missed me")
     # moved the same way again, on another day and in another body (tired, lonely): the hour's body is not the feeling
     body, _ = her(seed=3, adenosine=0.8, energy=0.5, social=0.2)
     way = blow(body, cortisol=0.07, oxytocin=-0.03, grievance=0.05, reward=-0.1)
@@ -114,12 +119,12 @@ def test_any_word_she_uses_becomes_a_feeling_that_comes_back_when_she_is_moved_t
     # between messages nothing moves her but what stands out in her body: a lasting hurt feels like one
     body, senses = her(cortisol=0.75, grievance=0.5, reward=-0.4)
     assert concepts.recognize(feel(body, senses).noticed())[0][0] == "jealous"
-    concepts.add("jealous", way, "the other assistant", NOON + 60)
+    concepts.add(felt_as("jealous", way, NOON + 60), "the other assistant")
     before = dict(concepts.named[0]["moved"])
-    concepts.came_back("jealous", NOON + 120)  # felt again in a moment she called something else: counted, not reshaped
+    concepts.came_back("jealous", NOON + 120, 7)  # felt again in a moment she called something else: counted, not reshaped
     assert concepts.named[0]["moved"] == before
     shown = {f["word"]: f for f in concepts.shown(way)}
-    assert (shown["jealous"]["count"], shown["jealous"]["back"]) == (2, 1)
+    assert (shown["jealous"]["count"], shown["jealous"]["back"], shown["jealous"]["back_run"]) == (2, 1, 7)
     assert shown["jealous"]["strength"] > 0.8 and shown["touched"]["strength"] == 0.0
     assert shown["jealous"]["place"][0] < -0.3 < 0.3 < shown["touched"]["place"][0]  # unpleasant, pleasant
     assert shown["jealous"]["place"][2] < 0 < shown["touched"]["place"][2]  # apart from the user, toward them

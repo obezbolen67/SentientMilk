@@ -239,6 +239,16 @@ def face(felt: Felt, options: Dict[str, List[str]], asleep: bool) -> Optional[di
     return {"mood": mood, "stance": stance, "eyes": eyes, "asleep": asleep}
 
 
+def naming(words: str, text: str, at: float, how: str, named: str, *, run: Optional[int] = None,
+           event: Optional[int] = None, call: Optional[str] = None, episode: Optional[int] = None,
+           asked: Optional[str] = None, measure: Optional[dict] = None, reminded: Iterable[int] = ()) -> dict:
+    """The record of one naming (Concepts.add): her ``words`` as she wrote them and the sentence (``text``) she
+    said them in, ``how`` (``tool``, ``speech``, ``thought``), what it ``named`` and which measurement supplied
+    its numbers."""
+    return {"words": words, "text": text, "at": at, "how": how, "named": named, "run": run, "event": event,
+            "call": call, "episode": episode, "asked": asked, "measure": measure, "reminded": list(reminded)}
+
+
 class Concepts:
     """The feelings she has named: whatever words she put to what she felt, reflecting (life.py: looking inward or
     going back over a moment in her thoughts), each the moments she called that.
@@ -254,7 +264,8 @@ class Concepts:
     was whatever she had felt last; by the way she was moved, 82% and 80%, and 76% at four hours apart."""
 
     FLOOR = 0.6  # how strongly one must come to mind to be felt
-    SAID = 3  # her own words for a feeling, the last few times she said it
+    NAMED = ("now", "past", "unresolved", "legacy")  # what a naming names (see ``add``)
+    MEASURED = ("message", "reading", "moment", "legacy")  # what supplied a naming's numbers
 
     def __init__(self, saved: Iterable = ()):
         self.named: List[dict] = []
@@ -263,47 +274,80 @@ class Concepts:
 
     @staticmethod
     def key(words: str) -> str:
-        """Her words for a feeling as it is kept: one spacing, lower case, no end punctuation."""
-        return " ".join(str(words).split()).strip(" .,!?\"'").lower()[:80]
+        """Her words for a feeling as they are known again: one spacing, any case, no end punctuation. Her
+        wording itself is kept as she wrote it, on each naming (``words``)."""
+        return " ".join(str(words).split()).strip(" .,!?\"'").casefold()
 
     @staticmethod
     def _read(item: dict) -> dict:
         return {"word": str(item["word"]), "moved": dict(item["moved"]), "about": dict(item["about"]),
-                "count": int(item["count"]), "back": int(item["back"]), "at": float(item["at"]),
-                "said": [dict(one) for one in item["said"]]}
+                "count": int(item["count"]), "measured": int(item["measured"]), "back": int(item["back"]),
+                "back_at": item["back_at"],
+                "back_run": item["back_run"], "at": float(item["at"]),
+                "said": [Concepts._naming(one) for one in item["said"]]}
 
-    def add(self, word: str, way: Dict[str, float], situation: str = "", at: float = 0.0, said: str = "",
-            episode: Optional[int] = None) -> Optional[dict]:
-        """She put what she feels into words, ``word`` (any words: hers), her body moved this ``way`` in the
-        moment she named, in ``situation`` (its words); ``said``: her sentence as she said it, and ``episode``:
-        the moment it names, if a past one, kept with the feeling (the last SAID). The feeling."""
-        word = self.key(word)
+    @staticmethod
+    def _naming(one: dict) -> dict:
+        if one["named"] not in Concepts.NAMED or (one["measure"] and one["measure"]["of"] not in Concepts.MEASURED):
+            raise ValueError(f"not a naming: {one}")
+        return {key: one[key] for key in ("words", "text", "at", "how", "named", "run", "event", "call", "episode",
+                                          "asked", "measure", "reminded")}
+
+    def naming(self, run: Optional[int], call: Optional[str]) -> Optional[dict]:
+        """The feeling a tool call already named (a call made again names nothing twice); None: none."""
+        if call is None:
+            return None
+        return next((concept for concept in self.named for one in concept["said"]
+                     if one["call"] == call and one["run"] == run), None)
+
+    def add(self, naming: dict, situation: str = "") -> Optional[dict]:
+        """She put what she feels into words: ``naming`` is the record of it (``_naming``: her ``words`` as she
+        wrote them, the sentence she said them in, ``how``, what it ``named``: ``now`` (the experience she is
+        in: ``run``, ``event``, its ``episode`` once kept), ``past`` (the ``episode`` she pointed to),
+        ``unresolved`` (a past moment she ``asked`` for that is not there); ``measure``: what supplied the
+        numbers, ``{"of", "way", ...}`` or None; ``reminded``: what came back as she looked, which is not what
+        she named). The words become a feeling of hers, or one she had; its ``moved`` is the running mean of
+        the measured namings only (``measured`` of them: an unmeasured one moves nothing), and ``situation``
+        adds to what it is about. The feeling."""
+        naming = self._naming(naming)
+        word = self.key(naming["words"])
         if not word:
             return None
         found = next((concept for concept in self.named if concept["word"] == word), None)
         if found is None:
-            found = {"word": word, "moved": {}, "about": {}, "count": 0, "back": 0, "at": at, "said": []}
+            found = {"word": word, "moved": {}, "about": {}, "count": 0, "measured": 0, "back": 0, "back_at": None,
+                     "back_run": None, "at": naming["at"], "said": []}
             self.named.append(found)
-        kept = found["moved"]
-        share = 1.0 if not kept else max(0.15, 1.0 / (found["count"] + 1))
-        for name, value in way.items():
-            kept[name] = round(kept.get(name, value) + share * (value - kept.get(name, value)), 4)
-        about ={key: weight * 0.9 for key, weight in found["about"].items() if weight * 0.9 >= 0.05}
+        if naming["measure"]:
+            kept = found["moved"]
+            share = 1.0 if not kept else max(0.15, 1.0 / (found["measured"] + 1))
+            found["measured"] += 1
+            for name, value in naming["measure"]["way"].items():
+                kept[name] = round(kept.get(name, value) + share * (value - kept.get(name, value)), 4)
+        about = {key: weight * 0.9 for key, weight in found["about"].items() if weight * 0.9 >= 0.05}
         for key in _words(situation):
             about[key] = about.get(key, 0.0) + 1.0
-        if said:
-            found["said"] = (found["said"] + [{"text": " ".join(said.split())[:300], "at": at, "episode": episode}]
-                             )[-self.SAID:]
-        found.update(about=about, count=found["count"] + 1, at=at)
+        found["said"].append(naming)
+        found.update(about=about, count=found["count"] + 1, at=naming["at"])
         return found
 
-    def came_back(self, word: str, at: float = 0.0) -> None:
-        """A feeling of hers was felt again, in a moment she did not call by it. It is counted and no more:
-        made a little more like each moment it came back at, one drifted until it came back at everything
-        (measured: one of 108 felt 37 times, at kindness and blame alike)."""
+    def link(self, run: int, episode: int) -> bool:
+        """The moment of ``run`` was kept: her namings of it, made while she was in it, name it. Whether any did."""
+        linked = False
+        for concept in self.named:
+            for one in concept["said"]:
+                if one["named"] == "now" and one["run"] == run and one["episode"] is None:
+                    one["episode"], linked = episode, True
+        return linked
+
+    def came_back(self, word: str, at: float = 0.0, run: Optional[int] = None) -> None:
+        """A feeling of hers was recognized again by likeness, in a moment she did not call by it: counted
+        apart from her namings (``back``, when and in which run) and no more: made a little more like each
+        moment it came back at, one drifted until it came back at everything (measured: one of 108 felt 37
+        times, at kindness and blame alike)."""
         for concept in self.named:
             if concept["word"] == word:
-                concept.update(back=concept["back"] + 1, at=at)
+                concept.update(back=concept["back"] + 1, back_at=at, back_run=run)
 
     def strength(self, concept: dict, way: Dict[str, float], cue: Optional[set] = None) -> float:
         """How strongly a concept comes to mind, 0..1, with her body moved this ``way``: how alike, times how
@@ -330,9 +374,10 @@ class Concepts:
         out = []
         for concept in self.named:
             entry = {"word": concept["word"], "strength": round(self.strength(concept, way), 3),
-                     "count": concept["count"], "back": concept["back"], "at": concept["at"], "place": None,
-                     "said": list(concept["said"]),
-                     "channels": []}
+                     "count": concept["count"], "back": concept["back"], "back_at": concept["back_at"],
+                     "back_run": concept["back_run"], "at": concept["at"], "place": None,
+                     "said": [dict(one) for one in concept["said"]],
+                     "measured": concept["measured"], "channels": []}
             size = math.sqrt(sum(value * value for value in concept["moved"].values()))
             if size:
                 part = {name: value / size for name, value in concept["moved"].items() if name in CHANNELS}

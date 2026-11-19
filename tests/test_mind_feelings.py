@@ -10,7 +10,7 @@ import re
 import pytest
 from conftest import Meaning, turn, use, wait_for
 
-from sentientmilk_framework.mind.feel import CHANNELS, Concepts, Felt, _amounts, core
+from sentientmilk_framework.mind.feel import CHANNELS, Concepts, Felt, _amounts, core, naming
 from sentientmilk_framework.testing import tool_call
 
 TENSE = {"cortisol": 0.8, "noradrenaline": 0.85, "serotonin": 0.3, "reward": -0.4}
@@ -79,7 +79,7 @@ def test_naming_a_moment_she_looks_back_on_names_that_moment_and_softens_it(brai
     mind.memory.vectors.put([(i, row) for (i, _), row in zip(found, embedder.embed([t for _, t in found]))],
                             embedder.name)
     feels(mind, cortisol=0.2, noradrenaline=0.4, reward=0.3, serotonin=0.7)  # it has passed: she is fine now
-    seen = mind.look_inward("the cat drawing", naming="stung, then small")
+    seen = mind.look_inward("the cat drawing", naming="stung, then small", moment=episode["id"])
     assert 'You put it into words: "stung, then small"' in seen
     named = mind.concepts.named[0]
     assert named["moved"] == {name: change for name, change in way.items()}  # that moment's body, not her now
@@ -107,9 +107,11 @@ def test_a_thought_names_a_feeling_only_in_its_own_words(brain):
 def test_a_word_she_uses_often_comes_to_mind_sooner_than_one_she_used_once():
     way = {"cortisol": 0.9, "noradrenaline": 0.7}
     concepts = Concepts()
-    concepts.add("tense", way, "the deploy", 1.0, said="tense about the deploy")
+    concepts.add(naming("tense", "tense about the deploy", 1.0, "tool", "now", measure={"of": "reading", "way": way}),
+                 "the deploy")
     for at in range(2, 7):
-        concepts.add("nervous", way, "the deploy", float(at), said="nervous")
+        concepts.add(naming("nervous", "nervous", float(at), "tool", "now", measure={"of": "reading", "way": way}),
+                     "the deploy")
     found = dict(concepts.recognize(way))
     assert found["nervous"] > found["tense"]
     assert concepts.named[0]["said"][-1]["text"] == "tense about the deploy"
