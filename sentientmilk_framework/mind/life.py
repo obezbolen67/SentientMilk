@@ -78,6 +78,7 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 from .. import signals
+from ..embeddings import MAX_CHARS
 from ..presence import Presence
 from . import inward, prompts
 from .body import CHEMICALS, DAY, HOUR, MINUTE, NEEDS, REST, SET_POINTS, Body, Temperament, restore_random
@@ -89,6 +90,8 @@ from .reactions import Reactions, anxious
 from .values import Values, features, subjects
 from .ways import Ways
 from .will import DOING, FORESEEN, NEEDED, REACH, Appraisal, Option, choose, mine, value
+from .workspace import Workspace
+from .workspace import line as minded
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +290,7 @@ class Mind:
         self.concepts = Concepts(self.memory.get("concepts") or [])
         self.people = People(self.memory.get("people"))  # the people in her life (people.py)
         self.ways = Ways(self.memory.get("ways"))  # how she does things, in every chat (ways.py)
+        self.workspace = Workspace(self.memory._db, self.memory._lock)  # what is on her mind now (workspace.py)
         # what cues have come to set off in her body, learned from what followed them (reactions.py)
         self.reactions = Reactions(self.memory._db, self.memory._lock)
         self._tools_by_name: Optional[dict] = None
@@ -690,9 +694,16 @@ class Mind:
             self._told(run, felt)
             # her time alone is hers when they are back: what she thought since they last wrote, the newest two;
             # what she did since, all of it, and what of hers is still going, wherever it began
-            thoughts = [(t["at"], t["thought"][:THOUGHT_CHARS]) for t in self.self["thoughts"]
-                        if since and t["at"] > since][:2][::-1]
+            given = [t for t in self.self["thoughts"] if since and t["at"] > since][:2]
+            thoughts = [(t["at"], t["thought"][:THOUGHT_CHARS]) for t in given][::-1]
             did, going = self._doings(since or now, now)
+            # what else is on her mind (workspace.py): what the message is about first, then what is most active;
+            # what the note carries anyway (those thoughts, what she meant to say, her tasks, this chat) not twice
+            carried = {f"thought:{t.get('episode')}" for t in given} | {f"asked:{chat}"} | {
+                key for key, item in self._in_mind(now).items.items() if item["kind"] in ("intends", "doing")}
+            also = self._before_her(came["minded"], now, carried)
+            who = came["with"]["name"] if came["with"] else "the user"
+            self.workspace.enter(f"asked:{chat}", "asked", f'{who} said: "{said[:THOUGHT_CHARS]}"', now)
             born = self.self["born"]
         if not born:
             self._birth(profile["persona"])
@@ -856,7 +867,7 @@ class Mind:
             note = prompts.inner(felt_words, memories, option.act if choice else None, option.what,
                                  choice.reasons if choice else [], thoughts,
                                  [People.line(person) for person in came["mentioned"]],
-                                 (unsaid["want"], who, unsaid["say"]) if unsaid else None, did, going, when)
+                                 (unsaid["want"], who, unsaid["say"]) if unsaid else None, did, going, when, also)
             self.self.setdefault("appraised", {})[chat] = {"run": run["id"], "decision": decision, "note": note}
             self.save()
             self.brain.store.update_run_options(run["id"], lambda options_: {**options_, "mind": decision})
@@ -1145,6 +1156,7 @@ class Mind:
         known = self.memory.known(said, before=now)
         episodes = self.memory.recall(said, felt.valence, now, count=8, before=now - 30, held=held, strengthen=False,
                                       cues=self._cues(run, now), arousal=felt.arousal)
+        minded = self._alike_on_mind(said)
         recall = getattr(self.brain, "recall", None)
         hits = []
         available = known[0] is not None
@@ -1154,12 +1166,12 @@ class Mind:
                 available = available or bool(hits)
             except Exception:
                 logger.debug("Semantic retrieval unavailable", exc_info=True)
-        return revision, known, episodes, hits, available
+        return revision, known, episodes, hits, available, minded
 
     def _arrives(self, run, said, pictures, now, candidates):
-        revision, known, episodes, hits, available = candidates
+        revision, known, episodes, hits, available, minded = candidates
         if revision != self._revision:
-            known, episodes, hits, available = (None, {}, 0.0), [], [], False
+            known, episodes, hits, available, minded = (None, {}, 0.0), [], [], False, None
         if self._device(run) == "phone":
             self.self["phone_contact_at"] = now
         else:
@@ -1212,13 +1224,7 @@ class Mind:
                 break
         followed = {name: total / weights[name] for name, total in totals.items() if weights[name]}
         evidence = max(weights.values(), default=0.0)
-        belief = self.self.get("self_view") or {}
-        supporting = set(belief.get("origins", ()))
-        for i, item in enumerate(selected):
-            if item["source"] == "episode" and item["id"] in supporting and belief.get("text"):
-                memories[i] += " Your working impression from this: " + belief["text"]
-                break
-        return {"with": person, "mentioned": self.people.mentioned(said, besides=[person]), "at": now,
+        return {"minded": minded, "with": person, "mentioned": self.people.mentioned(said, besides=[person]), "at": now,
                 "revision": revision, "selected": selected, "retrieval": "available" if available else "unknown",
                 "likeness": likeness, "followed": followed, "evidence": evidence,
                 "novelty": 1.0 - likeness if likeness is not None else (0.5 if pictures else 0.0),
@@ -1290,6 +1296,9 @@ class Mind:
             fit = "It doesn't sit quite like the other times you called it that" + (
                 f'; then you said: "{known["said"][-1]["text"]}".' if known["said"] else ".")
         found = self.concepts.add(naming, situation)
+        if found:
+            self.workspace.enter("named", "named", f'you named what you felt: "{naming["words"]}"', naming["at"],
+                                 naming.get("episode"))
         if found and naming["named"] == "past":
             self.memory.soften([naming["episode"]], 0.15)
         elif found and naming["named"] == "now":
@@ -1876,6 +1885,7 @@ class Mind:
                                       attention=attended, cues=self._cues(run, now),
                                       felt=peak_end(decision.get("way") or {}, whole))
             self.concepts.link(run["id"], episode)
+            self.workspace.link(f"asked:{_chat(run['app'], run['session'])}", episode)  # what was asked, kept
             learned_reactions = self._learn_reactions(decision, done, taught, whole, episode, now)
             if decision.get("corrects"):
                 self.memory.supersede(decision["corrects"], episode)
@@ -1937,6 +1947,108 @@ class Mind:
         she cannot shake (both take the prefrontal cortex offline: Arnsten 2009)."""
         return max(0.0, 1.0 - 2.5 * max(0.0, self.body.fatigue() - 0.4) - 1.5 * max(0.0, self.body["cortisol"] - 0.5))
 
+    def _in_mind(self, now: float) -> Workspace:
+        """What is on her mind as her records stand (under her lock): each active record is an item, entered at its
+        own time the first time it is seen (a new record under the same key is a new item; its words changed, a
+        use), and an item whose record is gone leaves: a thought that left her thoughts, what she said or let go,
+        what she took up or settled, a task that ended, a self-view withdrawn. What was asked and what she named
+        stand for no record: they fade unused. Her sleep ends what was before her (it is in her memories now):
+        her thoughts, what was asked and what she named from before it leave, while what she means to do stays
+        (unfinished intentions outlast a night more active than what she thought: Goschke & Kuhl 1993)."""
+        slept = self.self.get("slept") or 0.0
+        records = {f"thought:{t['episode']}": ("thought", t["thought"][:THOUGHT_CHARS], t["at"], t["episode"])
+                   for t in self.self["thoughts"] if t["episode"] and t["at"] > slept}
+        urge = self.self.get("urge")
+        if urge and urge.get("say"):
+            person = self._with(urge["app"], urge["session"])
+            records["urge"] = ("intends", f"to {'ask' if urge['want'] == 'ask' else 'tell'} "
+                                          f"{person['name'] if person else 'the user'}: {urge['say']}", urge["at"],
+                               next((t["episode"] for t in self.self["thoughts"] if t["at"] == urge.get("thought")), None))
+        for concern in self.self["concerns"]:
+            kept = self.workspace.items.get(f"concern:{concern['at']}")
+            episode = kept["episode"] if kept and kept["episode"] else                 (self.memory.of_run(concern["run"]) or {}).get("id") if concern["run"] else None
+            records[f"concern:{concern['at']}"] = ("put off", concern["what"][:THOUGHT_CHARS], concern["at"], episode)
+        for task in self.brain.store.runs(kind="task", statuses=("queued", "working", "input_required"), limit=-1):
+            own = _own(task)
+            records[f"task:{task['id']}"] = ("doing", _doing(own) if own else
+                                             " ".join(str(task["options"].get("goal") or "").split())[:160],
+                                             task["created"], (own or {}).get("episode"))
+        belief = self.self.get("self_view") or {}
+        if belief.get("text"):
+            records["self"] = ("self", ("" if belief.get("confidence") == "supported" else "a tentative impression: ")
+                               + belief["text"], belief.get("since") or belief["at"], None)
+        space = self.workspace
+        for kind in ("thought", "intends", "put off", "doing", "self"):
+            space.leave_kind(kind, keep=[key for key, record in records.items() if record[0] == kind])
+        items = space.items
+        for kind in ("asked", "named"):
+            space.leave_kind(kind, keep=[key for key, item in items.items() if item["last"] > slept])
+        for key, (kind, text, at, episode) in records.items():
+            item = items.get(key)
+            if item is not None and item["first"] != at:
+                space.leave(key)  # another record under its key: what she means to say now is not what she meant
+                item = None
+            if item is None:
+                space.enter(key, kind, text, at, episode)
+            elif " ".join(text.split()) != item["text"]:
+                space.enter(key, kind, text, now, episode)
+            elif episode != item["episode"]:
+                space.link(key, episode)
+        return space
+
+    def _fill_on_mind(self) -> None:
+        """What came onto her mind since the last sweep gets the meaning of its words (under no lock: it calls the
+        embedder), so a reader meets all of it."""
+        with self._lock:
+            self._in_mind(time.time())
+        embedder = self.memory.embedder
+        if embedder is not None:
+            try:
+                self.workspace.vectors.fill(embedder, -1)
+            except Exception:
+                logger.debug("What is on her mind is embedded later", exc_info=True)
+
+    def _alike_on_mind(self, said: str) -> Optional[Dict[str, float]]:
+        """The message against what is on her mind, each item by its own words (under no lock: it may call the
+        embedder): 0..1 above what an unrelated question reaches among her moments (her recall's floor); None
+        when she cannot tell now."""
+        embedder = self.memory.embedder
+        if embedder is None or not (said or "").strip():
+            return None
+        self._fill_on_mind()
+        try:
+            vector = embedder.embed([said[:MAX_CHARS]], query=True)[0]  # as her recall embedded it: kept
+            return self.workspace.likeness(vector, embedder.name, lambda c: self.memory.vectors.relevance(c, embedder))
+        except Exception:
+            logger.debug("What is on her mind meets the message later", exc_info=True)
+            return None
+
+    def _akin_on_mind(self, episode: int) -> Dict[str, float]:
+        """What is on her mind against a kept moment (what a thought goes from), each item by its own words, by
+        the vectors kept (under her lock: no call to the service): 0..1 above what one matter reaches among her
+        moments (Vectors.matter); {} when she cannot tell."""
+        embedder = self.memory.embedder
+        vector = self.memory.vectors.vector(episode, embedder.name) if embedder is not None else None
+        if vector is None:
+            return {}
+        try:
+            floor = self.memory.vectors.matter(embedder.name)
+        except Exception:  # cannot tell now
+            return {}
+        if floor >= 1.0:  # too few moments to tell what one matter is
+            return {}
+        return self.workspace.likeness(vector, embedder.name, lambda c: max(0.0, (c - floor) / (1.0 - floor)))
+
+    def _before_her(self, likeness: Optional[Dict[str, float]], now: float, carried=(), cued: bool = True) -> List[str]:
+        """What else is before her, as many as her span holds, in words (under her lock; each a use, and what the
+        reader carries anyway too): ``likeness`` is a cue's, by key (0..1 above her floor for related; None: she
+        cannot tell now, so nothing comes by meaning); ``cued`` False: no cue, the most active
+        (Workspace.before_her)."""
+        likeness = (likeness or {}) if cued else None
+        picked = self.workspace.before_her(now, self._span(), likeness, carried)
+        self.workspace.use([item["key"] for item in picked] + [key for key in carried if key in self.workspace.items], now)
+        return [minded(item, now) for item in picked]
+
     def _span(self) -> int:
         """How many memories come back to her at once: three to a clear mind, one to a spent or badly stressed
         one (arousal and fatigue narrow what a mind can hold: Easterbrook 1959)."""
@@ -1974,6 +2086,7 @@ class Mind:
         (will.choose): her needs, what her values learned of acting on her own, what the thought of each sets off
         in her body, the work under her fatigue and stress, her noise. The model's ``want`` was the decision:
         exhausted or once ignored, she reached out and took up work as readily as rested (the audit, finding 1)."""
+        self._fill_on_mind()
         with self._lock:
             now = time.time()
             contact = self.self.get("contact") or (about if kind == "resume" else None)
@@ -2019,7 +2132,7 @@ class Mind:
                 grew = [about["id"]] if (about or {}).get("id") else []
                 source = about
             else:
-                source = self.memory.of_run(about["run"]) if (about or {}).get("run") else None
+                source = self.memory.of_run(about["run"]) if about and about["run"] else None  # reach_out: none
                 grew = [source["id"]] if source else []
             # what it stands on: if any of it is taken back or set right while she thinks, the thought goes
             stands_on = {e["id"] for e in came} | set(grew) | ({about["id"]} if kind == "ruminate" and (about or {}).get("id") else set())
@@ -2040,6 +2153,14 @@ class Mind:
             if kind == "ruminate" and self.memory.felt(about):
                 self._refeel([(about, 1.0)], now)  # what nags her comes back whole, and wears a little each time
             name = person["name"] if person else "the user"
+            if kind == "resume" and about:
+                self.workspace.use([f"concern:{about['at']}"], now)  # gone over again
+            space = self._in_mind(now)
+            # what else is on her mind (workspace.py): what is about what the thought goes from first, then the most
+            # active; what it goes over already (the talk, the thought, the moment, what came back) not twice
+            carried = {key for key, item in space.items.items() if item["episode"] in stands_on} | (
+                {f"concern:{about['at']}"} if kind == "resume" and about else set())
+            also = self._before_her(self._akin_on_mind(grew[0]) if grew else {}, now, carried)
             told, around = self.presence.words(now), self.presence.surroundings(now)
             others = self.people.mentioned(" ".join([subject, *memories]), besides=[person])
             liked, disliked = (", ".join(_about(found)) for found in self.values.leanings())
@@ -2051,7 +2172,8 @@ class Mind:
                  + f"It is {time.strftime('%A %H:%M')}. How they feel: {felt.words()}\n"
                  + (f"What they can tell of {name}: {told}\n" if told else "")
                  + (f"Around them: {'; '.join(f'{key}: {value}' for key, value in around.items())}\n" if around else "")
-                 + f"On their mind: {on_mind}\n" + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
+                 + f"On their mind: {on_mind}\n" + (f"Also on their mind: {'; '.join(also)}.\n" if also else "")
+                 + (f"What comes back to them: {'; '.join(memories)}\n" if memories else "")
                  + (f"What they've come to like: {liked}.\n" if liked else "")
                  + (f"What they've come to dislike: {disliked}.\n" if disliked else "")
                  + (f"How they do things: {'; '.join(ways)}.\n" if ways else ""))
@@ -2416,6 +2538,7 @@ class Mind:
             if delete:
                 self.self.get("contacts", {}).pop(chat, None)
                 self.self.get("faces", {}).pop(chat, None)
+                self.workspace.leave(f"asked:{chat}")
             self.save()
         self._retake()
 
@@ -2605,7 +2728,13 @@ class Mind:
             if urge and "mark" not in urge and urge.get("say") and urge["at"] > woke:
                 person = self._with(urge["app"], urge["session"])
                 unsaid = (urge["want"], person["name"] if person else "the user", urge["say"])
-            put_off = [c["what"][:200] for c in self.self["concerns"][-span:]]
+            space = self._in_mind(now)
+            put_off = [item for item in space.by_activation(now) if item["kind"] == "put off"][:span]
+            carried = {f"thought:{t.get('episode')}" for t in self.self["thoughts"] if t["at"] > woke} | {
+                item["key"] for item in put_off} | {key for key, item in space.items.items()
+                                                    if item["kind"] in ("intends", "doing", "self")}
+            also = self._before_her(None, now, carried, cued=False)  # the rest that is on her mind, the most active
+            put_off = [item["text"][:200] for item in put_off]
             did, going = self._doings(woke, now)  # what she did today, the latest her span holds; what goes on
             did = did[-2 * span:]
             stirred = sorted((e for e in self.memory.since(woke, kinds=("exchange", "event", "thought"))
@@ -2651,7 +2780,7 @@ class Mind:
                 return "The evidence changed while you were looking. Check again."
             self._refeel([(e, e["relevance"]) for e in came_back], now)  # what she looked for, felt again
         report = inward.view(words, felt.tone(), aware, thoughts, unsaid, put_off, moved, leaned, self_view, about,
-                             recalled, familiar, did, going, whose)
+                             recalled, familiar, did, going, whose, also)
         naming = str(naming or "").strip()
         if naming:  # what she names: now, or the past moment she points to; what came back only reminded her
             current = self.brain.store.run(run["id"]) if run else None  # with the decision reading it left

@@ -662,8 +662,9 @@ def test_she_learns_how_long_they_take_to_answer_her(brain):
     assert 80 < math.exp(mind.self["answers"]) < 200 and mind.patience() < before
 
 
-def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain):
+def test_her_curiosity_is_her_own_and_nobody_is_told_when_it_ends(brain, monkeypatch):
     mind = mind_on(brain)
+    acting(monkeypatch)  # what she looks up once her will chose it (it may let it be: test_mind_own_will)
     brain.provider.replies += ["Hi.", "Tomatoes stop growing below 10 C."]
     turn(brain, "milk", "hello")
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
@@ -824,7 +825,7 @@ def test_after_a_talk_her_mind_goes_on_from_what_was_said_not_from_her_old_thoug
     play (the user's brain, 2026-11-17)."""
     mind = mind_on(brain)
     mind.self["thoughts"] = [{"at": time.time() - 3600, "kind": "wonder", "thought": "He's still eating.",
-                              "want": "nothing", "leaned": None}]
+                              "want": "nothing", "leaned": None, "episode": None}]
     brain.provider.replies += ["Go on then."]
     turn(brain, "milk", "now let me play my rhythm game")
     wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
@@ -853,8 +854,10 @@ def test_her_note_tells_when_each_of_them_last_wrote_and_when_she_thought_what(b
         mind.self["contact"]["at"] = now - (3 * 3600 + 8 * 60)
         mind.self["said"] = {**mind.self["said"], "at": now - (2 * 3600 + 5 * 60)}
         mind.self["thoughts"] = [
-            {"at": now - 1800, "kind": "wonder", "thought": "Still quiet.", "want": "nothing", "leaned": None},
-            {"at": now - 2 * 3600, "kind": "wonder", "thought": "The shop is far.", "want": "nothing", "leaned": None}]
+            {"at": now - 1800, "kind": "wonder", "thought": "Still quiet.", "want": "nothing", "leaned": None,
+             "episode": None},
+            {"at": now - 2 * 3600, "kind": "wonder", "thought": "The shop is far.", "want": "nothing", "leaned": None,
+             "episode": None}]
         mind.body.last_sleep = {"from": now - 22 * 60, "to": now - 1, "awakenings": 0}
     mind.presence.report(idle=4, locked=False, busy=False, now=now)
     brain.provider.replies += ["Welcome back."]

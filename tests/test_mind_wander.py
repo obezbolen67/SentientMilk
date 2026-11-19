@@ -42,7 +42,8 @@ def wandered(mind):
 def test_her_last_thought_comes_with_when_it_was_and_what_she_can_tell_of_the_user(brain):
     mind = brain.brain.mind
     now = time.time()
-    mind.self["thoughts"] = [{"at": now - 3 * 3600, "kind": "wonder", "thought": "He's still eating.", "want": "nothing", "leaned": None}]
+    mind.self["thoughts"] = [{"at": now - 3 * 3600, "kind": "wonder", "thought": "He's still eating.", "want": "nothing", "leaned": None,
+                              "episode": None}]
     mind.presence.report(idle=2 * 3600, locked=False, busy=False, now=now, around=SONG)
     think(brain, "It's gone quiet.")
     seen = asked(brain)

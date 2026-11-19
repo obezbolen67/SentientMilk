@@ -172,9 +172,11 @@ right at start (`logic`, `met_past`, a body's `entrained` and sleep `model`, an 
 gone. Format 2 (0.45, `scripts/migrate_format_2.py` in the history): each naming of a feeling is a record of
 what it named and what measured it (section 10.12); the namings kept before it are stored as older
 software's, the moment it took as named kept and what she meant not reconstructed, with no numbers of their
-own (only the feeling's mean was kept, and stays). Format 3 (0.46, `scripts/migrate_format_3.py`): thoughts and
-her own tasks from before are marked as not chosen by her will (`leaned` None), a waiting wish as teaching
-nothing. A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
+own (only the feeling's mean was kept, and stays). Format 3 (0.46, `scripts/migrate_format_3.py` in the history): thoughts
+and her own tasks from before are marked as not chosen by her will (`leaned` None), a waiting wish as teaching
+nothing. Format 4 (0.47, `scripts/migrate_format_4.py`): what is on her mind gets its table (`workspace`, with
+`workspace_vectors` beside it), and what she put off before concerns kept their turn keeps it (`run`: the turn
+whose moment of that chat was kept first after it, if it had begun by then). A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
 
 Run states use the MCP Tasks names plus `queued`: `queued`, `working`, `input_required`,
 `completed`, `failed`, `cancelled`.
@@ -1205,6 +1207,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 | `memory.py` | her memories as a network for apps (`network`, `revision`, 0.41); episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
 | `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
 | `prompts.py` | birth (temperament from the persona), imagine, think and sleep, each JSON, each marked `[mind:<kind>]` |
+| `workspace.py` | what is on her mind now (0.47, section 10.16): her thoughts since she slept, what she means to say, her tasks going, what she put off, her self-view, what was just asked, the feeling she last named; each with its uses (ACT-R's base level) and the meaning of its own words; a turn, a thought and looking inward each take what their cue is about and what she means to do, as far as her span holds |
 
 A turn with the user's words: `Runs.log_input` asks `Mind.before`, which wakes her if asleep and senses
 what code can measure: the contact itself, whether it answers her urge, how unexpected its timing is
@@ -1970,6 +1973,53 @@ reader, read for any reason.
 far each level moved, of what chat: `Body.on_push`, `Mind._pushing_for`) and her levels at each message, turn's
 end, thought, falling asleep and waking, kept for good: for audits and for replaying her days through a changed
 model. She is never shown it. A deleted chat's pushes, which quote it, go with it (`forget_pushes`).
+
+### 10.16 What is on her mind (0.47)
+
+Before 0.47 what was active for her lived in separate keys (`thoughts`, `urge`, `concerns`, her tasks, her
+self-view) and each process picked from them by its own rules. A turn's note gave the last two thoughts since
+the user wrote, the wish and her tasks, never something she had put off nor an older thought about the very
+thing asked, and her self-view only when a recalled memory was one it rested on; a thought saw what it went
+over, never what she was in the middle of (the architecture audit, findings 2, 3 and 6). One workspace,
+written by every process and read by each by what matters to it now, makes them one mind
+(`mind/workspace.py`; Baars 1988, Dehaene & Naccache 2001; design: `docs/superpowers/specs/2026-11-19-workspace-design.md`).
+
+- **Items** stand for her records: a thought (since she slept), the wish her will chose, a task going (hers or
+  asked), something she put off, her self-view; and two that stand for none: what was just asked in a chat (its
+  moment linked when kept) and the feeling she last named. Record-backed items are kept in step with her records
+  whenever a reader looks (`Mind._in_mind`): a record seen the first time enters at its own time, a new record
+  under the same key is a new item, changed words are a use, and an item whose record is gone leaves. Her sleep
+  ends what was before her (her thoughts, what was asked and what she named from before it leave: it is in her
+  memories now), while what she means to do stays (unfinished intentions outlast a night more active than what
+  she thought: Goschke & Kuhl 1993).
+- **How active** follows its uses, as ACT-R's base level (ln of the summed traces t^-0.5: Anderson & Schooler
+  1991; d = 0.5, ACT-R's default), kept as count, first and last (Petrov 2006's approximation; uses at one moment
+  count as that many traces of one age). A use is a reader putting it before her, picked or carried, or a
+  process going over it again (a put-off concern thought over).
+- **Meaning** by its own words: each item's text has a vector beside it (`workspace_vectors`, embedded by the
+  sweep that embeds her moments, and before a reader looks), so "how are the live results looking?" meets what
+  she put off, "wait a month of live results", and not the turn it was put off in, which was about rent and ROI
+  (on her real mind, 2026-11-19: by the turn it found nothing, by its own words 0.25).
+- **Selection** (`Workspace.before_her`): with a cue, what she means to do now (her wish, her tasks), then what
+  the cue is about, the most alike first, as far as her span holds (`_span`: three clear, one spent; Cowan 2001,
+  Easterbrook 1959); what the cue is not about stays out, however fresh: a memory's base level alone brings
+  nothing back without its context, and something put off comes when something calls it up (McDaniel & Einstein
+  2000) or when it nags (`resume`). "About" is above her own floors, no new threshold: a message against what
+  an unrelated question reaches among her moments (her recall's), a thought's moment against what one matter
+  reaches (`Vectors.matter`). With the service down nothing comes by meaning, and not what is most active in its
+  place (the negative control). Before this, filling her span with whatever was most active brought her
+  4-hour-old thoughts into "what should we cook tonight?".
+- **Readers.** The turn's note: "Also on your mind: ..." after "Still going", without what the note carries
+  (the thoughts since they wrote, the wish, her tasks, this chat's message); it replaces `_arrives`' one path
+  for her self-view. THINK: "Also on their mind: ...", without what the thought goes over. Looking inward: what
+  she put off by how active it is (it was the newest by list order), and "Also before you now" with the most
+  active of the rest (no cue: introspection sees what is most active).
+
+Measured on a copy of her real mind (2026-11-19): "how are the live results looking? has it been a month
+yet?" brought what she put off 14 hours ago and her thought about a month of waiting on the watcher; "I'm
+back, sorry I was gone so long" her self-view (she counts the time when someone is away); "is the watcher still
+running?" the watcher thought; "what should we cook tonight?" nothing; a thought from her last thought, the two
+earlier ones on the same matter.
 
 ## 11. Models and providers
 

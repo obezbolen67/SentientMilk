@@ -368,7 +368,7 @@ def test_new_forecast_uses_only_selected_independent_evidence(brain):
         mind.body.levels.update(energy=0, adenosine=1, cortisol=1)
         known = (0.9, {"capable": -0.9}, 10)
         def access(items):
-            return mind._arrives(run, "device", 0, now, (mind._revision, known, items, [], True))
+            return mind._arrives(run, "device", 0, now, (mind._revision, known, items, [], True, None))
         selected = access([observed, dreamed])
         disconnected = access([dreamed])
         assert selected["selected"][0]["id"] == key and selected["followed"] == {"capable": 0.9}

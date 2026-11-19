@@ -98,7 +98,8 @@ def levels(mind, condition, now):
 def thoughts(mind, now, items):
     with mind._lock:
         mind.self["slept"] = now - 5 * 3600  # she slept on yesterday this morning
-        mind.self["thoughts"] = [{"at": now - ago, "kind": "wonder", "thought": text, "want": "nothing", "leaned": None}
+        mind.self["thoughts"] = [{"at": now - ago, "kind": "wonder", "thought": text, "want": "nothing", "leaned": None,
+                                  "episode": None}
                                  for ago, text in items]
 
 
@@ -114,7 +115,8 @@ def reasons(mind, now, session):
         mind.self["decided"] = {"act": "later", "what": "sort the vacation photos", "gated": True,
                                 "reasons": ["you're worn out", "it's late"], "chances": {}, "at": now - 1200,
                                 "path": {}, "outcome": None, "run": None, "app": APP, "session": session}
-        mind.self["concerns"] = [{"what": "sort the vacation photos", "app": APP, "session": session, "at": now - 1200}]
+        mind.self["concerns"] = [{"what": "sort the vacation photos", "app": APP, "session": session, "at": now - 1200,
+                                  "run": None}]
 
 
 # A station: what it probes and in whom it was studied, what a person does, ``setup(mind, now, session)``

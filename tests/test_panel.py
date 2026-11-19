@@ -35,8 +35,7 @@ def test_the_panel_shows_the_brain_and_saves_the_provider(brain):
     async def scenario(panel, pilot):
         assert "running" in str(panel.query_one("#state").render())
         panel.action_tab("overview")
-        await pilot.pause(0.1)
-        assert "✓ saved" in str(panel.query_one("#provider-info").render())
+        await until(pilot, lambda: "✓ saved" in str(panel.query_one("#provider-info").render()))
         panel.action_tab("provider")
         await pilot.pause()
         assert panel.query_one("#p-key", Input).value == ""  # keys are never shown
@@ -73,8 +72,8 @@ def test_she_can_think_with_claude_code_chosen_in_the_panel(brain):
         await until(pilot, lambda: panel.claude.get("models"))
         assert panel.query_one("#service-card").display and not panel.query_one("#claude-models").display
         panel.query_one("#p-provider", Select).value = "claude_code"
-        await pilot.pause(0.1)
-        assert not panel.query_one("#service-card").display and panel.query_one("#claude-models").display
+        await until(pilot, lambda: not panel.query_one("#service-card").display)  # a fixed 0.1 s missed it under load
+        assert panel.query_one("#claude-models").display
         # the API service's thinking, window and requests go with its card: set on Claude Code, they changed it
         for field in ("p-thinking", "p-thinking-tokens", "p-context", "p-vision", "p-stream", "p-budget"):
             assert panel.query_one(f"#service-card #{field}")
@@ -135,7 +134,7 @@ def test_schedules_are_paused_and_deleted_after_asking(brain):
 def test_stopping_the_brain_from_the_panel(brain):
     async def scenario(panel, pilot):
         panel.action_stop()
-        await pilot.pause(0.1)
+        await until(pilot, lambda: len(panel.screen.query("#yes")))  # the question is up
         await press(pilot, panel, "yes")
         await until(pilot, lambda: panel.state == "stopped")
         await until(pilot, lambda: "stopped" in str(panel.query_one("#state").render()))
@@ -188,8 +187,7 @@ def test_a_plugin_she_made_is_trusted_here(brain):
         await until(pilot, lambda: table.row_count > 1)
         assert "untrusted" in str(table.get_row("moon"))
         table.move_cursor(row=table.get_row_index("moon"))
-        await pilot.pause(0.1)
-        assert "ask every time" in str(panel.query_one("#plugin-detail").render())
+        await until(pilot, lambda: "ask every time" in str(panel.query_one("#plugin-detail").render()))
         await press(pilot, panel, "plugin-trust")
         await press(pilot, panel, "yes")
         assert brain.brain.plugins.trusted("moon")
@@ -214,7 +212,7 @@ def test_skills_show_here_and_hers_are_removed_after_asking(brain, monkeypatch):
         await until(pilot, lambda: table.row_count == 2)
         assert [str(cell) for cell in table.get_row("packing-lists")][:2] == ["packing-lists", "you and her"]
         table.move_cursor(row=table.get_row_index("packing-lists"))
-        await pilot.pause(0.1)
+        await until(pilot, lambda: "packing-lists" in str(panel.query_one("#skill-detail").render()))
         detail = str(panel.query_one("#skill-detail").render())
         assert "Start it: /packing-lists [trip]" in detail and "packing-lists" in detail
         await press(pilot, panel, "skill-open")
@@ -236,7 +234,7 @@ def test_her_browser_is_set_in_the_tools_tab(brain, tmp_path):
 
     async def scenario(panel, pilot):
         panel.action_tab("tools")
-        await pilot.pause(0.2)
+        await until(pilot, lambda: len(panel.query("#t-browser")))
         assert panel.query_one("#t-browser", Input).value == ""  # found by itself
         panel.query_one("#t-browser", Input).value = str(chrome)
         await press(pilot, panel, "t-save")
@@ -257,9 +255,10 @@ def test_a_table_message_that_lands_while_the_panel_closes_is_dropped(brain):
 @pytest.mark.mind
 def test_her_mind_shows_in_its_tab(brain):
     brain.brain.mind.self["thoughts"] = [{"at": time.time(), "kind": "wonder", "thought": "Clouds are odd.",
-                                          "want": "nothing", "leaned": None},
+                                          "want": "nothing", "leaned": None, "episode": None},
                                          {"at": time.time() - 60, "kind": "wonder", "thought": "I miss them.",
-                                          "want": "tell", "leaned": None, "went": "kept"}]
+                                          "want": "tell", "leaned": None, "went": "kept",
+                                          "episode": None}]
     brain.brain.mind.self["self_view"] = {"text": "I sulk when ignored.", "since": time.time(), "at": time.time()}
     brain.brain.mind.self["looked"] = {"at": time.time(), "about": "the clock"}
     brain.brain.mind.self["remembered"] = [{"at": time.time(), "episode": 1, "text": "The night the song played.",

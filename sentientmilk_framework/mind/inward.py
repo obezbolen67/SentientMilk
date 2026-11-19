@@ -40,7 +40,7 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
          moved: Sequence[Tuple[str, float, Optional[str]]] = (), leaned: Optional[Tuple[str, Sequence[str]]] = None,
          self_view: str = "", about: str = "", recalled: Optional[Sequence[Tuple[str, float]]] = None,
          familiar: Sequence[Tuple[str, str, str]] = (), did: Sequence[str] = (), going: Sequence[str] = (),
-         whose: Sequence[str] = ()) -> str:
+         whose: Sequence[str] = (), also: Sequence[str] = ()) -> str:
     """What she finds looking inward, in words. ``felt``: her body in body words (Felt.words: never a feeling's
     name); ``tone``: Felt.tone(), all she can tell when ``aware`` is under AWARE; ``familiar``: feelings she has
     named herself that her body feels like now, (word, her own words then, when): the memory of saying it, never
@@ -49,7 +49,7 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
     sting, what she called it if she put it into words); ``leaned``: (the way she leaned, her reasons); ``about`` and ``recalled``: what she looked for and
     what came back, (memory, its strength now); ``did``: what she did since she woke, as she keeps it, oldest
     first; ``going``: what of hers is still going; ``whose``: the feeling words she looked for that are hers, with
-    when she said them."""
+    when she said them; ``also``: what else is before her now (workspace.py), the most active first."""
     parts: List[str] = []
     if aware >= AWARE:
         parts.append(felt.rstrip(".") + ".")
@@ -73,6 +73,8 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
         parts.append("Still going: " + "; ".join(going) + ".")
     if put_off:
         parts.append("What you put off: " + "; ".join(put_off) + ".")
+    if also:
+        parts.append("Also before you now: " + "; ".join(also) + ".")
     if moved:
         parts.append("What got to you today: " + "; ".join(
             f"{moment} ({'it hurt' if sting < 0 else 'it lifted you'}"

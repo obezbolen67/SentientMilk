@@ -44,6 +44,25 @@ SAME = (("turn off the lights", "switch the lights off"), ("deleting old files",
         ("a burnt dinner", "dinner got burned"))
 
 
+def schema(table: str) -> str:
+    """The vectors kept beside ``table``, kept in step with its rows (gone with a row, stale with its text)."""
+    return f"""
+            CREATE TABLE IF NOT EXISTS {table}_vectors (id INTEGER PRIMARY KEY, model TEXT NOT NULL,
+                                                         vector BLOB NOT NULL);
+            CREATE TABLE IF NOT EXISTS {table}_vector_revision (id INTEGER PRIMARY KEY, revision INTEGER NOT NULL);
+            INSERT OR IGNORE INTO {table}_vector_revision VALUES(1,0);
+            CREATE TRIGGER IF NOT EXISTS {table}_vector_insert AFTER INSERT ON {table}_vectors BEGIN
+                UPDATE {table}_vector_revision SET revision=revision+1 WHERE id=1; END;
+            CREATE TRIGGER IF NOT EXISTS {table}_vector_delete AFTER DELETE ON {table}_vectors BEGIN
+                UPDATE {table}_vector_revision SET revision=revision+1 WHERE id=1; END;
+            CREATE INDEX IF NOT EXISTS {table}_vectors_model ON {table}_vectors (model);
+            CREATE TRIGGER IF NOT EXISTS {table}_vector_gone AFTER DELETE ON {table} BEGIN
+                DELETE FROM {table}_vectors WHERE id = old.id; END;
+            CREATE TRIGGER IF NOT EXISTS {table}_vector_stale AFTER UPDATE OF text ON {table} BEGIN
+                DELETE FROM {table}_vectors WHERE id = old.id; END;
+"""
+
+
 class Vectors:
     def __init__(self, db: sqlite3.Connection, table: str, lock: threading.RLock):
         self.db, self.table, self.lock = db, table, lock
@@ -53,21 +72,7 @@ class Vectors:
         self._sames: Dict[str, Tuple[float, float]] = {}  # model -> (what one thing reaches, what unrelated does)
         self._matters: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, what one matter reaches)
         with lock:
-            db.executescript(f"""
-                CREATE TABLE IF NOT EXISTS {table}_vectors (id INTEGER PRIMARY KEY, model TEXT NOT NULL,
-                                                             vector BLOB NOT NULL);
-                CREATE TABLE IF NOT EXISTS {table}_vector_revision (id INTEGER PRIMARY KEY, revision INTEGER NOT NULL);
-                INSERT OR IGNORE INTO {table}_vector_revision VALUES(1,0);
-                CREATE TRIGGER IF NOT EXISTS {table}_vector_insert AFTER INSERT ON {table}_vectors BEGIN
-                    UPDATE {table}_vector_revision SET revision=revision+1 WHERE id=1; END;
-                CREATE TRIGGER IF NOT EXISTS {table}_vector_delete AFTER DELETE ON {table}_vectors BEGIN
-                    UPDATE {table}_vector_revision SET revision=revision+1 WHERE id=1; END;
-                CREATE INDEX IF NOT EXISTS {table}_vectors_model ON {table}_vectors (model);
-                CREATE TRIGGER IF NOT EXISTS {table}_vector_gone AFTER DELETE ON {table} BEGIN
-                    DELETE FROM {table}_vectors WHERE id = old.id; END;
-                CREATE TRIGGER IF NOT EXISTS {table}_vector_stale AFTER UPDATE OF text ON {table} BEGIN
-                    DELETE FROM {table}_vectors WHERE id = old.id; END;
-            """)
+            db.executescript(schema(table))
 
     def put(self, rows: List[Tuple[int, np.ndarray]], model: str) -> None:
         with self.lock:
@@ -93,6 +98,18 @@ class Vectors:
         with self.lock:
             return [(row[0], row[1]) for row in self.db.execute(
                 f"SELECT id, text FROM {self.table} WHERE id IN ({','.join('?' * len(ids))})", list(ids))]
+
+    def fill(self, embedder, limit: int) -> int:
+        """Embeds up to ``limit`` rows without a vector of ``embedder``'s, the newest first, and keeps those whose
+        text is still the same; how many it found. It calls the embedder: never under a lock."""
+        found = self.texts(self.pending(embedder.name, limit))
+        if found:
+            rows = embedder.embed([text for _, text in found])
+            with self.lock:
+                current = dict(self.texts([row for row, _ in found]))
+                self.put([(row, vector) for (row, text), vector in zip(found, rows) if current.get(row) == text],
+                         embedder.name)
+        return len(found)
 
     def count(self, model: str) -> int:
         with self.lock:

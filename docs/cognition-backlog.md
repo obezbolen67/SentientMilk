@@ -51,9 +51,10 @@ Verified against the code with a plan: docs/superpowers/specs/2026-11-19-cogniti
 - [x] **P1 Thoughts that survive an outage** (0.46). A thought's refractory time is used up before the model is
   known to be there; a failed call loses the thought; any correction anywhere discards thoughts in flight.
   First step: stamp on start, keep the bid on failure, drop only for retracted sources (0.46).
-- [ ] **P1 A shared workspace.** What is active (goals, concerns, intentions, percepts, the question at hand,
-  expectations, her self-view) lives in separate keys each process selects from by its own rules. First step:
-  `mind/workspace.py`, limited and decaying, written by every process and read by relevance (0.47).
+- [x] **P1 A shared workspace** (0.47). What is active (goals, concerns, intentions, percepts, the question at
+  hand, expectations, her self-view) lived in separate keys each process selected from by its own rules.
+  `mind/workspace.py`: limited by her span, decaying unless used, written by every process, read by what the
+  cue is about (architecture 10.16). Percepts come with events (0.50), expectations with sleep's (0.48).
 - [ ] **P2 Evaluation controls.** The exam runs on her persona with no control arm. First step: a neutral
   persona arm and a state-unset arm; an ablation harness clamping one channel at a time.
 
@@ -65,7 +66,8 @@ Verified against the code with a plan: docs/superpowers/specs/2026-11-19-cogniti
   moment moved her and she is calm (low cortisol), a distanced "why", feeding her self-view.
 - [ ] **P2 Self-view in every turn.** A self-concept steers behaviour all the time (self-verification: Swann
   1983), not only when asked. Hers is read only when she looks inward. First step: give the self-view to THINK
-  and the turn snapshot, measured live against without.
+  and the turn snapshot, measured live against without. 0.47: it comes to a turn or thought whose matter it is
+  about (the workspace); whether it should stand in every one is the open part, to measure live.
 - [ ] **P3 Automatic look on questions about her.** If she does not call `look_inward` when asked how she is,
   the question itself should turn her attention inward (Duval & Wicklund 1972: self-focus is triggered). Only
   if the live call rate is low.
@@ -100,7 +102,8 @@ Verified against the code with a plan: docs/superpowers/specs/2026-11-19-cogniti
   vector (recent meaning, body, cues) kept with each episode, measured against the cues on replayed days.
 - [ ] **P3 Selective attention.** Attention picks what matters and suppresses the rest (biased competition:
   Desimone & Duncan 1995). Her bids compete for thoughts, but in a turn she gets everything at once. First
-  step: what her note carries chosen by relevance and charge, with a span, not all parts every time.
+  step: what her note carries chosen by relevance and charge, with a span, not all parts every time. 0.47: its
+  new part ("Also on your mind") is chosen so; the older parts move one at a time, each measured.
 
 ## Learning
 

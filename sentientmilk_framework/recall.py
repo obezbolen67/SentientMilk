@@ -389,12 +389,17 @@ class Recall:
 
     def _embed(self, embedder: embeddings.Embedder) -> None:
         mind = getattr(self.brain, "mind", None)
-        # her long-term memory's units, her mind's moments and her learned reactions' cues
-        for vectors in [self.vectors] + ([mind.memory.vectors, mind.reactions.vectors] if mind is not None else []):
+        # her long-term memory's units, her mind's moments, her learned reactions' cues and what is on her mind
+        for vectors in [self.vectors] + ([mind.memory.vectors, mind.reactions.vectors, mind.workspace.vectors]
+                                         if mind is not None else []):
             while not self._stop.is_set():
                 if embedder is not self.embedder:  # the model changed meanwhile: the next sweep embeds with it,
                     return  # and this one must not take its vectors as old ones
-                found = vectors.texts(vectors.pending(embedder.name, BATCH))
+                try:
+                    found = vectors.fill(embedder, BATCH)
+                except Exception as exc:
+                    logger.warning("Her long-term memory could not embed now: %s", exc)
+                    return
                 if not found:
                     vectors.drop(other_than=embedder.name)  # all there in this model: the old ones go
                     try:
@@ -402,12 +407,3 @@ class Recall:
                     except Exception as exc:
                         logger.info("Her long-term memory measures what is related later: %s", exc)
                     break
-                try:
-                    rows = embedder.embed([text for _, text in found])
-                except Exception as exc:
-                    logger.warning("Her long-term memory could not embed now: %s", exc)
-                    return
-                with vectors.lock:
-                    current = dict(vectors.texts([unit for unit, _ in found]))
-                    vectors.put([(unit, row) for (unit, text), row in zip(found, rows)
-                                 if current.get(unit) == text], embedder.name)

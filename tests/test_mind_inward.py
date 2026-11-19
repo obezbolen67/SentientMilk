@@ -21,13 +21,14 @@ def lived_a_day(mind):
         mind.self["slept"] = now - 5 * 3600  # her sleep went over yesterday this morning
         mind.body.last_sleep = {"from": now - 900, "to": now - 60}  # and a message just woke her from a doze
         mind.self["thoughts"] = [
-            {"at": now - 600, "kind": "wonder", "thought": "I want him to notice me without asking.", "want": "tell", "leaned": None,
+            {"episode": 901, "at": now - 600, "kind": "wonder", "thought": "I want him to notice me without asking.", "want": "tell", "leaned": None,
              "went": "kept"},
-            {"at": now - 3600, "kind": "ruminate", "thought": "The agent I sent died on the limit.", "want": "nothing", "leaned": None},
-            {"at": now - 6 * 3600, "kind": "wonder", "thought": "Night thoughts about crickets.", "want": "nothing", "leaned": None}]
+            {"episode": 902, "at": now - 3600, "kind": "ruminate", "thought": "The agent I sent died on the limit.", "want": "nothing", "leaned": None},
+            {"episode": 903, "at": now - 6 * 3600, "kind": "wonder", "thought": "Night thoughts about crickets.", "want": "nothing", "leaned": None}]
         mind.self["urge"] = {"at": now - 600, "want": "tell", "app": "milk", "session": "main", "say": "I'm here.",
                              "thought": now - 600, "offered": False, "text": "", "features": None}
-        mind.self["concerns"] = [{"what": "finish the clock widget", "app": "milk", "session": "main", "at": now - 7200}]
+        mind.self["concerns"] = [{"what": "finish the clock widget", "app": "milk", "session": "main", "at": now - 7200,
+                                  "run": None}]
         mind.self["decided"] = {"act": "talk", "what": "ask which part to stop", "gated": True,
                                 "reasons": ["you're worn out"], "chances": {}, "at": now - 900, "path": {},
                                 "outcome": None}

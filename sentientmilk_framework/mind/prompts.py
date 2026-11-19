@@ -299,7 +299,7 @@ def imagined(text: str) -> dict:
 
 def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: str = "", reasons: List[str] = (),
           thoughts: List[Tuple[float, str]] = (), people: List[str] = (), unsaid: Optional[tuple] = None,
-          did: List[str] = (), going: List[str] = (), when: str = "") -> str:
+          did: List[str] = (), going: List[str] = (), when: str = "", also: List[str] = ()) -> str:
     """The note she reads before answering (it goes with the user's message, never shown to them).
     ``when``: when each of them last wrote, the computer was last touched and she slept, each its own time
     (with one: back after 3 hours 8 minutes, she said "two hours and change", counting from her own message);
@@ -309,7 +309,8 @@ def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: 
     going, wherever it began (without them, asked about a job her own task left running, she searched her
     conversations for it in vain);
     ``people``: those she knows that the message names, as they come to her mind (people.py); ``unsaid``:
-    (tell or ask, to whom, what) she meant to say and has not had the chance to."""
+    (tell or ask, to whom, what) she meant to say and has not had the chance to; ``also``: what else is on her
+    mind (workspace.py), what the message is about first."""
     parts = [felt.rstrip(".") + "."]
     if when:
         parts.append("When: " + when.rstrip(".") + ".")
@@ -321,6 +322,8 @@ def inner(felt: str, memories: List[str] = (), act: Optional[str] = None, what: 
         parts.append("What you did since you last talked: " + "; ".join(d.rstrip(".") for d in did) + ".")
     if going:
         parts.append("Still going: " + "; ".join(going) + ".")
+    if also:
+        parts.append("Also on your mind: " + "; ".join(also) + ".")
     if unsaid:
         want, who, say = unsaid
         parts.append(f"You've been wanting to {'ask' if want == 'ask' else 'tell'} {who}: {say}")
