@@ -56,7 +56,11 @@ moment, and what little it takes in. Her turn, her waking thought and `look_inwa
 - the moment her body's change goes with: the latest kept moment whose felt way is alike (`_alike`), as
   look_inward's "what got to you" already shows it. Her body's push record stays unseen by her, as it was;
 - with conflict, the runner-up and its reasons;
-- with a question, the view `look_inward` gives (without its deliberate recall and naming).
+- with a question in a turn, only herself now: her body against usual and the feelings she has named that it
+  is like (recognized again). Ruling, from the held-out exam: the whole `look_inward` view here read her day
+  to her a second time (her note already holds it), with her last decision in it. In 15 of 52 answers she
+  carried that decision on in words, as a shell command, instead of answering (6 of 52 without the readout).
+  A waking thought and `look_inward` keep the whole view.
 
 Below the clarity floor (`inward.AWARE`), only the tone comes through, said as unclear. Nothing unknown is
 filled in.
@@ -123,8 +127,11 @@ Attention never calls `_name`, `_refeel` or `came_back`.
   the property, since scheduling and helpers are parts too, and starting a helper is acting. Each option may append
   `{"tool", "target"}`. An empty target means any call of that tool.
 - **What she did** is the option whose operation matches a successful, approved call. One match is the act,
-  with its receipt (call id, event, time). No match among calls that changed something, or several, is
-  `unresolved` and learns nothing. Only read-only and memory calls (or none) is "talk", as now.
+  with its receipt (call id, event, time). Several matches: the fullest. A call that changed something and
+  matches no way counts as the leaning only if she leaned to do it and no way foresaw that tool; otherwise it is
+  `unresolved` and learns nothing. Measured in the smoke run, the reading named no operation, and "doing it"
+  for any unforeseen call credited a filed card as done. Calls that are only looks, or that act only on her own
+  mind, are "talk", as now.
 - **Partial**: the part option's operation, or some of a multi-call plan. **Failure**: the matched call errored,
   and its chance is scored, as now. **Denial or cancellation**: unresolved, nothing reinforced. **Change of mind**:
   the act is what matched, not the leaning.

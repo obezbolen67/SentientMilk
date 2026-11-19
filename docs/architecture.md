@@ -2042,8 +2042,12 @@ doing. Design: `docs/superpowers/specs/2026-11-19-attention-and-action-credit-de
   - torn: her will's top two ways within one temperature of each other (`p2/p1 >= 1/e`), which her own noise
     cannot tell apart (Botvinick et al. 2001).
 - **What it takes in** is a little: what is far from usual, as lasting or lately (what getting used to it hides
-  from the passive line), the way she is torn toward with its reasons, or, asked, what looking inward shows. It
-  takes in less than her span, and only the tone below the clarity floor.
+  from the passive line), the way she is torn toward with its reasons, or, asked in a turn, only herself now:
+  her body against usual and the feelings it is like. It takes in less than her span, and only the tone below
+  the clarity floor. Asked in a turn, the whole `look_inward` view once read her day to her again, with her
+  last decision in it. Her note already holds the day. In the held-out exam she carried that decision on in
+  words, as a shell command, in 15 of 52 answers (6 without the readout). A waking thought and `look_inward`
+  itself keep the whole view.
 - **A stretch of attention** (`self["attending"]`, on her mind as a `noticed` item) keeps one identity. It takes
   in only what is new: a channel that grew by 0.4 lots (`TOLD_AGAIN`, what reaches her mid-work), turned the
   other way, or newly passed the floor. Another kind of thought ends the stretch, and sleep forgets what she knew
@@ -2062,12 +2066,25 @@ doing. Design: `docs/superpowers/specs/2026-11-19-attention-and-action-credit-de
     (acting on her own mind only: inward, ways, chat memory, todo, context). Each way she could take may name
     the one that carries it out (`could`, with `{tool, target}`; `{}` means any call of it).
   - What she did is the way whose operation a successful call carried out; of several, the fullest.
-  - A call no way foresaw is doing it, unless a way foresaw that tool with other arguments. Then it is
-    `unresolved`, and nothing of acting is learned from it.
+  - A call that matches no way's operation counts as what she leaned to only if she leaned to do it and no way
+    foresaw that tool. Otherwise it is `unresolved`, and nothing of acting is learned from it. Live, her reading
+    first named no operation at all: then a card she filed for later was learned as done. Now her reading's
+    operation is read by shape too (its arguments may sit beside the tool), and the prompt shows a whole option.
   - A "later" carried out (a reminder set) keeps her concern pending. A do that ended as a later adds one.
   - The trace (`decided`) keeps what drew her attention (`path.attended`), what was weighed, the leaning, the
     call that carried it out (`enacted`), what her values measurably took (`learned.values`) and her words
     afterwards (`explained`, retrospective).
+
+Measured (2026-11-19, copies of her real mind, real model; split by day, 37 calibration states, 52 held-out):
+- Credit matched the receipt in 141 of 141 offers.
+- Her will's own P(do) forecast her choice beyond the base rate: Brier 0.335 to 0.243, improvement 0.092
+  [0.060, 0.123], AUC 0.73. Her energy rating did not (calibration slope 0).
+- Withholding only the inward readout did not measurably change her choice: 13 of 52 pairs differ, 9 against
+  4, McNemar p 0.27. Pairs with the same note differ 20% of the time.
+- A turn adds no model call: a median of about 1.9 mind calls per turn, the same with the readout withheld.
+- Exam copies must not share their random generators: each copy restores the snapshot's checkpoint, so
+  without fresh seeds every trial of a run throws the same dice (the will's mean P(do) moved 0.74 to 0.44
+  between two such runs).
 
 ## 11. Models and providers
 

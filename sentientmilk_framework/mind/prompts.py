@@ -62,10 +62,11 @@ really do (part of it, later, decline, talk it over first). Anything else gets n
 is theirs to find. Say "they" for the one who writes. effort 0 nothing to 1 hours of hard work; chance it
 goes well 0 to 1; gives: how much of what the one who writes asked for it gives them, 0 to 1. One decimal.
 When one of the operations they can do here (listed below the message) would carry an option out, doing
-it, part of it or putting it off, append that operation as the option's sixth item: its tool and the
-arguments that tell it from the other options' ({"tool":"files_write","target":{"path":"draft.txt"}},
-or "target":{} when the tool alone tells it). A doing option's chance then predicts that operation returning
-successfully. Leave it out when no listed operation carries the option out.
+it, part of it or putting it off, keep the option's five items and add that operation as a sixth: its tool,
+and as "target" the arguments that tell it from the other options' operations ({} when the tool alone tells
+it). For example ["do", "write the draft", 0.4, 0.8, 1, {"tool":"files_write","target":{"path":"draft.txt"}}],
+or ["later", "set a reminder", 0.1, 0.9, 0, {"tool":"schedule_create","target":{}}]. A doing option's chance then
+predicts that operation returning successfully. Leave it out when no listed operation carries the option out.
 If the goal depends on the file containing the submitted text, add "readback":true to the files_write check.
 This requests a separate content comparison after a successful write. It cannot verify that a program runs.
 If the message explicitly evaluates the identified prior turn, append an object with fields "run" (its numeric ID),

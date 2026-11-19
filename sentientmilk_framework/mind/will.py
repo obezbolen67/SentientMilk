@@ -169,6 +169,10 @@ class Option:
             return None
         act = str(data["act"]).lower()
         check = data.get("check")
+        if isinstance(check, dict) and isinstance(check.get("tool"), str) and "target" not in check:
+            # its arguments written beside the tool, not under "target" (live, 1 answer of 3): read by shape
+            check = {"tool": check["tool"], "target": {k: v for k, v in check.items() if k not in ("tool", "readback")},
+                     **({"readback": check["readback"]} if "readback" in check else {})}
         if isinstance(check, dict) and isinstance(check.get("tool"), str) and isinstance(check.get("target"), dict):
             target = {k: v for k, v in check["target"].items()
                       if isinstance(k, str) and isinstance(v, str) and 0 < len(v) <= 500}

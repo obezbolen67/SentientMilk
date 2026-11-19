@@ -163,7 +163,11 @@ def test_asked_how_she_is_in_any_words_she_turns_inward_and_names_it_with_the_to
         assert not any(t["function"]["name"] == "look_inward" for t in sent.get("tools") or [])
         note = sent["messages"][-1]["content"]
         assert "You turn inward: Looking inward: For a while now: less drive than usual." in note
-        assert "on your mind today" in note and question not in note.split("Inside you:")[1]  # said already
+        # a little of herself, not her day again: her note has her day, and her last decision, read again here,
+        # was carried on in words as a shell command in 15 of 52 held-out answers (the 0.48 exam)
+        assert not any(day in note for day in ("on your mind today", "What you did today", "Last time you weighed",
+                                               "What got to you today", "What you have come to know"))
+        assert question not in note.split("Inside you:")[1]  # said already
         decision = brain.store.run(result["run"])["options"]["mind"]
         assert decision["attended"]["why"][0] == "asked"
         wait_for(lambda: mind.memory.of_run(result["run"]))

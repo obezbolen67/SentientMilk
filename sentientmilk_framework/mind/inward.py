@@ -35,7 +35,7 @@ def clearly(strength: float) -> str:
     return "clearly" if strength >= CLEAR else "hazily"
 
 
-def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tuple[str, Optional[str]]] = (),
+def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Optional[Sequence[Tuple[str, Optional[str]]]] = None,
          unsaid: Optional[Tuple[str, str, str]] = None, put_off: Sequence[str] = (),
          moved: Sequence[Tuple[str, float, Optional[str]]] = (), leaned: Optional[Tuple[str, Sequence[str]]] = None,
          self_view: str = "", about: str = "", recalled: Optional[Sequence[Tuple[str, float]]] = None,
@@ -44,7 +44,7 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
     """What she finds looking inward, in words. ``felt``: her body in body words (Felt.words: never a feeling's
     name); ``tone``: Felt.tone(), all she can tell when ``aware`` is under AWARE; ``familiar``: feelings she has
     named herself that her body feels like now, (word, her own words then, when): the memory of saying it, never
-    a name put on her; ``thoughts``: since she woke, newest first, (thought, what came of it); ``unsaid``:
+    a name put on her; ``thoughts``: since she woke, newest first, (thought, what came of it), None when not looked at; ``unsaid``:
     (tell or ask, to whom, what); ``put_off``: what she put off; ``moved``: (the moment as it comes back, its
     sting, what she called it if she put it into words); ``leaned``: (the way she leaned, her reasons); ``about`` and ``recalled``: what she looked for and
     what came back, (memory, its strength now); ``did``: what she did since she woke, as she keeps it, oldest
@@ -63,7 +63,7 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Sequence[Tupl
         listed = "; ".join(f'"{text}"' + (f" ({WENT[went]}" + "".join(f": {why}" for why in reasons[:1]) + ")"
                                           if went in WENT else "") for text, went, reasons in thoughts)
         parts.append("What has been on your mind today, the latest first: " + listed + ".")
-    else:
+    elif thoughts is not None:
         parts.append("Nothing much has been on your mind today.")
     if unsaid:
         want, who, say = unsaid

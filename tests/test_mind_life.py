@@ -10,12 +10,15 @@ import pytest
 from conftest import Meaning, turn, use, wait_for
 
 from sentientmilk_framework.mind import life
-from sentientmilk_framework.testing import acting, tool_call
+from sentientmilk_framework.testing import acting, leaning, tool_call
 
 pytestmark = pytest.mark.mind  # her mind lives in these tests
 
 DECLINE = '[0.5, 0.5, 0.4, "request", "files", "fed up", ["decline", "reading the file", 0.5, 0.8, 0]]'
 LATER = '[0.5, 0.5, 0.4, "request", "report", "tired", ["later", "the weekly report", 0.8, 0.7, 0.1]]'
+# doing it would be writing the file (her reading foresaw that), putting it off would not: so a write tells which
+IP = ('[0.5, 0.5, 0.4, "request", "network", "tired", ["do", "add the IP to the allow list", 0.8, 0.7, 1, '
+      '{"tool": "files_write", "target": {}}], ["later", "the allow list", 0.8, 0.7, 0.1]]')
 INSULT = '[0.2, 0.2, 0.5, "chat", "insult", "hurt", ["talk", "answer it", 0.2, 0.6, 1]]'
 # the model reads teasing as an order that takes her freedom (as it did live); what follows says otherwise
 BANTER = '[0.6, 0.5, 0.2, "chat", "banter", "amused", ["talk", "laugh along", 0.1, 0.9, 1]]'
@@ -48,12 +51,14 @@ def test_she_feels_and_decides_before_she_answers_and_the_user_never_sees_it(bra
     assert "unverified" not in episode["text"]
 
 
-def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from(brain):
+def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from(brain, monkeypatch):
     mind = mind_on(brain)  # a leaning was a wall: her one small safe step was refused as "you decided not to"
-    brain.provider.mind_replies["imagine"] = [LATER]
+    brain.provider.mind_replies["imagine"] = [IP]
     brain.provider.replies += [tool_call("files_write", {"path": str(brain.work / "ip.txt"), "content": "1.2.3.4"}),
                                "Checked the IP; the rest when I'm less foggy."]
-    turn(brain, "cli", "Put my laptop's IP in the server's allow list", on_approval=lambda event: "allow")
+    with monkeypatch.context() as patch:
+        leaning(patch, "later")  # she leans to put it off
+        turn(brain, "cli", "Put my laptop's IP in the server's allow list", on_approval=lambda event: "allow")
     sent = brain.provider.sent[0]["messages"][-1]["content"]
     assert "Which way you lean: not now: doing it later" in sent and "don't do it" not in sent
     assert (brain.work / "ip.txt").read_text(encoding="utf-8") == "1.2.3.4"  # nothing held her back

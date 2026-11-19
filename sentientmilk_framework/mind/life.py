@@ -1569,9 +1569,9 @@ class Mind:
         """What she actually did of what she weighed, from the receipts of the calls that went through: the way
         (``decision["could"]``) whose operation a successful call carried out; of several, the fullest (all of
         it, then part of it, then putting it off); one tool with many effects is told apart by its arguments.
-        A call that changed something and is no way's operation: doing it, her own way, unless an option foresaw
-        that tool with other arguments (then nothing shows which way it was: None, unresolved). Only looks and her
-        memory: what she said, she talked. (act, the call's receipt)."""
+        A call that changed something and is no way's operation: what she leaned to, if she leaned to do it and no
+        way foresaw that tool; else nothing shows which way it was (None, unresolved). Only looks and what acts on
+        her own mind: what she said, she talked. (act, the call's receipt)."""
         started = {e["call_id"] for e in events if e["type"] == "tool_start" and e.get("call_id")}
         went = [e for e in events if e["type"] == "tool" and e.get("call_id") in started and e.get("status") == "ok"]
         matched = [(option["act"], receipt) for option in decision.get("could") or [] if option.get("check")
@@ -1584,10 +1584,13 @@ class Mind:
                    and self._changes(toolset.by_name[e["name"]])]
         if not changed:
             return ("talk" if leaned in ("do", "part") else leaned), None
+        # no way's operation went through: a call that changed something is her doing what she leaned to do only
+        # if she leaned to do it and no way foresaw that tool; else nothing shows which way it was (filing a card
+        # for later, foreseen by no way, was learned as doing it: the exam, 2026-11-19)
         foreseen = {(option.get("check") or {}).get("tool") for option in decision.get("could") or []}
-        if any(e["name"] in foreseen for e in changed):
-            return None, changed[-1]
-        return ("part" if leaned == "part" else "do"), changed[-1]
+        if leaned in ("do", "part") and not any(e["name"] in foreseen for e in changed):
+            return leaned, changed[-1]
+        return None, changed[-1]
 
     def _operations(self, profile: dict) -> List[str]:
         """What she can do here that changes something, for her reading to foresee which operation would carry out
@@ -2880,10 +2883,20 @@ class Mind:
     def _looking(self, now: float, felt, body: str, about: str = "", chat: str = "", whole: bool = True) -> dict:
         """What she finds as she turns to herself, on purpose or asked (under her lock): inward.view's parts, but
         for what comes back about ``about`` (look_inward recalls it). ``body``: her body against where it usually
-        sits, as attention takes it in (attention.body_words); ``whole``: with her passing sense of it too (a
-        turn's note opens with that already); ``chat``: where she is asked (what was said there is before her)."""
+        sits, as attention takes it in (attention.body_words); ``whole``: her day too, and her passing sense of her
+        body; a turn's look (False) takes in only a little, herself now, what her note does not hold already: her
+        body against usual and the feelings it is like (the turn's whole day, read again, was carried on in words:
+        her last decision as a shell command, in 15 of 52 answers of the 0.48 exam); ``chat``: where she is asked
+        (what was said there is before her)."""
+        span = self._span()
+        known = {concept["word"]: concept for concept in self.concepts.named}
+        familiar = [(word, known[word]["said"][-1]["text"], _ago(now - known[word]["said"][-1]["at"]))
+                    for word, _ in self.concepts.recognize(felt.noticed()) if known[word]["said"]][:span]
+        aware = self._clear() * self.body.temperament.insight
+        if not whole:
+            return {"felt": body, "tone": felt.tone(), "aware": aware, "familiar": familiar}
         # her day: what her sleep has not yet gone over (being woken from a doze does not end it)
-        span, woke = self._span(), self.self.get("slept") or 0.0
+        woke = self.self.get("slept") or 0.0
         thoughts = [(t["thought"][:THOUGHT_CHARS], t.get("went"),
                      t["leaned"]["reasons"] if t.get("went") == "let be" else []) for t in self.self["thoughts"]
                     if t["at"] > woke][:2 * span]
@@ -2909,17 +2922,14 @@ class Mind:
         self_view = belief.get("text") or ""
         if self_view and belief.get("confidence") != "supported":
             self_view = "A tentative impression: " + self_view
-        known = {concept["word"]: concept for concept in self.concepts.named}
-        return {"felt": " ".join(filter(None, (felt.words() if whole else "", body))), "tone": felt.tone(),
-                "aware": self._clear() * self.body.temperament.insight, "thoughts": thoughts, "unsaid": unsaid,
+        return {"felt": " ".join(filter(None, (felt.words(), body))), "tone": felt.tone(),
+                "aware": aware, "thoughts": thoughts, "unsaid": unsaid,
                 "put_off": [item["text"][:200] for item in put_off],
                 "moved": [(f"#{e['id']} {self._line(e, now)}", e["sting"], called.get(e["id"])) for e in stirred],
                 "leaned": ((prompts.ACTS.get(decided["act"], decided["act"])
                             + (f": {decided['what']}" if decided.get("what") else ""), decided.get("reasons") or [])
                            if decided and decided.get("gated") and now - decided["at"] < 6 * HOUR else None),
-                "self_view": self_view, "about": about,
-                "familiar": [(word, known[word]["said"][-1]["text"], _ago(now - known[word]["said"][-1]["at"]))
-                             for word, _ in self.concepts.recognize(felt.noticed()) if known[word]["said"]][:span],
+                "self_view": self_view, "about": about, "familiar": familiar,
                 "did": did[-2 * span:], "going": going, "whose": self._whose(about, now) if about else [], "also": also}
 
     def _noticing(self, now: float, working: bool) -> Optional[float]:

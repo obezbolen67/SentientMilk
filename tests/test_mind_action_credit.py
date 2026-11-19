@@ -7,7 +7,7 @@ import pytest
 from conftest import turn, wait_for
 
 from sentientmilk_framework.loop import Toolset
-from sentientmilk_framework.testing import tool_call
+from sentientmilk_framework.testing import leaning, tool_call
 from sentientmilk_framework.toolkits import Tool, ToolError
 
 pytestmark = pytest.mark.mind  # her mind lives in these tests
@@ -182,3 +182,20 @@ def test_looking_inward_or_noting_something_down_is_not_acting_in_the_world(brai
     decision = brain.store.run(result["run"])["options"]["mind"]
     assert decision["act"] == "talk" and "acted" not in decision  # a chat stays a chat
     wait_for(lambda: mind.memory.of_run(result["run"]))
+
+
+def test_her_reading_of_an_operation_is_read_by_shape_with_its_arguments_beside_the_tool():
+    from sentientmilk_framework.mind.will import Option
+    flat = Option.read({"act": "later", "what": "file it", "check": {"tool": "choose_card", "disposition": "later"}})
+    assert flat.check == {"tool": "choose_card", "target": {"disposition": "later"}}
+    assert Option.read({"act": "do", "check": {"tool": "mail_send", "target": {}}}).check == {"tool": "mail_send", "target": {}}
+
+
+def test_with_no_operation_foreseen_a_call_is_her_doing_only_when_she_leaned_to_do_it(brain, desk, monkeypatch):
+    bare = [option[:5] for option in (OPEN, LATER)]  # her reading foresaw no operation
+    for leans, did in (("later", "unresolved"), ("do", "do")):  # was "do" both times: filing it learned as done
+        leaning(monkeypatch, leans)
+        brain.provider.mind_replies["imagine"] = [offer(*bare)]
+        brain.provider.replies += [tool_call("choose_card", {"disposition": "later"}, f"call_{leans}"), "Done."]
+        outcome, decision = decided(brain, turn(brain, "milk", "there's a puzzle card here, open it now or file it"))
+        assert decision["act"] == leans and outcome["did"] == did

@@ -106,6 +106,25 @@ def acting(monkeypatch) -> None:
     monkeypatch.setattr(life, "choose", first)
 
 
+def leaning(monkeypatch, act: str) -> None:
+    """Her will weighs every way as it does, but leans to ``act`` (a test of what follows a leaning): what she
+    weighed stays as weighed, so what each way would have done is still there to tell what she did."""
+    import dataclasses
+
+    from .mind import life
+    from .mind.will import choose
+
+    def leans(options, *args, **kwargs):
+        choice = choose(options, *args, **kwargs)
+        picked = next((option for option in options if option.act == act), None)
+        if picked is None:
+            return choice
+        weighed = next(item for item in choice.considered if item["act"] == act)
+        return dataclasses.replace(choice, option=picked, parts=weighed["parts"], worth=weighed["worth"], reasons=[],
+                                   considered=[{**item, "picked": item is weighed} for item in choice.considered])
+    monkeypatch.setattr(life, "choose", leans)
+
+
 def quiet_mind(monkeypatch) -> None:
     """Her mind is always on; a test of something else keeps it out of the way: no note in a turn, no
     inner life in the prompt, no life between messages. Tests of her mind are marked ``mind``."""
