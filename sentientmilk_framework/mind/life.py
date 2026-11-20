@@ -98,6 +98,7 @@ logger = logging.getLogger(__name__)
 TICK = 5.0
 BIDS_EVERY = 30.0
 SAVE_EVERY = 60.0
+STOPPING = 120.0  # s stopping waits for runs she is still taking in (her embedder, her model answering)
 TALKING = 15 * MINUTE  # a message this recent: they are talking with her, and that keeps her up
 APP_ALIVE = 30.0  # an app that asked how she is this recently is there to hear her
 CAUGHT_UP_AFTER = 10 * MINUTE  # a gap longer than this (the mind was off, the machine slept) she lived alone
@@ -280,6 +281,10 @@ class Mind:
         self.memory = Memory(brain.home / "mind.sqlite3")
         self._lock = threading.RLock()
         self._stop = threading.Event()
+        # runs she is taking in now (after): stopping waits for them, as their slow part (her embedder, her model)
+        # goes on outside her lock and would find her memory closed
+        self._taking = 0
+        self._taken = threading.Condition()
         self._thread: Optional[threading.Thread] = None
         self._thinking = False
         self._revision = 0
@@ -351,6 +356,8 @@ class Mind:
         self._stop.set()
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=30)
+        with self._taken:
+            self._taken.wait_for(lambda: not self._taking, timeout=STOPPING)
         try:
             self.save()
         finally:
@@ -1888,7 +1895,19 @@ class Mind:
 
     def after(self, run: dict) -> None:
         """A run ended: what is left of its work tires her; a turn with the user's words moves her, teaches her
-        and is remembered."""
+        and is remembered. One that ends once the brain is stopping is not taken in: her memory is closing."""
+        with self._taken:
+            if self._stop.is_set():
+                return
+            self._taking += 1
+        try:
+            self._after(run)
+        finally:
+            with self._taken:
+                self._taking -= 1
+                self._taken.notify_all()
+
+    def _after(self, run: dict) -> None:
         if run["kind"] == "compact":
             return
         events = self.brain.store.run_events(run["id"])

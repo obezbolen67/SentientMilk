@@ -82,3 +82,32 @@ def test_a_working_day_tires_her_and_a_night_restores_her(tmp_path, monkeypatch)
     assert mind.body.fatigue() < 0.2
     assert helped(ask(20)) >= 0.8
     mind.stop()
+
+
+def test_stopping_waits_for_a_run_she_is_still_taking_in(tmp_path, monkeypatch):
+    """Her embedder and her model answer outside her lock as she takes a run in: the brain stopping then must
+    not close her memory under her (it did, live: "Cannot operate on a closed database")."""
+    import threading
+
+    brain, _ = stand_in(tmp_path)
+    mind = life.Mind(brain)
+    started, release, taken = threading.Event(), threading.Event(), []
+
+    def slow(run):
+        started.set()
+        release.wait(5)
+        mind.memory.get("self")  # still open
+        taken.append(run["id"])
+
+    monkeypatch.setattr(mind, "_after", slow)
+    threading.Thread(target=mind.after, args=({"id": 1},)).start()
+    assert started.wait(5)
+    stopping = threading.Thread(target=mind.stop)
+    stopping.start()
+    stopping.join(0.3)
+    assert stopping.is_alive()  # it waits for her
+    release.set()
+    stopping.join(5)
+    assert not stopping.is_alive() and taken == [1]
+    mind.after({"id": 2})  # a run that ends once the brain is stopping is not taken in
+    assert taken == [1]
