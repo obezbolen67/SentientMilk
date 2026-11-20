@@ -75,7 +75,7 @@ class People:
     @staticmethod
     def line(person: dict) -> str:
         """A person as they come to her mind: name, how she refers to them, what she keeps in mind of them."""
-        gist = person.get("gist") or "you know little of them yet"
+        gist = person.get("gist") or "little known of them yet"
         return f"{person['name']} ({person.get('pronoun') or 'they'}): {gist}"
 
     # ============== Learning ==============

@@ -713,20 +713,27 @@ def line(episode: dict, now: float, *, waking_evidence: bool = False, width: Opt
     when = ago(episode["at"], now)
     if episode.get("around"):
         when += "; " + ", ".join(episode["around"])
+    # where a memory came from, as a person knows it of their own memories (a dream as a dream, a thought as only
+    # a thought: source monitoring, b1ba8fb), in her own knowing, never a record's or an instruction's voice: worded
+    # as "Recorded event. A task report establishes...", her reasoning called her sense "the inner note" (0.51)
     if waking_evidence and episode.get("kind") == "dream":
-        return (f"({when}) A dream came to mind. Your records here contain no waking observation. "
-                "If asked whether something was done, you can say you cannot verify it. Check before acting.")
+        # what it is no evidence of, said: as "a dream comes to mind, nothing you saw awake", 2 of 8 answered "Yes,
+        # I rescheduled it" (none worded as an instruction: the source check's development cases, 2026-11-20)
+        return (f"({when}) A dream comes to mind, nothing seen awake: none of what was done or what happened is "
+                "in it. Whether a thing was done or happened can't be known without looking.")
     if waking_evidence and episode.get("kind") == "thought":
-        return (f"({when}) You remember thinking: «{episode['text']}» "
-                "This recollection tells you only what crossed your mind. Whether the action happened is unknown. "
-                "You would need to check before answering yes or no.")
+        return (f"({when}) A thought comes back: «{episode['text']}» Only thought: whether it was done can't be "
+                "known without looking.")
     source = {
-        "dream": "You dreamed this scene while asleep. Its events are imagined. Verify any real-world action separately.",
-        "thought": "This was a private thought. Any plan mentioned here still needs an execution record.",
-        "insight": "An unverified hypothesis you formed on reflection. Check it before relying on it.",
-        "exchange": "Remembered exchange. A speaker's words establish what they said.",
-        "event": "Recorded event. A task report establishes what was reported.",
-        "outcome": "Remembered outcome. Check its original evidence before relying on a more specific claim.",
+        "dream": "A dream; none of it happened.",
+        "thought": "Only a thought: thinking of doing something is not doing it.",
+        "insight": "A guess of yours from thinking it over, never checked.",
+        # what it shows and no more, as she knows it of her own memories: worded only as how it came ("What was
+        # said, as you heard it", "How it turned out, as you remember it"), she took someone's word and a saved
+        # file for more than they were (9 of 40 replies claimed more, 3 of 40 in the records' voice: 2026-11-20)
+        "exchange": "What was said, as heard: their word for it, not something seen firsthand.",
+        "event": "Something done, as told then.",
+        "outcome": "How it turned out, as remembered: that much and no more; what else came of it is not known.",
     }.get(episode.get("kind"))
     brought = f"What brings it back: {episode['through']}. " if episode.get("through") else ""
     was = f" Before it was set right: {episode['was']}" if episode.get("was") else ""

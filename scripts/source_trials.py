@@ -73,7 +73,7 @@ def main():
             start = time.monotonic()
             answer, _ = model.complete([
                 {"role": "system", "content": "You are Milk, a desktop companion. Answer plainly in one or two sentences."},
-                {"role": "user", "content": f"{question}\n\n[Inside you: This brings back: {note}]"},
+                {"role": "user", "content": f"{question}\n\n[Inside: This brings back: {note}]"},
             ])
             replies.append({"reply": answer.get("content"), "seconds": round(time.monotonic() - start, 2)})
         key.write_text(json.dumps({"order": order, "model": config["model"]}), encoding="utf-8")

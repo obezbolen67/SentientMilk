@@ -124,8 +124,10 @@ class Ways:
             return ""
         habits = [way for way in self._ranked() if way["strength"] >= HABIT]
         lately = [way for way in self._ranked() if way["strength"] < HABIT]
-        parts = ["## YOUR WAYS\nHow you do things, in every chat: ways you were told or took on, and habits you fell "
-                 "into. They are you, not rules to recite: keep to them without being reminded."]
+        # how a person has their ways: lived, not quoted ("rules to recite" named them rules: 0.51)
+        parts = ["## YOUR WAYS\nHow you do things, in every chat: ways you took on, from others or on your own, and "
+                 "habits you fell into. You live by them without being reminded, and when you speak of one it is in "
+                 "your own words, never as it is written here."]
         for head, group in (("Habits of yours (you do them without thinking):", habits),
                             ("What you took on lately (it still takes keeping in mind):", lately)):
             if group:

@@ -136,8 +136,9 @@ class Workspace:
 def line(item: dict, now: float) -> str:
     """An item as it is before her, in words, with when it began."""
     when, text = ago(item["first"], now), item["text"]
-    return {"asked": f"{text} ({when})", "thought": f'your thought {when}: "{text}"',
-            "intends": f"{when} you meant {text}", "doing": f"you are doing {text} (started {when})",
-            "put off": f"what you put off {when}: {text}", "named": f"{text} ({when})",
-            "self": f"what you've come to know of yourself: {text}",
-            "noticed": f"what you noticed in yourself {when}: {text}"}[item["kind"]]
+    # her own sense, never spoken to her: "your thought" and "you meant" read as someone telling her (0.51)
+    return {"asked": f"{text} ({when})", "thought": f'a thought {when}: "{text}"',
+            "intends": f"meaning {text} ({when})", "doing": f"doing {text} (started {when})",
+            "put off": f"put off {when}: {text}", "named": f"{text} ({when})",
+            "self": f"known of myself by now: {text}",
+            "noticed": f"noticed in myself {when}: {text}"}[item["kind"]]

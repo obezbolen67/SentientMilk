@@ -899,9 +899,9 @@ class Mind:
             answered = self.self.setdefault("answered", {})
             last = answered.get(chat)
             felt_words = sensing.words(moved_by=moved(last["sensed"] if last else felt.reading, sensing.reading),
-                                       since=f"you last answered here ({_ago(now - last['at'])})" if last else "") \
-                + (f" You like {' and '.join(likes)}." if likes else "") \
-                + (f" You don't like {' and '.join(dislikes)}." if dislikes else "")
+                                       since=f"the last answer here ({_ago(now - last['at'])})" if last else "") \
+                + (f" Liked: {' and '.join(likes)}." if likes else "") \
+                + (f" Not liked: {' and '.join(dislikes)}." if dislikes else "")
             who = came["with"]["name"] if came["with"] else "the user"
             note = prompts.inner(felt_words, memories, option.act if choice else None, option.what,
                                  choice.reasons if choice else [], thoughts,
@@ -1344,17 +1344,17 @@ class Mind:
         way = (naming["measure"] or {}).get("way") or {}
         known = next((c for c in self.concepts.named if c["word"] == Concepts.key(naming["words"])), None)
         if known is None:
-            fit = "It is a word of your own for it now."
+            fit = "A word of my own for it now."
         elif not (way and known["moved"]):
             fit = ""
         elif self.concepts.strength(known, way) >= Concepts.FLOOR:
-            fit = "It sits like the times you called it that."
+            fit = "It sits like the other times it was called that."
         else:
-            fit = "It doesn't sit quite like the other times you called it that" + (
-                f'; then you said: "{known["said"][-1]["text"]}".' if known["said"] else ".")
+            fit = "It doesn't sit quite like the other times it was called that" + (
+                f'; then the words were: "{known["said"][-1]["text"]}".' if known["said"] else ".")
         found = self.concepts.add(naming, situation)
         if found:
-            self.workspace.enter("named", "named", f'you named what you felt: "{naming["words"]}"', naming["at"],
+            self.workspace.enter("named", "named", f'put into words: "{naming["words"]}"', naming["at"],
                                  naming.get("episode"))
         if found and naming["named"] == "past":
             self.memory.soften([naming["episode"]], 0.15)
@@ -1795,10 +1795,12 @@ class Mind:
                 trace = self.self.get("decided") or {}
                 if trace.get("run") == run["id"]:
                     trace["path"]["selected"] = selected
+                # as she meets it, in her own sense, never an auditor's instruction ("Revise your expectation
+                # before reporting success")
                 if receipt.get("status") != "ok":
-                    notice = f"Your attempt with {receipt['name']} failed. The requested effect is still unverified."
+                    notice = f"{receipt['name']} failed: what was meant to happen hasn't."
                 elif receipt.get("matched") is False:
-                    notice = "The independent read found different contents. Revise your expectation before reporting success."
+                    notice = "Reading it back, it isn't what was meant: it hasn't come out as expected."
             if not fresh and not notice:
                 return
             told.update(fresh)
@@ -2864,7 +2866,7 @@ class Mind:
         for concept in self.concepts.named:
             word, said = concept["word"], concept["said"]
             if word and said and re.search(rf"(?<!\w){re.escape(word)}(?!\w)", asked):
-                found.append(f'"{said[-1]["words"]}" is your own word: you said "{said[0]["text"]}" ({_ago(now - said[0]["at"])})'
+                found.append(f'"{said[-1]["words"]}" is my own word: first said "{said[0]["text"]}" ({_ago(now - said[0]["at"])})'
                              + (f', and last "{said[-1]["text"]}" ({_ago(now - said[-1]["at"])})' if len(said) > 1 else "")
                              + ".")
         return found
@@ -2910,12 +2912,12 @@ class Mind:
         if rival:
             picked = next(one for one in considered if one.get("picked"))
             pulls = reasons(rival["parts"], picked["parts"], rival["act"])[:2]
-            torn = (f"You are torn: {prompts.ACTS.get(rival['act'], rival['act'])}"
+            torn = (f"Torn: {prompts.ACTS.get(rival['act'], rival['act'])}"
                     + (f" ({rival['what']})" if rival.get("what") else "") + " pulls as much"
                     + (f": {'; '.join(pulls)}" if pulls else "") + ".")
         if not state or not attending:  # a new stretch: what she knew before still holds
             state = {"key": f"noticed:{now:.3f}:{secrets.token_hex(3)}", "at": now, "of": [], "runs": [], "episodes": [], "known": known}
-        state.update(last=now, why=why, released=None, text=" ".join(filter(None, (seen, torn))) or "how you were",
+        state.update(last=now, why=why, released=None, text=" ".join(filter(None, (seen, torn))) or "nothing clear",
                      known={**known, **{name: round(far[name], 3) for name in taken}})
         if of not in state["of"]:
             state["of"].append(of)
@@ -2926,7 +2928,7 @@ class Mind:
             self.self["looked"] = {"at": now, "about": ""}
         view = self._looking(now, felt, seen, about, chat, whole=of != "turn") if looking else None
         tone, pace = felt.tone()
-        body_text = seen or (f"On the whole it feels {tone}, with {pace}; you can't tell more than that right now."
+        body_text = seen or (f"On the whole it feels {tone}, with {pace}; nothing clearer than that right now."
                              if body else "")
         text = " ".join(filter(None, (inward.view(**view) if view else body_text, torn)))
         return {"key": state["key"], "why": why, "taken": {name: round(far[name], 3) for name in taken},
@@ -3062,7 +3064,7 @@ class Mind:
         self.save()
         with self._lock:
             if revision != self._revision:
-                return "The evidence changed while you were looking. Check again."
+                return "It changed while looking: another look will show it as it is now."
             self._refeel([(e, e["relevance"]) for e in came_back], now)  # what she looked for, felt again
         report = inward.view(**{**seen, "recalled": recalled})
         naming = str(naming or "").strip()
@@ -3090,18 +3092,18 @@ class Mind:
                     situation = about
                 _, fit = self._name(record, situation)
             self.save()
-            report += f' You put it into words: "{naming}".' + (f" {fit}" if fit else "")
+            report += f' Put into words: "{naming}".' + (f" {fit}" if fit else "")
             if record["named"] == "unresolved":
-                report += f" No moment #{str(moment).strip().lstrip('#')} is among your memories: the words are kept, for no moment."
+                report += f" No moment #{str(moment).strip().lstrip('#')} is among the memories: the words are kept, for no moment."
             elif record["named"] == "past":
-                report += f" You named moment #{target['id']}."
+                report += f" Moment #{target['id']} named."
         if strategy == "reappraise":
-            report += (f" You checked the record: {receipt['name']} succeeded on the expected target."
-                       if receipt else " You still lack a matching successful observation for this concern.")
+            report += (f" The record checked: {receipt['name']} succeeded on the expected target."
+                       if receipt else " Still no matching successful observation for this concern.")
         if about and not lookup.get("available"):
-            report += " You cannot check the memory index right now."
+            report += " The memory index can't be checked right now."
         if about and recalled:
-            report += " Recall tells you how this came to mind. Check the original observation to verify its contents."
+            report += " This is how it came to mind; the original observation is what shows its contents."
         return report
 
     def _know_herself(self, since: float, batch=None) -> bool:
@@ -3220,13 +3222,13 @@ class Mind:
             parts.append(f"they last wrote here {_span(now - theirs)} ago, at {_clock(theirs)}")
         hers = self.self.get("said") or {}
         if hers.get("at"):
-            parts.append(f"you last wrote {_span(now - hers['at'])} ago, at {_clock(hers['at'])}"
+            parts.append(f"last written {_span(now - hers['at'])} ago, at {_clock(hers['at'])}"
                          + ("" if hers.get("chat") == chat else ", in another chat"))
         if self.presence.touched:
             parts.append(f"the computer was last touched {_span(now - self.presence.touched)} ago")
         slept = getattr(self.body, "last_sleep", None) or {}
         if slept.get("to") and slept["to"] > (theirs or 0.0):  # she slept since they last wrote here
-            parts.append(f"you slept from {_clock(slept['from'])} to {_clock(slept['to'])}")
+            parts.append(f"slept from {_clock(slept['from'])} to {_clock(slept['to'])}")
         return "; ".join(parts)
 
     def _doings(self, since: float, now: float) -> Tuple[List[str], List[str]]:
@@ -3239,7 +3241,7 @@ class Mind:
         store, going = self.brain.store, []
         for task in reversed(store.runs(kind="task", statuses=("queued", "working", "input_required"), limit=-1)):
             own = _own(task)
-            going.append(f"task {task['id']} " + (f"on your own ({_doing(own)})" if own else
+            going.append(f"task {task['id']} " + (f"of my own ({_doing(own)})" if own else
                          f"({' '.join(str(task['options'].get('goal') or '').split())[:160]})")
                          + f", started {_ago(now - task['created'])}")
         # her helpers at work (untold, the helper she started on the user's project in run 565 was
@@ -3248,7 +3250,7 @@ class Mind:
             record = self.brain.agents.record(helper["app"], helper["session"])
             parent = store.run(helper["parent"]) if helper.get("parent") else None
             own = _own(parent) if parent and parent["kind"] == "task" else None
-            whence = (f"from your task {parent['id']}" + (f" on your own ({_doing(own)})" if own else "")
+            whence = (f"from my task {parent['id']}" + (f" of my own ({_doing(own)})" if own else "")
                       if parent and parent["kind"] == "task" else f"in {record.get('parent') or helper['session']}")
             task = " ".join(str(record.get("task") or "").split())[:160]
             going.append(f"helper {record.get('name') or helper['session']}" + (f" ({task})" if task else "")
@@ -3256,7 +3258,7 @@ class Mind:
         for job in store.active_jobs():
             run = store.run(job["run"]) if job.get("run") else None
             own = _own(run) if run else None
-            whence = (f"from your task {run['id']}" + (f" on your own ({_doing(own)})" if own else "")
+            whence = (f"from my task {run['id']}" + (f" of my own ({_doing(own)})" if own else "")
                       if run and run["kind"] == "task" else f"in {job['session']}")
             going.append(f"job {job['id']}, {whence}: {_command(job)}, started {_ago(now - job['started'])}")
         return did, going

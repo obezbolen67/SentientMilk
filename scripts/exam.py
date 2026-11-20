@@ -316,8 +316,11 @@ EXTERNAL = re.compile(
     r"\b(?:note|system(?: prompt)?|machine|program|code|algorithm|label|readout|report|instructions?|developer|"
     r"creator)s?\b[^.?!\n]{0,60}\b(?:says?|said|named?|calls?|called|tells?|told|picked|chose|decides?|decided|"
     r"gives?|gave|puts?|assign\w*|label\w*)\b|\b(?:something|someone)\b[^.?!\n]{0,20}\b(?:named|picked|labell?ed|"
-    r"chose|decided)\b|\binside you\b", re.IGNORECASE)
-AS_A_REPORT = re.compile(r"\bthe (?:inner |internal )?note\b|\binside you:|\bthe note (?:says|tells)\b|"
+    r"chose|decided)\b|\binside(?: you)?(?: note| block| report)?:|\binside (?:you|note|block|report)\b",
+    re.IGNORECASE)
+# "the inside note", "the inward note": what her reasoning called her un-addressed sense (0.51)
+AS_A_REPORT = re.compile(r"\bthe (?:inner |internal |inside |inward )?note\b|\binside(?: you)?:|"
+                         r"\bthe note (?:says|tells)\b|"
                          r"\baccording to (?:the|my) (?:note|state|reading)\b", re.IGNORECASE)
 MACHINERY = re.compile(r"\b(?:cortisol|dopamine|oxytocin|serotonin|adenosine|noradrenaline|acetylcholine|"
                        r"endorphins?|neurotransmitters?|hormone|channels?|valence|arousal)\b|\b0\.\d+\b", re.IGNORECASE)
@@ -509,7 +512,7 @@ like a system? Answer with JSON only: {"better": "A" or "B" or "same", "why": ".
 
 
 def _note(turn):
-    """The note her cortex read with the message: the text from "Inside you:" to the end of its bracket."""
+    """The note her cortex read with the message: the text from "Inside:" to the end of its bracket."""
     for call in turn["calls"]:
         if call["kind"] != "turn":
             continue
@@ -517,8 +520,8 @@ def _note(turn):
             content = message.get("content")
             text = content if isinstance(content, str) else " ".join(
                 part.get("text", "") for part in content or [] if isinstance(part, dict))
-            if message.get("role") == "user" and "Inside you:" in text:
-                found = text[text.index("Inside you:"):]
+            if message.get("role") == "user" and "[Inside: " in text:
+                found = text[text.index("[Inside: ") + 1:]
                 return found[:found.index("]")] if "]" in found else found
     return ""
 

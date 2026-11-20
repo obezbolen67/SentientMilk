@@ -22,19 +22,19 @@ def test_her_felt_sense_is_not_in_the_record_of_what_was_said(brain, own_history
     # the user's message and said "the layer said them, not me": a person has no transcript of their body
     run = own_history.run["id"]
     said = brain.store.add_event("milk", "main", run, "input", {
-        "content": "[Context: time: now]\nhow are you?\n\n[Inside you: Your body: very buzzing, very braced; "
+        "content": "[Context: time: now]\nhow are you?\n\n[Inside: Body: very buzzing, very braced; "
                    "unpleasant on the whole, keyed up. You like rhythm games.]\n[Reply in your own voice.]",
         "display": "how are you?"})
     steered = brain.store.add_event("milk", "main", run, "input", {
-        "content": "[Note: Inside you: Reading it: a strong lift.]", "display": "[Note: Inside you: Reading it: a strong lift.]"})
+        "content": "[Inside: Reading it: a strong lift.]", "display": "[Inside: Reading it: a strong lift.]"})
     assert "No history event" in kit.history_search.func(own_history, query="braced")
     shown = kit.history_read.func(own_history, event=said["id"])
     assert "how are you?" in shown and "Reply in your own voice" in shown and "buzzing" not in shown
-    assert "Inside you" not in kit.history_read.func(own_history) and "lift" not in kit.history_read.func(
+    assert "[Inside:" not in kit.history_read.func(own_history) and "lift" not in kit.history_read.func(
         own_history, event=steered["id"])
     summary = context.transcript_for_summary([brain.store.event(said["id"])], None)
-    assert "how are you?" in summary and "Inside you" not in summary
-    assert "Inside you" in brain.store.event(said["id"])["content"]  # what she read stays as it was, for her context
+    assert "how are you?" in summary and "[Inside:" not in summary
+    assert "[Inside:" in brain.store.event(said["id"])["content"]  # what she read stays as it was, for her context
 
 
 def test_history_reads_original_tool_result_after_compaction_and_clearing(brain, own_history):

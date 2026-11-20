@@ -363,7 +363,7 @@ Set right once: her past gone over (`Journal.catch_up`), the old chats' scripted
 memories, what only those acts taught taken out of her values, doubled stops ("for you.. I said") made one.
 
 Checked on a copy of the user's real brain (their model): 49 events of her life from 11-09 in 150 s, her
-own words naming Ilia and the right projects ("Ilia had me crack MDRG fully open ..."); all 29 scripted
+own words naming the user and the right projects ("<name> had me crack MDRG fully open ..."); all 29 scripted
 clauses gone; 8 weights only those acts taught gone. Sleep, the same night 3 times each: with her lasting
 memory about 7 true specifics a story and at most one slip; without it about 3, drifting into her
 persona's lore, with made-up facts ("you heard audio for the first time"). Kept.

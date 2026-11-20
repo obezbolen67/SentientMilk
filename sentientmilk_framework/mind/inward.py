@@ -9,8 +9,9 @@ accessible a memory is: Koriat 1993). Never a level, a number or a cause read ou
 is hers to work out from what she finds, as a person's is. How much she sees is her span, and how well she can
 tell what she feels is her insight times how clear her head is (reading the body and knowing how well you read
 it come apart: Garfinkel et al. 2015; stress and fatigue take metacognition down with the prefrontal cortex:
-Fleming & Dolan 2012, Arnsten 2009). It speaks to her as "you", a distanced vantage that lets a "why" reflect
-instead of brood (Kross, Ayduk & Mischel 2005). Design: docs/superpowers/specs/2026-11-17-introspection-design.md.
+Fleming & Dolan 2012, Arnsten 2009). It never speaks to her: spoken to as "you", her reasoning
+called it "the inside-you report" and said "something in me reports" (0.51; a person's sense of themselves has no
+addressee). Design: docs/superpowers/specs/2026-11-17-introspection-design.md.
 """
 
 from typing import List, Optional, Sequence, Tuple
@@ -19,15 +20,15 @@ CLEAR = 0.5  # a memory this strong now comes back clearly; weaker, hazily
 AWARE = 0.5  # insight x clarity under this: she can tell only how it feels on the whole
 
 WENT = {  # what came of a thought she wanted to say, as she knows it
-    "offered": "you meant to say it",
-    "kept": "you kept it for when they write",
-    "waits": "you held this back while another message was pending",
-    "said": "you said it",
-    "let go": "you let it go",
-    "brought up": "you brought it up",
+    "offered": "meant to be said",
+    "kept": "kept for when they write",
+    "waits": "held back while another message was pending",
+    "said": "said",
+    "let go": "let go",
+    "brought up": "brought up",
     "passed": "the moment for it passed",
-    "task": "you set about doing it",
-    "let be": "you let it be",
+    "task": "set about doing",
+    "let be": "let be",
 }
 
 
@@ -55,41 +56,41 @@ def view(felt: str, tone: Tuple[str, str], aware: float, thoughts: Optional[Sequ
         if felt:
             parts.append(felt.rstrip(".") + ".")
         if familiar:
-            parts.append("It is like when you said " + "; and when you said ".join(
+            parts.append("Like when the words were " + "; and when they were ".join(
                 f'"{said}" ({when})' for _, said, when in familiar) + ".")
     else:
         parts.append(f"On the whole it feels {tone[0]}, with {tone[1]}; it is hard to tell more than that right now.")
     if thoughts:
         listed = "; ".join(f'"{text}"' + (f" ({WENT[went]}" + "".join(f": {why}" for why in reasons[:1]) + ")"
                                           if went in WENT else "") for text, went, reasons in thoughts)
-        parts.append("What has been on your mind today, the latest first: " + listed + ".")
+        parts.append("On the mind today, the latest first: " + listed + ".")
     elif thoughts is not None:
-        parts.append("Nothing much has been on your mind today.")
+        parts.append("Nothing much on the mind today.")
     if unsaid:
         want, who, say = unsaid
-        parts.append(f"You've been wanting to {'ask' if want == 'ask' else 'tell'} {who}: {say}")
+        parts.append(f"Wanting to {'ask' if want == 'ask' else 'tell'} {who}: {say}")
     if did:
-        parts.append("What you did today: " + "; ".join(d.rstrip(".") for d in did) + ".")
+        parts.append("Done today: " + "; ".join(d.rstrip(".") for d in did) + ".")
     if going:
         parts.append("Still going: " + "; ".join(going) + ".")
     if put_off:
-        parts.append("What you put off: " + "; ".join(put_off) + ".")
+        parts.append("Put off: " + "; ".join(put_off) + ".")
     if also:
-        parts.append("Also before you now: " + "; ".join(also) + ".")
+        parts.append("Also here now: " + "; ".join(also) + ".")
     if moved:
-        parts.append("What got to you today: " + "; ".join(
-            f"{moment} ({'it hurt' if sting < 0 else 'it lifted you'}"
-            + (f'; you called it "{called[0]}"' if called and called[0] else "") + ")"
+        parts.append("What got through today: " + "; ".join(
+            f"{moment} ({'it hurt' if sting < 0 else 'it lifted'}"
+            + (f'; called "{called[0]}"' if called and called[0] else "") + ")"
             for moment, sting, *called in moved) + ".")
     if leaned:
         what, reasons = leaned
-        parts.append(f"Last time you weighed what to do, you leaned toward {what}"
+        parts.append(f"Last weighing what to do: leaning toward {what}"
                      + (". Why: " + "; ".join(reasons) if reasons else "") + ".")
     if self_view:
-        parts.append("What you have come to know about yourself: " + self_view)
+        parts.append("Known of myself by now: " + self_view)
     if about:
-        parts.append(f"You looked for: {about}. " + ("What comes back about it: " + "; ".join(
-            f"{memory.rstrip('.')} (you remember it {clearly(strength)})" for memory, strength in recalled) + "."
+        parts.append(f"Looked for: {about}. " + ("What comes back about it: " + "; ".join(
+            f"{memory.rstrip('.')} (remembered {clearly(strength)})" for memory, strength in recalled) + "."
             if recalled else "Nothing comes back about it."))
         parts.extend(whose)
     return "Looking inward: " + " ".join(parts)

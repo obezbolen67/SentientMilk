@@ -96,7 +96,7 @@ def main():
         for arm in order:
             note = notes[index] if arm == "candidate" else baseline[index]
             messages = [{"role": "system", "content": PERSONA}, {"role": "user", "content":
-                f"{speaker}: {question}\n\n[Inside you: This brings back: {note}]"}]
+                f"{speaker}: {question}\n\n[Inside: This brings back: {note}]"}]
             start = time.monotonic()
             first = []
             def token(chunk):

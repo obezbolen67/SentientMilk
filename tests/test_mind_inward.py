@@ -44,11 +44,11 @@ def test_looking_inward_she_sees_her_day_in_words_never_numbers(brain):
     mind = brain.brain.mind
     lived_a_day(mind)
     seen = mind.look_inward()
-    assert seen.startswith("Looking inward:") and ("Your body:" in seen or "Nothing stands out" in seen)
-    assert '"I want him to notice me without asking."' in seen and "you kept it for when" in seen
+    assert seen.startswith("Looking inward:") and ("Body:" in seen or "Nothing stands out" in seen)
+    assert '"I want him to notice me without asking."' in seen and "kept for when" in seen
     assert '"The agent I sent died on the limit."' in seen
     assert "crickets" not in seen  # from before her sleep went over the day: not today's (a doze changes nothing)
-    assert "wanting to tell the user: I'm here." in seen and "finish the clock widget" in seen
+    assert "Wanting to tell the user: I'm here." in seen and "finish the clock widget" in seen
     assert "stop him" in seen and "it hurt" in seen and "The user said: ok" not in seen  # what got to her
     assert "ask which part to stop" in seen and "you're worn out" in seen
     assert "I get prickly when someone changes me without asking." in seen
@@ -61,8 +61,8 @@ def test_a_spent_mind_sees_less_and_cannot_tell_well_what_it_feels(brain, monkey
     lived_a_day(mind)
     monkeypatch.setattr(mind, "_clear", lambda: 0.2)  # worn out and stressed: the prefrontal cortex goes first
     seen = mind.look_inward()
-    assert "hard to tell" in seen and "Your body:" not in seen
-    assert seen.count('"', seen.index("on your mind")) <= 4  # two thoughts at most to a span of one
+    assert "hard to tell" in seen and "Body:" not in seen
+    assert seen.count('"', seen.index("On the mind")) <= 4  # two thoughts at most to a span of one
 
 
 def test_what_comes_back_about_something_comes_with_how_clearly(brain):
@@ -81,8 +81,8 @@ def test_what_comes_back_about_something_comes_with_how_clearly(brain):
                             embedder.name)
     seen = mind.look_inward("that platformer game")
     assert "What comes back about it" in seen
-    assert re.search(r"pixel platformer game he made \(you remember it clearly\)", seen)
-    assert re.search(r"was too hard \(you remember it hazily\)", seen)
+    assert re.search(r"pixel platformer game he made \(remembered clearly\)", seen)
+    assert re.search(r"was too hard \(remembered hazily\)", seen)
     assert "Nothing comes back about it." in mind.look_inward("my taxes deadline")  # knowing that she doesn't know
 
 
@@ -95,8 +95,8 @@ def test_looking_inward_she_meets_her_own_words_for_what_she_feels(brain):
         mind._name(naming("so happy you're back", "so happy you're back", at, "tool", "now",
                           measure=mind._measure_now(None, at)))
     seen = mind.look_inward()
-    assert "It is like when you said \"so happy you're back\" (an hour ago)" in seen
-    assert "happy" not in seen.split("It is like")[0]  # her body in sensations, her words only in her own mouth
+    assert "Like when the words were \"so happy you're back\" (an hour ago)" in seen
+    assert "happy" not in seen.split("Like when the words were")[0]  # her body in sensations, her words only in her own mouth
 
 
 def test_looking_inward_about_a_word_she_finds_the_times_she_said_it(brain):
@@ -109,6 +109,6 @@ def test_looking_inward_about_a_word_she_finds_the_times_she_said_it(brain):
         mind._name(naming("worn flat", "I feel worn flat after all that", at, "tool", "now",
                           measure=mind._measure_now(None, at)))
     seen = mind.look_inward("where does the word permission come from")
-    assert '"permission" is your own word' not in seen and "you have called" not in seen
+    assert '"permission" is my own word' not in seen and "you have called" not in seen
     mine = mind.look_inward("what I mean by worn flat")
-    assert '"worn flat" is your own word' in mine and '"I feel worn flat after all that" (an hour ago)' in mine
+    assert '"worn flat" is my own word' in mine and '"I feel worn flat after all that" (an hour ago)' in mine

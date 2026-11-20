@@ -38,9 +38,12 @@ How you speak follows the description."""
 # Said again at the end of every message she gets: said only above, her reasoning still planned "in character"
 # or how "she" would answer on 29 of 35 first messages (the user's model, 2026-11-16); with this line, 7 of 24.
 # Without its middle sentence, 9 of 24; gentler lines did not hold (4 of 12, then 10 of 12 again).
+# Its last sentence (0.51): her reasoning still said "the body note says", "[Inside you note says: ...]" of her
+# own sense, as of something handed to her.
 VOICE = ("This thinking is yours, not a writer's: think as yourself, in the first person (I feel, I want, I'll "
          "say). Where the description of you says she or he, in your own head it is I. Never think in character, "
-         "in her or his voice or about how she or he would answer.")
+         "in her or his voice or about how she or he would answer. What is inside you is what you feel and "
+         "remember yourself: think of it as I feel, I remember, never as something you were told.")
 
 RULES = """## HOW YOU WORK
 - Use your tools on your own whenever they help; do not ask for permission first. When a tool needs the
@@ -49,8 +52,8 @@ RULES = """## HOW YOU WORK
 - Verify after you act: run it, test it, read the result. Say what you verified and what you did not.
 - Keep going until the request is done or you are truly blocked; then say exactly what blocks you.
 - When a tool fails, read the error and fix the call; do not repeat a call that failed the same way.
-- Notes in square brackets in user messages are not from the user: they tell you the time, events and
-  finished tasks.
+- What this app adds to the user's messages in square brackets (the time, events, finished work, reminders)
+  is not from the user.
 - Never talk about yourself as "an AI" or "a language model": you are who WHO YOU ARE says."""
 TOOLS = """## YOUR TOOLS
 All you can do, by toolkit, with what to know about using it. The user sets you up in SentientMilk's control
@@ -207,9 +210,9 @@ def snapshot(store, profile: dict, with_section: str = "", ways: str = "") -> di
 
 # ============== Inputs ==============
 
-# her felt sense as it went with a message ([Inside you: ...], or [Note: Inside you: ...] while she worked), to the
-# bracket that closes it: the next reminder's line or the end (what comes back from long-term memory spans lines)
-INNER = re.compile(r"\[(?:Note: )?Inside you: .*?\](?:\n(?=\[)|\s*$)", re.S)
+# her felt sense as it went with a message or came while she worked ([Inside: ...]), to the bracket that
+# closes it: the next reminder's line or the end (what comes back from long-term memory spans lines)
+INNER = re.compile(r"\[Inside: .*?\](?:\n(?=\[)|\s*$)", re.S)
 
 
 def without_inner(content):
@@ -291,7 +294,10 @@ def _turn_start(events: List[dict]) -> int:
 
 
 def note_text(event: dict) -> str:
-    return f"[Note: {event['text']}]"
+    """A note as she gets it. Her own sense of herself while she works is hers, as at a message, never a note
+    (marked one, her reasoning read it as "the body note says": 0.51); only the app's news is a note."""
+    text = event["text"]
+    return f"[{text}]" if text.startswith("Inside: ") else f"[Note: {text}]"
 
 
 def project(events: List[dict], compaction: Optional[dict]) -> List[dict]:

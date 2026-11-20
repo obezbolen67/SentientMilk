@@ -103,7 +103,7 @@ def test_a_thought_does_what_her_will_chose_and_keeps_why(brain):
     assert all(t["options"]["own"]["leaned"]["features"] for t in tasks)
     let_be = next(t for t in mind.self["thoughts"] if t.get("went") == "let be")
     assert let_be["want"] == "nothing" and let_be["leaned"]["act"] == "let"
-    assert "let it be" in mind.look_inward()
+    assert "let be" in mind.look_inward()
 
 
 @pytest.mark.mind

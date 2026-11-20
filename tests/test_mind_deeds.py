@@ -94,7 +94,7 @@ def test_what_she_started_is_kept_as_started_and_told_as_still_going(brain):
         brain.provider.mind_replies["imagine"] = [BANTER]
         brain.provider.replies += ["Yes, it's on it."]
         turn(brain, "cli", "is anything running?")
-        note = brain.provider.last_user_text().split("[Inside you:")[1]
+        note = brain.provider.last_user_text().split("[Inside:")[1]
         assert "Still going: " in note and "helper vera-clock" in note.split("Still going: ")[1]
     finally:
         release.set()

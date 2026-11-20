@@ -12,9 +12,9 @@ from sentientmilk_framework.mind.people import FADES, People
 
 pytestmark = pytest.mark.mind  # her mind lives in these tests
 
-ILIA = {"name": "Ilia", "aka": ["Illia"], "pronoun": "he", "goes_by": {"cli": "plays"},
+TEO = {"name": "Teo", "aka": ["Theo"], "pronoun": "he", "goes_by": {"cli": "plays"},
         "gist": "The one I live with, on his laptop; he can't stand his PC being grabbed."}
-VANNY = {"name": "Vanny", "pronoun": "she", "gist": "The player Ilia has me watch for in Roblox."}
+MIRA = {"name": "Mira", "pronoun": "she", "gist": "The player Teo has me watch for in Roblox."}
 
 
 def knows(brain, *people, face=("cli", "plays")):
@@ -33,32 +33,32 @@ def sent_to_her(brain, kind):
 def test_she_learns_people_from_faces_she_saw_and_knows_them_by_name():
     people = People()
     people.present("cli", "plays", 100.0)
-    assert people.update([{**ILIA, "goes_by": {"cli": "plays", "other": "ghost"}}, {"name": " "}, "junk"], 100.0)
-    ilia = people.recognize("cli", "PLAYS")
-    assert ilia["pronoun"] == "he" and ilia["goes_by"] == {"cli": ["plays"]}  # never a face she did not see
+    assert people.update([{**TEO, "goes_by": {"cli": "plays", "other": "ghost"}}, {"name": " "}, "junk"], 100.0)
+    teo = people.recognize("cli", "PLAYS")
+    assert teo["pronoun"] == "he" and teo["goes_by"] == {"cli": ["plays"]}  # never a face she did not see
     assert people.recognize("other", "ghost") is None and people.recognize("cli", "") is None
-    assert not people.update([{**ILIA, "goes_by": {}, "aka": ["Illia", "plays"]}], 101.0)  # nothing new
-    assert ilia["aka"] == ["Illia"]  # a handle is a face, not a name ("plays" brought him up wherever it was)
-    people.update([{"name": "Illia"}], 102.0)  # what she calls him now; the old name is another of his
-    assert people.find("ilia")["name"] == "Illia" and "Ilia" in people.find("Illia")["aka"]
-    people.update([VANNY], 103.0)
-    assert [p["name"] for p in people.mentioned("did vanny show up? Illia asked")] == ["Illia", "Vanny"]
-    assert people.mentioned("Vannyland is a game", besides=[people.find("Illia")]) == []  # a whole name only
-    assert People.line(people.find("Vanny")) == "Vanny (she): The player Ilia has me watch for in Roblox."
-    people.find("Vanny")["seen"] = 103.0 - FADES - 1  # met on one night, not seen since: forgotten
-    assert people.fade(103.0) == ["Vanny"] and [p["name"] for p in people.listed()] == ["Illia"]
+    assert not people.update([{**TEO, "goes_by": {}, "aka": ["Theo", "plays"]}], 101.0)  # nothing new
+    assert teo["aka"] == ["Theo"]  # a handle is a face, not a name ("plays" brought him up wherever it was)
+    people.update([{"name": "Theo"}], 102.0)  # what she calls him now; the old name is another of his
+    assert people.find("teo")["name"] == "Theo" and "Teo" in people.find("Theo")["aka"]
+    people.update([MIRA], 103.0)
+    assert [p["name"] for p in people.mentioned("did mira show up? Theo asked")] == ["Theo", "Mira"]
+    assert people.mentioned("Miraland is a game", besides=[people.find("Theo")]) == []  # a whole name only
+    assert People.line(people.find("Mira")) == "Mira (she): The player Teo has me watch for in Roblox."
+    people.find("Mira")["seen"] = 103.0 - FADES - 1  # met on one night, not seen since: forgotten
+    assert people.fade(103.0) == ["Mira"] and [p["name"] for p in people.listed()] == ["Theo"]
 
 
 def test_she_recognizes_who_writes_and_keeps_the_moment_with_them(brain):
-    mind = knows(brain, ILIA)
+    mind = knows(brain, TEO)
     brain.provider.replies.append("Hey you.")
     turn(brain, "cli", "hey", context={"user": "plays"})
     system = brain.provider.sent[-1]["messages"][0]["content"]
-    assert '## WHO YOU\'RE WITH\nIlia (he), who goes by "plays" here. The one I live with' in system
+    assert '## WHO YOU\'RE WITH\nTeo (he), who goes by "plays" here. The one I live with' in system
     imagine = sent_to_her(brain, "imagine")[-1]
-    assert "The new message, from Ilia:\nhey" in imagine and "Who they are talking with: Ilia (he)" in imagine
+    assert "The new message, from Teo:\nhey" in imagine and "Who they are talking with: Teo (he)" in imagine
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]
-    assert episode["text"].startswith("Ilia said: hey")
+    assert episode["text"].startswith("Teo said: hey")
     # one kept before she knew people reads with his name
     old = mind.memory.add("exchange", "The user said: NO. I have assignments. I said: Then get up.", -0.3, 0.5, 0.5,
                           app="cli", session="main", at=time.time() - 60)
@@ -67,49 +67,49 @@ def test_she_recognizes_who_writes_and_keeps_the_moment_with_them(brain):
 
 
 def test_someone_she_does_not_know_is_a_stranger_and_another_face_takes_the_chat_again(brain):
-    knows(brain, ILIA)
+    knows(brain, TEO)
     brain.provider.replies += ["Hi.", "Hi again."]
     turn(brain, "cli", "hello", context={"user": "zed"})
     assert 'Someone who goes by "zed" here. You don\'t know yet who they are.' in \
         brain.provider.sent[-1]["messages"][0]["content"]
     turn(brain, "cli", "it's me", context={"user": "plays"})
-    assert "Ilia (he)" in brain.provider.sent[-1]["messages"][0]["content"]
+    assert "Teo (he)" in brain.provider.sent[-1]["messages"][0]["content"]
 
 
 def test_a_name_brings_its_person_to_mind(brain):
-    knows(brain, ILIA, VANNY)
+    knows(brain, TEO, MIRA)
     brain.provider.replies.append("Not yet.")
-    turn(brain, "cli", "did Vanny show up?", context={"user": "plays"})
-    assert "Who that is: Vanny (she): The player Ilia has me watch for in Roblox." in brain.provider.last_user_text()
+    turn(brain, "cli", "did Mira show up?", context={"user": "plays"})
+    assert "Who that is: Mira (she): The player Teo has me watch for in Roblox." in brain.provider.last_user_text()
 
 
 def test_sleep_settles_who_people_are_and_chats_take_it_again(brain):
-    mind = knows(brain, ILIA)
+    mind = knows(brain, TEO)
     brain.provider.replies.append("Morning.")
     turn(brain, "cli", "good morning, I have assignments today", context={"user": "plays"})
     assert brain.store.session("cli", "main")["state"].get("snapshot")
     wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
-    brain.provider.mind_replies["people"] = [json.dumps({"people": [{**ILIA, "gist": "Ilia, an interpreter."}]})]
+    brain.provider.mind_replies["people"] = [json.dumps({"people": [{**TEO, "gist": "Teo, an interpreter."}]})]
     mind._consolidate()
     asked = sent_to_her(brain, "people")[-1]
-    assert "Ilia said: good morning, I have assignments today" in asked and '"cli": "plays"' in asked
+    assert "Teo said: good morning, I have assignments today" in asked and '"cli": "plays"' in asked
     assert "what they know and keep" not in brain.provider.mind_requests[-2]["messages"][0]["content"]
-    assert mind.people.find("Ilia")["gist"] == "Ilia, an interpreter."
+    assert mind.people.find("Teo")["gist"] == "Teo, an interpreter."
     assert not brain.store.session("cli", "main")["state"].get("snapshot")  # taken again at the next request
     brain.provider.replies.append("Good luck.")
     turn(brain, "cli", "thanks", context={"user": "plays"})
-    assert "Ilia, an interpreter." in brain.provider.sent[-1]["messages"][0]["content"]
+    assert "Teo, an interpreter." in brain.provider.sent[-1]["messages"][0]["content"]
 
 
 def test_her_thoughts_know_whom_she_talks_with_and_a_rumination_does_not_echo_itself(brain):
-    mind = knows(brain, ILIA)
+    mind = knows(brain, TEO)
     now = time.time()
     with mind._lock:
         mind.self["contact"] = {"app": "cli", "session": "main", "at": now - 600}
         mind.self["faces"]["cli\nmain"] = "plays"  # the chat she last talked in, and whose face it has
     mind._think("reach_out", None)
     thought = sent_to_her(brain, "think")[-1]
-    assert "You miss Ilia." in thought and "Who they talk with: Ilia (he)" in thought
+    assert "You miss Teo." in thought and "Who they talk with: Teo (he)" in thought
     sore = mind.memory.add("exchange", "The user said: NO, I have assignments.", -0.6, 0.6, 0.8,
                            app="cli", session="main", at=now - 300)
     mind._think("ruminate", next(e for e in mind.memory.recent(5) if e["id"] == sore))

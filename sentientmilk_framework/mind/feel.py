@@ -210,10 +210,10 @@ class Felt:
             change = (f"Since {since}: {_amounts(now) if now else 'little changed'}. " if since else
                       f"Reading it: {_amounts(now) + ' than' if now else 'little changed from'} a moment ago. ")
             return (change
-                    + (f"Underneath: {_amounts(under)} than you're used to; {whole}" if under
+                    + (f"Underneath: {_amounts(under)} than usual; {whole}" if under
                        else f"Underneath, {whole}"))
-        return (f"Your body: {_amounts(found)} than you're used to; {whole}" if found
-                else f"Nothing stands out in your body: {whole}")
+        return (f"Body: {_amounts(found)} than usual; {whole}" if found
+                else f"Nothing stands out in the body: {whole}")
 
 
 def feel(body: Body, senses: Interoception, now: Optional[float] = None) -> Felt:

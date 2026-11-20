@@ -15,7 +15,7 @@ from sentientmilk_framework.mind.feel import USUAL, Felt
 
 ALARM = "the deploy alarm"
 CALM = '["they mention it", "same", "same", "same", "fine", "chat", "deploys", "%s"]'
-NOTE = re.compile(r"\[Inside you: [^\n]*\]")
+NOTE = re.compile(r"\[Inside: [^\n]*\]")
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def delivered(brain) -> str:
             content = message.get("content")
             text = content if isinstance(content, str) else " ".join(
                 b.get("text", "") for b in content or [] if isinstance(b, dict))
-            found = [n for n in NOTE.findall(text) if n != "[Inside you: ...]"]
+            found = [n for n in NOTE.findall(text) if n != "[Inside: ...]"]
             if found:
                 return found[-1]
     raise AssertionError("no note reached the reply model")
@@ -60,7 +60,7 @@ def test_a_change_her_senses_have_not_registered_is_not_told_as_felt(brain, mind
     assert decision["reacted"]["cortisol"] < -1.0  # her body did drop, at once
     note = delivered(brain)
     assert not re.search(r"Reading it: [^.]*less strain[^.]*than a moment ago", note), note
-    assert re.search(r"Underneath: [^;]*more strain[^;]*than you're used to", note), note
+    assert re.search(r"Underneath: [^;]*more strain[^;]*than usual", note), note
 
 
 def test_a_channel_that_changed_still_tells_where_it_is():
@@ -69,20 +69,20 @@ def test_a_channel_that_changed_still_tells_where_it_is():
     felt = Felt(-0.4, 0.5, reading, used=dict(USUAL))
     words = felt.words(moved_by={"cortisol": -0.6})
     assert "a little less strain than a moment ago" in words
-    assert re.search(r"Underneath: [^;]*much more strain than you're used to", words), words
+    assert re.search(r"Underneath: [^;]*much more strain than usual", words), words
 
 
 def test_a_note_holding_recalled_lines_is_still_hers_alone():
     """A note that brings back long-term memory spans lines; the records of what was said (summaries, the history
     tool) still leave it out, and keep what was said and the reminders after it (one line stopped the match: the
     whole note went into a chat's summary as if the user had written it)."""
-    content = ("[Context: time: 2026-11-19 17:40]\nhow was your day?\n[Inside you: Underneath: more strain than you're "
+    content = ("[Context: time: 2026-11-19 17:40]\nhow was your day?\n[Inside: Underneath: more strain than you're "
                "used to. This brings back: FROM YOUR LONG-TERM MEMORY (what comes back):\n- a day ago, in \"Tea\": "
                "they: hi\n- a week ago: you: hello.]\n[Reply in plain words.]")
     kept = without_inner(content)
-    assert "Inside you" not in kept and "LONG-TERM" not in kept, kept
+    assert "[Inside:" not in kept and "LONG-TERM" not in kept, kept
     assert "how was your day?" in kept and "[Reply in plain words.]" in kept
-    assert without_inner("[Note: Inside you: Your body: more strain than you're used to.]") == ""
+    assert without_inner("[Inside: Body: more strain than usual.]") == ""
 
 
 def _lives(mind, minutes, **levels):
@@ -109,6 +109,6 @@ def test_what_changed_since_she_last_answered_here_is_felt_as_a_change(brain, mi
         if text.startswith("I'm"):  # her first answer in this chat: nothing here to compare with
             assert "Reading it:" in delivered(brain) and "Since you last answered" not in delivered(brain)
         _lives(mind, 4, cortisol=later)
-    since = re.search(r"Since you last answered here \([^)]*\): ([^.]*)\.", delivered(brain))
+    since = re.search(r"Since the last answer here \([^)]*\): ([^.]*)\.", delivered(brain))
     assert since, delivered(brain)
     assert ("more strain" in since.group(1)) == rose and "less strain" not in since.group(1), since.group(1)

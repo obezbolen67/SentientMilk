@@ -103,7 +103,7 @@ Verified against the code with a plan: docs/superpowers/specs/2026-11-19-cogniti
 - [ ] **P3 Selective attention.** Attention picks what matters and suppresses the rest (biased competition:
   Desimone & Duncan 1995). Her bids compete for thoughts, but in a turn she gets everything at once. First
   step: what her note carries chosen by relevance and charge, with a span, not all parts every time. 0.47: its
-  new part ("Also on your mind") is chosen so; the older parts move one at a time, each measured.
+  new part ("Also in mind") is chosen so; the older parts move one at a time, each measured.
 
 ## Learning
 

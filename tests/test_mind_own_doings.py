@@ -61,7 +61,7 @@ def thought(mind, text):
 
 
 def note(brain):
-    return brain.provider.last_user_text().split("[Inside you:")[1]
+    return brain.provider.last_user_text().split("[Inside:")[1]
 
 
 def test_her_task_is_marked_hers_with_what_she_meant_and_the_thought_it_came_from(brain):
@@ -117,13 +117,13 @@ def test_she_is_told_what_she_did_on_her_own_and_what_is_still_going_whatever_ch
     brain.brain.delete_session("milk", "main")  # the chat she was in is gone
     talked(brain, "what is this job hmm?", session="other")
     told = note(brain)
-    assert "What you did since you last talked: " in told
+    assert "Done since the last talk: " in told
     assert "Out of my own curiosity I looked up: 92.5.89.27" in told and "Oracle Cloud machine" in told
-    assert f"Still going: job {sweep}, from your task {task['id']} on your own (looking up 92.5.89.27): " \
+    assert f"Still going: job {sweep}, from my task {task['id']} of my own (looking up 92.5.89.27): " \
            "nslookup -type=PTR 92.5.89.1" in told
     talked(brain, "and now?", session="other")
     told = note(brain)
-    assert "What you did since you last talked" not in told and f"job {sweep}" in told  # told once; still going
+    assert "Done since the last talk" not in told and f"job {sweep}" in told  # told once; still going
 
 
 def test_a_job_her_task_left_running_is_hers_to_remember_when_it_ends(brain):
@@ -146,8 +146,8 @@ def test_looking_inward_she_sees_what_she_did_today_and_what_is_still_going(brai
     task = look_up(brain, "92.5.89.27", "An Oracle Cloud machine.")
     sweep = job(brain, task, "nslookup -type=PTR 92.5.89.1")
     seen = mind.look_inward()
-    assert "What you did today: " in seen and "Out of my own curiosity I looked up: 92.5.89.27" in seen
-    assert f"Still going: job {sweep}, from your task {task['id']} on your own" in seen
+    assert "Done today: " in seen and "Out of my own curiosity I looked up: 92.5.89.27" in seen
+    assert f"Still going: job {sweep}, from my task {task['id']} of my own" in seen
 
 
 def test_her_session_tools_find_and_open_what_she_did_on_her_own(brain):

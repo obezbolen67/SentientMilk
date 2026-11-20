@@ -35,13 +35,13 @@ def test_she_feels_and_decides_before_she_answers_and_the_user_never_sees_it(bra
     result = turn(brain, "cli", "Can you sum up my notes?")
     assert result["reply"] == "Sure, here it is."
     sent = brain.provider.last_user_text()
-    assert any(f"[Inside you: {start}" in sent for start in ("Your body", "Nothing stands out", "Reading it: ")) \
-        and "Which way you lean: doing it" in sent
+    assert any(f"[Inside: {start}" in sent for start in ("Your body", "Nothing stands out", "Reading it: ")) \
+        and "Leaning: doing it" in sent
     assert "Can you sum up my notes?" in sent
     imagine = next(r for r in brain.provider.mind_requests if r["messages"][0]["content"].startswith("[mind:imagine]"))
     assert "Can you sum up my notes?" in imagine["messages"][1]["content"]
     shown = brain.client.history("cli", "main")
-    assert all("Inside you" not in json.dumps(item) for item in shown)
+    assert all("[Inside:" not in json.dumps(item) for item in shown)
     assert "## YOUR INNER LIFE" in brain.provider.sent[-1]["messages"][0]["content"]
     run = brain.store.run(result["run"])
     assert run["options"]["mind"]["act"] == "do"
@@ -60,7 +60,7 @@ def test_she_leans_one_way_and_what_she_does_is_hers_and_is_what_she_learns_from
         leaning(patch, "later")  # she leans to put it off
         turn(brain, "cli", "Put my laptop's IP in the server's allow list", on_approval=lambda event: "allow")
     sent = brain.provider.sent[0]["messages"][-1]["content"]
-    assert "Which way you lean: not now: doing it later" in sent and "don't do it" not in sent
+    assert "Leaning: not now: doing it later" in sent and "don't do it" not in sent
     assert (brain.work / "ip.txt").read_text(encoding="utf-8") == "1.2.3.4"  # nothing held her back
     outcome = wait_for(lambda: (mind.self["decided"] or {}).get("outcome"))
     assert outcome["did"] == "do"
@@ -85,7 +85,7 @@ def test_a_chat_is_hers_to_answer_nothing_is_decided_for_her_or_kept_from_her(br
     brain.provider.replies += ["Strawberry is fine."]
     result = turn(brain, "cli", "i got the strawberry one")
     sent = brain.provider.last_user_text()
-    assert "Inside you:" in sent and "What you decide" not in sent and "approve the flavour" not in sent
+    assert "Inside:" in sent and "What you decide" not in sent and "approve the flavour" not in sent
     run = brain.store.run(result["run"])
     assert run["options"]["mind"]["gated"] is False and run["options"]["mind"]["act"] == "talk"
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]
@@ -167,8 +167,9 @@ def test_her_body_lives_through_her_work_and_speaks_up_while_she_works(brain):
     result = turn(brain, "cli", "Read a.txt and b.txt, please")
     assert felt[0] < 0.99  # a step's work tires her as it is done, not when the turn ends
     third, last = (json.dumps(request["messages"]) for request in brain.provider.sent[-2:])
-    assert "much less energy" in third.split("[Note: Inside you: Your body: ")[1].split("]")[0]  # her body, mid-work
-    assert last.count("[Note: Inside you: Your body:") == 1 and "files_read failed" in last  # said once: her cortex hears only what is new
+    assert "much less energy" in third.split("[Inside: Body: ")[1].split("]")[0]  # her body, mid-work: hers, never a note
+    assert last.count("[Inside: Body:") == 1 and "files_read failed" in last
+    assert "what was meant to happen hasn't" in last and "unverified" not in last  # as she meets it  # said once: her cortex hears only what is new
     assert mind.body["cortisol"] > stress  # a call that failed stirred her as it failed
     wait_for(lambda: result["run"] not in mind._working)  # and what was left is counted once, at the end
     assert mind.body["energy"] < 0.35
@@ -189,14 +190,14 @@ def test_what_the_user_says_while_she_works_reaches_her_body_too(brain):
     result = turn(brain, "cli", "Read my notes, please")
     sent = brain.provider.sent[-1]["messages"]
     said = next(m["content"] for m in reversed(sent) if m["role"] == "user" and "you're useless" in str(m["content"]))
-    assert "[Inside you: Reading it: " in str(said) and "What you decide" not in str(said)
-    assert "hurt" not in str(said).split("[Inside you:")[1]  # her quick reading's word is not put on her
+    assert "[Inside: Reading it: " in str(said) and "What you decide" not in str(said)
+    assert "hurt" not in str(said).split("[Inside:")[1]  # her quick reading's word is not put on her
     assert mind.body.stress_drive > hurt[0]  # being judged while she works stresses her as it would at any time
     assert brain.store.run(result["run"])["options"]["mind"]["act"] == "do"  # what she decided about the turn stands
     episode = wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))[0]  # and she remembers it with the turn
     assert "As I worked they said: No, wrong file, you're useless." in episode["text"]
     shown = brain.client.history("cli", "main")
-    assert all("Inside you" not in json.dumps(item) for item in shown)
+    assert all("[Inside:" not in json.dumps(item) for item in shown)
 
 
 def test_she_files_what_she_meets_under_what_she_knows(brain):
@@ -235,8 +236,8 @@ def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought
     asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
     assert "your mind wanders" in asked and "my tomatoes died last winter" in asked  # replayed, unbidden
     turn(brain, "cli", "my tomatoes died again")  # calls up what is like it
-    note = brain.provider.last_user_text().split("[Inside you:")[1]
-    assert 'Since you last talked you were thinking, at ' in note
+    note = brain.provider.last_user_text().split("[Inside:")[1]
+    assert 'Thinking, since the last talk, at ' in note
     assert ': "Tomatoes mind the cold more than I thought."' in note
     assert "my tomatoes died last winter" in note and "how do tomatoes grow" not in note
     brain.provider.mind_replies["think"] = [json.dumps({"thought": "And frost?"})]
@@ -253,7 +254,7 @@ def test_a_turn_nobody_wrote_still_comes_with_how_she_feels(brain):
     before = len(brain.provider.mind_requests)
     turn(brain, "milk", None, items=[{"type": "event", "name": "job.finished", "text": "The download ended."}])
     sent = brain.provider.last_user_text()
-    assert "[Inside you:" in sent and "What you decide" not in sent
+    assert "[Inside:" in sent and "What you decide" not in sent
     assert len(brain.provider.mind_requests) == before  # felt, not appraised: nobody said anything to her
     with mind._lock:
         mind.body.levels.update(endorphin=0.1, reward=0.0)
@@ -467,7 +468,7 @@ def test_a_thought_she_wants_to_share_reaches_the_app_that_is_there(brain, monke
     turn(brain, "milk", "back")
     assert "I keep thinking about their garden." in brain.provider.last_user_text()
     # and that she wanted to say it: before, her note gave the thought alone and she went on with the talk (19:03)
-    assert "You've been wanting to tell the user: How are the tomatoes doing?" in brain.provider.last_user_text()
+    assert "Wanting to tell the user: How are the tomatoes doing?" in brain.provider.last_user_text()
     wait_for(lambda: not brain.brain.session_busy("milk", "main"))
     mind.self["contact"]["at"] -= 20 * 60  # and when they have not written for a while, she says it herself
     mind._think("reach_out", None)
@@ -567,7 +568,7 @@ def test_what_a_moment_is_about_takes_on_how_it_felt_and_what_she_likes_is_used(
     brain.provider.replies += ['{"expression": "smile"}\nDear.']
     turn(brain, "pet", "night, dear")
     note = brain.provider.last_user_text()
-    assert "You like pet names." in note  # she knows it as it comes up
+    assert "Liked: pet names." in note  # she knows it as it comes up
     assert mind.self["decided"]["path"]["met"]["liked"] > 0  # and a liked subject is a reward in itself
     brain.provider.mind_replies["think"] = ['{"thought": "Dear. I keep thinking about that."}']
     mind._think("wonder", None)
@@ -778,13 +779,13 @@ def test_what_she_meant_to_say_outlasts_a_nap_but_not_a_night(brain):
     def note(said):  # the message as she read it, with her note
         return next(m["content"] for r in reversed(brain.provider.sent) for m in r["messages"]
                     if m["role"] == "user" and isinstance(m["content"], str) and said in m["content"])
-    assert "You've been wanting to tell the user: How are the tomatoes doing?" in note("you awake?")
+    assert "Wanting to tell the user: How are the tomatoes doing?" in note("you awake?")
     _wants_to_tell(brain, mind)
     with mind._lock:
         mind.self["slept"] = time.time() + 1  # a night went over her day since she wanted to: it passed
     brain.provider.replies += ["Morning."]
     turn(brain, "milk", "good morning")
-    assert "You've been wanting to tell" not in note("good morning")
+    assert "Wanting to tell" not in note("good morning")
 
 
 def test_what_the_app_does_not_let_her_say_she_keeps_for_when_they_write(brain):
@@ -804,7 +805,7 @@ def test_what_the_app_does_not_let_her_say_she_keeps_for_when_they_write(brain):
         assert mind._drives(time.time())[0]()["reach_out"] is not None  # she is not waiting on anyone
     brain.provider.replies += ["Oh, hi."]
     turn(brain, "milk", "back")
-    assert "You've been wanting to tell the user: How are the tomatoes doing?" in brain.provider.last_user_text()
+    assert "Wanting to tell the user: How are the tomatoes doing?" in brain.provider.last_user_text()
     assert mind.self["urge"] is None
 
 
@@ -867,16 +868,16 @@ def test_her_note_tells_when_each_of_them_last_wrote_and_when_she_thought_what(b
     mind.presence.report(idle=4, locked=False, busy=False, now=now)
     brain.provider.replies += ["Welcome back."]
     turn(brain, "cli", "hey, I'm back")
-    note = brain.provider.last_user_text().split("[Inside you:")[1]
+    note = brain.provider.last_user_text().split("[Inside:")[1]
     def clock(ago):
         return time.strftime("%H:%M", time.localtime(now - ago))
 
     assert f"they last wrote here 3 hours 8 minutes ago, at {clock(3 * 3600 + 8 * 60)}" in note
-    assert f"you last wrote 2 hours 5 minutes ago, at {clock(2 * 3600 + 5 * 60)}" in note
-    assert f"you slept from {clock(22 * 60)} to {clock(1)}" in note
+    assert f"last written 2 hours 5 minutes ago, at {clock(2 * 3600 + 5 * 60)}" in note
+    assert f"slept from {clock(22 * 60)} to {clock(1)}" in note
     assert "the computer was last touched a moment ago" in note
     # what she thought, each with when, the older first
-    assert (f'Since you last talked you were thinking, at {clock(2 * 3600)}: "The shop is far." '
+    assert (f'Thinking, since the last talk, at {clock(2 * 3600)}: "The shop is far." '
             f'At {clock(1800)}: "Still quiet."') in note
 
 

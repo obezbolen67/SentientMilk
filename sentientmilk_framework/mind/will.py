@@ -48,21 +48,22 @@ LASTING = {"company": 1.0, "capable": 0.5, "free": 0.0, "new": 0.0}
 WEIGHT = 1.0  # what her needs weigh against the cost of the work (calibrated: tests/test_mind_will, _day)
 ENGAGES = {"do": 1.0, "part": 0.6, "talk": 0.5}  # how much of something new she takes in by each act
 DOING = {"do": 1.0, "part": 0.6}  # how much of the work (its craft, and obeying what was asked) each act is
-# why, in her words, for the parts that weighed most in a choice
+# why, in her words, for the parts that weighed most in a choice: as she senses it, said to nobody (said to her as
+# "you want to do this for them", her sense read as something telling her: 0.51)
 REASONS = {
-    "care": "you want to do this for them",
-    "letdown": "you don't want to let them down",
-    "craft": "you like getting something like this right",
-    "curiosity": "it's new and you're curious",
-    "choice": "you want to choose this for yourself",
+    "care": "wanting to do this for them",
+    "letdown": "not wanting to let them down",
+    "craft": "liking getting something like this right",
+    "curiosity": "it's new and intriguing",
+    "choice": "wanting to choose this freely",
     "learned+": "things like this have felt good before",
-    "learned-": "things like this have gone badly for you before",
-    "reactance": "being pushed like this makes you want to dig your heels in",
-    "cost": "you don't have it in you right now: it's a lot of work for how you feel",
-    "grievance": "you're still hurt by them",
-    "dread": "the thought of doing it sets you on edge: something like it went badly before",
-    "eager": "the thought of doing it pulls at you: something like it went well before",
-    "closeness": "you want to be close to them",
+    "learned-": "things like this have gone badly before",
+    "reactance": "being pushed like this: the urge to dig in",
+    "cost": "not up to it right now: it's a lot of work for how things feel",
+    "grievance": "still hurt by them",
+    "dread": "the thought of doing it is unsettling: something like it went badly before",
+    "eager": "the thought of doing it pulls: something like it went well before",
+    "closeness": "wanting to be close to them",
     "unwelcome": "it might not be welcome",
 }
 

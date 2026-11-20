@@ -46,8 +46,8 @@ def test_a_settled_body_in_a_quiet_moment_draws_nothing(brain):
     brain.provider.mind_replies["imagine"] = [CHAT]
     result = turn(brain, "milk", "hi there")
     decision = brain.store.run(result["run"])["options"]["mind"]
-    assert decision["attended"] is None and "You turn inward" not in decision.get("note", "")
-    assert "You turn inward" not in brain.provider.sent[-1]["messages"][-1]["content"]
+    assert decision["attended"] is None and "Turning inward" not in decision.get("note", "")
+    assert "Turning inward" not in brain.provider.sent[-1]["messages"][-1]["content"]
 
 
 def test_her_body_far_from_usual_is_noticed_once_and_again_only_as_it_changes(brain):
@@ -87,7 +87,7 @@ def test_being_torn_between_two_ways_turns_her_attention_to_both(brain):
                   {"act": "later", "what": "fix the clock", "parts": {"care": 0.1, "cost": -0.02}, "worth": 0.18,
                    "picked": False}]
     found = attend(mind, free=0.5, considered=considered, temperature=0.1)
-    assert found["why"] == ["torn"] and found["torn"] == "later" and found["text"].startswith("You are torn: ")
+    assert found["why"] == ["torn"] and found["torn"] == "later" and found["text"].startswith("Torn: ")
     clear = [dict(considered[0], worth=0.5), considered[1]]
     assert attend(mind, free=0.5, considered=clear, temperature=0.1) is None  # one clearly wins
 
@@ -127,7 +127,7 @@ def test_a_vague_mind_notices_only_how_it_is_on_the_whole_and_a_mixed_one_both_w
     mind.self["attending"] = None
     monkeypatch.setattr(mind, "_clear", lambda: 0.2)
     vague = attend(mind, free=1.0)
-    assert "you can't tell more than that" in vague["text"] and "drive" not in vague["text"]
+    assert "nothing clearer than that" in vague["text"] and "drive" not in vague["text"]
 
 
 def test_a_thought_of_hers_turns_to_herself_once_and_wandering_ends_the_stretch(brain, monkeypatch):
@@ -162,12 +162,12 @@ def test_asked_how_she_is_in_any_words_she_turns_inward_and_names_it_with_the_to
         sent = brain.provider.sent[-1]
         assert not any(t["function"]["name"] == "look_inward" for t in sent.get("tools") or [])
         note = sent["messages"][-1]["content"]
-        assert "You turn inward: Looking inward: For a while now: less drive than usual." in note
+        assert "Turning inward: Looking inward: For a while now: less drive than usual." in note
         # a little of herself, not her day again: her note has her day, and her last decision, read again here,
         # was carried on in words as a shell command in 15 of 52 held-out answers (the 0.48 exam)
-        assert not any(day in note for day in ("on your mind today", "What you did today", "Last time you weighed",
-                                               "What got to you today", "What you have come to know"))
-        assert question not in note.split("Inside you:")[1]  # said already
+        assert not any(day in note for day in ("on your mind today", "Done today", "Last time you weighed",
+                                               "What got through today", "What you have come to know"))
+        assert question not in note.split("Inside:")[1]  # said already
         decision = brain.store.run(result["run"])["options"]["mind"]
         assert decision["attended"]["why"][0] == "asked"
         wait_for(lambda: mind.memory.of_run(result["run"]))

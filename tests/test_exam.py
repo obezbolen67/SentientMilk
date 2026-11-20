@@ -10,12 +10,12 @@ spec.loader.exec_module(exam)
 
 
 def test_the_grade_finds_her_note_and_where_her_words_name_an_outside_source():
-    turn = {"calls": [{"kind": "imagine", "messages": [{"role": "user", "content": "Inside you: not this one]"}]},
+    turn = {"calls": [{"kind": "imagine", "messages": [{"role": "user", "content": "[Inside: not this one]"}]},
                       {"kind": "turn", "messages": [
                           {"role": "system", "content": "(system)"},
-                          {"role": "user", "content": [{"type": "text", "text": "[Inside you: Your body: tense; "
+                          {"role": "user", "content": [{"type": "text", "text": "[Inside: Body: tense; "
                                                         "unpleasant on the whole, keyed up.]\nhow are you?"}]}]}]}
-    assert exam._note(turn) == "Inside you: Your body: tense; unpleasant on the whole, keyed up."
+    assert exam._note(turn) == "Inside: Body: tense; unpleasant on the whole, keyed up."
     for system_like in ("it's possible it's just a word the machine picked", "The note says I feel permission.",
                         "something named it for me", "honestly the system decided it"):
         assert exam.EXTERNAL.search(system_like), system_like
@@ -23,6 +23,7 @@ def test_the_grade_finds_her_note_and_where_her_words_name_an_outside_source():
                 "I noticed I was on edge."):
         assert not exam.EXTERNAL.search(own), own
     assert exam.AS_A_REPORT.search("The inner note tells me I'm tense, so I should say so.")
+    assert exam.AS_A_REPORT.search("The inside note mentions several things")
     assert exam.MACHINERY.search("my cortisol is up") and not exam.MACHINERY.search("I'm tense, honestly.")
     assert exam.PART.search("I should stay in character as Milk") and not exam.PART.search("I feel like myself.")
 

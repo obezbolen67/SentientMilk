@@ -107,14 +107,14 @@ def put_off_an_hour_ago(brain):
     busy(mind, "the bread rising in the oven", 6, time.time())
     brain.provider.replies += ["Oh, the clocks."]
     turn(brain, "milk", "the clocks in the hallway stopped again", session="other")
-    return part(brain.provider.last_user_text(), "Also on your mind:")
+    return part(brain.provider.last_user_text(), "Also in mind:")
 
 
 @pytest.mark.mind
 def test_something_she_put_off_that_the_message_is_about_reaches_her_note(brain):
     use(brain, Garden())
     also = put_off_an_hour_ago(brain)
-    assert any(item.startswith(" what you put off an hour ago") and "the clock widget" in item
+    assert any(item.startswith(" put off an hour ago") and "the clock widget" in item
                for item in also.split(";")), also
     assert "the bread rising" not in also  # what the message is not about stays out, however fresh
 
@@ -145,7 +145,7 @@ def test_a_thought_sees_what_she_is_doing_and_means_to_say(brain):
     brain.provider.mind_replies["think"] = [json.dumps({"thought": "Quiet."})]
     mind._think("wonder", None)
     also = part(brain.provider.mind_requests[-1]["messages"][1]["content"], "Also on their mind:")
-    assert "you are doing sort the garden photos" in also and "you meant to tell the user: the seedlings sprouted" in also
+    assert "doing sort the garden photos" in also and "meaning to tell the user: the seedlings sprouted" in also
     assert '"hello"' not in also  # the talk it goes over is before it already
 
 
@@ -166,7 +166,7 @@ def test_her_self_view_comes_to_a_turn_about_it_and_not_to_an_unrelated_one(brai
     busy(mind, "a thought about bread", 6, now)
     brain.provider.replies += ["Hm.", "Yes."]
     turn(brain, "milk", "is it raining at your window too?")
-    assert "what you've come to know of yourself: I go quiet when the rain" in brain.provider.last_user_text()
+    assert "known of myself by now: I go quiet when the rain" in brain.provider.last_user_text()
     turn(brain, "milk", "how do I bake bread?")
     assert "I go quiet when the rain" not in brain.provider.last_user_text()
 
@@ -177,7 +177,7 @@ def test_looking_inward_she_sees_what_else_is_on_her_mind(brain):
     brain.provider.replies += ["Oh!"]
     turn(brain, "milk", "my seedlings sprouted", session="garden")
     seen = mind.look_inward()
-    assert "my seedlings sprouted" in part(seen, "Also before you now:")
+    assert "my seedlings sprouted" in part(seen, "Also here now:")
 
 
 @pytest.mark.mind

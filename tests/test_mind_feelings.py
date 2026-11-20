@@ -33,13 +33,13 @@ def test_whatever_words_she_puts_to_what_she_finds_become_hers_and_ease_it_once(
     looked = mind.look_inward()
     assert eased(mind) == 0 and not mind.concepts.named  # looking alone names nothing and eases nothing
     seen = mind.look_inward(naming="wound up like a spring, a bit vexed")  # no list would have this
-    assert 'You put it into words: "wound up like a spring, a bit vexed"' in seen and "a word of your own" in seen
+    assert 'Put into words: "wound up like a spring, a bit vexed"' in seen and "A word of my own" in seen
     found = mind.concepts.named[0]
     assert found["word"] == "wound up like a spring, a bit vexed" and found["moved"]
     assert found["said"][-1]["text"] == "wound up like a spring, a bit vexed"
     assert eased(mind) == 1  # the felt shift: putting it into words eases it
     again = mind.look_inward(naming="wound up like a spring, a bit vexed")
-    assert "sits like the times you called it that" in again and eased(mind) == 1  # once for one experience
+    assert "sits like the other times it was called that" in again and eased(mind) == 1  # once for one experience
     assert "called" not in looked  # her body in body words: never a name she did not give it
 
 
@@ -80,13 +80,13 @@ def test_naming_a_moment_she_looks_back_on_names_that_moment_and_softens_it(brai
                             embedder.name)
     feels(mind, cortisol=0.2, noradrenaline=0.4, reward=0.3, serotonin=0.7)  # it has passed: she is fine now
     seen = mind.look_inward("the cat drawing", naming="stung, then small", moment=episode["id"])
-    assert 'You put it into words: "stung, then small"' in seen
+    assert 'Put into words: "stung, then small"' in seen
     named = mind.concepts.named[0]
     assert named["moved"] == {name: change for name, change in way.items()}  # that moment's body, not her now
     assert named["said"][-1]["episode"] == episode["id"] and "cat" in named["about"]
     assert mind.memory.by_ids([episode["id"]])[0]["charge"] < episode["charge"]  # it lost a little of its sting
     assert eased(mind) == 0  # nothing unpleasant now to ease
-    assert '(it hurt; you called it "stung, then small")' in mind.look_inward()  # what got to her, by her name
+    assert '(it hurt; called "stung, then small")' in mind.look_inward()  # what got to her, by her name
 
 
 @pytest.mark.mind
@@ -124,7 +124,7 @@ def test_her_body_comes_as_amounts_she_puts_into_words_herself_never_a_feelings_
     usual = {"noradrenaline": 0.35, "oxytocin": 0.4, "adenosine": 0.4, "novelty": 0.6}
     felt = Felt(*core(reading), reading, used=usual)
     said = felt.words()
-    assert said.startswith("Your body: ") and "than you're used to;" in said
+    assert said.startswith("Body: ") and "than usual;" in said
     assert "more alertness" in said and "more closeness" in said and "more sleep pressure" in said
     assert "less novelty" in said and not {"buzzing", "warm", "heavy-eyed", "wanting"} & set(said.split())
     both = felt.words(moved_by={"oxytocin": 1.2, "reward": 0.8})
@@ -154,4 +154,4 @@ def test_a_message_that_hardly_moved_her_is_told_as_little_changed():
         said = felt.words(moved_by=little)
         assert said.startswith("Reading it: little changed from a moment ago. Underneath: ")
         assert "more strain" in said.split("Underneath: ")[1]  # what is still there is said as still there
-    assert felt.words().startswith("Your body: ")  # no message: how her body stands, as before
+    assert felt.words().startswith("Body: ")  # no message: how her body stands, as before

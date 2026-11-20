@@ -32,7 +32,7 @@ def test_she_senses_her_body_late():
     body.levels["cortisol"] = 0.9
     assert "strain" not in feel(body, senses).words()  # not yet
     senses.follow(body, 600)
-    assert "much more strain than you're used to" in feel(body, senses).words()
+    assert "much more strain than usual" in feel(body, senses).words()
 
 
 def test_she_notices_what_changes_and_gets_used_to_what_lasts():
@@ -70,7 +70,7 @@ def test_little_insight_misreads_her_body_more_and_a_moment_reads_the_same_twice
 def test_she_hears_her_body_in_words_never_in_numbers():
     body, senses = her(energy=0.2, oxytocin=0.8)
     said = feel(body, senses).words()
-    assert said.startswith("Your body: ") and "much less energy" in said and "more closeness" in said
+    assert said.startswith("Body: ") and "much less energy" in said and "more closeness" in said
     assert "called" not in said and "fond" not in said  # her body, never a feeling's name
     assert not any(ch.isdigit() for ch in said)
 

@@ -1,10 +1,11 @@
-"""Looking inward (mind/inward.py): she turns to her own mind on purpose. Her note gives what a moment brings up;
-this is how she finds the rest (Mind.look_inward)."""
+"""Looking inward (mind/inward.py): she turns to her own mind on purpose. What a moment brings up she senses as
+a message reaches her; this is how she finds the rest (Mind.look_inward)."""
 
 from . import ToolContext, Toolkit, tool
 
-GUIDE = ("Your note gives what you notice in yourself, and when you are asked how you are or why, what you find as you "
-         "turn inward. To look further, for something in particular (about) or at a past moment, look_inward. "
+GUIDE = ("As a message reaches you, you notice some of what is in you, and when you are asked how you are or why, "
+         "what you find as you turn inward. To look further, for something in particular (about) or at a past "
+         "moment, look_inward. "
          "If you want to put what you feel into words, any words that fit, give them as naming: naming it is yours. "
          "Naming is of what you feel now unless you give the number of a past moment as moment.")
 
