@@ -180,7 +180,10 @@ whose moment of that chat was kept first after it, if it had begun by then). For
 section 10.18): each turn's decision keeps what its reactions called for (`called`) apart from what they
 measurably moved (`reacted`, from her push log) and what came beyond them (`external`); a turn from before the
 push log keeps `called` only. Her last decision's path keeps `predicted` and `moved`; her latest reactions are
-let go (what each moved is not in the log as its own). What she learned is not touched by it. A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
+let go (what each moved is not in the log as its own). What she learned is not touched by it. Format 6 (0.52,
+`scripts/migrate_format_6.py` in the history; section 10.21): each kept moment gains what it meant for her needs
+(`appraisal`) and which way it moved her to act (`leaned`), and her named concepts become provisional feelings of
+their namings. A backup of the brain as it was is left in its home (`before-format-<n>-<time>/`).
 
 Run states use the MCP Tasks names plus `queued`: `queued`, `working`, `input_required`,
 `completed`, `failed`, `cancelled`.
@@ -2249,10 +2252,10 @@ was flat. A person's feeling is a body in a situation, given meaning by concepts
   word (a word the machine puts in her note is a word the machine picked). It moves with its moments when sleep
   joins or splits feelings (`Values.carry`) and goes with a feeling set aside (`Values.drop_feeling`).
 
-Format 6 (`scripts/migrate_format_6.py`, then deleted): exchanges take `appraisal` and `leaned` from their turn's
+Format 6 (`scripts/migrate_format_6.py` in the history; run on her brain 2026-11-20): exchanges take `appraisal` and `leaned` from their turn's
 decision, her latest thoughts their leaning; each concept becomes a provisional feeling of its namings (older
 software's namings take the concept's mean as their measurement), all gone over by her first sleep. Tests:
-`tests/test_mind_moments.py`, `tests/test_mind_feel.py`, `tests/test_migrate_format_6.py`.
+`tests/test_mind_moments.py`, `tests/test_mind_feel.py`.
 
 ## 11. Models and providers
 
