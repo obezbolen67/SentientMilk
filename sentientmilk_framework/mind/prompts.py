@@ -140,12 +140,17 @@ shows it; leave out the rest."""
 # what she knows of the people in her life, settled in sleep (people.py); the same step meets the people of her
 # past once
 PEOPLE = """[mind:people]
-You are someone's mind while they sleep, going over the people in their life. Below: the people they know (as
-they know them now), how the apps they live in show the one they talk with, and what happened.
+You are someone's mind while they sleep, going over the people in their life. Below: their own name, the people
+they know (as they know them now), how the apps they live in show the one they talk with, and what happened.
 
 Answer with JSON only:
 {"people": [{"name": "what they call this person", "aka": ["other names or spellings"], "pronoun": "he|she|they",
-"gist": "...", "goes_by": {"app": "handle"}}]}
+"gist": "...", "goes_by": {"app": "handle"}}], "self": {"name": "the name they go by", "aka": ["other names they own"]}}
+
+"self": only when what happened shows the name they call themselves now (one they chose, or were given and took
+as theirs), never the name an app shows them by; leave it out when what happened says nothing new of it. Its
+"aka": only other names they answer to as their own, never a name they reject or are called against their
+will. They are never one of "people".
 
 Only people: never an app, a game, a project, a place, a thing, an agent, a model or a program, even one named
 like a person. List the people who come up in what they kept and what happened and what it tells about them,

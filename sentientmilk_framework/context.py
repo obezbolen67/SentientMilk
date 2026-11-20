@@ -158,6 +158,13 @@ def system_prompt(profile: dict, snapshot: dict, shell: str, tools: Iterable[str
     skill_use."""
     tools, toolmap = set(tools), list(toolmap)
     called = f"In this app you are called {profile['name']}. " if profile.get("name") else ""
+    me = snapshot.get("me")
+    if me:  # the name she goes by, as her nights settled it (people.py), over what an app or her persona call her
+        also = f" (also {', '.join(me['aka'])})" if me.get("aka") else ""
+        shown = f"This app shows you as {profile['name']}. " if profile.get("name") and \
+            profile["name"].lower() != me["name"].lower() else ""
+        called = (f"Your name is {me['name']}{also}: the name you go by now, whatever the description below says of "
+                  f"your name. {shown}")
     parts = [IDENTITY.format(called=called), profile["persona"]]  # the persona is who the model is
     if profile.get("environment"):
         parts.append("## ENVIRONMENT\n" + profile["environment"])
@@ -190,15 +197,15 @@ def _value(value) -> str:
     return text.strip().replace("\n", "\n  ")
 
 
-def snapshot(store, profile: dict, with_section: str = "", ways: str = "") -> dict:
+def snapshot(store, profile: dict, with_section: str = "", ways: str = "", me: Optional[dict] = None) -> dict:
     """The session's memory as of now: taken again only at session start, at compaction and when the user
     changes it (Store.drop_snapshots), so the cached prefix holds; what the model saves meanwhile it sees in
     the result of its call, and what works for the chat hears it as a note (Brain.chat_memory_changed).
-    ``with_section``: who she is with there (Mind.with_section), and ``ways``: how she does things
-    (Mind.ways_section), taken with it for the same reason."""
+    ``with_section``: who she is with there (Mind.with_section), ``ways``: how she does things
+    (Mind.ways_section), and ``me``: the name she goes by (Mind.me), taken with it for the same reason."""
     from .toolkits.memory import session_memory
 
-    result = {"at": time.time(), "session_memory": "", "with": with_section, "ways": ways}
+    result = {"at": time.time(), "session_memory": "", "with": with_section, "ways": ways, "me": me}
     chat = profile.get("base_session") or profile["session"]
     found = session_memory((store.find_session(profile["app"], chat) or {}).get("state") or {})
     if found:

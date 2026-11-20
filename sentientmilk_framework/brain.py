@@ -352,7 +352,7 @@ class Brain:
         chat = profile.get("base_session") or profile["session"]
         taken = context.snapshot(self.store, profile,
                                  self.mind.with_section(profile["app"], chat, own=chat == profile["session"]),
-                                 self.mind.ways_section())
+                                 self.mind.ways_section(), self.mind.me())
 
         def change(state):
             state["snapshot"] = taken

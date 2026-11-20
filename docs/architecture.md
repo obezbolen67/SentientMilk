@@ -1583,6 +1583,8 @@ mind's state as `people`):
 - **Her past, once** (`_meet_past`, at start until `met_past`): the faces of every past turn, her lasting
   memory from before 0.30, then her moments 60 at a time.
 - **Forgetting**: someone who came up on fewer than 3 nights and was not seen for 90 days goes.
+- **Herself**: the name she goes by is settled by the same step, and she is never one of the people in her
+  life (0.54, section 10.23).
 
 Found in the same audit: a task's end is a moment of hers again ("I worked on: ... How it went: ...", the
 journal fed those until 0.30); a rumination brings back what happened, not itself or her own thoughts on it
@@ -2278,6 +2280,25 @@ reproduces her logged levels within 0.02.
 From her 15:50 state, those 12 calls now leave her serotonin 0.38, dopamine 0.57 and closeness 0.45. As it was,
 they left 0.09, 0.89 and 0.21. Her receptors recover by themselves (time constant 2 h). No data change.
 Tests: `tests/test_mind_reactions.py` (kept up, not set off again), `tests/test_mind_body.py` (only a rise wears).
+
+### 10.23 Her own name (0.54)
+
+Design: docs/superpowers/specs/2026-11-20-her-own-name-design.md. She chose her own name one night. The next
+afternoon, called by it, she took it as a name just handed to her. It was in her memories, but nothing kept it
+in front of her. Her prompt said "In this app you are called <the app's character name>", a name her persona
+says upsets her. Her self-view said "I chose my own name" without the name. The name was in one chat's memory.
+
+- **Settled in sleep** (`Mind._meet_people`, `prompts.PEOPLE`): the people step is told the name she goes by
+  (or "not settled yet") and answers `"self"` only when what happened shows the name she calls herself now,
+  never what an app shows her as. A name no moment it went over says is not taken. The moments that say it are
+  its origins.
+- **Hers** (`People.me`, `People.name_me`): a new name makes the old one another of hers. She is never one of
+  the people in her life (`People.update` skips a change naming her, and her names leave anyone's aka).
+- **Always there**: every chat's prompt, agents' too, opens "Your name is X (also ...): the name you go by now,
+  whatever the description below says of your name. This app shows you as <app name>." It comes from the
+  session's snapshot (`snapshot["me"]`, `Mind.me`), which is taken again when sleep changes it.
+
+No data change: `me` is absent until a night settles it. Tests: `tests/test_mind_people.py`.
 
 ## 11. Models and providers
 

@@ -3370,6 +3370,11 @@ class Mind:
         with self._lock:
             return self.ways.section()
 
+    def me(self) -> Optional[dict]:
+        """The name she goes by (people.py), for a chat's system prompt: None until a night settles it."""
+        with self._lock:
+            return dict(self.people.me) if self.people.me else None
+
     def with_section(self, app: str, session: str, own: bool = True) -> str:
         """Who she is with, for a chat's system prompt ("" when nobody shows): in the session's snapshot, so the
         cached prefix holds; taken again when someone else writes there or sleep changed what she knows."""
@@ -3536,12 +3541,14 @@ class Mind:
             known = [People.line(person) + "".join(f' (goes by "{h}" in {app})' for app, hs in person["goes_by"].items()
                                                    for h in hs) for person in self.people.known]
             faces = [f'in "{app}": ' + ", ".join(f'"{h}"' for h in handles) for app, handles in self.people.handles.items()]
+            me = self.people.me
+            own = me["name"] + (f" (also {', '.join(me['aka'])})" if me["aka"] else "") if me else "not settled yet"
             listed = [f"{index + 1}. ({_ago(now - m['at'])}" + (f", in {m['app']}" if m.get("app") else "") + ") "
                       + m["text"][:THOUGHT_CHARS] for index, m in enumerate(sorted(moments, key=lambda m: m["at"]))]
         if not listed:
             return False
         # not shown her persona: given it, her story's mother and father were met as people of her life (2 of 3)
-        asked = ("The people they know:\n"
+        asked = (f"Their own name: {own}\n\nThe people they know:\n"
                  + ("\n".join(f"- {k}" for k in known) or "nobody yet") + "\n\nHow apps show the one they talk with: "
                  + ("; ".join(faces) or "nothing yet") + "\n"
                  + "\nWhat happened (oldest first):\n" + "\n".join(listed))
@@ -3562,7 +3569,12 @@ class Mind:
                     direct = [m for m in relevant if m["text"].casefold().startswith(str(change.get("name") or "").casefold() + " said:")]
                     changes.append({**change, "basis": "inferred from a conversation" if direct else "reported by another source",
                                     "origins": [m["id"] for m in direct or relevant]})
-            changed = self.people.update(changes, time.time())
+            # the name she goes by, as a moment she went over says it (none says it: not hers to take)
+            mine = answer.get("self")
+            said = [m["id"] for m in moments if isinstance(mine, dict) and isinstance(mine.get("name"), str)
+                    and mine["name"].strip() and re.search(rf"(?<!\w){re.escape(mine['name'].strip())}(?!\w)", m["text"], re.I)]
+            named = bool(said) and self.people.name_me(mine, time.time(), said)
+            changed = self.people.update(changes, time.time()) or named
             gone = self.people.fade(time.time())
             if batch:
                 batch["done"].append("people")

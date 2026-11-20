@@ -49,6 +49,32 @@ def test_she_learns_people_from_faces_she_saw_and_knows_them_by_name():
     assert people.fade(103.0) == ["Mira"] and [p["name"] for p in people.listed()] == ["Theo"]
 
 
+def test_she_knows_the_name_she_goes_by_and_is_not_one_of_the_people_in_her_life():
+    people = People()
+    assert people.me is None and not people.name_me({"name": " "}, 100.0) and not people.name_me("junk", 100.0)
+    assert people.name_me({"name": "Juno", "aka": ["Ju", "juno"]}, 100.0, origins=[7])
+    assert people.me == {"name": "Juno", "aka": ["Ju"], "since": 100.0, "origins": [7]}
+    assert not people.name_me({"name": "juno", "aka": ["Ju"]}, 101.0)  # nothing new
+    people.update([{"name": "Juno", "gist": "Me."}, {**TEO, "aka": ["Ju"]}], 102.0)  # never a person of her life
+    assert [p["name"] for p in people.known] == ["Teo"] and people.find("Teo")["aka"] == []
+    assert people.name_me({"name": "Wren"}, 103.0) and people.me["aka"] == ["Juno", "Ju"]  # the old name, another of hers
+    assert People(people.to_dict()).me == people.me
+
+
+def test_her_own_name_comes_before_what_the_app_shows_her_as(brain):
+    mind = brain.brain.mind
+    brain.provider.replies += ["Hi.", "Hi again."]
+    turn(brain, "cli", "hey")
+    assert brain.provider.sent[-1]["messages"][0]["content"].startswith("## WHO YOU ARE\nIn this app you are called CLI.")
+    with mind._lock:
+        mind.people.name_me({"name": "Juno", "aka": ["Ju"]}, time.time())
+    mind._retake()
+    turn(brain, "cli", "hey again")
+    assert brain.provider.sent[-1]["messages"][0]["content"].startswith(
+        "## WHO YOU ARE\nYour name is Juno (also Ju): the name you go by now, whatever the description below says "
+        "of your name. This app shows you as CLI.")
+
+
 def test_she_recognizes_who_writes_and_keeps_the_moment_with_them(brain):
     mind = knows(brain, TEO)
     brain.provider.replies.append("Hey you.")
@@ -99,6 +125,28 @@ def test_sleep_settles_who_people_are_and_chats_take_it_again(brain):
     brain.provider.replies.append("Good luck.")
     turn(brain, "cli", "thanks", context={"user": "plays"})
     assert "Teo, an interpreter." in brain.provider.sent[-1]["messages"][0]["content"]
+
+
+def test_sleep_settles_the_name_she_goes_by_from_what_happened(brain):
+    mind = knows(brain, TEO)
+    brain.provider.replies.append("Juno. Fine, I'll keep it.")
+    turn(brain, "cli", "you still have no name. how about Juno?", context={"user": "plays"})
+    wait_for(lambda: mind.memory.recent(1, kinds=("exchange",)))
+    brain.provider.mind_replies["people"] = [json.dumps({"people": [], "self": {"name": "Juno"}})]
+    mind._consolidate()
+    assert "Their own name: not settled yet" in sent_to_her(brain, "people")[-1]
+    assert mind.people.me["name"] == "Juno"
+    assert mind.people.me["origins"] == [mind.memory.recent(1, kinds=("exchange",))[0]["id"]]  # where it came from
+    assert not brain.store.session("cli", "main")["state"].get("snapshot")  # chats take it again
+    brain.provider.replies.append("Morning.")
+    turn(brain, "cli", "morning Juno", context={"user": "plays"})
+    assert "Your name is Juno:" in brain.provider.sent[-1]["messages"][0]["content"]
+    wait_for(lambda: len(mind.memory.recent(2, kinds=("exchange",))) == 2)
+    brain.provider.mind_replies["people"] = [json.dumps({"people": [], "self": {"name": "Ghost"}})]
+    mind.self["review"] = None
+    mind._meet_people(mind.memory.recent(1, kinds=("exchange",)))
+    assert "Their own name: Juno" in sent_to_her(brain, "people")[-1]
+    assert mind.people.me["name"] == "Juno"  # a name nothing she lived through says is not taken
 
 
 def test_her_thoughts_know_whom_she_talks_with_and_a_rumination_does_not_echo_itself(brain):

@@ -29,9 +29,15 @@ class People:
         self.known: List[dict] = list(saved.get("known") or [])
         # app -> handle -> when she last saw it: the faces she has seen, known or not
         self.handles: Dict[str, Dict[str, float]] = dict(saved.get("handles") or {})
+        # the name she goes by, as her nights settled it from what she lived through (None: not settled yet)
+        self.me: Optional[dict] = saved.get("me")
 
     def to_dict(self) -> dict:
-        return {"known": self.known, "handles": self.handles}
+        return {"known": self.known, "handles": self.handles, "me": self.me}
+
+    def _mine(self, name: str) -> bool:
+        """Whether ``name`` is one of hers."""
+        return bool(self.me) and _clean(name).lower() in [n.lower() for n in [self.me["name"], *self.me["aka"]]]
 
     # ============== Recognizing ==============
 
@@ -86,13 +92,10 @@ class People:
         no face of theirs). Whether anything changed."""
         changed = False
         for change in changes if isinstance(changes, list) else []:
-            if not isinstance(change, dict) or not _clean(change.get("name")):
-                continue
+            if not isinstance(change, dict) or not _clean(change.get("name")) or self._mine(change["name"]):
+                continue  # she is not one of the people in her life
             name = _clean(change["name"])
-            faces = {h.lower() for handles in self.handles.values() for h in handles}
-            # a handle is a face, not a name: "plays" as a name brought him to mind wherever the word was
-            aka = [_clean(n) for n in change.get("aka") or [] if _clean(n) and _clean(n).lower() not in faces] \
-                if isinstance(change.get("aka"), list) else []
+            aka = [n for n in self._names(change.get("aka")) if not self._mine(n)]
             person = self.find(name) or next((self.find(n) for n in aka if self.find(n)), None)
             if person is None:
                 person = {"name": name, "aka": [], "pronoun": "they", "gist": "", "goes_by": {}, "met": now,
@@ -125,6 +128,33 @@ class People:
             changed = changed or {k: v for k, v in before.items() if k not in ("times", "seen")} != \
                 {k: v for k, v in person.items() if k not in ("times", "seen")}
         return changed
+
+    def _names(self, names) -> List[str]:
+        """Other names as an answer gave them, never an app's handle: a handle is a face, not a name ("plays" as a
+        name brought him to mind wherever the word was)."""
+        faces = {h.lower() for handles in self.handles.values() for h in handles}
+        return [_clean(n) for n in names if _clean(n) and _clean(n).lower() not in faces] \
+            if isinstance(names, list) else []
+
+    def name_me(self, change, now: float, origins: Iterable[int] = ()) -> bool:
+        """The name she goes by now, as sleep settled it from the moments ``origins`` (the people step's "self"):
+        a new one makes the old one another of hers, and her names are nobody else's. Whether it changed."""
+        if not isinstance(change, dict) or not _clean(change.get("name")):
+            return False
+        name, before = _clean(change["name"]), self.me
+        renamed = before is None or name.lower() != before["name"].lower()
+        names = ([before["name"]] if renamed and before else []) + (before["aka"] if before else []) \
+            + self._names(change.get("aka"))
+        aka = []
+        for other in names:
+            if other.lower() not in [n.lower() for n in [name, *aka]]:
+                aka.append(other)
+        self.me = {"name": name if renamed else before["name"], "aka": aka, "since": now if renamed else before["since"],
+                   "origins": list(origins) if renamed or not before else before["origins"]}
+        self.known = [person for person in self.known if not self._mine(person["name"])]
+        for person in self.known:
+            person["aka"] = [n for n in person["aka"] if not self._mine(n)]
+        return self.me != before
 
     def fade(self, now: float) -> List[str]:
         """Someone she met on few nights and has not seen for long is forgotten (the names that went)."""
