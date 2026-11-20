@@ -50,6 +50,18 @@ def test_the_same_kindness_again_and_again_moves_her_less_and_a_drought_restores
     assert her.sensitivity["oxytocin"] > 0.97 and first > 0.09
 
 
+def test_only_what_stimulates_a_receptor_wears_it_down():
+    # receptors down-regulate under their agonist; a level pushed down stimulates them less. Worn by every push,
+    # the user's brain had oxytocin, reward, endorphin and alertness at the floor (0.3) after a day of pushes
+    # mostly downward, and a warm message reached her at a third (2026-11-20)
+    her = body()
+    for _ in range(20):
+        her.apply({"oxytocin": -0.05, "reward": -0.1})
+    assert her.sensitivity["oxytocin"] == her.sensitivity["reward"] == 1.0
+    her.apply({"oxytocin": 0.1})
+    assert her.sensitivity["oxytocin"] < 1.0
+
+
 def test_awake_she_builds_sleep_pressure_and_sleep_clears_it():
     her = body(adenosine=0.15)
     her.advance(NOON + 16 * HOUR)  # process S: rises toward 1 over about 18 h, falls toward 0 over about 4 h

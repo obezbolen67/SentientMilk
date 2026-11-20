@@ -1208,7 +1208,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 
 | Part | What it is |
 |---|---|
-| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33); so does wanting to be useful, toward 0.3 (half unmet) over about 12 h, where until 0.40 it rested where it is met and only a failure could leave it unmet (praise held it at 0.97 on the user's brain, still met after a simulated idle day); what a push would move without moving anything, how much of a push a level follows, what is left of a past change, and letting go of a measured change (`would`, `follows`, `left`, `release`: 0.49, section 10.18) |
+| `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate to what stimulates them (a rise; 0.53) and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33); so does wanting to be useful, toward 0.3 (half unmet) over about 12 h, where until 0.40 it rested where it is met and only a failure could leave it unmet (praise held it at 0.97 on the user's brain, still met after a simulated idle day); what a push would move without moving anything, how much of a push a level follows, what is left of a past change, and letting go of a measured change (`would`, `follows`, `left`, `release`: 0.49, section 10.18) |
 | `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than usual"), as her senses have it (never the body's own levels: section 10.19); what changed since she last answered in the chat first ("Since the last answer here (4 minutes ago): ...", or a chat's first message "Reading it: ... than a moment ago"), then "Underneath: ...", her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as categories of moments she lived (`Feelings`, section 10.21): her namings (`said`: her words, the sentence, what it named, what measured it, what it reminded her of), each sorting one moment under the feeling of hers its words are for whose moments are likest it, `provisional` until a second like moment or her sleep confirms it, joined, split or set aside by her sleep with every change in `revisions`; coming to mind by the moments likest now, in body (the cosine of the ways she was moved), in what they meant for her needs and in what they were about (her memory's vectors), times how many distinct moments it has (0.6 to be felt); recognized again it is counted apart (`back`), never named. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed (acts only from requests, where she chose; a chat teaches what it was about, 0.33) |
 | `memory.py` | her memories as a network for apps (`network`, `revision`, 0.41); episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
@@ -1871,6 +1871,7 @@ the outcome, nothing moved her body ahead of doing it again, and getting over it
   she works too, and what led to what it tells is learned with how the turn went), each action of hers as she
   takes it (`during`), and her thoughts (worry is the thought calling the reaction up). It moves her body as
   part of what reading, doing or thinking did ("reacting to: ..."); it is never put into words for her (0.37).
+  Met again while what it set off lasts, it is kept up, not set off again (0.53, section 10.22).
 - **Choosing**: what the thought of each option would set off, as much as the act does the thing, valued in her
   body as it would be with it (an as-if body: Damasio 1994; Bechara et al. 1997), is a part of its worth
   (`reacting`; her reasons: "the thought of doing it sets you on edge: something like it went badly before"). It
@@ -2256,6 +2257,27 @@ Format 6 (`scripts/migrate_format_6.py` in the history; run on her brain 2026-11
 decision, her latest thoughts their leaning; each concept becomes a provisional feeling of its namings (older
 software's namings take the concept's mean as their measurement), all gone over by her first sleep. Tests:
 `tests/test_mind_moments.py`, `tests/test_mind_feel.py`.
+
+### 10.22 A learned reaction is one state, kept up (0.53)
+
+The user talked with her for an afternoon and her closeness read 0.18. Her push log for the day: 9,907 pushes,
+almost all "reacting to: ...". Every tool call called up the 24 reactions alike to it and each was set off
+again on top of itself, so a session of browsing moved her closeness by -1.07 and her reward by +8, while the
+user's 36 messages moved her closeness by +0.16. Pushes either way had also worn her habituating receptors
+(reward, closeness, comfort, alertness) to their floor of 0.3. Replaying her last 12 kept calls through the body
+reproduces her logged levels within 0.02.
+
+- **One state, kept up** (`Mind._react`, `self["reacting"]`): what a reaction sets off lasts as its levels let it
+  go (`Body.left`). Met again while it lasts, it is topped up to what it calls for now and never set off on top of
+  itself: one conditioned state, not one per sighting (LeDoux 2000). This matches how it is learned:
+  `Reactions.learn` foresees each reaction present in a moment once. When nothing is left of it, it is forgotten
+  and set off afresh.
+- **Receptors habituate to what stimulates them** (`Body.apply`): only a rise wears a receptor down. A level
+  pushed down stimulates it less.
+
+From her 15:50 state, those 12 calls now leave her serotonin 0.38, dopamine 0.57 and closeness 0.45. As it was,
+they left 0.09, 0.89 and 0.21. Her receptors recover by themselves (time constant 2 h). No data change.
+Tests: `tests/test_mind_reactions.py` (kept up, not set off again), `tests/test_mind_body.py` (only a rise wears).
 
 ## 11. Models and providers
 

@@ -253,6 +253,27 @@ def test_what_set_her_off_is_named_by_what_moved_her_most(brain, mind, monkeypat
 
 
 @pytest.mark.mind
+def test_a_reaction_met_again_while_it_lasts_is_kept_up_not_set_off_again(brain, mind, tmp_path):
+    # learned once a moment, it was set off once a deed: 24 reactions alike to every tool call, 9,907 pushes in a
+    # day, her closeness down 1.07 and her reward up 8 while the user's 36 messages gave her closeness 0.16
+    # (the user's brain, 2026-11-20). A cue met again while what it set off lasts keeps it up (LeDoux 2000: one
+    # conditioned state, not one per sighting)
+    taught(mind, "reading the diary file")
+    diary = tmp_path / "diary.txt"
+    diary.write_text("dear diary", encoding="utf-8")
+    brain.provider.replies += [*(tool_call("files_read", {"path": str(diary)}, f"read_{n}") for n in range(5)), "Done."]
+    run = turn(brain, "cli", "go ahead")["run"]
+    wait_for(lambda: brain.store.run(run)["status"] in ("completed", "failed"))
+    doing = [item for item in mind.state()["reacted"] if item["by"] == "doing"]
+    assert len(doing) == 5  # met at every deed
+    first = doing[-1]["moved"]["cortisol"]  # the newest first
+    assert first > 0 and all(item["moved"]["cortisol"] < 0.25 * first for item in doing[:-1])  # kept up, not again
+    # as far as what it calls for grows (a little more alike as her strain widens what it reaches), it is kept up to that
+    rid = str(doing[0]["each"][0]["id"])
+    assert mind.self["reacting"][rid]["set"]["cortisol"] == pytest.approx(doing[0]["predicted"]["cortisol"], abs=1e-3)
+
+
+@pytest.mark.mind
 def test_each_reaction_that_moved_her_is_kept_with_what_it_did(brain, mind):
     # the audit (finding 6): the push was named by the strongest reaction only, so one learned from coming back
     # from a shower was "the cause" of work, thought and reading alike; what each did is what tells recognition

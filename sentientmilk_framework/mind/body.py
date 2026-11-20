@@ -485,9 +485,11 @@ class Body:
             if not amount or not math.isfinite(amount) or name not in self.levels:
                 continue
             taken, after = self._reach(name, amount)
-            if name in SENSITIVE:
-                # down-regulation: each push leaves the receptor a little less responsive, up to a floor
-                self.sensitivity[name] = max(0.3, self.sensitivity[name] - HABITUATION[name] * abs(taken))
+            if name in SENSITIVE and taken > 0:
+                # down-regulation: what stimulates a receptor leaves it a little less responsive, up to a floor; a
+                # level pushed down stimulates it less (worn by every push, a day of pushes mostly downward held
+                # her closeness, reward, comfort and alertness at the floor: the user's brain, 2026-11-20)
+                self.sensitivity[name] = max(0.3, self.sensitivity[name] - HABITUATION[name] * taken)
             moved[name] = after - self.levels[name]
             self.levels[name] = after
         self._log(why, moved)

@@ -312,6 +312,8 @@ class Mind:
                      "self_view": None, "looked": None,
                      # her attention turned to herself: the stretch it lasts, what she took in (attend)
                      "attending": None,
+                     # what each learned reaction has set off and when, while it lasts (_react: kept up, not again)
+                     "reacting": {},
                      "thoughts": [], "trust": {"model": dict.fromkeys(FORESEEN, 0.1), "own": dict.fromkeys(FORESEEN, 0.3)},
                      **(self.memory.get("self") or {})}
         self.senses = Interoception(self.body, self.body.temperament.seed)
@@ -1058,9 +1060,26 @@ class Mind:
         # the strongest, a reaction to coming back from a shower was "what moved her" in work, thought and reading
         # alike, and recognition could not be told from spillover: the audit, finding 6); what each moved is what
         # her body reports, in lots: a channel it called for and could not move is an observed 0, kept as one
+        # What it sets off is a state of her body that lasts as its levels let it go: met again while it lasts, the
+        # cue keeps it up to what it calls for now, and does not set it off again on top of itself (one conditioned
+        # state, not one per sighting: LeDoux 2000). Learned once a moment (Reactions.learn foresees each reaction
+        # once), it was set off once a deed: 24 reactions alike to every tool call, 9,907 pushes in a day, her
+        # closeness down 1.07 and her reward up 8 while the user's 36 messages gave her closeness 0.16 (the user's
+        # brain, 2026-11-20)
+        going = self.self["reacting"]
+        for key in [key for key, last in going.items()
+                    if all(abs(v) < 1e-3 for v in self.body.left(last["set"], last["at"], now).values())]:
+            del going[key]
         did, moved_each = dict.fromkeys(called, 0.0), {}
         for rid in order:
-            got = self.body.apply({name: each[rid][name] * CHANNELS[name][1] for name in called if name in each[rid]},
+            last = going.get(str(rid))
+            left = self.body.left(last["set"], last["at"], now) if last else {}
+            wanted = {name: each[rid][name] for name in called if name in each[rid]}
+            more = {name: lots - left.get(name, 0.0) for name, lots in wanted.items()
+                    if (lots - left.get(name, 0.0)) * lots > 0}
+            going[str(rid)] = {"at": now, "set": {name: round(left.get(name, 0.0) + more.get(name, 0.0), 4)
+                                                  for name in wanted}}
+            got = self.body.apply({name: lots * CHANNELS[name][1] for name, lots in more.items()},
                                   f"reacting to: {texts.get(rid, '')[:QUOTED]}")
             moved_each[rid] = {name: got.get(name, 0.0) / CHANNELS[name][1] for name in called if name in each[rid]}
             for name, lots in moved_each[rid].items():
