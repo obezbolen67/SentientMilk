@@ -216,7 +216,7 @@ def test_she_files_what_she_meets_under_what_she_knows(brain):
     assert set(mind.values.subjects(5)) == {"food", "greeting"}
     assert not any(f.startswith("act:talk") for f in mind.values.weights)  # chats decided nothing: no act learned
     # her quick reading's words for each moment name nothing of hers
-    assert mind.concepts.named == [] and "called" not in brain.provider.last_user_text()
+    assert mind.feelings.known == [] and "called" not in brain.provider.last_user_text()
 
 
 def test_her_time_alone_comes_with_her_and_what_her_context_holds_is_not_brought_back(brain):
@@ -397,7 +397,7 @@ def test_what_happens_to_the_user_happens_to_her_as_far_as_she_is_bonded(brain):
     turn(brain, "cli", "my cat is sick and I'm scared")
     path = mind.self["decided"]["path"]
     assert path["theirs"] == -1.0 and path["met"]["shared"] < -0.5
-    assert mind.concepts.named == []  # her quick reading's "scared" names nothing of hers
+    assert mind.feelings.known == []  # her quick reading's "scared" names nothing of hers
 
 
 def test_she_broods_on_what_hurt_her_and_what_moved_her_is_kept_with_why(brain):

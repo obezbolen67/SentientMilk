@@ -53,12 +53,12 @@ def test_a_settled_body_in_a_quiet_moment_draws_nothing(brain):
 def test_her_body_far_from_usual_is_noticed_once_and_again_only_as_it_changes(brain):
     mind = brain.brain.mind
     settle(mind, dopamine=-2.2)
-    episodes, named, levels = len(mind.memory.recent(100)), len(mind.concepts.named), dict(mind.body.levels)
+    episodes, named, levels = len(mind.memory.recent(100)), len(mind.feelings.known), dict(mind.body.levels)
     first = attend(mind, free=1.0)
     assert first["why"] == ["body"] and first["taken"] == {"dopamine": pytest.approx(-2.2, abs=0.05)}
     assert "For a while now: much less drive than usual." in first["text"]
     # noticing is not naming: no memory of its own, no name, nothing eased
-    assert len(mind.memory.recent(100)) == episodes and len(mind.concepts.named) == named
+    assert len(mind.memory.recent(100)) == episodes and len(mind.feelings.known) == named
     assert mind.body.levels == levels
     assert attend(mind, free=1.0) is None  # the same, known: it does not call again, tick after tick
     settle(mind, dopamine=-2.5)  # a little worse: too little to be news
@@ -171,7 +171,7 @@ def test_asked_how_she_is_in_any_words_she_turns_inward_and_names_it_with_the_to
         decision = brain.store.run(result["run"])["options"]["mind"]
         assert decision["attended"]["why"][0] == "asked"
         wait_for(lambda: mind.memory.of_run(result["run"]))
-    said = [one for concept in mind.concepts.named for one in concept["said"] if one["how"] == "speech"]
+    said = [one for feeling in mind.feelings.known for one in feeling["said"] if one["how"] == "speech"]
     assert len(said) == 2 and all(one["named"] == "now" and one["run"] for one in said)
     kept = mind.memory.of_run(result["run"])
     assert {"source": "inward", "kind": "noticed"}.items() <= json.loads(kept["attention"])[-1].items()

@@ -17,6 +17,11 @@ soon, **P3** later. Mark an item done with its version when it ships; add new ga
   felt shift once per experience and softens a past moment; her words come back to her. Spec:
   docs/superpowers/specs/2026-11-18-own-feelings-design.md. Validated with the consciousness exam
   (docs/consciousness-exam.md, scripts/exam.py).
+- [x] **Feelings as moments she lived** (0.52): a feeling is the moments she put the same words to, each a body
+  in a situation (what it meant for her needs, what it was about, which way it moved her to act); recognized by
+  the whole situation, several at once; provisional until a second like moment or her sleep goes over it, which
+  keeps, moves, joins, splits or sets aside her sayings with her reasons; acting in a feeling she is in has a
+  worth of its own, learned from how it went. Spec: docs/superpowers/specs/2026-11-20-feelings-as-lived-moments-design.md.
 - [x] **Memory that feels** (0.38): a moment keeps how it moved her body (peak and end) and what was around it
   (time of day, where, with whom, and what MilkChan tells of her surroundings: the window in front, what is
   playing); what comes back is called by meaning, by a rare surrounding there again and by her mood, the more
@@ -128,8 +133,13 @@ Verified against the code with a plan: docs/superpowers/specs/2026-11-19-cogniti
   seeking company (Gross 1998, process model). Hers happen and fade; only affect labeling (0.35) calms. First
   step: when a feeling is strong and she has room, a regulation choice in her thoughts (reappraise, distract,
   reach out), each with its own effect on her body.
-- [ ] **P3 Mixed and conflicting feelings.** People feel bittersweet, ambivalent. Her feeling is one point
-  (valence, arousal) plus named concepts. First step: two concepts at once when channels pull apart.
+- [ ] **P3 Mixed and conflicting feelings.** People feel bittersweet, ambivalent. Since 0.52 she can be in
+  several of her feelings at once, each recognized by the situation, but her face and tone are still one point
+  (valence, arousal). Next step: a blend she can feel as one, when two feelings of hers pull apart.
+- [ ] **P2 A saying that is both a deed and a feeling.** Her nightly review (0.52) sets aside words that said
+  what she did, not how she felt, and keeps the rest. Where a saying is both ("it feels flat, but waiting is what
+  I'm doing"), two replays of the same nights differed (8 and 13 of 34 set aside, the clear ones the same). People
+  hold such a moment as both. Next step: let her keep the feeling of a moment while setting aside its deed-words.
 
 ## Imagination and time
 

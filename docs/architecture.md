@@ -1206,7 +1206,7 @@ and her episodes (found by meaning, §10.7; until 0.30 also by words, with an FT
 | Part | What it is |
 |---|---|
 | `body.py` | levels (dopamine tonic and phasic, serotonin, noradrenaline, acetylcholine, cortisol, oxytocin, endorphin, adenosine, energy), needs with set points (social, novelty, competence, autonomy), bond and grievance; each relaxes to a target the others move, with noise, receptors that habituate and saturate (past the middle of its range a push moves a level less the nearer its bound, so none pegs), a circadian rhythm that follows the user's hours, sleep physiology (her clock holds sleep off in the hours before her night, `evening`, and ends it once pressure is under a bar her clock sets, `slept_out`), and a catch-up that lives through time the brain was off; every push is kept with what caused it while some of it is left (`pushed`, `pushed_now`: 0.32); company and novelty drain only while she is awake (0.33); so does wanting to be useful, toward 0.3 (half unmet) over about 12 h, where until 0.40 it rested where it is met and only a failure could leave it unmet (praise held it at 0.97 on the user's brain, still met after a simulated idle day); what a push would move without moving anything, how much of a push a level follows, what is left of a past change, and letting go of a measured change (`would`, `follows`, `left`, `release`: 0.49, section 10.18) |
-| `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than usual"), as her senses have it (never the body's own levels: section 10.19); what changed since she last answered in the chat first ("Since the last answer here (4 minutes ago): ...", or a chat's first message "Reading it: ... than a moment ago"), then "Underneath: ...", her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as concepts (`Concepts`): whatever words she put to what she felt when she reflected (section 10.12), each with the way her body was moved in the moments she named it for (`moved`: a running mean of the measured namings, in lots), its situations (words by weight, fading) and every naming as a record (`said`: her words, what it named, what measured it, what it reminded her of), coming to mind as far as she is moved the same way now (the cosine of the two, 0.6 to be felt) times how familiar the words are, less in a situation unlike its own; recognized again by likeness it is counted apart (`back`), never named. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
+| `feel.py` | interoception: a lagged reading with a drifting misreading (smaller with more insight) of her body's channels (strain, sleep pressure, closeness...: fixed, as a body's are), each felt as how far it is from usual less what she has got used to (`Interoception.used` follows her body over 20 min; a need, sleep pressure, energy and hurt adapt least), and core affect (valence, arousal); felt as amounts against what she is used to ("much more alertness than usual"), as her senses have it (never the body's own levels: section 10.19); what changed since she last answered in the chat first ("Since the last answer here (4 minutes ago): ...", or a chat's first message "Reading it: ... than a moment ago"), then "Underneath: ...", her channels named as a body's parts, never a feeling's name: the words are hers to find (ready-made sensations, tried in 0.37, came back word for word in 41% of her replies); feelings as categories of moments she lived (`Feelings`, section 10.21): her namings (`said`: her words, the sentence, what it named, what measured it, what it reminded her of), each sorting one moment under the feeling of hers its words are for whose moments are likest it, `provisional` until a second like moment or her sleep confirms it, joined, split or set aside by her sleep with every change in `revisions`; coming to mind by the moments likest now, in body (the cosine of the ways she was moved), in what they meant for her needs and in what they were about (her memory's vectors), times how many distinct moments it has (0.6 to be felt); recognized again it is counted apart (`back`), never named. By nearness of her whole body, as until 0.24, the feeling that came back was of the same kind of moment 23% of the time at twenty minutes apart (chance 17%): the body of the hour is common to all that happens in it; by the way she is moved, 98% through this code; the face an app shows |
 | `will.py`, `values.py` | options the model imagined (effort, chance, how much of what was asked each gives), each worth what it would do to her needs (`Option.effects`: giving what was asked keeps her wanted, hard work done well makes her capable, obeying what took her freedom costs more of it and refusing wins some back, what is new feeds her as she takes part), valued by how unmet each need is now (a loss more than a gain; company and capability also keep a lasting worth), weighed ahead by serotonin, plus learned value, minus effort cost; chosen by a softmax whose temperature noradrenaline raises; values learned online from how things went and what followed (acts only from requests, where she chose; a chat teaches what it was about, 0.33) |
 | `memory.py` | her memories as a network for apps (`network`, `revision`, 0.41); episodes with feeling, what the moment itself did to how she felt (`sting`, 0.32), salience and a power-law strength; recall of what a cue calls up by meaning, weighed by mood, strength and recency, with noise (nothing unbidden from 0.32); recall strengthens and recolors; sleep softens; faint ones go; an exchange keeps what followed the user's message (`follows`), and `known` gives a message's likeness to her memories and what followed the messages most like it |
 | `life.py` | the Mind: before and after each turn, the gate on tools after a refusal, whether she thinks it through (`reflexive`), her body through each step of her work (`during`), a message sent while she works (`heard`), the 5 s tick and 30 s bids, thoughts, urges, consolidation in sleep, `GET /v1/mind` |
@@ -1235,9 +1235,11 @@ thoughts she had since the user last wrote, all she did since ("Done since the l
 tasks' ends and the ends of jobs they left running, as she keeps them) and what of hers is still going
 ("Still going": her tasks, every job left running and whose it is), whichever chat it began in (since that
 chat's last turn, or, when it was deleted, since her last message out). A turn nobody wrote (an event, her own urge, a scheduled one) gets her
-felt sense and nothing else: no imagine call, no decision. What the message did to her body (`_moved`) teaches
-and is kept; her note tells what her senses take in of it (section 10.19), before how she is underneath; by that change the feeling of
-hers it moves her the way of most is counted as felt again (`back`), unnamed. Nothing names her feelings
+felt sense and nothing else: no imagine call, no decision. What the message did to her body (`moved`, the change as she read it) teaches
+and is kept; her note tells what her senses take in of it (section 10.19), before how she is underneath; by that change, what the
+message meant for her and what it is about, the feelings of hers she is in are recognized before she weighs what
+to do (section 10.21): the one she is most in is counted as felt again (`back`), unnamed, and acting in each has
+a worth of its own to her (`act|feeling`). Nothing names her feelings
 for her (0.37, section 10.12): until then this call named each moment and her note handed her its word. Her own record (what followed the messages most like
 it) outweighs the model's reading by familiarity (summed likeness over 1.5 plus it) times how much
 better a guide it has been (each guide's running squared error). Her last decision in the same chat is
@@ -1418,10 +1420,13 @@ Her mind is always on since 0.30: there is no `mind` switch, every turn goes thr
 `GET /v1/mind?app=&idle=&locked=&busy=&brief=` (`Mind.state`; `locked` and `busy` 1 or 0, left out when the
 app cannot tell; all three go to `Presence`): her face for the app, felt words, `feeling` (a few words
 for it), valence and arousal; `brief=1` stops there (an app's frequent look stays small as her vocabulary
-grows: 59 KB in full with 300 feelings). In full also: levels, `feelings` (every one she has named: how
-strongly it comes to mind now, how often she called a moment by it (`count`) and how often it came back at
-one she did not (`back`), `place` [pleasant, keyed up, toward the user] of a usual body moved its way, and
-the `channels` it moves most, each with its share of the way), `sensed` (each channel as she senses it, how far from
+grows: 59 KB in full with 300 feelings). In full also: levels, `feelings` (every one she has made: `id`, what she
+calls it (`word`) and all her `words` for it, its `standing` (`provisional` until her sleep went over it, or
+`hers`), how strongly it comes to mind now and the naming of the moment it is likest (`like`), how many moments
+she sorted under it (`count`) and how often it came back at one she did not (`back`), her namings (`said`), what
+her sleep changed (`revisions`), `place` [pleasant, keyed up, toward the user] of a usual body moved its
+moments' way, and the `channels` they move most, each with its share), `set_aside` (sayings her sleep found
+named no feeling, each with her reason), `sensed` (each channel as she senses it, how far from
 usual, whatever she has got used to), `needs` (how unmet, 0..1), `attention` (each bid without noise, `threshold` for what she sets out to do and `musing` for what
 comes by itself, the kinds
 resting after they won, the last winner, whether she is thinking), `decided` (her last decision with its
@@ -1709,7 +1714,7 @@ built first: "if she feels something that is not in the list, then what?".
   what it names, whatever its rank: until 0.45 a naming of now took the first moment retrieval returned for
   `about` as the one named, its numbers, its link and a softening of its charge. A number not among her
   memories leaves the naming unresolved (kept, measuring nothing). How they sit is told from her own history
-  ("It sits like the times you called it that", or "then you said: ..."): no list says what a word means.
+  ("It sits like the other times it was called that", or "then the words were: ..."): no list says what a word means.
 - **Each naming is a record** (`feel.naming`, all of them kept): her words exactly as written (the feeling's
   key is their casefolded form), the sentence, how (`tool`, `speech`, `thought`), what it named (`now`: the
   run, its input event and its moment once kept, linked as the turn ends or as she starts; `past`: the
@@ -2153,19 +2158,19 @@ reaction up seconds before the turn teaches; a thought's reaction during a turn 
 ### 10.19 What reaches her of her body, and what changed since she last answered (0.50)
 
 Her note told her the simulator's exact change. "Reading it" was how her body's levels moved as she read
-(`Mind._moved`), and a channel named there was left out of "Underneath". In the 0.48 exam, a learned reaction (the
+(the change as she read it), and a channel named there was left out of "Underneath". In the 0.48 exam, a learned reaction (the
 0.47 fault) dropped her strain from 0.80 to its floor as she read the question. Her lagged senses still read 0.46
 to 0.68, and the note said only "much less strain than a moment ago". With the overall tone held at "hard to label",
 all 16 ratings came out +1: the one strain cue she had pointed the wrong way.
 
 - **What she senses.** A turn's note is her interoception as she answers (`feel` on `Interoception`: lagged and
   misread), never the body's levels. The exact change still teaches her reactions and recognizes her feelings
-  (`Mind._moved`), and is kept for apps.
+  (section 10.21), and is kept for apps.
 - **Where a channel is.** A channel that changed is still told where it stands: strain easing a little from high
   is both "a little less strain" and "much more strain than usual".
 - **What changed since she last answered here.** Each chat keeps her sensed reading when she last answered there
   (`self["answered"][chat]`: at, sensed; let go when the chat is rewound or deleted). The next note opens with the
-  change since then: "Since you last answered here (4 minutes ago): much more strain", or "little changed". A
+  change since then: "Since the last answer here (4 minutes ago): much more strain", or "little changed". A
   chat's first message keeps "Reading it", counted from the message's coming. Two snapshots against what she is
   used to left the change between them to be worked out. In a development exam, strain rose between two replies
   and she called the earlier stretch the strained one, telling it from the story ("waiting is strained, being
@@ -2209,6 +2214,45 @@ notes that "tell you".
 
 Tests: `tests/test_mind_own_voice.py`. Design and measurements:
 `docs/superpowers/specs/2026-11-20-her-own-voice-design.md`.
+
+### 10.21 Feelings as moments she lived (0.52)
+
+Design: docs/superpowers/specs/2026-11-20-feelings-as-lived-moments-design.md. Read against the sentences they came
+from, 8 of her 30 feelings were no feeling: "the ugly part" (a figure of speech), "cheating. sort of" (an
+admission), "not hers" (a label in her code), "holding him to it" (an act). A feeling was a word and the mean of
+her body the times she said it, so any phrase a reader took became one, and "waiting" came back whenever her body
+was flat. A person's feeling is a body in a situation, given meaning by concepts learned from earlier moments
+(Barrett 2017), about something that matters to them (Lazarus 1991), and readying an act (Frijda 1986).
+
+- **A moment binds its parts** (`memory.add`, data format 6): an episode keeps, beside how it moved her (`felt`),
+  what it meant for her needs as she read it (`appraisal`: company, capable, free, and how things were for the
+  one who wrote) and which way it moved her to act (`leaned`; a thought's, once she weighed it: `Memory.bind`).
+- **A naming sorts a moment** (`Feelings.sort`): her words go with the feeling of hers they are already words for
+  whose moments are likest this one (two share words once sleep split one), or make a `provisional` one. A second
+  like moment makes it `hers`. The readers (`[mind:named]`, the think call's `named`) take only her words for how
+  she herself feels: never what she thinks of something, does or is, nor a figure of speech.
+- **Recognition by the situation** (`Feelings.recognize`): likeness to each moment of a feeling is the mean of
+  what both have, each 0 as two of her moments usually are: body (the cosine of the ways she was moved; needed:
+  nothing felt is nothing to recognize), appraisal (the cosine of what they meant for her needs), and meaning (`Memory.likeness`:
+  1 as two of her memories of one matter are, 0 as two usually are; without the service, left out, never
+  guessed). A feeling's strength: its nearest three moments, times half of n / (n + 1) for n distinct moments
+  (repeating a word for one moment counts once). What she is in (`self["situation"]`: the message as she read
+  it, or her thought) is set before she weighs what to do.
+- **Her sleep goes over her feelings** (step `feelings`, `prompts.FEELINGS`, thinking on, with who she is): each
+  saying not gone over yet, by what she called it and the sentence, against her feelings and their moments
+  (what was happening, her body as amounts, what it meant, her leaning). Kept (a provisional one confirmed), moved
+  to the feeling of hers it is the same as, or set aside (kept in `set_aside` with her reason); two words for
+  one feeling joined, one word for two split. An answer she could not read leaves them for the next night.
+- **A feeling she is in pulls on what she does** (`values.features(..., feelings)`, `will.worth`'s `feeling`
+  part): `act:<act>|feeling:<id>` is learned as every act is, from how acting so went, and weighs apart from her
+  other learned worth, so her reason can say "feeling like this, doing this has gone well before", never the
+  word (a word the machine puts in her note is a word the machine picked). It moves with its moments when sleep
+  joins or splits feelings (`Values.carry`) and goes with a feeling set aside (`Values.drop_feeling`).
+
+Format 6 (`scripts/migrate_format_6.py`, then deleted): exchanges take `appraisal` and `leaned` from their turn's
+decision, her latest thoughts their leaning; each concept becomes a provisional feeling of its namings (older
+software's namings take the concept's mean as their measurement), all gone over by her first sleep. Tests:
+`tests/test_mind_moments.py`, `tests/test_mind_feel.py`, `tests/test_migrate_format_6.py`.
 
 ## 11. Models and providers
 

@@ -264,8 +264,9 @@ def test_her_mind_shows_in_its_tab(brain):
     brain.brain.mind.self["remembered"] = [{"at": time.time(), "episode": 1, "text": "The night the song played.",
                                             "by": "playing: clair de lune", "moved": {"cortisol": 0.2, "oxytocin": 0.1}}]
     for at in (time.time() - 60, time.time()):
-        brain.brain.mind.concepts.add(naming("restless", "I'm restless tonight.", at, "tool", "now",
-                                             measure={"of": "reading", "way": {"noradrenaline": 0.5}}), "the clock")
+        brain.brain.mind.feelings.sort(naming("restless", "I'm restless tonight.", at, "tool", "now",
+                                              measure={"of": "reading", "way": {"noradrenaline": 0.5}}),
+                                       {"way": {"noradrenaline": 0.5}, "appraisal": None}, {}, None)
     reactions = brain.brain.mind.reactions  # what she has learned to react to, without her embedder: around
     reactions.learn([{"text": "in front: outlook — boss", "kind": "around", "source": "around", "salience": 1.0}],
                     {"cortisol": 1.2, "reward": -0.8}, 0.9, time.time())

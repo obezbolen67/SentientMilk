@@ -10,7 +10,7 @@ import re
 import pytest
 from conftest import Meaning, turn, use, wait_for
 
-from sentientmilk_framework.mind.feel import CHANNELS, Concepts, Felt, _amounts, core, naming
+from sentientmilk_framework.mind.feel import CHANNELS, Feelings, Felt, _amounts, core, naming
 from sentientmilk_framework.testing import tool_call
 
 TENSE = {"cortisol": 0.8, "noradrenaline": 0.85, "serotonin": 0.3, "reward": -0.4}
@@ -31,12 +31,12 @@ def test_whatever_words_she_puts_to_what_she_finds_become_hers_and_ease_it_once(
     mind = brain.brain.mind
     feels(mind, **TENSE)
     looked = mind.look_inward()
-    assert eased(mind) == 0 and not mind.concepts.named  # looking alone names nothing and eases nothing
+    assert eased(mind) == 0 and not mind.feelings.known  # looking alone names nothing and eases nothing
     seen = mind.look_inward(naming="wound up like a spring, a bit vexed")  # no list would have this
     assert 'Put into words: "wound up like a spring, a bit vexed"' in seen and "A word of my own" in seen
-    found = mind.concepts.named[0]
-    assert found["word"] == "wound up like a spring, a bit vexed" and found["moved"]
-    assert found["said"][-1]["text"] == "wound up like a spring, a bit vexed"
+    found = mind.feelings.known[0]
+    assert mind.feelings.word(found) == "wound up like a spring, a bit vexed" and found["said"][-1]["measure"]["way"]
+    assert found["said"][-1]["text"] == "wound up like a spring, a bit vexed" and found["standing"] == "provisional"
     assert eased(mind) == 1  # the felt shift: putting it into words eases it
     again = mind.look_inward(naming="wound up like a spring, a bit vexed")
     assert "sits like the other times it was called that" in again and eased(mind) == 1  # once for one experience
@@ -54,8 +54,8 @@ def test_what_she_says_of_how_she_feels_right_after_looking_inward_is_her_naming
         {"words": "furious", "quote": "I'm furious."}]})]  # the second she never said: never hers
     brain.provider.replies += [tool_call("look_inward", {}), "Honestly? I'm wired all the way up. Nothing to spend it on."]
     turn(brain, "cli", "how are you feeling, really?")
-    named = wait_for(lambda: mind.concepts.named)
-    assert [c["word"] for c in named] == ["wired all the way up"]
+    named = wait_for(lambda: mind.feelings.known)
+    assert [mind.feelings.word(f) for f in named] == ["wired all the way up"]
     assert named[0]["said"][-1]["text"] == "Honestly? I'm wired all the way up." and eased(mind) == 1
     asked = next(r for r in brain.provider.mind_requests if r["messages"][0]["content"].startswith("[mind:named]"))
     assert "Nothing to spend it on." in asked["messages"][1]["content"]
@@ -81,9 +81,9 @@ def test_naming_a_moment_she_looks_back_on_names_that_moment_and_softens_it(brai
     feels(mind, cortisol=0.2, noradrenaline=0.4, reward=0.3, serotonin=0.7)  # it has passed: she is fine now
     seen = mind.look_inward("the cat drawing", naming="stung, then small", moment=episode["id"])
     assert 'Put into words: "stung, then small"' in seen
-    named = mind.concepts.named[0]
-    assert named["moved"] == {name: change for name, change in way.items()}  # that moment's body, not her now
-    assert named["said"][-1]["episode"] == episode["id"] and "cat" in named["about"]
+    named = mind.feelings.known[0]
+    assert named["said"][-1]["measure"]["way"] == way  # that moment's body, not her now
+    assert named["said"][-1]["episode"] == episode["id"]
     assert mind.memory.by_ids([episode["id"]])[0]["charge"] < episode["charge"]  # it lost a little of its sting
     assert eased(mind) == 0  # nothing unpleasant now to ease
     assert '(it hurt; called "stung, then small")' in mind.look_inward()  # what got to her, by her name
@@ -97,23 +97,24 @@ def test_a_thought_names_a_feeling_only_in_its_own_words(brain):
         json.dumps({"thought": "Going over it again, I was more rattled than I let on.", "named": "rattled"}),
         json.dumps({"thought": "The deploy went fine in the end.", "named": "relieved"})]
     mind._think("wonder", None)
-    assert [c["word"] for c in mind.concepts.named] == ["rattled"]
-    assert mind.concepts.named[0]["said"][-1]["text"] == "Going over it again, I was more rattled than I let on."
+    assert [mind.feelings.word(f) for f in mind.feelings.known] == ["rattled"]
+    assert mind.feelings.known[0]["said"][-1]["text"] == "Going over it again, I was more rattled than I let on."
     mind._think("wonder", None)  # "relieved" is not in what she thought: not hers
-    assert [c["word"] for c in mind.concepts.named] == ["rattled"]
+    assert [mind.feelings.word(f) for f in mind.feelings.known] == ["rattled"]
     asked = brain.provider.mind_requests[-1]["messages"][1]["content"]
     assert "called" not in asked and "rattled" not in asked.split("How they feel:")[1].split("\n")[0]
-def test_a_word_she_uses_often_comes_to_mind_sooner_than_one_she_used_once():
+def test_a_feeling_of_many_moments_comes_to_mind_sooner_than_one_of_a_single_moment():
     way = {"cortisol": 0.9, "noradrenaline": 0.7}
-    concepts = Concepts()
-    concepts.add(naming("tense", "tense about the deploy", 1.0, "tool", "now", measure={"of": "reading", "way": way}),
-                 "the deploy")
+    moment = {"way": way, "appraisal": None}
+    feelings = Feelings()
+    tense, _ = feelings.sort(naming("tense", "tense about the deploy", 1.0, "tool", "now", episode=1,
+                                    measure={"of": "reading", "way": way}), moment, {}, None)
     for at in range(2, 7):
-        concepts.add(naming("nervous", "nervous", float(at), "tool", "now", measure={"of": "reading", "way": way}),
-                     "the deploy")
-    found = dict(concepts.recognize(way))
+        feelings.sort(naming("nervous", "nervous", float(at), "tool", "now", episode=at,
+                             measure={"of": "reading", "way": way}), moment, {}, None)
+    found = {feelings.word(f): value for f, value, _ in feelings.recognize(moment, {}, None)}
     assert found["nervous"] > found["tense"]
-    assert concepts.named[0]["said"][-1]["text"] == "tense about the deploy"
+    assert tense["said"][-1]["text"] == "tense about the deploy"
 
 
 def test_her_body_comes_as_amounts_she_puts_into_words_herself_never_a_feelings_name():

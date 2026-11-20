@@ -69,7 +69,8 @@ class Memory:
                     salience REAL NOT NULL, strength REAL NOT NULL, recalls INTEGER NOT NULL DEFAULT 0,
                     recalled REAL, charge REAL NOT NULL, follows TEXT, sting REAL NOT NULL DEFAULT 0,
                     run_id INTEGER, event_id INTEGER, actor TEXT, device TEXT, superseded_by INTEGER,
-                    encoding_valence REAL, origin_ids TEXT, attention TEXT, felt TEXT, grew_from TEXT);
+                    encoding_valence REAL, origin_ids TEXT, attention TEXT, felt TEXT, grew_from TEXT,
+                    appraisal TEXT, leaned TEXT);
                 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             """)
             self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS episode_run ON episodes(run_id) WHERE run_id IS NOT NULL")
@@ -121,6 +122,26 @@ class Memory:
         except Exception:  # its floor could not be measured now: nothing by meaning this time
             return None
 
+    def likeness(self, cue: str, ids: Iterable[int]) -> Optional[Dict[int, float]]:
+        """How alike in meaning what ``cue`` tells is to each of these moments, 0..1 as two of her memories usually
+        are to as two about one matter are (Vectors.alike); None when she cannot tell now (no cue, no embedder,
+        the service down). It calls the embedder: never under her lock."""
+        embedder = self.embedder
+        if embedder is None or not (cue or "").strip():
+            return None
+        try:
+            vector = embedder.embed([cue[:MAX_CHARS]])[0]  # as a memory is kept, to compare with memories
+        except Exception:  # the service is down, or no key: nothing by meaning this time
+            return None
+        return self.vectors.alike(vector, embedder.name, ids)
+
+    def likeness_to(self, episode: int, ids: Iterable[int]) -> Optional[Dict[int, float]]:
+        """How alike in meaning a kept moment is to each of these (``likeness``), by the vectors her memory keeps: no
+        call to the service; None when it has no vector yet."""
+        embedder = self.embedder
+        vector = self.vectors.vector(episode, embedder.name) if embedder is not None else None
+        return self.vectors.alike(vector, embedder.name, ids) if vector is not None else None
+
     def close(self) -> None:
         with self._lock:
             self._db.close()
@@ -154,24 +175,29 @@ class Memory:
     def add(self, kind: str, text: str, valence: float, arousal: float, salience: float, *, app: str = "",
             session: str = "", at: Optional[float] = None, sting: float = 0.0, run_id=None, event_id=None,
             actor=None, device=None, origins=(), attention=(), felt: Optional[Dict[str, float]] = None,
-            cues: Iterable[str] = (), grew_from: Iterable[int] = ()) -> int:
+            cues: Iterable[str] = (), grew_from: Iterable[int] = (), appraisal: Optional[Dict[str, float]] = None,
+            leaned: Optional[dict] = None) -> int:
         """``valence``: how she felt in the moment (her mood then, as it keeps it); ``sting``: what the moment
         itself did to how she felt (negative: it hurt), whatever her mood was; ``felt``: how it moved her body,
         each channel's change in units of a lot; ``cues``: what was around it (``cue``, ``moment_cues``);
         ``origins``: what came up in it; ``grew_from``: for a thought, what it went over (the talk, the moment
-        it dwelt on, the thought it went on from): what it goes with when that is taken back (``retract``)."""
+        it dwelt on, the thought it went on from): what it goes with when that is taken back (``retract``);
+        ``appraisal``: what it meant for her needs as she read it (company, capable, free: what it does to each,
+        -1..1; theirs: how things are for the one who wrote); ``leaned``: what she leaned toward doing in it
+        (``act``, ``what``). With how it moved her, these are what a feeling of hers is made of (feel.Feelings)."""
         text = " ".join(str(text).split())[:1200]
         salience = max(0.0, min(1.0, salience))
         kept = json.dumps({name: round(change, 3) for name, change in felt.items() if round(change, 3)}) if felt else None
         with self._lock:
             cursor = self._db.execute(
                 "INSERT INTO episodes (id, at, kind, text, app, session, valence, arousal, salience, strength, charge, "
-                "sting,run_id,event_id,actor,device,encoding_valence,origin_ids,attention,felt,grew_from) "
-                "VALUES ((SELECT last_id+1 FROM episode_sequence),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "sting,run_id,event_id,actor,device,encoding_valence,origin_ids,attention,felt,grew_from,appraisal,leaned) "
+                "VALUES ((SELECT last_id+1 FROM episode_sequence),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time() if at is None else at, kind, text, app, session, max(-1.0, min(1.0, valence)),
                  max(0.0, min(1.0, arousal)), salience, 0.5 + 0.5 * salience, 1.0, max(-2.0, min(2.0, sting)),
                  run_id, event_id, actor, device, valence, json.dumps(list(origins)), json.dumps(list(attention)),
-                 kept, json.dumps(list(grew_from))))
+                 kept, json.dumps(list(grew_from)), json.dumps(appraisal) if appraisal else None,
+                 json.dumps(leaned) if leaned else None))
             self._db.executemany("INSERT OR IGNORE INTO episode_cues VALUES (?, ?)",
                                  [(cursor.lastrowid, found) for found in {_cue(c) for c in cues} if found])
             return cursor.lastrowid
@@ -181,6 +207,21 @@ class Memory:
         """How the moment moved her body (each channel's change, in units of a lot); {} when that was not kept (a dream, an insight, a turn
         she did not appraise)."""
         return json.loads(episode.get("felt") or "{}")
+
+    @staticmethod
+    def appraisal(episode: dict) -> Optional[Dict[str, float]]:
+        """What the moment meant for her needs as she read it (``add``); None: not read (a thought, a dream)."""
+        return json.loads(episode["appraisal"]) if episode.get("appraisal") else None
+
+    @staticmethod
+    def leaned(episode: dict) -> Optional[dict]:
+        """What she leaned toward doing in the moment (``act``, ``what``); None: nothing was weighed."""
+        return json.loads(episode["leaned"]) if episode.get("leaned") else None
+
+    def bind(self, episode: int, *, leaned: dict) -> None:
+        """What she leaned toward in a moment kept before she weighed it (a thought: kept, then weighed)."""
+        with self._lock:
+            self._db.execute("UPDATE episodes SET leaned = ? WHERE id = ?", (json.dumps(leaned), episode))
 
     def cues(self, ids: Iterable[int]) -> Dict[int, List[str]]:
         """What was around each of these moments."""

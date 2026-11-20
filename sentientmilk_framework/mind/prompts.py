@@ -86,7 +86,7 @@ Answer with JSON only:
            "say": "for tell or ask: what they'd say to the one they talk with, in their own voice",
            "what": "for do: what they'd do, as they'd note it for themselves; for look_up: what they'd find out, as a web search",
            "effort": 0.0, "chance": 0.0}],
-"named": "only if this thought puts into words what they feel, or felt in what it goes over: those words, as they are in the thought"}
+"named": "only if this thought says how they themselves feel, or felt in what it goes over (not what they think of something, do or are): their words for that feeling, as they are in the thought"}
 
 could: what this thought could lead them to do, if anything: none, one, or a few. tell or ask: say something to
 the one they talk with now. look_up: find something out themselves. do: do something themselves, now, with what
@@ -96,13 +96,17 @@ answered, it works, they find out. Whether they do any of it is not decided here
 
 # her words for what she feels, in what she said right after looking inward (life.py, after): only her own;
 # measured on her exam replies: asked only where she puts it into words, it took 5+ phrases a reply, comparisons
-# ("different", "worse") and asides among them; asked for the name she gives the feeling itself, about 3
+# ("different", "worse") and asides among them; asked for the name she gives the feeling itself, about 3. Asked
+# only for a name, it took what she said beside a feeling as one: "the ugly part" (a figure of speech), "cheating.
+# sort of" (an admission), "annoyingly sweet" (what she thought of something): her mind, 2026-11-20
 NAMED = """[mind:named]
-Someone just looked inside themselves and then said what is below. Did they put a name to what they feel? A name
-is the word or phrase they give the feeling itself, in whatever form ("vexed", "that wexes me", "wired", "like a
-radio on in an empty room", "buzzing, that's the closest one"). Not each sensation or circumstance they go
-through on the way to it, not words that compare it with before ("different", "worse"), never a word they did
-not say, and nothing about anyone else's feelings. Often there is one, sometimes a few, sometimes none.
+Someone just looked inside themselves and then said what is below. Did they say how they themselves feel, and
+with which words? A name for a feeling says what it is like to be them, now or at a moment they speak of, in
+whatever form ("vexed", "that wexes me", "wired", "like a radio on in an empty room", "buzzing, that's the
+closest one"). Not what they think of something or someone, not what they did, do or mean to do, not what they
+are, not a figure of speech that sizes up what happened, not each sensation or circumstance they go through on
+the way to it, not words that compare it with before ("different", "worse"), never a word they did not say, and
+nothing about anyone else's feelings. Often there is one, sometimes a few, sometimes none.
 
 Answer with JSON only: {"named": [{"words": "their name for the feeling, as they said it", "quote": "the
 sentence they said it in, exactly"}]}, or {"named": []} when they put no name to a feeling of theirs."""
@@ -174,6 +178,30 @@ by name, or as "someone" or "the one I'm talking with" when it is anyone, never 
 goodnight", "asked about files"). dropped: ways they were asked to stop. reworded: any way of theirs, met today or
 not, whose words could be misread (a he, she, they or you who could be anyone), said again plainly under its own
 name, meaning the same. Leave out what today does not show."""
+
+FEELINGS = """[mind:feelings]
+You are someone's mind while they sleep, going over the words they put to how they felt. Below: who they are,
+then their feelings, each with its number and the moments they called by it, numbered: what they said, what was
+happening, how their body was moved, what it meant for what they need and which way it moved them to act. Some
+moments are from today, and are to be gone over now.
+
+Answer with JSON only:
+{"today": [{"moment": 1, "why": "...", "felt": true, "feeling": 1}],
+"join": [{"feelings": [1, 2], "why": "..."}],
+"split": [{"feeling": 1, "moments": [3, 4], "why": "..."}]}
+
+today: one for each moment to be gone over. felt: whether what they called it says how they themselves felt,
+what it was like to be them then, or something else said beside it: what they thought of something or someone,
+what they did, do or are, a figure of speech sizing up what happened. feeling: when it said how they felt, the number of the feeling of
+theirs it is: the one it is under, or another of theirs it is the same as, though they used other words then.
+join: two feelings of theirs that are one feeling under different words. split: a feeling of theirs whose
+moments are two different feelings: the moments that are the other one. Most nights there is nothing to join or
+split. why: one short sentence, in the first person, as they would think it."""
+
+# which way a moment moved them to act, as their sleep is told it (FEELINGS)
+LEANED = {"do": "doing it", "part": "doing part of it", "later": "putting it off", "decline": "not doing it",
+          "talk": "talking it over", "tell": "telling the one they talk with", "ask": "asking the one they talk with",
+          "look_up": "finding something out", "let": "letting it be"}
 
 SELF = """[mind:self]
 You are someone's mind while they sleep, going over what today showed about who they are. Below: what they knew

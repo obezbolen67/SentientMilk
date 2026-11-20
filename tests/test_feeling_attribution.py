@@ -7,7 +7,7 @@ now names now; a past moment is named only when she says which one; what came ba
 import pytest
 from conftest import Meaning, turn, use, wait_for
 
-from sentientmilk_framework.mind.feel import Concepts, naming
+from sentientmilk_framework.mind.feel import Feelings
 from sentientmilk_framework.testing import tool_call
 
 
@@ -65,15 +65,15 @@ def two_turns(brain, arguments):
 def test_naming_now_while_an_earlier_moment_comes_back_first_names_the_exchange_she_is_in(brain):
     mind, first, second, earlier, later, ways, calls = two_turns(
         brain, lambda _: {"about": "the tomato seedlings sprouted", "naming": "Hollow, a Little, Like an Echo!"})
-    concept = mind.concepts.named[0]
-    naming = concept["said"][-1]
+    feeling = mind.feelings.known[0]
+    naming = feeling["said"][-1]
     assert naming["words"] == "Hollow, a Little, Like an Echo!"  # her wording, as she wrote it
     assert (naming["named"], naming["how"], naming["run"], naming["event"], naming["call"]) == (
         "now", "tool", second, input_event(brain, second), "call_naming")
     assert naming["measure"] == {"of": "message", "run": second, "way": ways[1]}  # this exchange's response
-    assert concept["moved"] == ways[1] and concept["count"] == 1
+    assert mind.feelings.moments(feeling) == 1 and feeling["standing"] == "provisional"
     assert naming["reminded"][0] == earlier["id"]  # retrieval returned the earlier moment first: a reminder
-    assert wait_for(lambda: mind.concepts.named[0]["said"][-1]["episode"]) == later["id"]  # linked once kept
+    assert wait_for(lambda: mind.feelings.known[0]["said"][-1]["episode"]) == later["id"]  # linked once kept
     assert not any(earlier["id"] in ids for ids, _ in calls)  # no softening reserved for naming a past moment
     assert mind.memory.by_ids([earlier["id"]])[0]["charge"] < earlier["charge"]  # retrieval's own wear stays
 
@@ -82,15 +82,13 @@ def test_naming_now_while_an_earlier_moment_comes_back_first_names_the_exchange_
 def test_naming_a_past_moment_she_points_to_takes_its_response_and_softens_it_once(brain):
     mind, first, second, earlier, later, ways, calls = two_turns(
         brain, lambda moment: {"about": "the tomato seedlings", "naming": "proud of them", "moment": moment["id"]})
-    concept = mind.concepts.named[0]
-    naming = concept["said"][-1]
+    naming = mind.feelings.known[0]["said"][-1]
     assert (naming["named"], naming["episode"], naming["run"]) == ("past", earlier["id"], second)
     assert naming["measure"] == {"of": "message", "run": first, "episode": earlier["id"], "way": ways[0]}
-    assert concept["moved"] == ways[0]
     assert [call for call in calls if earlier["id"] in call[0]] == [([earlier["id"]], 0.15)]
     run = brain.store.run(second)
     again = mind.look_inward("the tomato seedlings", "proud of them", earlier["id"], run=run, call="call_naming")
-    assert "proud of them" in again and len(mind.concepts.named[0]["said"]) == 1  # the same call: nothing twice
+    assert "proud of them" in again and len(mind.feelings.known[0]["said"]) == 1  # the same call: nothing twice
     assert [call for call in calls if earlier["id"] in call[0]] == [([earlier["id"]], 0.15)]
 
 
@@ -101,10 +99,10 @@ def test_a_past_moment_she_names_that_cannot_be_found_stays_unresolved(brain):
     for asked in (987654, "the day it rained"):
         seen = mind.look_inward(naming="a dull ache", moment=asked)
         assert f"No moment #{asked}" in seen
-    concept = mind.concepts.named[0]
-    assert [(n["named"], n["episode"], n["measure"], n["asked"]) for n in concept["said"]] == [
+    feeling = mind.feelings.known[0]
+    assert [(n["named"], n["episode"], n["measure"], n["asked"]) for n in feeling["said"]] == [
         ("unresolved", None, None, "987654"), ("unresolved", None, None, "the day it rained")]
-    assert concept["moved"] == {} and concept["count"] == 2 and calls == []
+    assert mind.feelings.moments(feeling) == 0 and calls == []  # kept, for no moment
 
 
 @pytest.mark.mind
@@ -113,30 +111,30 @@ def test_a_later_likeness_is_a_recognition_never_a_naming(brain):
         brain, lambda _: {"naming": "hollow, a little"})
     brain.provider.replies += ["Again? That's a long time."]
     third = turn(brain, "cli", "I might stay away even longer, two months")["run"]
-    concept = wait_for(lambda: mind.concepts.named[0] if mind.concepts.named[0]["back"] else None)
-    assert (concept["count"], concept["back"], concept["back_run"]) == (1, 1, third)
-    assert len(concept["said"]) == 1 and concept["at"] < concept["back_at"]
+    feeling = wait_for(lambda: mind.feelings.known[0] if mind.feelings.known[0]["back"] else None)
+    assert (mind.feelings.moments(feeling), feeling["back"], feeling["back_run"]) == (1, 1, third)
+    assert len(feeling["said"]) == 1 and feeling["at"] < feeling["back_at"]
+    assert brain.store.run(third)["options"]["mind"]["feelings"][0]["id"] == feeling["id"]  # what she was in
 
 
 @pytest.mark.mind
 def test_a_naming_made_before_its_turn_was_kept_is_linked_when_she_starts(brain):
     mind, first, second, earlier, later, ways, calls = two_turns(brain, lambda _: {"naming": "hollow, a little"})
-    naming = mind.concepts.named[0]["said"][-1]
+    naming = mind.feelings.known[0]["said"][-1]
     assert naming["episode"] == later["id"]
     naming["episode"] = None  # the brain stopped after the naming and before the turn's moment was kept
     mind._link_namings()  # as she starts
-    assert mind.concepts.named[0]["said"][-1]["episode"] == later["id"]
+    assert mind.feelings.known[0]["said"][-1]["episode"] == later["id"]
 
 
-def test_a_record_stored_by_older_software_keeps_its_link_as_uncertain():
-    # older software kept the last three sentences and the mean of every naming, no numbers of each
+def test_a_naming_stored_by_older_software_keeps_its_link_as_uncertain_and_the_old_mean_as_its_body():
+    # older software kept the last three sentences and the mean of every naming, no numbers of each: the format 6
+    # migration gave each such naming that mean as its measurement ("legacy")
     legacy = {"words": "something warm", "text": "something warm", "at": 5.0, "how": "legacy", "named": "legacy",
-              "run": None, "event": None, "call": None, "episode": 341, "asked": None, "measure": None,
-              "reminded": []}
-    concepts = Concepts([{"word": "something warm", "moved": {"reward": 0.2}, "about": {}, "count": 4,
-                          "measured": 4, "back": 0, "back_at": None, "back_run": None, "at": 5.0, "said": [legacy]}])
-    shown = concepts.shown({"reward": 0.2})[0]
-    assert shown["said"] == [legacy] and (shown["count"], shown["measured"]) == (4, 4)
-    concepts.add(naming("something warm", "something warm", 6.0, "tool", "now",
-                        measure={"of": "reading", "way": {"reward": 0.7}}))
-    assert concepts.named[0]["moved"] == {"reward": 0.3}  # one more of five, as before: the mean it had is kept
+              "run": None, "event": None, "call": None, "episode": 341, "asked": None,
+              "measure": {"of": "legacy", "way": {"reward": 0.2}}, "reminded": [], "reviewed": None}
+    feelings = Feelings({"next": 2, "feelings": [{"id": 1, "standing": "provisional", "at": 5.0, "said": [legacy],
+                                                  "revisions": [], "back": 0, "back_at": None, "back_run": None}],
+                         "set_aside": []})
+    shown = feelings.shown({"way": {"reward": 0.2}, "appraisal": None}, {}, None)[0]
+    assert shown["said"] == [legacy] and (shown["count"], shown["measured"]) == (1, 1) and shown["strength"] > 0.6

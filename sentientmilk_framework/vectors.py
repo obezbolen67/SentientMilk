@@ -70,7 +70,7 @@ class Vectors:
         self._floors: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, floor)
         self._usuals: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, usual nearest)
         self._sames: Dict[str, Tuple[float, float]] = {}  # model -> (what one thing reaches, what unrelated does)
-        self._matters: Dict[str, Tuple[int, float]] = {}  # model -> (count when measured, what one matter reaches)
+        self._matters: Dict[str, Tuple[int, float, float]] = {}  # model -> (count when measured, what one matter reaches)
         with lock:
             db.executescript(schema(table))
 
@@ -152,16 +152,35 @@ class Vectors:
         deletion 0.63, a question about a watcher and "forget that thing" 0.64; an unrelated pair 0.38 in the
         middle). Measured again when their number has doubled; 1.0 (nothing is one matter) under ten rows: a few
         rows tell nothing of what is usual among them."""
+        return self.between(model)[1]
+
+    def between(self, model: str) -> Tuple[float, float]:
+        """What two of these rows usually reach (the median of all pairs) and what two about one matter reach
+        (``matter``), measured together from one sample; (1.0, 1.0) under ten rows."""
         ids, rows = self._matrix(model)
         measured = self._matters.get(model)
         if measured and len(ids) < 2 * measured[0]:
-            return measured[1]
+            return measured[1], measured[2]
         if len(ids) < 10:
-            return 1.0
+            return 1.0, 1.0
         sample = rows if len(ids) <= 1024 else rows[np.random.default_rng(0).choice(len(ids), 1024, replace=False)]
-        value = float(np.quantile((sample @ sample.T)[np.triu_indices(len(sample), 1)], 0.97))
-        self._matters[model] = (len(ids), value)
-        return value
+        pairs = (sample @ sample.T)[np.triu_indices(len(sample), 1)]
+        usual, value = float(np.median(pairs)), float(np.quantile(pairs, 0.97))
+        self._matters[model] = (len(ids), usual, value)
+        return usual, value
+
+    def alike(self, vector: np.ndarray, model: str, rows_of: Iterable[int]) -> Optional[Dict[int, float]]:
+        """How alike in meaning ``vector`` (a unit vector of ``model``, of the same kind as these rows) is to each
+        of these rows that has one: 0 as two of them usually are, 1 as two about one matter are (``between``);
+        None under ten rows, when what is usual among them is not known."""
+        usual, matter = self.between(model)
+        ids, rows = self._matrix(model)
+        if matter <= usual or rows.shape[1] != len(vector):
+            return None
+        wanted = np.isin(ids, np.fromiter(set(rows_of), np.int64))
+        cosines = rows[wanted] @ np.asarray(vector, np.float32)
+        return {int(row): float(min(1.0, max(0.0, (cosine - usual) / (matter - usual))))
+                for row, cosine in zip(ids[wanted], cosines)}
 
     def holding(self, model: str, block: int = 512) -> List[Tuple[int, int, float]]:
         """Every pair of rows where one holds some of the other's meaning, on ``held``'s scale: (a, b, how

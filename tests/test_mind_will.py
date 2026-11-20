@@ -4,10 +4,12 @@ option is worth is what it does to her needs, valued by how unmet each is now.""
 
 import random
 
+import pytest
+
 from sentientmilk_framework.mind import prompts
 from sentientmilk_framework.mind.body import Body, Temperament
 from sentientmilk_framework.mind.values import Values, features, subjects
-from sentientmilk_framework.mind.will import REASONS, Appraisal, Option, choose, value
+from sentientmilk_framework.mind.will import REASONS, Appraisal, Option, choose, reasons, value
 
 NOON = 1_763_294_400.0
 REQUEST = Appraisal(company=0.2, capable=0.2, free=0.0, novelty=0.3, intent="request", tags=["code"])
@@ -176,3 +178,38 @@ def test_what_things_are_about_is_never_written_as_he_she_or_they():
     assert values.leanings() == ([("tag:greeting", 0.2)], [])
     assert subjects(["What they feel", "her nature", "rhythm game"]) == ["tag:rhythm game"]
     assert "never he, she, they" in prompts.IMAGINE
+
+
+def test_a_feeling_she_is_in_pulls_toward_what_acting_in_it_was_worth():
+    # an emotion readies some acts over others (Frijda 1986): learned, from how acting in that feeling went for her
+    def in_feeling(o):
+        return features(o.act, REQUEST.tags, REQUEST.intent, feelings=[3])
+    body = her(**RESTED)
+
+    def rate(weight):
+        values = Values({"act:do|feeling:3": weight} if weight else {})
+        rng, done = random.Random(9), 0
+        for _ in range(600):
+            done += choose(options(), REQUEST, body, values, in_feeling, rng).option.act == "do"
+        return done / 600
+    went_badly, nothing, went_well = rate(-0.8), rate(0.0), rate(0.8)
+    assert went_badly < nothing < went_well
+    considered = choose(options(), REQUEST, body, Values({"act:do|feeling:3": 0.8}), in_feeling,
+                        random.Random(1)).considered
+    assert next(o for o in considered if o["act"] == "do")["parts"]["feeling"] == 0.4  # half its learned worth
+    assert "feeling" not in next(o for o in considered if o["act"] == "later")["parts"]  # nothing learned of it
+    # her reason says it, never the word for the feeling: a word put to her by the machine is not hers
+    assert reasons({"feeling": 0.4, "cost": -0.1}, {"feeling": 0.0, "cost": -0.1}, "decline") == [REASONS["feeling+"]]
+    assert reasons({"feeling": 0.0}, {"feeling": -0.4}, "decline") == [REASONS["feeling-"]]
+
+
+def test_what_acting_in_a_feeling_taught_goes_with_its_moments():
+    values = Values({"act:do|feeling:1": 0.6, "act:do|feeling:2": -0.2, "act:later|feeling:2": 0.3},
+                    {"act:do|feeling:1": 3, "act:do|feeling:2": 1, "act:later|feeling:2": 2})
+    values.carry(2, 1, keep=False)  # two of her words were one feeling: joined
+    assert values.weights == pytest.approx({"act:do|feeling:1": 0.4, "act:later|feeling:1": 0.3})
+    assert values.uses == {"act:do|feeling:1": 4, "act:later|feeling:1": 2}
+    values.carry(1, 5, keep=True)  # one split in two: each half has that history
+    assert values.weights["act:do|feeling:5"] == pytest.approx(0.4) == values.weights["act:do|feeling:1"]
+    values.drop_feeling(5)
+    assert not [f for f in values.weights if f.endswith("|feeling:5")]

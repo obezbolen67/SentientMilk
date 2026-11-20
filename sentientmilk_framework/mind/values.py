@@ -35,8 +35,12 @@ def subjects(tags: Iterable[str]) -> List[str]:
     return [f"tag:{w}" for w in dict.fromkeys(" ".join(str(t).lower().split()) for t in tags) if w and plain(w)][:6]
 
 
-def features(act: str, tags: Iterable[str] = (), intent: str = "", hour: float = 12.0, app: str = "") -> List[str]:
-    """What an option is, as she learns about it: the act, what it is about, with whom and when."""
+def features(act: str, tags: Iterable[str] = (), intent: str = "", hour: float = 12.0, app: str = "",
+             feelings: Iterable[int] = ()) -> List[str]:
+    """What an option is, as she learns about it: the act, what it is about, with whom and when, and in which
+    feelings of hers (``feelings``: their ids, the ones she is in): acting in a feeling has its own worth to her,
+    learned from how acting so in it went (a feeling readies an act: Frijda 1986; its somatic marker: Damasio
+    1994)."""
     when = "night" if hour < 6 or hour >= 23 else "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
     words = [f[4:] for f in subjects(tags)]
     found = [f"act:{act}", f"when:{when}", f"act:{act}|when:{when}"]
@@ -46,6 +50,7 @@ def features(act: str, tags: Iterable[str] = (), intent: str = "", hour: float =
         found.append(f"app:{app}")
     for word in words:
         found += [f"tag:{word}", f"act:{act}|tag:{word}"]
+    found += [f"act:{act}|feeling:{feeling}" for feeling in feelings]
     return found
 
 
@@ -70,6 +75,29 @@ class Values:
         for f in found:
             self.weights[f] = _clip(self.weights.get(f, 0.0) + step)
             self.uses[f] = self.uses.get(f, 0) + 1
+
+    def carry(self, old: int, new: int, keep: bool) -> None:
+        """What acting in feeling ``old`` taught her goes with its moments to feeling ``new``: moved when two of
+        her words were one feeling (``keep`` False, sleep's join), copied when one of hers split in two (``keep``
+        True: each half has that history). Where ``new`` has a weight of its own already, the two are weighed by
+        how often each was learned."""
+        suffix, into = f"|feeling:{old}", f"|feeling:{new}"
+        for name in [f for f in self.weights if f.endswith(suffix)]:
+            target = name[:-len(suffix)] + into
+            uses, theirs = self.uses.get(name, 0), self.uses.get(target, 0)
+            weight = self.weights[name] if keep else self.weights.pop(name)
+            if target in self.weights and uses + theirs:
+                weight = (weight * uses + self.weights[target] * theirs) / (uses + theirs)
+            self.weights[target] = _clip(weight)
+            self.uses[target] = uses + theirs
+            if not keep:
+                self.uses.pop(name, None)
+
+    def drop_feeling(self, feeling: int) -> None:
+        """A feeling of hers is gone (sleep set aside every saying of it): what acting in it taught goes too."""
+        for name in [f for f in self.weights if f.endswith(f"|feeling:{feeling}")]:
+            del self.weights[name]
+            self.uses.pop(name, None)
 
     def fade(self, share: float = 0.1, floor: float = FAINT) -> None:
         """In sleep: every weight fades a little toward nothing; the faintest go."""

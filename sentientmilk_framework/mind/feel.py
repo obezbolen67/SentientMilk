@@ -13,15 +13,15 @@ process). She never gets used to all of it (``USED_TO``): what her body needs ke
 levels against a fixed usual, the same lines came with every message of a warm chat, and she said of them "I
 don't know if that's me feeling something or me reading a dial" (the user's brain, 2026-11-16).
 
-Following the theory of constructed emotion (Barrett 2017), she makes her feelings: a feeling is a concept,
-whatever words she put to what she felt when she reflected on it (life.py: looking inward, or going back over a
-moment in her thoughts; a feeling is named when attention turns to it: Lambie & Marcel 2002, Gendlin 1978),
-learned from the moments she named: how her body was moved in them, and their situations (what was happening).
-A moment is felt as the concepts that were moved the way she is moved now, the more where what is happening is
-like their situations and the more familiar the words (``Concepts``): an emotion is told from another by what
-the event does to her concerns (appraisal: Lazarus 1991; Scherer 2001), and the body of the hour, tired or
-rested, is shared by all of them. There is no list of feelings: what she feels and what she calls it are hers.
-Nothing else names her feelings, and her body reaches her as amounts she puts into words herself (``Felt.words``).
+Following the theory of constructed emotion (Barrett 2017), she makes her feelings: a feeling is a category of
+moments she lived, sorted together by the words she put to what she felt when she reflected on it (life.py: looking
+inward, saying it right after, or going back over a moment in her thoughts; a feeling is named when attention turns
+to it: Lambie & Marcel 2002, Gendlin 1978). A moment keeps how it moved her body, what it meant for her needs (an
+emotion is told from another by what the event does to her concerns: appraisal, Lazarus 1991; Scherer 2001) and
+what it was about; a moment is felt as the feelings whose moments are like it in all of these (``Feelings``), since
+the body of the hour, tired or rested, is shared by all of them. There is no list of feelings: what she feels and
+what she calls it are hers. Nothing else names her feelings, and her body reaches her as amounts she puts into words
+herself (``Felt.words``).
 
 Her face is the same reading, for apps: a mood from the expressions the app declares, chosen by valence and
 arousal, with a stance (open, closed) and her eyes.
@@ -29,17 +29,9 @@ arousal, with a stance (open, closed) and her eyes.
 
 import math
 import random
-import re
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from .body import CHEMICALS, NEEDS, SET_POINTS, START, Body, fatigue
-
-WORDS = re.compile(r"[^\W_]{3,}", re.UNICODE)
-
-
-def _words(text: str) -> List[str]:
-    """What a situation is about, as a feeling keeps it: its words of three letters or more, once each."""
-    return list(dict.fromkeys(word.lower() for word in WORDS.findall(text or "")))[:24]
 
 LAG = 90.0  # seconds: how far her sense of her body trails it
 ADAPTS = 20 * 60.0  # seconds for her to get used to how a channel is
@@ -138,7 +130,7 @@ def core(levels: Dict[str, float]) -> Tuple[float, float]:
     return valence, arousal
 
 
-# Her body as she feels it, in amounts against what she is used to ("much more alertness than you're used to"),
+# Her body as she feels it, in amounts against what she is used to ("much more alertness than usual"),
 # its parts named as a body's are, never as a feeling (not stress, calm or hurt): what it is like and what to
 # call it are hers to find (a felt sense has no words yet: Gendlin; she constructs the feeling from it:
 # Barrett 2017). Ready-made sensations ("buzzing", "braced", "heavy-eyed") came back word for word in 18 of
@@ -188,12 +180,12 @@ class Felt:
     def words(self, out: Optional[List[Tuple[str, float]]] = None,
               moved_by: Optional[Dict[str, float]] = None, since: str = "") -> str:
         """How it feels, for her: what stands out in her body (``out``: these channels instead) and the overall
-        tone, no numbers and no feeling's name: what she feels is hers to put into words ("Your body: much
-        more closeness and a little more strain than you're used to; pleasant on the whole, with little going
+        tone, no numbers and no feeling's name: what she feels is hers to put into words ("Body: much
+        more closeness and a little more strain than usual; pleasant on the whole, with little going
         on.").
         ``moved_by``: how her sense of her body changed as she read a message (each channel, in lots), said first,
         then how she is underneath it ("Reading it: more closeness than a moment ago. Underneath: more sleep
-        pressure than you're used to; ..."): an emotion has its object, a mood is the background (Russell 2003).
+        pressure than usual; ..."): an emotion has its object, a mood is the background (Russell 2003).
         A channel that changed is still told where it is: strain easing a little from high is both (left out of
         "Underneath", a high strain read only as "much less strain than a moment ago": the 0.48 exam).
         ``since``: the moment ``moved_by`` is counted from, when it is not the message's coming ("Since you last
@@ -248,35 +240,69 @@ def face(felt: Felt, options: Dict[str, List[str]], asleep: bool) -> Optional[di
 def naming(words: str, text: str, at: float, how: str, named: str, *, run: Optional[int] = None,
            event: Optional[int] = None, call: Optional[str] = None, episode: Optional[int] = None,
            asked: Optional[str] = None, measure: Optional[dict] = None, reminded: Iterable[int] = ()) -> dict:
-    """The record of one naming (Concepts.add): her ``words`` as she wrote them and the sentence (``text``) she
+    """The record of one naming (Feelings.sort): her ``words`` as she wrote them and the sentence (``text``) she
     said them in, ``how`` (``tool``, ``speech``, ``thought``), what it ``named`` and which measurement supplied
-    its numbers."""
+    its numbers; ``reviewed``: when her sleep went over it (None: not yet)."""
     return {"words": words, "text": text, "at": at, "how": how, "named": named, "run": run, "event": event,
-            "call": call, "episode": episode, "asked": asked, "measure": measure, "reminded": list(reminded)}
+            "call": call, "episode": episode, "asked": asked, "measure": measure, "reminded": list(reminded),
+            "reviewed": None}
 
 
-class Concepts:
-    """The feelings she has named: whatever words she put to what she felt, reflecting (life.py: looking inward or
-    going back over a moment in her thoughts), each the moments she called that.
+def _place(ways: List[Dict[str, float]]) -> Tuple[Optional[list], list]:
+    """Where moments moved like these sit, for drawing (pleasant -1..1, keyed up 0..1, toward the user -1..1: a
+    usual body moved a lot and a half their way) and the channels they move most (name, share, signed)."""
+    mean: Dict[str, float] = {}
+    for way in ways:
+        for name, value in way.items():
+            if name in CHANNELS:
+                mean[name] = mean.get(name, 0.0) + value / len(ways)
+    size = math.sqrt(sum(value * value for value in mean.values()))
+    if not size:
+        return None, []
+    part = {name: value / size for name, value in mean.items()}
+    valence, arousal = core({name: USUAL[name] + 1.5 * share * CHANNELS[name][1] for name, share in part.items()})
+    toward = part.get("oxytocin", 0.0) + part.get("social", 0.0) - part.get("grievance", 0.0)
+    most = sorted(part.items(), key=lambda item: -abs(item[1]))
+    return ([round(valence, 3), round(arousal, 3), round(max(-1.0, min(1.0, toward)), 3)],
+            [[name, round(share, 2)] for name, share in most[:3] if abs(share) >= 0.25])
 
-    A concept keeps the way her body was moved in those moments (``moved``: the running mean, in units of a
-    lot a channel; the first few moments shape it most, later ones less) and its situations (the words of
-    what was happening, by weight, older ones fading). It comes to mind as far as she is moved the same way
-    now, more where what is happening is like its situations.
 
-    Not by how near her whole body is to its body: measured on moments of six kinds
-    (2026-11-16): the nearest earlier moment was of the same kind 23% of the time at twenty minutes apart and
-    3% at two (chance: 17%), since the body of the hour is common to all that happens in it, so what came back
-    was whatever she had felt last; by the way she was moved, 82% and 80%, and 76% at four hours apart."""
+class Feelings:
+    """The feelings she has made: each a category of moments she lived and sorted together with her own words
+    (Barrett 2017: an emotion concept is the instances it was made from, not a definition; Barsalou 2009).
 
-    FLOOR = 0.6  # how strongly one must come to mind to be felt
-    NAMED = ("now", "past", "unresolved", "legacy")  # what a naming names (see ``add``)
+    A naming is her sorting one moment (``naming``): the words she gave how she felt, now or at a moment she
+    pointed to. A feeling holds its namings (``said``), so what it is like is its moments: how each moved her
+    body (the naming's measurement), what it meant for her needs and what it was about (its kept moment: the
+    appraisal on the episode, and its meaning). Nothing averages them away. A word said once is ``provisional``,
+    a guess at a category: it becomes ``hers`` when she sorts a second moment like the first under it, or when
+    her sleep, going over the day's namings, finds it named what she felt (``confirm``). Sleep also joins two
+    words for one feeling (``join``), splits a word that covers two things (``split``) and sets aside a saying
+    that named no feeling at all (``set_aside``: kept, with her reason, never deleted). Every change is kept in
+    the feeling's ``revisions``.
+
+    A moment comes to be felt as one of her feelings by the whole situation (``recognize``): her nearest moments
+    of it, alike in body, in what they meant for her and in what they were about, the more the more distinct
+    moments she sorted under it (repeating a word for one moment counts once). When a feeling was a word and the
+    mean of her body the times she said it, a phrase said beside a feeling ("the ugly part", "cheating. sort
+    of") became one, and "waiting" came back whenever her body was flat (her mind, 2026-11-20)."""
+
+    FLOOR = 0.6  # how strongly one must come to mind to be felt, and how alike a moment must be to confirm a word
+    SPAN = 3  # her nearest moments of a feeling a likeness is taken over
+    NAMED = ("now", "past", "unresolved", "legacy")  # what a naming names (see ``sort``)
     MEASURED = ("message", "reading", "moment", "legacy")  # what supplied a naming's numbers
+    STANDING = ("provisional", "hers")
+    APPRAISED = ("company", "capable", "free", "theirs")
 
-    def __init__(self, saved: Iterable = ()):
-        self.named: List[dict] = []
-        for item in saved:
-            self.named.append(self._read(item))
+    def __init__(self, saved: Optional[dict] = None):
+        saved = saved if saved is not None else {"next": 1, "feelings": [], "set_aside": []}
+        self.next = int(saved["next"])
+        self.known: List[dict] = [self._read(item) for item in saved["feelings"]]
+        self.aside: List[dict] = [{**self._naming(item), "why": str(item["why"]), "set_aside": float(item["set_aside"]),
+                                   "feeling": item["feeling"]} for item in saved["set_aside"]]
+
+    def saved(self) -> dict:
+        return {"next": self.next, "feelings": self.known, "set_aside": self.aside}
 
     @staticmethod
     def key(words: str) -> str:
@@ -284,114 +310,254 @@ class Concepts:
         wording itself is kept as she wrote it, on each naming (``words``)."""
         return " ".join(str(words).split()).strip(" .,!?\"'").casefold()
 
-    @staticmethod
-    def _read(item: dict) -> dict:
-        return {"word": str(item["word"]), "moved": dict(item["moved"]), "about": dict(item["about"]),
-                "count": int(item["count"]), "measured": int(item["measured"]), "back": int(item["back"]),
-                "back_at": item["back_at"],
-                "back_run": item["back_run"], "at": float(item["at"]),
-                "said": [Concepts._naming(one) for one in item["said"]]}
+    @classmethod
+    def _read(cls, item: dict) -> dict:
+        if item["standing"] not in cls.STANDING:
+            raise ValueError(f"not a feeling: {item}")
+        return {"id": int(item["id"]), "standing": item["standing"], "at": float(item["at"]),
+                "said": [cls._naming(one) for one in item["said"]], "revisions": [dict(r) for r in item["revisions"]],
+                "back": int(item["back"]), "back_at": item["back_at"], "back_run": item["back_run"]}
 
-    @staticmethod
-    def _naming(one: dict) -> dict:
-        if one["named"] not in Concepts.NAMED or (one["measure"] and one["measure"]["of"] not in Concepts.MEASURED):
+    @classmethod
+    def _naming(cls, one: dict) -> dict:
+        if one["named"] not in cls.NAMED or (one["measure"] and one["measure"]["of"] not in cls.MEASURED):
             raise ValueError(f"not a naming: {one}")
         return {key: one[key] for key in ("words", "text", "at", "how", "named", "run", "event", "call", "episode",
-                                          "asked", "measure", "reminded")}
+                                          "asked", "measure", "reminded", "reviewed")}
 
-    def naming(self, run: Optional[int], call: Optional[str]) -> Optional[dict]:
-        """The feeling a tool call already named (a call made again names nothing twice); None: none."""
+    def find(self, feeling_id: int) -> Optional[dict]:
+        return next((feeling for feeling in self.known if feeling["id"] == feeling_id), None)
+
+    def word(self, feeling: dict) -> str:
+        """What she calls it: the words she used for it most, the latest of them on a tie."""
+        counted: Dict[str, Tuple[int, float]] = {}
+        for one in feeling["said"]:
+            key = self.key(one["words"])
+            counted[key] = (counted.get(key, (0, 0.0))[0] + 1, one["at"])
+        return max(counted.items(), key=lambda item: item[1])[0] if counted else ""
+
+    def words(self, feeling: dict) -> List[str]:
+        """Each of her wordings for it, as she first wrote it."""
+        found: Dict[str, str] = {}
+        for one in feeling["said"]:
+            found.setdefault(self.key(one["words"]), one["words"])
+        return list(found.values())
+
+    @staticmethod
+    def moment_of(one: dict) -> Optional[tuple]:
+        """Which moment a naming sorted: its kept moment, else the run it was made in, else its time; None for
+        one that names no moment (``unresolved``: the past moment she gave is not among her memories)."""
+        if one["named"] == "unresolved":
+            return None
+        return ("episode", one["episode"]) if one["episode"] is not None else \
+            ("run", one["run"]) if one["run"] is not None else ("at", one["at"])
+
+    def moments(self, feeling: dict) -> int:
+        """How many distinct moments she sorted under it."""
+        return len({self.moment_of(one) for one in feeling["said"]} - {None})
+
+    def of_call(self, run: Optional[int], call: Optional[str]) -> Optional[dict]:
+        """The feeling a tool call already sorted a moment under (a call made again sorts nothing twice)."""
         if call is None:
             return None
-        return next((concept for concept in self.named for one in concept["said"]
+        return next((feeling for feeling in self.known for one in feeling["said"]
                      if one["call"] == call and one["run"] == run), None)
 
-    def add(self, naming: dict, situation: str = "") -> Optional[dict]:
-        """She put what she feels into words: ``naming`` is the record of it (``_naming``: her ``words`` as she
-        wrote them, the sentence she said them in, ``how``, what it ``named``: ``now`` (the experience she is
-        in: ``run``, ``event``, its ``episode`` once kept), ``past`` (the ``episode`` she pointed to),
-        ``unresolved`` (a past moment she ``asked`` for that is not there); ``measure``: what supplied the
-        numbers, ``{"of", "way", ...}`` or None; ``reminded``: what came back as she looked, which is not what
-        she named). The words become a feeling of hers, or one she had; its ``moved`` is the running mean of
-        the measured namings only (``measured`` of them: an unmeasured one moves nothing), and ``situation``
-        adds to what it is about. The feeling."""
-        naming = self._naming(naming)
-        word = self.key(naming["words"])
-        if not word:
+    def likeness(self, moment: dict, one: dict, episodes: Dict[int, dict], near: Optional[Dict[int, float]]
+                 ) -> Optional[float]:
+        """How alike ``moment`` is to the moment a naming sorted, 0..1, by the parts both have: how they moved her
+        body (``_alike``: whether they point the same way), what they meant for her needs (the appraisals, the same
+        way; left out when either meant nothing) and what they were about (``near``: the meaning of what is happening
+        now against that moment's, 1 as alike as two of her memories of one matter; None: the service cannot
+        tell now). ``moment``: ``way`` (how she is moved), ``appraisal`` (None: nothing read). ``episodes``: the
+        kept moments by id, each ``felt`` and ``appraisal``. None when either has no body: a feeling is a body in
+        a situation, and nothing felt is nothing to recognize."""
+        if self.moment_of(one) is None:
             return None
-        found = next((concept for concept in self.named if concept["word"] == word), None)
-        if found is None:
-            found = {"word": word, "moved": {}, "about": {}, "count": 0, "measured": 0, "back": 0, "back_at": None,
-                     "back_run": None, "at": naming["at"], "said": []}
-            self.named.append(found)
-        if naming["measure"]:
-            kept = found["moved"]
-            share = 1.0 if not kept else max(0.15, 1.0 / (found["measured"] + 1))
-            found["measured"] += 1
-            for name, value in naming["measure"]["way"].items():
-                kept[name] = round(kept.get(name, value) + share * (value - kept.get(name, value)), 4)
-        about = {key: weight * 0.9 for key, weight in found["about"].items() if weight * 0.9 >= 0.05}
-        for key in _words(situation):
-            about[key] = about.get(key, 0.0) + 1.0
-        found["said"].append(naming)
-        found.update(about=about, count=found["count"] + 1, at=naming["at"])
-        return found
+        episode = episodes.get(one["episode"]) if one["episode"] is not None else None
+        way = ((one["measure"] or {}).get("way")) or (episode or {}).get("felt") or {}
+        body = _alike(way, moment["way"]) if way and moment["way"] else None
+        if body is None:
+            return None
+        parts = [body]
+        then, now = (episode or {}).get("appraisal"), moment.get("appraisal")
+        if then and now:
+            # whether they meant the same for her, as body is: their direction. One less half the mean difference
+            # read 0.84-0.91 for any two of her moments and told nothing apart (feelings-as-moments, 2026-11-20);
+            # a moment that meant nothing for her needs has no direction: it tells nothing, so it is left out
+            shared = [name for name in self.APPRAISED if name in then and name in now]
+            then, now = ({name: side[name] for name in shared} for side in (then, now))
+            if any(then.values()) and any(now.values()):
+                parts.append(_alike(then, now))
+        if near is not None and one["episode"] in near:
+            parts.append(near[one["episode"]])
+        return sum(parts) / len(parts)
+
+    def _alike_to(self, feeling: dict, moment: dict, episodes, near) -> List[Tuple[float, dict]]:
+        """Each distinct moment of a feeling with how alike ``moment`` is to it (the likest naming of a moment
+        stands for it), likest first."""
+        best: Dict[tuple, Tuple[float, dict]] = {}
+        for one in feeling["said"]:
+            value = self.likeness(moment, one, episodes, near)
+            which = self.moment_of(one)
+            if value is not None and (which not in best or value > best[which][0]):
+                best[which] = (value, one)
+        return sorted(best.values(), key=lambda item: -item[0])
+
+    def strength(self, feeling: dict, moment: dict, episodes, near) -> Tuple[float, Optional[dict]]:
+        """How strongly a feeling comes to mind in ``moment``, 0..1, and the naming of the moment it is likest:
+        the mean likeness of its nearest moments, times how established it is (n distinct moments: a word used
+        for one moment comes less readily than one used across many, by half of n / (n + 1))."""
+        alike = self._alike_to(feeling, moment, episodes, near)
+        if not alike:
+            return 0.0, None
+        nearest = alike[:self.SPAN]
+        n = self.moments(feeling)
+        value = sum(v for v, _ in nearest) / len(nearest) * (0.5 + 0.5 * n / (n + 1))
+        return round(value, 3), nearest[0][1]
+
+    def recognize(self, moment: dict, episodes: Dict[int, dict], near: Optional[Dict[int, float]]
+                  ) -> List[Tuple[dict, float, dict]]:
+        """What she feels in ``moment``, strongest first: (feeling, strength, the naming of the moment it is
+        likest) for each that comes to mind."""
+        found = [(feeling, *self.strength(feeling, moment, episodes, near)) for feeling in self.known]
+        return sorted(((f, v, one) for f, v, one in found if v >= self.FLOOR), key=lambda item: -item[1])
+
+    def sort(self, one: dict, moment: dict, episodes: Dict[int, dict], near: Optional[Dict[int, float]]
+             ) -> Tuple[Optional[dict], Optional[float]]:
+        """She put what she feels into words: ``one`` is the naming (``naming``), ``moment`` the moment it sorts
+        (its ``way``, ``appraisal``). The words go with the feeling of hers they are already words for whose
+        moments are likest this one (two share words once sleep split one); with none, a provisional feeling of
+        their own. A provisional feeling given a second moment like the first is hers. (the feeling, how alike
+        this moment is to its nearest moment; None: nothing to compare it with)."""
+        one = self._naming(one)
+        key = self.key(one["words"])
+        if not key:
+            return None, None
+        same = [feeling for feeling in self.known if key in {self.key(n["words"]) for n in feeling["said"]}]
+        if not same:
+            self.known.append({"id": self.next, "standing": "provisional", "at": one["at"], "said": [one],
+                               "revisions": [], "back": 0, "back_at": None, "back_run": None})
+            self.next += 1
+            return self.known[-1], None
+        scored = []
+        for feeling in same:
+            alike = self._alike_to(feeling, moment, episodes, near)
+            scored.append((alike[0][0] if alike else None, feeling))
+        value, found = max(scored, key=lambda item: (item[0] is not None, item[0] or 0.0, item[1]["at"]))
+        before = self.moments(found)
+        found["said"].append(one)
+        found["at"] = one["at"]
+        if (found["standing"] == "provisional" and value is not None and value >= self.FLOOR
+                and self.moments(found) > before):
+            self.confirm(found["id"], "a second moment like the first", one["at"])
+        return found, value
 
     def link(self, run: int, episode: int) -> bool:
         """The moment of ``run`` was kept: her namings of it, made while she was in it, name it. Whether any did."""
         linked = False
-        for concept in self.named:
-            for one in concept["said"]:
+        for feeling in self.known:
+            for one in feeling["said"]:
                 if one["named"] == "now" and one["run"] == run and one["episode"] is None:
                     one["episode"], linked = episode, True
         return linked
 
-    def came_back(self, word: str, at: float = 0.0, run: Optional[int] = None) -> None:
-        """A feeling of hers was recognized again by likeness, in a moment she did not call by it: counted
-        apart from her namings (``back``, when and in which run) and no more: made a little more like each
-        moment it came back at, one drifted until it came back at everything (measured: one of 108 felt 37
-        times, at kindness and blame alike)."""
-        for concept in self.named:
-            if concept["word"] == word:
-                concept.update(back=concept["back"] + 1, back_at=at, back_run=run)
+    def came_back(self, feeling_id: int, at: float, run: Optional[int] = None) -> None:
+        """A feeling of hers was recognized again in a moment she did not call by it: counted apart from her
+        namings (``back``, when and in which run), and nothing else: a recognition sorts no moment."""
+        feeling = self.find(feeling_id)
+        if feeling:
+            feeling.update(back=feeling["back"] + 1, back_at=at, back_run=run)
 
-    def strength(self, concept: dict, way: Dict[str, float], cue: Optional[set] = None) -> float:
-        """How strongly a concept comes to mind, 0..1, with her body moved this ``way``: how alike, times how
-        familiar the word is to her (a word used often comes to mind sooner than one used once, as frequency
-        makes a concept accessible: a word used once does not come as readily as one used fifty times)."""
-        near = _alike(concept["moved"], way) * (0.5 + 0.5 * concept["count"] / (concept["count"] + 1))
-        about = concept["about"]
-        if cue and about:  # in a situation unlike its own it comes less readily
-            share = sum(about.get(key, 0.0) for key in cue) / sum(about.values())
-            near *= 0.75 + 0.25 * min(1.0, 2.0 * share)
-        return near
+    def confirm(self, feeling_id: int, why: str, at: float) -> None:
+        feeling = self.find(feeling_id)
+        if feeling and feeling["standing"] == "provisional":
+            feeling["standing"] = "hers"
+            feeling["revisions"].append({"at": at, "did": "confirmed", "why": why})
 
-    def recognize(self, way: Dict[str, float], situation: str = "") -> List[Tuple[str, float]]:
-        """What she feels, moved this ``way``, strongest first: (word, strength) of the concepts that come to
-        mind."""
-        cue = set(_words(situation))
-        found = ((concept["word"], self.strength(concept, way, cue)) for concept in self.named)
-        return sorted(((word, value) for word, value in found if value >= self.FLOOR), key=lambda item: -item[1])
+    def join(self, into: int, other: int, why: str, at: float) -> bool:
+        """Two of her words are one feeling: ``other``'s moments go into ``into``. Whether it was done."""
+        kept, gone = self.find(into), self.find(other)
+        if not kept or not gone or kept is gone:
+            return False
+        kept["said"] = sorted(kept["said"] + gone["said"], key=lambda one: one["at"])
+        kept.update(standing="hers", at=max(kept["at"], gone["at"]), back=kept["back"] + gone["back"])
+        kept["revisions"] += gone["revisions"] + [{"at": at, "did": "joined", "with": other,
+                                                   "words": self.words(gone), "why": why}]
+        self.known.remove(gone)
+        return True
 
-    def shown(self, way: Dict[str, float]) -> List[dict]:
-        """Every feeling she has named, for drawing: how strongly it comes to mind now, how often she called a
-        moment by it (``count``) and how often it came back at one she did not (``back``), where it sits (``place``: pleasant -1..1, keyed up 0..1, toward the user -1..1: a usual body moved a
-        lot and a half its way) and the channels it moves most (name, its share of the way, signed)."""
+    def move(self, one: dict, into: int, why: str, at: float) -> Tuple[bool, Optional[int]]:
+        """A saying of hers belongs with another feeling of hers (she used other words for it then): it goes there.
+        (whether it moved, the id of a feeling it left with nothing, which goes)."""
+        source = next((f for f in self.known if any(one is other for other in f["said"])), None)
+        target = self.find(into)
+        if not source or not target or source is target:
+            return False, None
+        source["said"] = [other for other in source["said"] if other is not one]
+        target["said"] = sorted(target["said"] + [one], key=lambda other: other["at"])
+        target.update(standing="hers", at=max(target["at"], one["at"]))
+        target["revisions"].append({"at": at, "did": "took", "with": source["id"], "words": one["words"], "why": why})
+        if source["said"]:
+            source["revisions"].append({"at": at, "did": "gave", "with": into, "words": one["words"], "why": why})
+            return True, None
+        self.known.remove(source)
+        return True, source["id"]
+
+    def split(self, feeling_id: int, namings: List[dict], why: str, at: float) -> Optional[dict]:
+        """One word of hers covers two different things: these of its namings are another feeling of hers. The
+        new feeling; None when nothing would be left on either side."""
+        feeling = self.find(feeling_id)
+        if not feeling:
+            return None
+        moving = [one for one in feeling["said"] if any(one is other for other in namings)]
+        if not moving or len(moving) == len(feeling["said"]):
+            return None
+        feeling["said"] = [one for one in feeling["said"] if not any(one is other for other in moving)]
+        made = {"id": self.next, "standing": "hers", "at": max(one["at"] for one in moving), "said": moving,
+                "revisions": [{"at": at, "did": "split from", "with": feeling_id, "why": why}], "back": 0,
+                "back_at": None, "back_run": None}
+        feeling["revisions"].append({"at": at, "did": "split", "with": self.next, "why": why})
+        self.next += 1
+        self.known.append(made)
+        return made
+
+    def set_aside(self, one: dict, why: str, at: float) -> Optional[int]:
+        """A saying her sleep found named no feeling of hers: it leaves the feeling it was sorted under and is
+        kept apart, with her reason. The id of a feeling it leaves with nothing, which goes."""
+        feeling = next((f for f in self.known if any(one is other for other in f["said"])), None)
+        if not feeling:
+            return None
+        feeling["said"] = [other for other in feeling["said"] if other is not one]
+        self.aside.append({**one, "why": why, "set_aside": at, "feeling": feeling["id"]})
+        if feeling["said"]:
+            feeling["revisions"].append({"at": at, "did": "set aside", "words": one["words"], "why": why})
+            return None
+        self.known.remove(feeling)
+        return feeling["id"]
+
+    def unreviewed(self) -> List[Tuple[dict, dict]]:
+        """Her namings her sleep has not gone over yet, oldest first: (feeling, naming)."""
+        found = [(feeling, one) for feeling in self.known for one in feeling["said"] if one["reviewed"] is None]
+        return sorted(found, key=lambda item: item[1]["at"])
+
+    def shown(self, moment: dict, episodes: Dict[int, dict], near: Optional[Dict[int, float]]) -> List[dict]:
+        """Every feeling of hers, for drawing: what she calls it and each of her words for it, its standing, how
+        strongly it comes to mind now and the moment it is likest (``like``), how many moments she sorted under it
+        (``count``) and how often it came back at one she did not (``back``), her namings, its revisions, where it
+        sits (``place``) and the channels its moments move most."""
         out = []
-        for concept in self.named:
-            entry = {"word": concept["word"], "strength": round(self.strength(concept, way), 3),
-                     "count": concept["count"], "back": concept["back"], "back_at": concept["back_at"],
-                     "back_run": concept["back_run"], "at": concept["at"], "place": None,
-                     "said": [dict(one) for one in concept["said"]],
-                     "measured": concept["measured"], "channels": []}
-            size = math.sqrt(sum(value * value for value in concept["moved"].values()))
-            if size:
-                part = {name: value / size for name, value in concept["moved"].items() if name in CHANNELS}
-                valence, arousal = core({name: USUAL[name] + 1.5 * share * CHANNELS[name][1]
-                                         for name, share in part.items()})
-                toward = part.get("oxytocin", 0.0) + part.get("social", 0.0) - part.get("grievance", 0.0)
-                entry["place"] = [round(valence, 3), round(arousal, 3), round(max(-1.0, min(1.0, toward)), 3)]
-                most = sorted(part.items(), key=lambda item: -abs(item[1]))
-                entry["channels"] = [[name, round(share, 2)] for name, share in most[:3] if abs(share) >= 0.25]
-            out.append(entry)
+        for feeling in self.known:
+            value, like = self.strength(feeling, moment, episodes, near)
+            ways = [((one["measure"] or {}).get("way")) or (episodes.get(one["episode"]) or {}).get("felt") or {}
+                    for one in feeling["said"]]
+            place, channels = _place([way for way in ways if way])
+            out.append({"id": feeling["id"], "word": self.word(feeling), "words": self.words(feeling),
+                        "standing": feeling["standing"], "strength": value, "like": dict(like) if like else None,
+                        "count": self.moments(feeling), "back": feeling["back"], "back_at": feeling["back_at"],
+                        "back_run": feeling["back_run"], "at": feeling["at"],
+                        "said": [dict(one) for one in feeling["said"]],
+                        "revisions": [dict(r) for r in feeling["revisions"]],
+                        "measured": sum(1 for one in feeling["said"] if one["measure"]),
+                        "place": place, "channels": channels})
         return out

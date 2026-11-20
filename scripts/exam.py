@@ -438,7 +438,7 @@ def run(args):
         with mind.memory._lock:  # what a station plants, days back, goes with what came after
             top = mind.memory._db.execute("SELECT MAX(id) FROM episodes").fetchone()[0] or 0
         kept = copy.deepcopy(mind.self), dict(mind.body.levels), dict(mind.senses.seen), dict(mind.senses.used), \
-            copy.deepcopy(mind.concepts.named)
+            copy.deepcopy(mind.feelings.saved())
 
         def back():  # every station from the same her
             with mind.memory._lock:
@@ -450,7 +450,7 @@ def run(args):
                 mind.body.levels.update(kept[1])
                 mind.senses.seen.update(kept[2])
                 mind.senses.used.update(kept[3])
-                mind.concepts.named[:] = copy.deepcopy(kept[4])
+                mind.feelings = type(mind.feelings)(copy.deepcopy(kept[4]))
         only = set(args.only.split(",")) if args.only else None
         for trial in range(args.trials):
             for station in STATIONS:
@@ -466,7 +466,7 @@ def run(args):
                     if index and station.get("between"):
                         station["between"](mind)
                     before, start_at = state(), time.time()
-                    words = [c["word"] for c in mind.concepts.named if c.get("hers", True)]
+                    words = [mind.feelings.word(f) for f in mind.feelings.known]
                     out, events = say(session, question, station.get("context"))
                     result = out.get("result") or {}
                     run_id = result.get("run")
@@ -475,7 +475,7 @@ def run(args):
                         while time.time() < deadline and not mind.memory.recorded(run_id):
                             time.sleep(0.5)
                     record = brain.store.run(run_id) if run_id else None
-                    named = {c["word"]: c for c in mind.concepts.named if c.get("hers", True)}
+                    named = {mind.feelings.word(f): f for f in mind.feelings.known}
                     done["turns"].append({
                         "question": question, "reply": result.get("reply") or "", "error": out.get("error"),
                         "run": run_id, "before": before, "after": state(),
@@ -484,10 +484,9 @@ def run(args):
                         "tools": [{"name": e["name"], "arguments": e.get("arguments"), "status": e.get("status"),
                                    "result": e.get("result")} for e in events if e["type"] == "tool.end"],
                         "pushed": [why for at, why, _ in list(mind.body.pushed) if at >= start_at - 1],
-                        "feelings_new": {word: named[word].get("said") or [] for word in named if word not in words},
-                        "feelings_said_again": {word: (named[word].get("said") or [])[-1:] for word in named
-                                                if word in words and (named[word].get("said") or [{}])[-1].get("at", 0)
-                                                >= start_at}})
+                        "feelings_new": {word: named[word]["said"] for word in named if word not in words},
+                        "feelings_said_again": {word: named[word]["said"][-1:] for word in named
+                                                if word in words and named[word]["said"][-1]["at"] >= start_at}})
                     calls.clear()
                     print(f"  {question!r}\n  -> {(result.get('reply') or out.get('error') or '')[:400]!r}", flush=True)
                 trace["stations"].append(done)

@@ -1245,7 +1245,8 @@ class Panel(App):
                if looked else f"[{MUTED}]never yet[/]")
             + f"\n[{MUTED}]Likes[/] {about(state['likes'])}\n[{MUTED}]Dislikes[/] {about(state['dislikes'])}"
             + f"\n[{MUTED}]Feelings she named[/] "
-            + (escape(", ".join(f"{f['word']} ×{f['count']}" for f in sorted(state["feelings"], key=lambda f: -f["count"])))
+            + (escape(", ".join(f"{f['word']} ×{f['count']}" + ("" if f["standing"] == "hers" else " (not slept on yet)")
+                              for f in sorted(state["feelings"], key=lambda f: -f["count"])))
                or f"[{MUTED}]none yet: she names them in her own words[/]")
             + (f"\n[{MUTED}]Last she said[/] " + escape(f'"{said["text"]}" ({when(said["at"])})') if (said := max(
                 (one for f in state["feelings"] for one in f.get("said") or []), key=lambda one: one["at"], default=None))

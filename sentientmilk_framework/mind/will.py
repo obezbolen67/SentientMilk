@@ -16,6 +16,8 @@ is worth different things to her in different states:
   free      choosing for herself (an order she obeys costs it, saying no wins it back)
   new       what is new to her (measured from her memories, not foreseen), for what she takes part in
   learned   the gut feeling her values give it (values.py)
+  feeling   what acting so has been worth to her in the feelings she is in now (values.py, act|feeling): an
+            emotion readies some acts over others (Frijda 1986), learned from how acting in it went for her
   reacting  what the thought of doing it sets off in her body (reactions.py), valued as it would feel: the
             as-if body of a somatic marker (Damasio 1994; anticipatory reactions before a risky choice: Bechara
             et al. 1997). It weighs; it never forbids (she may do what she dreads)
@@ -58,6 +60,8 @@ REASONS = {
     "choice": "wanting to choose this freely",
     "learned+": "things like this have felt good before",
     "learned-": "things like this have gone badly before",
+    "feeling+": "feeling like this, doing this has gone well before",
+    "feeling-": "feeling like this, doing this has gone badly before",
     "reactance": "being pushed like this: the urge to dig in",
     "cost": "not up to it right now: it's a lot of work for how things feel",
     "grievance": "still hurt by them",
@@ -227,9 +231,11 @@ def value(effects: Dict[str, float], body: Body) -> Dict[str, float]:
             for name, change in effects.items()}
 
 
-def worth(option: Option, seen: Appraisal, body: Body, learned: float, reacting: float = 0.0) -> Dict[str, float]:
+def worth(option: Option, seen: Appraisal, body: Body, learned: float, reacting: float = 0.0,
+          feeling: float = 0.0) -> Dict[str, float]:
     """Each part of what ``option`` is worth to her now (``learned``: her values' gut feeling for it;
-    ``reacting``: what the thought of doing it would do to how she feels, by her learned reactions)."""
+    ``reacting``: what the thought of doing it would do to how she feels, by her learned reactions; ``feeling``:
+    what acting so has been worth to her in the feelings she is in)."""
     x, t = body.levels, body.temperament
     fatigue = body.fatigue()
     ahead = WEIGHT
@@ -237,6 +243,8 @@ def worth(option: Option, seen: Appraisal, body: Body, learned: float, reacting:
     if option.act == "later":
         parts["patience"] = WEIGHT * (x["serotonin"] - 0.6) * option.chance
     parts["learned"] = 0.5 * learned
+    if feeling:
+        parts["feeling"] = 0.5 * feeling
     if reacting:
         parts["reacting"] = reacting
     # work weighs more than its size (a small favor stays small, a big job looms), and more the deeper her
@@ -255,7 +263,10 @@ def choose(options: List[Option], seen: Appraisal, body: Body, values: Values, f
     temperature = 0.1 + 0.35 * max(0.0, x["noradrenaline"] - 0.35) + 0.1 * max(0.0, 0.5 - x["acetylcholine"])
     scored = []
     for option in options:
-        parts = worth(option, seen, body, values.predict(found(option)), reacting(option) if reacting else 0.0)
+        about = found(option)
+        felt = [f for f in about if "|feeling:" in f]  # acting so in a feeling she is in: a part of its own
+        parts = worth(option, seen, body, values.predict([f for f in about if f not in felt]),
+                      reacting(option) if reacting else 0.0, values.predict(felt) if felt else 0.0)
         scored.append((option, sum(parts.values()) + rng.gauss(0.0, noise), parts))
     top = max(score for _, score, _ in scored)
     weights = [math.exp((score - top) / temperature) for _, score, _ in scored]
@@ -290,8 +301,8 @@ def reasons(parts: Dict[str, float], rival: Optional[Dict[str, float]] = None, a
     for name, gain in sorted(gains.items(), key=lambda item: -item[1]):
         if gain < 0.08:
             break
-        if name == "learned":  # liked this one, or the other one went badly before
-            named.append(REASONS["learned+" if parts[name] > -(rival or {}).get(name, 0.0) else "learned-"])
+        if name in ("learned", "feeling"):  # liked this one, or the other one went badly before
+            named.append(REASONS[f"{name}+" if parts[name] > -(rival or {}).get(name, 0.0) else f"{name}-"])
         elif name == "patience":
             named.append("willing to wait for a likely result")
         elif name == "reacting":  # the thought of this one drew her, or of the other one set her on edge

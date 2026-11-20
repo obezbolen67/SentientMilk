@@ -7,7 +7,7 @@ A reply is text, an assistant message dict, an HTTP status (int) to fail with, o
 of the request payload returning one of those. Streaming requests get a real SSE stream.
 Titles are written in the background at unpredictable moments, so they are answered with ``title`` and
 recorded in ``title_requests``, never taken from ``replies``. Her mind's calls (mind/prompts.py) are
-answered from ``mind_replies`` (by kind: birth, imagine, think, sleep, people, ways, self), else with ``MIND_ANSWERS``: one
+answered from ``mind_replies`` (by kind: birth, imagine, think, sleep, people, ways, feelings, self), else with ``MIND_ANSWERS``: one
 option, doing it, so a turn goes as it would without her mind.
 """
 
@@ -26,6 +26,7 @@ MIND_ANSWERS = {
     "updates": '{"outdated": [], "settled": []}',
     "people": '{"people": []}',
     "ways": '{"kept": [], "broken": [], "new": [], "dropped": []}',
+    "feelings": '{"today": [], "join": [], "split": []}',
     "self": '{"self": null}',
     "named": '{"named": []}',
 }
