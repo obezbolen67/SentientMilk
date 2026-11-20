@@ -365,11 +365,10 @@ def test_she_pays_only_for_the_order_the_user_approved(web, site):
                   [{"action": "type", "target": note, "text": "hi\n"}],
                   [{"action": "key", "target": note, "text": "Enter"}]):
         assert " pays" in kit.browser_act.func(ctx, steps)
-    kit.browser_view.func(ctx, picture=True)
     tab = tab_of(web, "pay")
     with tab.lock:
         place = web.brain.browser._point(tab, ids(page, '"Pay now"'))
-    x, y = round(place["x"] / tab.picture), round(place["y"] / tab.picture)
+    x, y = round(place["x"]), round(place["y"])  # page pixels
     assert "pays" in kit.browser_act.func(ctx, [{"action": "click", "target": f"{x},{y}"}])
     assert page_says(web, "pay", "document.getElementById('paid').textContent") == "unpaid"
     assert page_says(web, "pay", "document.getElementById('note').value") == ""  # stopped before typing

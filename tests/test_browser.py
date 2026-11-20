@@ -3,6 +3,8 @@ extension stands in for the user's Chrome (Chrome 137 and later no longer add an
 command line; Edge still does), on a hidden desktop, with a profile of the test's own: nothing shows on the user's
 screen. It is not running until the brain opens it, as it would the user's."""
 
+import base64
+import io
 import json
 import re
 import shutil
@@ -95,7 +97,43 @@ fetch('/api'); fetch('/missing'); setTimeout(() => { throw new Error('boom') }, 
  '<h1>Ready</h1><button>Go</button>', 1500)</script>""",  # an app that draws itself once its scripts ran
     "/inert": "<!doctype html><title>Inert</title><div aria-hidden=true>" + "<p>Milk is kept cold here.</p>" * 30 +
               "</div>",  # all of it hidden from screen readers, and shown
+    # a game as the web makes them: pieces are blocks with pictures, the board takes real clicks only, the other
+    # side answers a moment later, it speaks where screen readers do not look, and an icon is its only name
+    "/board": """<!doctype html><title>Board</title><style>body{margin:0;font-family:sans-serif}
+#board{position:relative;width:300px;height:300px;margin:20px;background:#eeeed2}
+.piece{position:absolute;width:100px;height:100px;background-size:contain}
+.red{background-image:url(/pieces/red-piece.svg)}.blue{background-image:url(/pieces/blue-piece.svg)}
+.cell-1{left:0;top:0}.cell-2{left:100px;top:0}.cell-3{left:200px;top:0}.cell-4{left:0;top:100px}
+.cell-5{left:100px;top:100px}.cell-6{left:200px;top:100px}.cell-7{left:0;top:200px}.cell-8{left:100px;top:200px}
+.cell-9{left:200px;top:200px}.picked{outline:4px solid gold}
+.icon{width:32px;height:32px;display:inline-block;background-image:url(/icons/gear--sm.svg)}</style>
+<div id=board aria-label=Board><div class="piece red cell-1"></div><div class="piece blue cell-9"></div>
+<div class="piece blue cell-3"></div></div><p><span aria-hidden=true id=say>Your move, red.</span></p>
+<div role=button tabindex=0 class=icon onclick="say.textContent = 'No settings yet.'"></div>
+<button><span aria-hidden=true></span> Save</button><script>
+const board = document.getElementById('board'), red = board.querySelector('.red');
+let picked = false;
+board.addEventListener('click', e => {
+  if (!e.isTrusted) return;
+  if (e.target === red) { picked = true; red.classList.add('picked'); return; }
+  if (!picked) return;
+  const r = board.getBoundingClientRect();
+  red.className = 'piece red cell-' + (1 + Math.floor((e.clientX - r.left) / 100) + 3 * Math.floor((e.clientY - r.top) / 100));
+  picked = false;
+  say.textContent = 'My move...';
+  setTimeout(() => { board.querySelector('.cell-9').className = 'piece blue cell-8'; say.textContent = 'Your move.'; },
+             1500);
+});</script>""",
+    "/grid": "<!doctype html><title>Grid</title><div style='display:grid;grid-template-columns:repeat(30,20px);gap:1px'>"
+             + "<div class=cell style='height:20px;background:#ccc'></div>" * 480 + "</div>",
+    "/paint": """<!doctype html><title>Paint</title><body style="margin:0"><canvas id=c width=400 height=300
+ style="display:block;background:#fff"></canvas><script>const g = c.getContext('2d');
+c.addEventListener('click', e => { g.fillStyle = '#c00'; g.fillRect(e.offsetX - 20, e.offsetY - 20, 40, 40); });
+</script>""",  # what a click does shows only in its pixels
+    "/remade": """<!doctype html><title>Remade</title><h1>Remade</h1><p>Milk.</p><p>Cream.</p><p>Butter.</p><div id=box></div><button onclick="draw()">Again</button><script>
+function draw() { box.innerHTML = '<a href="/terms?n=' + Math.random() + '">Terms</a>'; } draw();</script>""",
 }
+PICTURES = {"/pieces/red-piece.svg": "#c1121f", "/pieces/blue-piece.svg": "#003049", "/icons/gear--sm.svg": "#555"}
 
 
 PDF = (b"%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
@@ -122,6 +160,9 @@ class Site(BaseHTTPRequestHandler):
             return self._send("loaded data", "text/plain")
         if path == "/doc.pdf":
             return self._send(PDF.decode(), "application/pdf")
+        if path in PICTURES:
+            return self._send('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" '
+                              f'r="4" fill="{PICTURES[path]}"/></svg>', "image/svg+xml")
         if path not in PAGES:
             self.send_response(404)
             return self.end_headers()
@@ -264,11 +305,100 @@ def test_an_app_that_draws_itself_late_is_waited_for_and_a_wait_ends_once_loaded
     assert "1. wait: the page has loaded" in waited and time.monotonic() - began < 2
 
 
-def test_what_the_view_cannot_reach_is_said_and_read(web, site):
+def test_words_screen_readers_skip_are_read_when_they_show(web, site):
     ctx = context(web)
     page = kit.browser_open.func(ctx, site + "/inert")
-    assert "(This view misses most of the page's" in page
+    assert page.count("Milk is kept cold here.") == 30 and "misses most" not in page
     assert kit.browser_read.func(ctx).count("Milk is kept cold here.") == 30
+
+
+def test_wordless_things_are_seen_by_what_the_page_calls_them(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/board")
+    assert re.search(r'^scene e\d+ "Board" @20,20 300x300$', page, re.M)  # a board, its pieces with their places
+    assert re.search(r'^  picture e\d+ "red-piece.svg" \.piece\.red\.cell-1 @20,20 100x100$', page, re.M)
+    assert re.search(r'^  picture e\d+ "blue-piece.svg" \.piece\.blue\.cell-9 @220,220 100x100$', page, re.M)
+    assert "Your move, red." in page  # its speech, which screen readers skip
+    assert re.search(r'^button e\d+ "gear--sm.svg"$', page, re.M)  # an icon's file is its only name
+    assert re.search(r'^button e\d+ "Save"$', page, re.M) and "" not in page  # an icon font's glyph is no word
+
+
+def test_a_big_scene_shows_its_start_and_the_rest_by_part(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/grid")
+    assert page.count("shape e") == 100 and re.search(r"… 380 more: browser_view part=(e\d+)", page)
+    scene = re.search(r"… 380 more: browser_view part=(e\d+)", page).group(1)
+    assert kit.browser_view.func(ctx, part=scene).text.count("shape e") == 480
+
+
+def test_points_are_page_pixels_and_an_act_says_what_moved(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/board")
+    red, board = ids(page, '"red-piece.svg"'), ids(page, '"Board"')
+    moved = kit.browser_act.func(ctx, [{"action": "click", "target": red},  # no picture first: page pixels
+                                       {"action": "click", "target": "170,170"}])
+    assert f'2. click 170,170: at scene {board} "Board"' in moved  # what is there
+    assert re.search(r'^- +picture e\d+ "red-piece.svg" \.piece\.red\.cell-1 @20,20 100x100$', moved, re.M)
+    assert re.search(r'^\+ +picture e\d+ "red-piece.svg" \.piece\.red\.cell-5 @120,120 100x100$', moved, re.M)
+    waited = kit.browser_act.func(ctx, [{"action": "wait", "target": board, "amount": 5}])
+    assert re.search(rf"1\. wait {board} \(scene \"Board\"\): {board} changed after [01]\.\d s", waited)
+    assert re.search(r'^\+ +picture e\d+ "blue-piece.svg" \.piece\.blue\.cell-8 @120,220 100x100$', waited, re.M)
+    assert "Your move." in waited
+    missed = kit.browser_act.func(ctx, [{"action": "wait", "target": board, "amount": 1}])
+    assert f"{board} did not change in 1 s." in missed
+    outside = kit.browser_act.func(ctx, [{"action": "click", "target": "5000,10"}])
+    assert "5000,10 is outside the tab's window (" in outside and "page pixels)" in outside
+
+
+def test_a_change_only_in_pixels_is_said_with_where(web, site):
+    ctx = context(web)
+    kit.browser_open.func(ctx, site + "/paint")
+    result = kit.browser_act.func(ctx, [{"action": "click", "target": "100,100"}])
+    found = re.search(r"No words changed, but its picture did at @(\d+),(\d+) (\d+)x(\d+) \(canvas e\d+\)", result)
+    assert found, result
+    x, y, width, height = map(int, found.groups())
+    assert x <= 80 and y <= 80 and x + width >= 120 and y + height >= 120 and width <= 96 and height <= 96
+    assert "picture=true on an act brings one" in result  # a drawing is seen only in a picture
+    shown = web.brain.browser.act(ctx, [{"action": "click", "target": "300,200"}], picture=True)
+    assert "No words changed, but its picture did" in shown.text and "picture=true on an act" not in shown.text
+
+
+def test_a_caret_is_not_a_change(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/form")
+    kit.browser_act.func(ctx, [{"action": "fill", "target": ids(page, '"Name"'), "text": "milk"}])
+    for _ in range(4):  # the field's caret blinks between the glances of some of these
+        result = kit.browser_act.func(ctx, [{"action": "key", "text": "End"}])
+        assert result.endswith("Nothing changed on the page."), result
+
+
+def test_things_made_anew_are_one_line(web, site):
+    ctx = context(web)
+    page = kit.browser_open.func(ctx, site + "/remade")
+    result = kit.browser_act.func(ctx, [{"action": "click", "target": ids(page, '"Again"')}])
+    assert re.search(r"Made anew, the same but for their ids: e\d+\.", result) and "Terms" not in result
+
+
+def test_an_act_can_end_with_a_picture_in_page_pixels(web, site):
+    ctx = context(web)
+    kit.browser_open.func(ctx, site + "/board")
+    result = kit.browser_act.func(ctx, [{"action": "scroll", "text": "top"}], picture=True)
+    browser_ = web.brain.browser
+    tab = browser_.owners["cli/main"]["tabs"]["t1"]
+    with tab.lock:
+        width, height = browser_._size(tab)
+    assert len(result.images) == 1 and f"{width}x{height} page pixels" in result.text
+    from PIL import Image
+    with Image.open(io.BytesIO(base64.b64decode(result.images[0].split(",", 1)[1]))) as picture:
+        assert picture.size == (width, height)
+    with pytest.raises(ToolError, match="A picture alone is browser_view's"):  # she asked an act for one, live
+        web.brain.browser.act(context(web), [], picture=True)
+
+
+def test_a_script_may_return_at_its_top(web, site):
+    ctx = context(web)
+    kit.browser_open.func(ctx, site + "/terms")
+    assert kit.browser_script.func(ctx, "const cups = 2;\nreturn cups + 1;").strip().endswith("3")
 
 
 def test_a_page_comes_as_text_with_ids_and_a_form_is_filled_by_them(web, site):
@@ -402,17 +532,14 @@ def test_frames_of_the_site_are_read_and_another_site_s_are_named(web, site):
     assert '"pressed"' in result
 
 
-def test_what_has_no_id_is_pointed_at_in_a_picture(web, site):
+def test_what_has_no_id_is_pointed_at_in_page_pixels(web, site):
     ctx = context(web)
     page = kit.browser_open.func(ctx, site + "/canvas")
-    assert "canvas 400x300" in page
-    seen = kit.browser_view.func(ctx, picture=True)
-    assert len(seen.images) == 1 and "pixels" in seen.text
-    scale = web.brain.browser.owners["cli/main"]["tabs"]["t1"].picture
-    x, y = round(100 / scale), round(50 / scale)
-    result = kit.browser_act.func(ctx, [{"action": "click", "target": f"{x},{y}"}])
-    shown = re.search(r"at (\d+),(\d+)", result)
-    assert shown and abs(int(shown.group(1)) - 100) <= 2 and abs(int(shown.group(2)) - 50) <= 2
+    assert re.search(r"^canvas e\d+ @0,0 400x300 \(a picture shows it\)$", page, re.M)
+    seen = kit.browser_view.func(ctx, picture=True)  # its pixels are the page's
+    assert len(seen.images) == 1 and "page pixels" in seen.text
+    result = kit.browser_act.func(ctx, [{"action": "click", "target": "100,50"}])
+    assert "1. click 100,50: at canvas e" in result and "at 100,50" in result
 
 
 def test_an_act_waits_for_what_the_page_loads(web, site):
@@ -514,13 +641,14 @@ def test_a_frame_of_another_site_is_read_and_used_like_the_page(web, site):
     assert '"checked 4242" shows' in kit.browser_act.func(ctx, [{"action": "wait", "text": "checked 4242"}])
     browser_ = web.brain.browser
     tab = browser_.owners["cli/main"]["tabs"]["t1"]
-    kit.browser_view.func(ctx, picture=True)
     with tab.lock:
         place = browser_._point(tab, ids(page, '"Check card"'), hit_test=False)  # in the window, the frame in view
-    kit.browser_view.func(ctx, picture=True)
-    x, y = round(place["x"] / tab.picture), round(place["y"] / tab.picture)
+    x, y = round(place["x"]), round(place["y"])  # page pixels
     pointed = kit.browser_act.func(ctx, [{"action": "click", "target": f"{x},{y}"}])
     assert 'at button e' in pointed and '"Check card"' in pointed  # what is there, from the frame's own world
+    boxed = kit.browser_view.func(ctx, boxes=True).text  # a frame of another site's things where the window has them
+    card = re.search(r'textbox e\d+ "Card"[^@\n]* @(-?\d+),(-?\d+) \d+x\d+', boxed)
+    assert card and abs(int(card.group(1)) - place["x"]) < 260 and abs(int(card.group(2)) - place["y"]) < 60
 
 
 def test_the_console_and_the_network_are_read(web, site):

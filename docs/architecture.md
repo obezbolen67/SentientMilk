@@ -424,7 +424,7 @@ Like Claude Code's rewind, an app can take a chat back to just before a message 
 | `files` | `files_read(path, offset, limit)`, `files_search(pattern, path, glob)`, `files_find(glob)`, `files_edit(path, old, new, all)`, `files_write(path, content)` | Read gives numbered lines in windows: 500 lines by default, whole lines, with a footer "lines 1-500 of 1,834". Images come back as images. Search uses ripgrep if it is installed, otherwise Python, and returns `path:line: text` for every match; only the user's stop ends a search. A result over 30,000 characters goes to a file with both ends shown. Edit is an exact, unique string replace. It fails if the file was not read in this session or changed on disk since. Paths are confined to the app's roots; what the user attached in the session (`mentions.attachment`) can be read wherever it is. |
 | `shell` | `shell_run(command, cwd, timeout, background)`, `shell_output(job, since, wait)`, `shell_stop(job)` | One shell per OS, named in the description: PowerShell on Windows, bash elsewhere. Every session has a working folder; there is no hidden shell state. `background=true` returns a job id at once. A command still running after 30 s (`timeout` can only shorten that) is not stopped: it goes on as a job and the model gets control back, because it cannot know a download is slow and, offered longer waits, always took them (measured 2026-11-06: `timeout: 120` on every download). `shell_output(wait=...)` waits as long as asked for a job to end when the model needs the result, and says when a job has written nothing for 10 s or more, so the model can tell a slow job from a stuck one. MCP calls go the same way (section 8.3). |
 | `web` | `web_search(query, count)`, `web_fetch(url, offset)` | Search is today's Brave tool. Fetch turns HTML into text with the standard library, pages long text with `offset`, and saves the full text to a file. |
-| `browser` | `browser_open(url, new_tab)`, `browser_view(tab, find, part, picture, texts)`, `browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`, `browser_secrets(fields, tab)`, `browser_review(lines, total, charges, shortfall, slot, address, unverified, tab)` | The user's own Chrome, through SentientMilk's extension: section 6.7. |
+| `browser` | `browser_open(url, new_tab)`, `browser_view(tab, find, part, picture, texts, boxes)`, `browser_act(steps, tab, picture)`, `browser_read(tab, offset)`, `browser_script(code, tab)`, `browser_log(kind, tab, find)`, `browser_secrets(fields, tab)`, `browser_review(lines, total, charges, shortfall, slot, address, unverified, tab)` | The user's own Chrome, through SentientMilk's extension: section 6.7. |
 | `todo` | `todo_write(items)` | The whole list each time, with each item `pending`, `doing` or `done`. The result repeats it. |
 | `memory` | `memory_save(key, value)`, `memory_forget(key)`: this chat's memory, in turns | Every app has it (section 10). |
 | `agents` | `agent_start(name, task)`, `agent_message(agent, message)`, `agents_wait(agents, timeout)`, `agents_status(agent)`, `agent_stop(agent)`; for agents, `ask_lead(question)` | Section 5.5. |
@@ -587,8 +587,8 @@ project-level skill folders, and `!command` expansion.
 ### 6.7 Her browser
 
 `browser.py`, `browser_page.js`, `extension.py`, `extension/`; the `browser` toolkit:
-`browser_open(url, new_tab)`, `browser_view(tab, find, part, picture, texts)`,
-`browser_act(steps, tab)`, `browser_read(tab, offset)`, `browser_script(code, tab)`,
+`browser_open(url, new_tab)`, `browser_view(tab, find, part, picture, texts, boxes)`,
+`browser_act(steps, tab, picture)`, `browser_read(tab, offset)`, `browser_script(code, tab)`,
 `browser_log(kind, tab, find)`. It is for the web as a person uses it: pages that need
 scripts, clicks, forms and accounts. `web_fetch` stays the quick way to read a public page
 once; computer use stays for the user's own windows.
@@ -678,8 +678,27 @@ reading is `browser_read`'s, 20,000 characters at a time. A page of 1,000 paragr
 `display: contents` wrappers count by what is in them (`checkVisibility()` is false for
 them, having no box of their own: an app shell of such wrappers, as Oracle Cloud's console
 is, read as nothing but its skip link until 0.17), and what is visible again inside
-`visibility: hidden` shows. Same-site frames and open shadow roots are read in the page's
-world. As a check, a view that comes to almost nothing while Chrome lays out more than 400
+`visibility: hidden` shows. Words in parts screen readers skip (`aria-hidden`) are read when
+they show (chess.com's bot speaks in such a bubble); icon fonts' glyphs (Unicode's private use
+areas) are not words anywhere. Same-site frames and open shadow roots are read in the page's
+world.
+
+What shows without words is seen too (0.55, after the user had her play a bot on chess.com:
+its 32 pieces were blocks with background pictures, and the view said only "Starting
+Position"). A thing without words is named by what the page itself calls it: its label,
+else its picture (an image's or a background's file name, an svg's symbol: `"white--sm.svg"`),
+else its classes less a build's hashes (`cc-button_b359d5b` is `.cc-button`), else its
+colour; a nameless control is named so too. Three or more wordless things side by side, most
+of what a container holds, are a scene (a board, a grid of cells, a map's markers, a row of
+icons): `scene e180 wc-chess-board.board @222,66 512x512`, and under it each thing with its
+place, `picture e183 "wp.png" .piece.wp.square-52 @478,450 64x64`, the pictures and controls in
+it under it in turn; what has words in a scene is read as anywhere. A scene of over 100
+things lists 100 and the id that shows them all. Canvases and videos have ids and places.
+Places are page pixels: CSS pixels of the tab's window as it is now, from its top left (a
+frame of another site's things with the frame's place added), the space a script's
+`getBoundingClientRect()` measures in. `boxes=true` gives every thing with an id its place.
+
+As a check, a view that comes to almost nothing while Chrome lays out more than 400
 characters of words says so, and `browser_read` falls back to Chrome's own words
 (`innerText`, the site's frames too) when its walk missed most of them (not on a page that
 holds what the user typed for her). A frame of another site (a payment form, an embedded
@@ -689,8 +708,15 @@ like the page, and its iframe element in the parent's world is marked with its k
 (`DOM.getFrameOwner`, `DOM.resolveNode`), so the parent's view says where the frame's view
 goes. Every world gives out ids from the tab's latest (`__milk.sync`), so ids never repeat
 across them and each id is acted on in its own world, at its place in the frame plus the
-frame's place in the window. What has no id (a canvas, a map) is pointed at as "x,y" in the
-tab's latest picture (`picture=true`), through frames of other sites too.
+frame's place in the window. What has no id (a square of a board, a spot on a canvas) is
+pointed at as "x,y" in page pixels, through frames of other sites too; a point outside the
+window is refused with its size. A picture (`picture=true`) is the window drawn in page
+pixels (Chrome's capture, in the screen's pixels, scaled to `innerWidth` x `innerHeight`),
+so a picture's pixel is a point's, a box's and a script's. Until 0.55 points were the
+latest picture's own pixels (the screen's, fitted to the model's budget: 1641 wide for a
+1266-wide window), a point needed a picture first, and her script-measured points hit the
+wrong squares. Only when `image_pixels` makes a picture smaller does its caption give the
+scale to divide by.
 
 **Acting.** `browser_act` takes steps (click, fill, type, key, hover, scroll, drag,
 upload, wait, open, back, forward, reload, dialog, save, close, show). A right click opens
@@ -704,11 +730,24 @@ at most 10 s (30 s for an address); a page that shows nothing yet (no words, no 
 field) is waited for up to 8 s more, since an app draws itself once its scripts ran (Oracle
 Cloud's sign-up page came back empty until 0.17, and she waited by hand). A request the
 page made while it was asked whether it was quiet counts as busy (its event comes before
-the answer). So she needs no wait after a click: `wait` with text waits for words, and
-without it ends as soon as the page has loaded (at once when it has). The reply says how
+the answer). So she needs no wait after a click: `wait` with text waits for words, with a
+target for that part to change, and with neither ends as soon as the page has loaded (at
+once when it has). The reply says how
 each step went, then what changed on the page (lines gone and new), or the whole page when
 it is another page or most of it changed. Steps stop at the first failure, at a dialog of
-the page (unless the next step answers it), and when the tab goes to another site. Alerts
+the page (unless the next step answers it), and when the tab goes to another site.
+A reply never says nothing changed when something showed (0.55): scene lines carry their
+places and classes, so a thing that moved is a line gone and a line new; before the steps a
+glance (a grey picture of the window, a quarter of its page pixels each way) is kept, and
+when no words changed the reply names where the window's pixels did and what is there
+(blocks of 16 page pixels that touch; specks of under 10 glance pixels, a caret's blink, are
+not changes); when words changed, only changes on a canvas or a video are named, and a
+change there says a picture shows it (`picture=true` on the act). Lines
+made anew the same but for their ids and their links' queries (an ad drawn again) are one
+line naming the new ids. `picture=true` adds a picture of the window after the steps (none
+while the page holds what the user typed). A `wait` with a target and no text waits until
+that part changes: its words, its things' places, or its pixels (a canvas), for at most
+`amount` seconds (20). Alerts
 are closed and told; confirm and prompt wait for the step `dialog`. Downloads go to the
 conversation's working folder; uploads take files from the folders open to her only.
 

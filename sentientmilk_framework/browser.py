@@ -60,6 +60,11 @@ STEPS = ("click", "fill", "type", "key", "hover", "scroll", "drag", "upload", "w
          "reload", "dialog", "auth", "save", "close", "show")
 SIGN_IN = {"auth.username": "username", "auth.password": "password"}  # browser_secrets' targets in a sign-in box
 CHANGES = 0.6  # a reply shows the whole page when more of it than this changed
+GLANCE = 4  # page pixels a pixel of a glance (the small grey picture an act compares) stands for, each way
+SHADE = 32  # grey levels a glance's pixel moves by to count as changed
+SPECK = 10  # changed pixels of a glance a change has at least: a caret's blink has fewer
+REGIONS = 6  # changes of the picture an act's reply names, the biggest first
+UNTIL = 20.0  # s a wait for a part to change waits at most, when not told
 NOT_LINKED = ("The user's Chrome did not connect to you: SentientMilk opened it, but its extension did not answer in "
               f"{CONNECT_WAIT:.0f} s (it may not be added to that Chrome yet, or it holds another code). Tell the user: "
               "SentientMilk's Tools > Her browser > Your Chrome says how.")
@@ -259,6 +264,12 @@ def _id(target) -> str:
     return str(target or "").strip().lower().lstrip("e")
 
 
+def _remade(line: str) -> str:
+    """A view's line as it reads without its ids, its links' queries and long numbers (an ad's serial): the same for
+    a thing made anew."""
+    return re.sub(r"\be\d+\b|\d{8,}", "e", re.sub(r"\?[^\s\"]*", "", line))
+
+
 def _find(text: str, words: str) -> str:
     """The lines of a view with ``words``, and the lines they are in (by indentation)."""
     lines, words, keep = text.splitlines(), words.lower(), set()
@@ -421,7 +432,6 @@ class Tab:
         self.labels: Dict[str, str] = {}  # id -> what it is ('button "Sign in"'), for approvals and replies
         self.seen: Optional[tuple] = None  # (document, lines) of the latest view: a reply says what changed
         self.pointer = (WINDOW[0] / 2, WINDOW[1] / 3)
-        self.picture: Optional[float] = None  # page pixels per pixel of its latest picture
         self.remote: Dict[str, Frame] = {}  # session -> a frame of another site on the page
         self.where: Dict[str, Frame] = {}  # id -> the frame of another site it is in (others: the page's own)
         self.network: List[dict] = []  # the page's requests since it loaded
@@ -1070,28 +1080,36 @@ class Browser:
     def _frame_of(self, tab: Tab, key: int) -> Optional[Frame]:
         return next((frame for frame in tab.remote.values() if frame.key == key), None)
 
-    def _in_frames(self, tab: Tab, text: str, kind: str, full: bool) -> str:
+    def _in_frames(self, tab: Tab, text: str, kind: str, full: bool, boxes: bool = False) -> str:
         """Each frame of another site's own view (``kind`` view or read) where it goes in ``text``."""
         def each(match):
             indent, frame = match.group(1), self._frame_of(tab, int(match.group(2)))
             try:
-                inner = self._frame_text(tab, frame, kind, full) if frame else ""
+                inner = self._frame_text(tab, frame, kind, full, boxes=boxes) if frame else ""
             except ToolError:
                 inner = ""
             if not inner.strip():
-                return indent + "(nothing readable in it now: use a picture and point)"
+                return indent + "(nothing readable in it now: a picture shows it)"
             return "\n".join(indent + line for line in inner.splitlines())
         return FRAME.sub(each, text)
 
-    def _frame_text(self, tab: Tab, frame: Frame, kind: str, full: bool, part: str = "") -> str:
+    def _frame_text(self, tab: Tab, frame: Frame, kind: str, full: bool, boxes: bool = False) -> str:
         self._mark(tab, frame)
         if kind == "read":
             return self._in_frames(tab, self._eval(tab, "__milk.read()", frame=frame) or "", kind, full)
-        data = self._eval(tab, f"__milk.view({json.dumps({'full': full, 'part': part})})", frame=frame)
+        options = {"full": full, "boxes": boxes, "origin": self._origin(tab, frame)}
+        data = self._eval(tab, f"__milk.view({json.dumps(options)})", frame=frame)
         if not data or data.get("gone"):
             return ""
         self._took(tab, data, frame)
-        return self._in_frames(tab, data["text"], kind, full)
+        return self._in_frames(tab, data["text"], kind, full, boxes)
+
+    def _origin(self, tab: Tab, frame: Optional[Frame]) -> List[float]:
+        """Where a frame of another site's window is in the tab's, for the boxes its view gives (0, 0: unknown)."""
+        try:
+            return list(self._offset(tab, frame))
+        except ToolError:
+            return [0, 0]
 
     def _took(self, tab: Tab, data: dict, frame: Optional[Frame]) -> None:
         """What a view in a world gave out: ids, and what each is."""
@@ -1190,19 +1208,21 @@ class Browser:
             raise ToolError(f"{url} could not be opened ({error}).")
         return "" if self._settle(tab, 30) else "The page is still loading."
 
-    def _view(self, tab: Tab, find: str = "", part: str = "", texts: bool = False) -> dict:
+    def _view(self, tab: Tab, find: str = "", part: str = "", texts: bool = False, boxes: bool = False) -> dict:
         """The page as text with ids, its frames of other sites in it (only the lines with ``find``; only the
-        part ``part``; ``texts``: every piece of text with an id too, to point at for browser_review)."""
+        part ``part``; ``texts``: every piece of text with an id too, to point at for browser_review; ``boxes``:
+        where each thing with an id is in the window)."""
         frame, full = self._world_of(tab, part) if part else None, bool(find or part or texts)
         self._mark(tab, frame)
-        options = {"full": full, "part": _id(part), "texts": bool(texts)}
+        options = {"full": full, "part": _id(part), "texts": bool(texts), "boxes": bool(boxes),
+                   "origin": self._origin(tab, frame) if frame else [0, 0]}
         data = self._eval(tab, f"__milk.view({json.dumps(options)})", frame=frame)
         if data is None:
             return {"text": "", "labels": {}, "title": tab.title, "url": tab.url, "next": tab.next_id}
         if data.get("gone"):
             raise ToolError(f"{part} is not on the page any more: view it again.")
         self._took(tab, data, frame)
-        data["text"] = self._in_frames(tab, data["text"], "view", full)
+        data["text"] = self._in_frames(tab, data["text"], "view", full, boxes)
         if find:
             data["text"] = _find(data["text"], find)
         if not frame:
@@ -1246,22 +1266,34 @@ class Browser:
         other = self._tabs_line(tab.owner, besides=tab)
         return "\n".join(lines + ([other] if other else []))
 
-    def _changes(self, tab: Tab, document: int, data: dict) -> str:
-        """What an act changed: the page as a whole when it is another page or most of it changed."""
+    def _changes(self, tab: Tab, document: int, data: dict) -> tuple:
+        """What an act changed in the page's words (the page as a whole when it is another page or most of it
+        changed), and whether none did. Things made anew the same but for their ids (an ad drawn again) are one
+        line: their new ids."""
         lines = data["text"].splitlines()
         before = tab.seen
         tab.seen = (tab.document, lines)
         if not before or before[0] != document or tab.document != document:
-            return "The page now:\n" + (data["text"] or "(The page shows nothing.)")
-        changed = []
+            return "The page now:\n" + (data["text"] or "(The page shows nothing.)"), False
+        changed, anew = [], []
         for kind, a, b, c, d in difflib.SequenceMatcher(None, before[1], lines, autojunk=False).get_opcodes():
-            if kind != "equal":
-                changed += ["- " + line for line in before[1][a:b]] + ["+ " + line for line in lines[c:d]]
+            if kind == "equal":
+                continue
+            gone, new = list(before[1][a:b]), []
+            for line in lines[c:d]:
+                same = next((old for old in gone if _remade(old) == _remade(line)), None)
+                if same is not None and same != line:
+                    gone.remove(same)
+                    anew += re.findall(r"\be\d+\b", line)[:1]
+                else:
+                    new.append(line)
+            changed += ["- " + line for line in gone] + ["+ " + line for line in new]
+        made = f"Made anew, the same but for their ids: {', '.join(anew)}." if anew else ""
         if not changed:
-            return "Nothing changed on the page."
+            return "\n".join(["Nothing changed on the page."] + ([made] if made else [])), True
         if len(changed) > CHANGES * max(len(lines), 1):
-            return "The page now:\n" + data["text"]
-        return "Changed (+ new, - gone):\n" + "\n".join(changed)
+            return "The page now:\n" + data["text"], False
+        return "\n".join(["Changed (+ new, - gone):"] + changed + ([made] if made else [])), False
 
     # ============== The tools ==============
 
@@ -1276,11 +1308,11 @@ class Browser:
             return self._whole(tab, self._view(tab), note)
 
     def view(self, ctx, tab: str = "", find: str = "", part: str = "", picture: bool = False,
-             texts: bool = False) -> ToolResult:
+             texts: bool = False, boxes: bool = False) -> ToolResult:
         with self.using(ctx, tab) as page:
             if page.dialog or page.auth:
                 return ToolResult(page.scrub("\n".join(self._head(page))))
-            data = self._view(page, find=find, part=part, texts=texts)
+            data = self._view(page, find=find, part=part, texts=texts, boxes=boxes)
             if find or part or texts:
                 text = data["text"] or (f"Nothing on the page has {find!r}." if find else "(It shows nothing.)")
                 text = "\n".join(self._head(page) + [text])
@@ -1290,21 +1322,37 @@ class Browser:
             if not picture:
                 return ToolResult(text)
             self._not_holding(page, "picture")
-            image, size = self._picture(page)
-            return ToolResult(text + f"\nThe picture is the tab's window as it is now ({size} pixels): point at what "
-                                     "has no id with \"x,y\" in its pixels as a step's target.", images=[image])
+            image, caption = self._picture(page)
+            return ToolResult(text + "\n" + caption, images=[image])
+
+    def _size(self, tab: Tab) -> List[int]:
+        """The tab's window in page pixels: [width, height]."""
+        return self._eval(tab, "[innerWidth, innerHeight]", timeout=5) or list(WINDOW)
 
     def _picture(self, tab: Tab):
-        self._shown_window(tab)
-        shot = tab.wire.call("Page.captureScreenshot", {"format": "jpeg", "quality": 90}, tab.session)
-        image = transport.encode_image("data:image/jpeg;base64," + shot["data"],
-                                       self.brain.config.values()["image_pixels"])
+        """A picture of the tab's window in page pixels (a pixel of it is a pixel of the page: a point, a box, what a
+        script measures), and its caption."""
         from PIL import Image
 
-        with Image.open(io.BytesIO(base64.b64decode(image.split(",", 1)[1]))) as picture:
-            width, height = picture.size
-        tab.picture = (self._eval(tab, "innerWidth") or width) / width
-        return image, f"{width}x{height}"
+        self._shown_window(tab)
+        shot = tab.wire.call("Page.captureScreenshot", {"format": "png"}, tab.session)
+        width, height = self._size(tab)
+        with Image.open(io.BytesIO(base64.b64decode(shot["data"]))) as taken:
+            picture = taken.convert("RGB")
+        if picture.size != (width, height):  # Chrome draws in the screen's pixels (more, at a scale over 100%)
+            picture = picture.resize((width, height), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        picture.save(output, format="PNG")
+        image = transport.encode_image("data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii"),
+                                       self.brain.config.values()["image_pixels"])
+        with Image.open(io.BytesIO(base64.b64decode(image.split(",", 1)[1]))) as sent:
+            shown = sent.width
+        if shown == width:
+            return image, (f"The picture is the tab's window now, {width}x{height} page pixels: a point \"x,y\" in it "
+                           "is a step's target, as are the boxes of the view (boxes=true).")
+        scale = shown / width
+        return image, (f"The picture is the tab's window now, drawn at {scale:.2f} of its {width}x{height} page "
+                       f"pixels: a point is in page pixels, its place in the picture divided by {scale:.2f}.")
 
     def read(self, ctx, tab: str = "", offset: int = 0) -> str:
         with self.using(ctx, tab) as page:
@@ -1330,12 +1378,17 @@ class Browser:
         with self.using(ctx, tab) as page:
             self._not_holding(page, "script")
             document = page.document
-            try:  # in the page's own world, so it reaches the page's variables
-                reply = page.wire.call("Runtime.evaluate", {"expression": code, "returnByValue": True,
-                                                            "awaitPromise": True, "replMode": True,
-                                                            "userGesture": True}, page.session, 60, until=page.held)
-            except CdpError as exc:
-                raise ToolError(f"The script could not run: {exc}")
+            def run(expression: str):  # in the page's own world, so it reaches the page's variables
+                try:
+                    return page.wire.call("Runtime.evaluate", {"expression": expression, "returnByValue": True,
+                                                               "awaitPromise": True, "replMode": True,
+                                                               "userGesture": True}, page.session, 60, until=page.held)
+                except CdpError as exc:
+                    raise ToolError(f"The script could not run: {exc}")
+
+            reply = run(code)
+            if reply and "Illegal return statement" in str(reply.get("exceptionDetails") or ""):
+                reply = run(f"await (async () => {{\n{code}\n}})()")  # a return at its top: a function's body
             if reply is None:
                 return "\n".join(self._head(page))
             if "exceptionDetails" in reply:
@@ -1402,14 +1455,16 @@ class Browser:
             where = f" ({frames[0]['url']}:{frames[0].get('lineNumber', 0) + 1})"
         return f"[{kind}] {text}{where}"
 
-    def act(self, ctx, steps: list, tab: str = "") -> str:
+    def act(self, ctx, steps: list, tab: str = "", picture: bool = False) -> ToolResult:
         if not isinstance(steps, list) or not steps:
-            raise ToolError("steps is empty: give the steps to do, e.g. [{\"action\": \"click\", \"target\": \"e5\"}].")
+            raise ToolError("steps is empty: give the steps to do, e.g. [{\"action\": \"click\", \"target\": \"e5\"}]"
+                            + (". A picture alone is browser_view's (picture=true)." if picture else "."))
         notes: List[str] = []
         with self.using(ctx, tab) as page:
             self._front(page)
             if page.seen is None and not (page.dialog or page.auth):  # nothing to compare with yet: what it shows now
                 page.seen = (page.document, self._view(page)["text"].splitlines())
+            glance = self._glance(page)
             document, site = page.document, site_of(page.url)
             for number, step in enumerate(steps, 1):
                 step = step if isinstance(step, dict) else {"action": str(step)}
@@ -1425,11 +1480,11 @@ class Browser:
                 rest = f"Steps {number + 1}-{len(steps)} did not run" if number < len(steps) else ""
                 try:
                     if action == "show":
-                        return "\n".join(notes + [f"{said}: " + self.show(ctx, page)] +
-                                         ([rest + ": go on once the user is done."] if rest else []))
+                        return ToolResult("\n".join(notes + [f"{said}: " + self.show(ctx, page)] +
+                                                    ([rest + ": go on once the user is done."] if rest else [])))
                     if action == "close":
                         notes.append(f"{said}: " + self._close_tab(page))
-                        return "\n".join(notes + ([rest + "."] if rest else []) + self._after_close(page))
+                        return ToolResult("\n".join(notes + ([rest + "."] if rest else []) + self._after_close(page)))
                     note = self._step(ctx, page, action, step, last=number == len(steps))
                 except ToolError as exc:
                     notes.append(f"{said}: {exc}")
@@ -1459,11 +1514,105 @@ class Browser:
             if page.ended:
                 with self._lock:
                     self._closed_itself(page)
-                return "\n".join(notes + [f"Tab {page.name} {CLOSED}."] + self._after_close(page))
+                return ToolResult("\n".join(notes + [f"Tab {page.name} {CLOSED}."] + self._after_close(page)))
             if page.dialog or page.auth:
-                return page.scrub("\n".join(self._head(page) + notes))
+                return ToolResult(page.scrub("\n".join(self._head(page) + notes)))
             data = self._view(page)
-            return page.scrub("\n".join(self._head(page) + notes + [self._changes(page, document, data)]))
+            words, still = self._changes(page, document, data)
+            # what changed that words do not show: a board, a canvas, a video
+            painted = self._repainted(page, glance, still, picture) if page.document == document else []
+            if still and painted:  # it is not true that nothing changed
+                words = words.replace("Nothing changed on the page.", "").strip()
+            lines = self._head(page) + notes + ([words] if words else []) + painted
+            images = []
+            if picture and page.holds():
+                lines.append("(No picture: this page holds what the user typed for you, which a picture could show.)")
+            elif picture:
+                image, caption = self._picture(page)
+                lines.append(caption)
+                images.append(image)
+            return ToolResult(page.scrub("\n".join(lines)), images)
+
+    def _glance(self, tab: Tab):
+        """A small grey picture of the tab's window (a pixel of it is GLANCE page pixels each way), to tell where
+        the window changed; None when none can be taken (a minimized window paints nothing)."""
+        from PIL import Image
+        import numpy
+
+        if tab.held():
+            return None
+        try:
+            if tab.window is not None and tab.wire.call("Browser.getWindowBounds", {"windowId": tab.window}, None,
+                                                        5)["bounds"].get("windowState") == "minimized":
+                return None
+            shot = tab.wire.call("Page.captureScreenshot", {"format": "jpeg", "quality": 70}, tab.session, 10,
+                                 until=tab.held)
+            width, height = self._size(tab)
+        except (CdpError, ToolError, KeyError, TypeError):
+            return None
+        if not shot:
+            return None
+        with Image.open(io.BytesIO(base64.b64decode(shot["data"]))) as taken:
+            small = taken.convert("L").resize((max(1, width // GLANCE), max(1, height // GLANCE)),
+                                              Image.Resampling.BOX)
+        return numpy.asarray(small, dtype=numpy.int16)
+
+    @staticmethod
+    def _regions(before, after) -> List[tuple]:
+        """Where the window changed between two glances: (x, y, width, height) in page pixels, the biggest change
+        first. Changed pixels are joined in blocks of four glance pixels that touch; specks (a caret) are not
+        changes."""
+        import numpy
+
+        if before is None or after is None or before.shape != after.shape:
+            return []
+        changed = numpy.abs(after - before) > SHADE
+        height, width = changed.shape
+        rows, columns = -(-height // 4), -(-width // 4)
+        padded = numpy.zeros((rows * 4, columns * 4), dtype=bool)
+        padded[:height, :width] = changed
+        counts = padded.reshape(rows, 4, columns, 4).sum(axis=(1, 3))
+        seen, found = numpy.zeros(counts.shape, dtype=bool), []
+        for row, column in zip(*numpy.nonzero(counts)):
+            if seen[row, column]:
+                continue
+            seen[row, column] = True
+            stack, cells, total = [(row, column)], [], 0
+            while stack:
+                y, x = stack.pop()
+                cells.append((y, x))
+                total += int(counts[y, x])
+                for near_y, near_x in itertools.product((y - 1, y, y + 1), (x - 1, x, x + 1)):
+                    if 0 <= near_y < rows and 0 <= near_x < columns and counts[near_y, near_x] and \
+                            not seen[near_y, near_x]:
+                        seen[near_y, near_x] = True
+                        stack.append((near_y, near_x))
+            if total >= SPECK:
+                block = 4 * GLANCE
+                top, left = min(c[0] for c in cells) * block, min(c[1] for c in cells) * block
+                bottom = min((max(c[0] for c in cells) + 1) * block, height * GLANCE)
+                right = min((max(c[1] for c in cells) + 1) * block, width * GLANCE)
+                found.append((total, (left, top, right - left, bottom - top)))
+        return [place for _, place in sorted(found, key=lambda item: -item[0])]
+
+    def _repainted(self, tab: Tab, glance, still: bool, pictured: bool) -> List[str]:
+        """What an act changed that its words do not show, where and what is there: when no words changed, every
+        change of the window's picture; otherwise only what words can never show (a canvas, a video). A drawing's
+        change is seen only in a picture: the act that made it can bring one (live, she viewed after each move)."""
+        regions = self._regions(glance, self._glance(tab))
+        said, drawn = [], False
+        for x, y, width, height in regions[:REGIONS]:
+            what = self._what_at(tab, x + width / 2, y + height / 2)[0]
+            drawn = drawn or what.startswith(("canvas", "video"))
+            if still or what.startswith(("canvas", "video")):
+                said.append(f"@{x},{y} {width}x{height} ({what})")
+        if not said:
+            return []
+        more = f"; and {len(regions) - REGIONS} smaller" if len(regions) > REGIONS else ""
+        seen = " What is drawn shows in a picture: picture=true on an act brings one with its reply." \
+            if drawn and not pictured else ""
+        return [("No words changed, but its picture did at " if still else "Its picture changed too at ") +
+                "; ".join(said) + more + "." + seen]
 
     def _after_close(self, closed: Tab) -> List[str]:
         with self._lock:
@@ -1746,22 +1895,20 @@ class Browser:
     # ============== Steps ==============
 
     def _point(self, tab: Tab, target, hit_test: bool = True, shown: bool = True) -> dict:
-        """Where a target is (an id, brought into view first; or "x,y" in the tab's latest picture)."""
+        """Where a target is in the window, in page pixels (an id, brought into view first; or "x,y")."""
         target = str(target or "").strip()
         if not target:
-            raise ToolError("This step needs a target: an id from the view (e5) or a point \"x,y\" in a picture.")
+            raise ToolError("This step needs a target: an id from the view (e5) or a point \"x,y\" in page pixels.")
         point = re.fullmatch(r"\(?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)?", target)
         if point:
-            if tab.picture is None:
-                raise ToolError("A point is in a picture of the tab: view it with picture=true first, or use an id.")
-            x, y = float(point.group(1)) * tab.picture, float(point.group(2)) * tab.picture
-            found, frame, inner = self._eval(tab, f"__milk.at({x}, {y})") or {}, None, (x, y)
-            while found.get("frame") and self._frame_of(tab, found["frame"]):  # a frame of another site's own
-                frame, inner = self._frame_of(tab, found["frame"]), (found["x"], found["y"])
-                found = self._eval(tab, f"__milk.at({inner[0]}, {inner[1]})", frame=frame) or {}
-            tab.next_id = max(tab.next_id, found.get("next", 0))
-            self._note_ids(tab, found.get("label", ""), frame)
-            return {"x": x, "y": y, "point": True, "label": found.get("label") or "nothing there", "frame": frame}
+            x, y = float(point.group(1)), float(point.group(2))
+            width, height = self._size(tab)
+            if not (0 <= x < width and 0 <= y < height):
+                raise ToolError(f"{target} is outside the tab's window ({width}x{height} page pixels): a point is in "
+                                "the window as it is now, as in its picture and the view's boxes; scroll to bring a "
+                                "place into it.")
+            label, frame = self._what_at(tab, x, y)
+            return {"x": x, "y": y, "point": True, "label": label, "frame": frame}
         if not re.fullmatch(r"e?\d+", target, re.I):
             raise ToolError(f"{target!r} is not an id: ids look like e5 (from the latest view of this tab).")
         frame = self._world_of(tab, target)
@@ -1785,6 +1932,16 @@ class Browser:
         if found.get("disabled"):
             raise ToolError(f"{target} ({found['label']}) is disabled now: the page does not take it yet.")
         return found
+
+    def _what_at(self, tab: Tab, x: float, y: float) -> tuple:
+        """What is at a point of the window (page pixels), from the world it is in: (its label, that frame)."""
+        found, frame = self._eval(tab, f"__milk.at({x}, {y})") or {}, None
+        while found.get("frame") and self._frame_of(tab, found["frame"]):  # a frame of another site's own
+            frame = self._frame_of(tab, found["frame"])
+            found = self._eval(tab, f"__milk.at({found['x']}, {found['y']})", frame=frame) or {}
+        tab.next_id = max(tab.next_id, found.get("next", 0))
+        self._note_ids(tab, found.get("label", ""), frame)
+        return found.get("label") or "nothing there", frame
 
     def _move(self, tab: Tab, x: float, y: float, buttons: int = 0) -> None:
         """The pointer goes there as a hand would: a few steps along the way."""
@@ -1912,7 +2069,7 @@ class Browser:
         elif action == "upload":
             note = self._upload(ctx, tab, target, step.get("files") or ([text] if text else []))
         elif action == "wait":
-            return self._wait(ctx, tab, text, step.get("amount"))
+            return self._wait(ctx, tab, text, step.get("amount"), target)
         elif action == "open":
             note = self._navigate(tab, text or str(target or ""))
         elif action in ("back", "forward"):
@@ -2129,12 +2286,15 @@ class Browser:
                 pass
         return False
 
-    def _wait(self, ctx, tab: Tab, text: str, amount) -> str:
-        """For words to show; without them, until the page has finished loading (at once when it has)."""
+    def _wait(self, ctx, tab: Tab, text: str, amount, target=None) -> str:
+        """For words to show; for a part of the page to change (``target``); without either, until the page has
+        finished loading (at once when it has)."""
         try:
-            seconds = float(amount or (20 if text else SETTLE))
+            seconds = float(amount or (20 if text else UNTIL if target else SETTLE))
         except (TypeError, ValueError):
             raise ToolError("amount is how many seconds to wait at most: a number.")
+        if target and not text:
+            return self._wait_change(ctx, tab, str(target), seconds)
         if not text:
             deadline = time.monotonic() + seconds
             while not self._settle(tab, min(1.0, deadline - time.monotonic()), after=False):
@@ -2155,3 +2315,42 @@ class Browser:
             if ctx.pause(0.25):
                 return f"stopped waiting: {ctx.interruption()}"
         raise ToolError(f"\"{text}\" did not show in {seconds:g} s.")
+
+    def _wait_change(self, ctx, tab: Tab, target: str, seconds: float) -> str:
+        """Until a part of the page changes (an opponent's move, a progress bar): its words, its things' places or
+        its pixels."""
+        if not re.fullmatch(r"e?\d+", target.strip(), re.I):
+            raise ToolError(f"{target!r} is not an id: wait for a part with its id from the view (e5).")
+        element, frame = _id(target), self._world_of(tab, target)
+        options = json.dumps({"part": element, "full": True, "boxes": True,
+                              "origin": self._origin(tab, frame) if frame else [0, 0]})
+
+        def words():
+            data = self._eval(tab, f"__milk.view({options})", frame=frame)
+            return None if not data or data.get("gone") else data["text"]
+
+        first, start = words(), time.monotonic()
+        if first is None:
+            raise ToolError(f"{target} is not on the page (any more): view the page again.")
+        place = self._eval(tab, f"__milk.boxOf({element})", frame=frame)
+        if place and frame:
+            left, top = self._origin(tab, frame)
+            place = [place[0] + left, place[1] + top, place[2], place[3]]
+        glance = self._glance(tab) if place else None
+        while time.monotonic() - start < seconds:
+            if ctx.pause(0.25):
+                return f"stopped waiting: {ctx.interruption()}"
+            if tab.dialog:
+                return "a dialog opened"
+            if tab.auth:
+                return "a sign-in box opened"
+            now = words()
+            if now is None:
+                return f"{target} went from the page after {time.monotonic() - start:.1f} s"
+            moved = glance is not None and any(
+                x < place[0] + place[2] and place[0] < x + width and y < place[1] + place[3] and place[1] < y + height
+                for x, y, width, height in self._regions(glance, self._glance(tab)))
+            if now != first or moved:
+                self._settle(tab, 3)
+                return f"{target} changed after {time.monotonic() - start:.1f} s"
+        raise ToolError(f"{target} did not change in {seconds:g} s.")

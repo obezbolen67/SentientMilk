@@ -1,5 +1,6 @@
 """Browser: the user's own Chrome (browser.py), for the web as a person uses it: pages that need scripts, clicks,
-forms, sign-ins. Pages come as text with an id on each thing she can use; she acts on ids, several steps per call."""
+forms, sign-ins, games. Pages come as text with an id on each thing she can use and a place on what shows without
+words; she acts on ids or at points in page pixels, several steps per call, and is told what each act changed."""
 
 from typing import Optional
 
@@ -11,13 +12,15 @@ STEP = {
         "action": {"type": "string", "enum": ["click", "fill", "type", "key", "hover", "scroll", "drag", "upload",
                                               "wait", "open", "back", "forward", "reload", "dialog", "auth", "save",
                                               "close", "show"]},  # browser.STEPS
-        "target": {"type": "string", "description": "An id from the latest view (e5), or \"x,y\" in the tab's "
-                                                    "latest picture."},
+        "target": {"type": "string", "description": "An id from the latest view (e5), or a point \"x,y\" in page "
+                                                    "pixels of the tab's window (as in its picture and the view's "
+                                                    "boxes)."},
         "text": {"type": "string", "description": "fill: what the field holds after (an option's text for a "
                                                   "select, true/false for a checkbox); type: text to type; key: keys "
                                                   "(Enter, Tab, Escape, ctrl+a, shift+Tab, several with spaces); "
-                                                  "scroll: down, up, top or bottom; wait: words to wait for (none: "
-                                                  "until the page has loaded); "
+                                                  "scroll: down, up, top or bottom; wait: words to wait for (none, "
+                                                  "with a target: until that part changes; neither: until the page "
+                                                  "has loaded); "
                                                   "open: the address; dialog: a prompt's answer; auth: a username you "
                                                   "know; save: a file name in the working folder (.pdf, .png, .jpg, "
                                                   ".html, .mhtml)."},
@@ -29,7 +32,8 @@ STEP = {
                                                   "box (browser_secrets, target auth.username)."},
         "to": {"type": "string", "description": "drag: where it ends (an id or \"x,y\")."},
         "files": {"type": "array", "items": {"type": "string"}, "description": "upload: the files' paths."},
-        "amount": {"type": "number", "description": "scroll: screens (1 if not given); wait: seconds at most."},
+        "amount": {"type": "number", "description": "scroll: screens (1 if not given); wait: seconds at most "
+                                                    "(20 if not given)."},
         "accept": {"type": "boolean", "description": "dialog: true to accept (OK), false to dismiss (Cancel); auth: false "
                                                     "cancels Chrome's sign-in box."},
         "double": {"type": "boolean", "description": "click: a double click."},
@@ -40,14 +44,24 @@ STEP = {
 TAB = "Which of your tabs (t1, t2...); empty: the one you are in."
 GUIDE = ("Your browser is the user's own Chrome, signed in as they are there: you work in tabs of your own (a "
          "purple SentientMilk group), and their own tabs are never yours. When Chrome is not running, your call opens "
-         "it. Use it for the web (pages that need scripts, clicks, forms, accounts) rather than the screen; web_fetch "
-         "stays quicker for reading a public page once. A page comes as lines, and each thing you can use has an id: "
-         "button e5 \"Sign in\" (frames of the page and of other sites too). Act by ids in browser_act, all the steps "
-         "you know in one call (fill e3, fill e4, click e5); its reply says what changed. browser_open and each step return "
-         "once the page has loaded and stopped changing, so no wait step is needed after a click or an address: wait "
-         "with text only for what comes later (a message, a job finishing). Ids hold while the page lives; after a page "
-         "changes to another, use the ids of its new view. What has no id (a canvas, a map) you point at in a "
-         "picture: browser_view picture=true, then target \"x,y\" in it. Your tabs (t1, t2...) are this "
+         "it. Use it for the web (pages that need scripts, clicks, forms, accounts, games) rather than the screen; "
+         "web_fetch stays quicker for reading a public page once. A page comes as lines, and each thing you can use "
+         "has an id: button e5 \"Sign in\" (frames of the page and of other sites too). What shows without words has "
+         "a line too, named by what the page calls it (its picture's file, its classes): things side by side (a "
+         "board, a grid, a map's markers, a row of icons) are a scene, each with its place, as in picture e12 "
+         "\"wp.png\" .piece.wp.square-52 @478,450 64x64. Places are page pixels of the tab's window as it is now (from "
+         "its top left; width x height): a picture of the tab (browser_view picture=true) has the same pixels, "
+         "boxes=true gives every thing's place, and a script's getBoundingClientRect() measures the same. Act in "
+         "browser_act, all the steps you know in one call (fill e3, fill e4, click e5): by ids, or at a point \"x,y\" "
+         "in page pixels for what has no id (a square of a board, a spot on a canvas). Its reply says what changed: "
+         "words, things that moved in a scene, and where the picture changed when no words did (picture=true adds a "
+         "picture after the steps). browser_open and each step return once the page has loaded and stopped "
+         "changing, so no wait step is needed after a click or an address: wait with text for words that come later "
+         "(a message, a job finishing), or with a target for a part to change (an opponent's move, a progress bar). "
+         "Steps go in order in one call: what you do and the wait for its answer can be one act. "
+         "Clicks and keys go in steps, as the user's own: a click a script makes up is not a person's, and pages may "
+         "ignore it. Ids hold while the page lives; after a page changes to another, use the ids of its new view. "
+         "Your tabs (t1, t2...) are this "
          "conversation's and stay; links that open a new tab or window open one of yours. Sign-ins (unless the user "
          "gave you what to type), checks that you are a human (never try to pass them yourself) and payments are "
          "the user's: the step show puts your tab in front of them for it. What you must not see (a card number, a "
@@ -73,14 +87,17 @@ def browser_open(ctx: ToolContext, url: str, new_tab: bool = False):
     "tab": TAB,
     "find": "Only the lines with these words (and what they are in): to find a field or a button on a long page.",
     "part": "An id (e12) of a part of the page, to see all of it: a long list or table shows only its start.",
-    "picture": "Add a picture of the tab's window: for what text does not show (a canvas, a map, a layout), and "
-               "for pointing at things without ids.",
+    "picture": "Add a picture of the tab's window, in page pixels: for what words do not show (a canvas, a map, "
+               "a layout, colours).",
+    "boxes": "true: each thing with an id says where it is in the window now (@x,y width x height, page pixels): to "
+             "work out places on a board, a map, a layout.",
     "texts": "true: every piece of text gets an id too (8,39 zł ⟨e44⟩): to point at names, prices and an address "
              "in browser_review."})
 def browser_view(ctx: ToolContext, tab: str = "", find: str = "", part: str = "", picture: bool = False,
-                 texts: bool = False):
-    """See a tab as it is now: its text, with an id on each thing you can use."""
-    result = ctx.brain.browser.view(ctx, tab, find, part, picture, texts)
+                 texts: bool = False, boxes: bool = False):
+    """See a tab as it is now: its text, with an id on each thing you can use and a place on what shows without
+    words."""
+    result = ctx.brain.browser.view(ctx, tab, find, part, picture, texts, boxes)
     return ToolResult(cap(ctx, result.text, "page"), result.images)
 
 
@@ -93,11 +110,15 @@ def browser_view(ctx: ToolContext, tab: str = "", find: str = "", part: str = ""
               "the username and password the user typed for it in browser_secrets, or accept false to cancel it. "
               "show: your tab in front of the user (they sign in or pass a check there, Chrome's sign-in box too); "
               "save: the page as a file; close: closes the tab."},
-    "tab": TAB})
-def browser_act(ctx: ToolContext, steps: list, tab: str = ""):
+    "tab": TAB,
+    "picture": "true: a picture of the tab's window after the steps (a board, a canvas, a game)."})
+def browser_act(ctx: ToolContext, steps: list, tab: str = "", picture: bool = False):
     """Use a page as the user would: click, fill fields, type, press keys, scroll, drag, upload files, answer
-    the page's dialogs and Chrome's sign-in box, go back. Says how each step went and what changed on the page once it settled."""
-    return cap(ctx, ctx.brain.browser.act(ctx, steps, tab), "page")
+    the page's dialogs and Chrome's sign-in box, go back, wait for a part to change. Says how each step went and what
+    changed on the page once it settled: its words, things that moved, where its picture changed."""
+    result = ctx.brain.browser.act(ctx, steps, tab, picture)
+    text = cap(ctx, result.text, "page")
+    return ToolResult(text, result.images) if result.images else text
 
 
 @tool(readonly=True, rule_arg="site", seen=_seen, args={
@@ -109,11 +130,13 @@ def browser_read(ctx: ToolContext, tab: str = "", offset: int = 0):
 
 
 @tool(policy="ask", rule_arg="site", seen=_seen, args={
-    "code": "JavaScript run in the page (await works); the value of its last expression comes back as JSON.",
+    "code": "JavaScript run in the page (await works, and a return at its top): the value of its last "
+            "expression, or what it returns, comes back as JSON.",
     "tab": TAB})
 def browser_script(ctx: ToolContext, code: str, tab: str = ""):
     """Run JavaScript in a tab's page, with the page's own variables: to take data out of a page in bulk (every
-    row of a table) or to do what steps cannot."""
+    row of a table), or what its scripts keep. Clicks and keys go in browser_act's steps: pages may ignore a
+    click a script makes up."""
     return cap(ctx, ctx.brain.browser.script(ctx, code, tab), "script")
 
 

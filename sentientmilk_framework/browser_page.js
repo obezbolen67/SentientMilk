@@ -35,8 +35,12 @@
   const SKIPPED = new Set(['script', 'style', 'noscript', 'template', 'head', 'meta', 'link', 'title']);
   const COLLAPSE = 25, SHOWN = 20, NAME = 80, LINE = 300;
   const VIEW = 12000, PROSE = 2;  // characters a whole view holds before its runs of text show their start only
+  const SCENE = 100;  // things a scene lists before the rest go to part=
+  const GLYPHS = /[\uE000-\uF8FF]|[\uDB80-\uDBFF][\uDC00-\uDFFF]/g;  // icon fonts' glyphs: pictures, not words
+  // per view: every line with an id gets its box; where this world's window is in the tab's (a frame of another site)
+  let boxes = false, origin = [0, 0];
 
-  const clean = text => (text || '').replace(/\s+/g, ' ').trim();
+  const clean = text => (text || '').replace(GLYPHS, '').replace(/\s+/g, ' ').trim();
   const cut = (text, limit) => text.length > limit ? text.slice(0, limit - 1) + '…' : text;
   const quote = text => '"' + text.replace(/"/g, "'") + '"';
   const style = el => el.ownerDocument.defaultView.getComputedStyle(el);
@@ -93,6 +97,83 @@
     return node.childNodes;
   }
 
+  function box(el) {  // where it is in the tab's window now, in page pixels
+    const r = el.getBoundingClientRect(), [ox, oy] = frameOffset(el);
+    return `@${Math.round(origin[0] + ox + r.left)},${Math.round(origin[1] + oy + r.top)} ` +
+      `${Math.round(r.width)}x${Math.round(r.height)}`;
+  }
+  function fileOf(url, el) {  // a picture's file name: what the page itself calls it
+    if (!url || url.startsWith('data:')) return '';
+    try { return cut(decodeURIComponent(new URL(url, el.baseURI).pathname.split('/').pop()), 40); } catch (e) { return ''; }
+  }
+  function pictureOf(el, deep = true) {  // the name of the picture it shows: an image's file, an icon's symbol
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'img') return fileOf(el.currentSrc || el.getAttribute('src'), el);
+    if (tag === 'svg') {
+      const use = el.querySelector('use'), href = use && (use.getAttribute('href') || use.getAttribute('xlink:href'));
+      if (href) return cut(href.split('/').pop(), 40);
+      return clean(el.querySelector('title')?.textContent);
+    }
+    const s = style(el);
+    for (const value of [s.backgroundImage, s.maskImage || s.webkitMaskImage]) {
+      const found = /url\(["']?([^"')]+)/.exec(value || '');
+      const file = found && fileOf(found[1], el);
+      if (file) return file;
+    }
+    if (deep)
+      for (const inner of el.querySelectorAll('img, svg'))
+        if (shown(inner)) { const file = pictureOf(inner, false); if (file) return file; }
+    return '';
+  }
+  function painted(el) {  // it shows a picture of its own: an image, an icon, a drawing, a background picture
+    const tag = el.tagName.toLowerCase();
+    if (['img', 'canvas', 'video', 'picture'].includes(tag)) return true;
+    if (tag === 'svg') return !!el.querySelector('path, rect, circle, ellipse, line, polyline, polygon, use, image, text');
+    const s = style(el);
+    return /url\(/.test(s.backgroundImage) || /url\(/.test(s.maskImage || s.webkitMaskImage || '');
+  }
+  const hashed = part => part.length >= 5 && /\d/.test(part) && /[a-z]/i.test(part);  // a build's hash: b359d5b
+  function classWords(el) {  // its classes, less what a build adds to them (cc-button_b359d5b: .cc-button)
+    const out = [];
+    for (const token of (el.getAttribute('class') || '').split(/\s+/)) {
+      if (!token || hashed(token.split(/[-_]/)[0])) continue;
+      const kept = token.replace(/[-_]+([a-z0-9]+)/gi, (all, part) => hashed(part) ? '' : all);
+      if (kept.length > 1) out.push('.' + kept);
+    }
+    return out.slice(0, 4).join('');
+  }
+  function looks(el) {  // a wordless thing as the page calls it: its picture, its classes, else its colour
+    const named = clean(el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt'));
+    const picture = named || pictureOf(el), classes = classWords(el), tag = el.tagName.toLowerCase();
+    let text = [picture && quote(cut(picture, NAME)), (tag.includes('-') ? tag : '') + classes].filter(Boolean).join(' ');
+    if (!classes) {
+      const colour = style(el).backgroundColor;
+      if (colour && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(colour)) text += (text ? ' ' : '') + `(${colour})`;
+    }
+    return text || tag;
+  }
+  function wordless(el) {  // shows something without words (a picture, a block, an icon) and is no field
+    const tag = el.tagName.toLowerCase();
+    if (SKIPPED.has(tag) || ['input', 'select', 'textarea', 'option', 'iframe', 'frame'].includes(tag) ||
+        secrets.has(el) || (tag === 'svg' && !painted(el))) return false;
+    const words = tag === 'svg' ? [...el.querySelectorAll('text')].map(t => t.textContent).join('') : el.textContent;
+    if (clean(words)) return false;
+    const r = el.getBoundingClientRect();
+    return r.width >= 4 && r.height >= 4 && shown(el);
+  }
+  function sceneOf(el) {  // three or more wordless things side by side, most of what it holds: a board, a grid of
+    // cells, a map's markers, a row of icons. Its things, or null
+    const kids = [...children(el)].filter(c => c.nodeType === 1 && !SKIPPED.has(c.tagName.toLowerCase()));
+    if (kids.filter(c => !clean(c.textContent)).length < 3) return null;  // before any layout is asked for
+    const seen = kids.filter(shown), things = seen.filter(wordless);
+    return things.length >= 3 && things.length * 2 >= seen.length ? things : null;
+  }
+  function thingLine(el) {  // a wordless thing that is not a control: what it shows, as the page calls it, and where
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'canvas') return `canvas e${idOf(el)} ${box(el)} (a picture shows it)`;
+    if (tag === 'video') return `video e${idOf(el)}${el.title ? ' ' + quote(el.title) : ''} [${el.paused ? 'paused' : 'playing'}] ${box(el)}`;
+    return `${painted(el) ? 'picture' : 'shape'} e${idOf(el)} ${looks(el)} ${box(el)}`;
+  }
   function role(el) {
     const given = (el.getAttribute('role') || '').split(' ')[0];
     if (given) return given;
@@ -170,7 +251,8 @@
     }
     const svgTitle = el.querySelector?.('svg title');
     return cut(clean(el.getAttribute('title') || el.getAttribute('placeholder') || el.getAttribute('aria-placeholder')
-      || el.querySelector?.('img[alt]')?.alt || svgTitle?.textContent || ''), NAME);
+      || el.querySelector?.('img[alt]')?.alt || svgTitle?.textContent || '') ||
+      (['input', 'textarea', 'select'].includes(tag) ? '' : pictureOf(el)), NAME);  // an icon's own name
   }
   function href(el) {
     const link = el.getAttribute('href');
@@ -218,12 +300,14 @@
     if (tag === 'a') extra = href(el) ? ` -> ${href(el)}` : '';
     return {role: r || tag, name: nameOf(el), states, value, extra};
   }
-  function token(el, full, labels) {
-    // {t: what it is, x: what a line of its own adds (a link's address, a list's options)}
+  function token(el, full, labels, placed = false) {
+    // {t: what it is, x: what a line of its own adds (a link's address, a list's options)}; placed: with its box
     const d = describe(el, full), id = idOf(el);
     labels[id] = d.role + (d.name ? ' ' + quote(d.name) : '');
-    return {t: `${d.role} e${id}` + (d.name ? ' ' + quote(d.name) : '') +
-      (d.states.length ? ` [${d.states.join(', ')}]` : '') + (d.value !== null ? ` = ${quote(d.value)}` : ''), x: d.extra};
+    const classes = d.name || d.value !== null ? '' : classWords(el);  // nothing else says what it is
+    return {t: `${d.role} e${id}` + (d.name ? ' ' + quote(d.name) : '') + (classes ? ' ' + classes : '') +
+      (d.states.length ? ` [${d.states.join(', ')}]` : '') + (d.value !== null ? ` = ${quote(d.value)}` : '') +
+      (placed || boxes ? ' ' + box(el) : ''), x: d.extra};
   }
 
   function build(root, options) {
@@ -263,7 +347,9 @@
           for (const child of children(el)) if (child.nodeType === 1) visit(child, depth);
         return;
       }
-      if (el.getAttribute('aria-hidden') === 'true' && !r) {  // decoration (icon glyphs): only what can be used
+      // hidden from screen readers and without words (icons, decoration): only what can be used; words that are
+      // shown are read (a bot's speech bubble)
+      if (el.getAttribute('aria-hidden') === 'true' && !r && !textOf(el)) {
         for (const child of el.querySelectorAll('a[href], button, input, select, textarea, [role], [tabindex]'))
           if (active(child) && shown(child)) { flush(); add(token(child, full, labels), depth); flush(); }
         return;
@@ -280,7 +366,7 @@
             return;
           }
           head(`frame${title ? ' ' + quote(title) : ''} (another site${host ? ': ' + host : ''}; not readable here: ` +
-               `use a picture and point)`, depth);
+               `a picture shows it) ${box(el)}`, depth);
           return;
         }
         watch(doc);
@@ -304,11 +390,8 @@
         return;
       }
       if (tag === 'img' && clean(el.alt)) { add(`img ${quote(cut(clean(el.alt), NAME))}`, depth); return; }
-      if (tag === 'canvas') { add(`canvas ${el.width}x${el.height} (a picture shows it)`, depth); return; }
-      if (tag === 'video') {
-        add(`video${el.title ? ' ' + quote(el.title) : ''} [${el.paused ? 'paused' : 'playing'}]`, depth);
-        return;
-      }
+      if (tag === 'canvas' || tag === 'video') { labels[idOf(el)] = tag; head(thingLine(el), depth); return; }
+      if (tag === 'svg') { const words = textOf(el, LINE); if (words) { flush(); add(words, depth); flush(); } return; }
       if (tag === 'label' && el.control) {  // its words are the field's name: only what is in it
         for (const child of el.querySelectorAll('*'))  // a hidden file input behind its label still takes files
           if (active(child) && (shown(child) || active(child) === 'file input')) add(token(child, full, labels), depth);
@@ -320,6 +403,25 @@
         flush();
         add('#'.repeat(heading) + ' ', depth);
         walk(el, depth);
+        flush();
+        return;
+      }
+      const things = sceneOf(el);
+      if (things) {  // each thing with its place; what has words in it is read as anywhere
+        const id = idOf(el), name = clean(el.getAttribute('aria-label'));
+        const what = `${name ? quote(name) + ' ' : ''}${(tag.includes('-') ? tag : '') + classWords(el)}`.trim();
+        labels[id] = 'scene' + (what ? ' ' + what : '');
+        head(`scene e${id}${what ? ' ' + what : ''} ${box(el)}`, depth);
+        const among = new Set(things);
+        let listed = 0, more = 0;
+        for (const child of children(el)) {
+          if (child.nodeType === 3) { if (clean(child.textContent)) add(clean(child.textContent), depth + 1); continue; }
+          if (child.nodeType !== 1) continue;
+          if (!among.has(child)) { flush(); visit(child, depth + 1); flush(); }
+          else if (full || listed < SCENE) { listed++; thing(child, depth + 1, true); }
+          else more++;
+        }
+        if (more) head(`… ${more} more: browser_view part=e${id}`, depth + 1);
         flush();
         return;
       }
@@ -360,10 +462,28 @@
       walk(el, depth);
       if (block) flush();
     }
+    function thing(el, depth, top) {  // a scene's wordless thing, and the pictures and controls in it
+      const control = active(el);
+      if (control || top || (painted(el) && looks(el) !== el.tagName.toLowerCase())) {
+        flush();
+        if (control) add(token(el, full, labels, true), depth);
+        else {
+          const line = thingLine(el);
+          labels[idOf(el)] = line.split(' @')[0].replace(/ e\d+/, '');
+          head(line, depth);
+        }
+        flush();
+        depth += 1;
+      }
+      if (['svg', 'canvas', 'video', 'img'].includes(el.tagName.toLowerCase())) return;  // its insides are its picture
+      for (const child of children(el))
+        if (child.nodeType === 1 && wordless(child)) thing(child, depth, false);
+        else if (child.nodeType === 1) { flush(); visit(child, depth); flush(); }  // words and fields, as anywhere
+    }
     function walk(node, depth) {
       for (const child of children(node)) {
         if (child.nodeType === 3) {
-          const text = child.textContent.replace(/\s+/g, ' ');
+          const text = child.textContent.replace(GLYPHS, '').replace(/\s+/g, ' ');
           if (options.texts && text.trim() && child.parentElement)  // each piece of text with its element's id
             add(` ${text.trim()} ⟨e${idOf(child.parentElement)}⟩ `, depth);
           else if (text.trim() || (line && line.parts.length)) add(text, depth);
@@ -436,6 +556,11 @@
     let node = el;
     while (node && node.nodeType === 1 && !active(node) && !group(node, '') && node !== document.body) node = node.parentElement;
     const target = node && node.nodeType === 1 && node !== document.body ? node : el;
+    if (target === el && !active(el) && sceneOf(el)) {
+      const name = clean(el.getAttribute('aria-label'));
+      return `scene e${idOf(el)}${name ? ' ' + quote(name) : ''}`;
+    }
+    if (target === el && !active(el) && wordless(el)) return thingLine(el).split(' @')[0];
     const d = describe(target, false);
     const text = d.name || textOf(target, 60);
     return `${d.role} e${idOf(target)}${text ? ' ' + quote(text) : ''}`;
@@ -459,12 +584,16 @@
     blank: () => location.href !== 'about:blank' && !clean(words(document)) &&
       !document.querySelector('img, canvas, video, iframe, embed, object, input, select, textarea'),
     view(options) {  // options.find is browser.py's, over every world's lines
+      boxes = !!options.boxes;
+      origin = options.origin || [0, 0];
       let root = document.body;
       if (options.part) {
         root = get(options.part);
         if (!root) return {gone: true};
       }
-      const built = build(root || document.documentElement, {full: !!options.full, texts: !!options.texts});
+      let built;
+      try { built = build(root || document.documentElement, {full: !!options.full, texts: !!options.texts}); }
+      finally { boxes = false; }
       let text = built.lines.map(item => '  '.repeat(item.depth) + item.text).join('\n');
       const all = options.part ? 0 : clean(words(document)).length;
       if (text.length < 200 && all > 400)  // what the page is made of hides it from this reading (a check on it)
@@ -529,6 +658,12 @@
       return {label: hit && hit !== document.documentElement ? short(hit) : '', next};
     },
     element: id => get(id),
+    boxOf(id) {  // [x, y, width, height] of a thing in this world's window, not brought into view
+      const el = get(id);
+      if (!el) return null;
+      const r = el.getBoundingClientRect(), [ox, oy] = frameOffset(el);
+      return [ox + r.left, oy + r.top, r.width, r.height];
+    },
     signature(id) {  // what a field is, to know it again just before what the user typed goes into it
       const el = get(id);
       if (!el) return null;
